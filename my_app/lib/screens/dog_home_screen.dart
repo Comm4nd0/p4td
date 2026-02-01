@@ -5,11 +5,13 @@ import '../models/date_change_request.dart';
 import '../services/data_service.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
+import 'owner_details_dialog.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
+  final bool isStaff;
 
-  const DogHomeScreen({super.key, required this.dog});
+  const DogHomeScreen({super.key, required this.dog, this.isStaff = false});
 
   @override
   State<DogHomeScreen> createState() => _DogHomeScreenState();
@@ -41,6 +43,33 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _loadingRequests = false);
+      }
+    }
+  }
+
+  Future<void> _showOwnerDetails() async {
+    if (_dog.ownerDetails == null) return;
+
+    try {
+      final profile = await _dataService.getOwnerProfile(_dog.ownerDetails!.userId);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => OwnerDetailsDialog(
+            ownerProfile: profile,
+            ownerId: _dog.ownerDetails!.userId,
+            isStaff: widget.isStaff,
+            onUpdated: () {
+              // Refresh if needed
+            },
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load owner details: $e')),
+        );
       }
     }
   }
@@ -446,9 +475,23 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: Text(
-                        _dog.name,
-                        style: Theme.of(context).textTheme.headlineMedium,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _dog.name,
+                            style: Theme.of(context).textTheme.headlineMedium,
+                          ),
+                          if (widget.isStaff && _dog.ownerDetails != null)
+                            TextButton.icon(
+                              onPressed: _showOwnerDetails,
+                              icon: const Icon(Icons.person, size: 18),
+                              label: const Text('Owner Info'),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],
@@ -527,7 +570,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               ],
             ),
           ),
-          Expanded(child: GalleryScreen(dogId: _dog.id)),
+          Expanded(child: GalleryScreen(dogId: _dog.id, isStaff: widget.isStaff)),
         ],
       ),
     );

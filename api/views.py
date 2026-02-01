@@ -29,6 +29,46 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         serializer.save()
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def get_owner(self, request):
+        """Staff-only endpoint to get a specific owner's profile: GET /profile/get_owner/?user_id=<id>"""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can view owner profiles")
+
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id query parameter required'}, status=400)
+
+        try:
+            profile = UserProfile.objects.get(user_id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'detail': 'User profile not found'}, status=404)
+
+        serializer = OwnerDetailSerializer(profile)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def update_owner(self, request):
+        """Staff-only endpoint to update an owner's profile: POST /profile/update_owner/?user_id=<id>"""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can update owner profiles")
+
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id query parameter required'}, status=400)
+
+        try:
+            profile = UserProfile.objects.get(user_id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'detail': 'User profile not found'}, status=404)
+
+        serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 class DogViewSet(viewsets.ModelViewSet):
     serializer_class = DogSerializer
     permission_classes = [IsAuthenticated]
@@ -51,6 +91,35 @@ class PhotoViewSet(viewsets.ModelViewSet):
         if self.request.user.is_staff:
             return Photo.objects.all()
         return Photo.objects.filter(dog__owner=self.request.user)
+
+    def perform_create(self, serializer):
+        # Validate that user owns the dog or is staff
+        dog = serializer.validated_data['dog']
+        if dog.owner != self.request.user and not self.request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only upload photos for your own dogs")
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def by_dog(self, request):
+        """Get all photos for a specific dog: /photos/by_dog/?dog_id=<id>"""
+        dog_id = request.query_params.get('dog_id')
+        if not dog_id:
+            return Response({'detail': 'dog_id query parameter required'}, status=400)
+        
+        try:
+            dog = Dog.objects.get(id=dog_id)
+        except Dog.DoesNotExist:
+            return Response({'detail': 'Dog not found'}, status=404)
+        
+        # Check permissions
+        if dog.owner != request.user and not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only view photos for your own dogs")
+        
+        photos = Photo.objects.filter(dog=dog).order_by('-created_at')
+        serializer = self.get_serializer(photos, many=True)
+        return Response(serializer.data)
 
 class DateChangeRequestViewSet(viewsets.ModelViewSet):
     serializer_class = DateChangeRequestSerializer
