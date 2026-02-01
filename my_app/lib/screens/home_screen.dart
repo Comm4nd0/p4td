@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/dog.dart';
 import '../models/user_profile.dart';
+import '../models/date_change_request.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
 import 'dog_home_screen.dart';
@@ -23,12 +24,14 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<List<Dog>> _dogsFuture;
   bool _isStaff = false;
   int _currentIndex = 1;
+  int _pendingRequestCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadDogs();
     _checkStaffStatus();
+    _loadPendingRequestCount();
   }
 
   void _loadDogs() {
@@ -46,9 +49,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _loadPendingRequestCount() async {
+    if (!_isStaff) return;
+    try {
+      final requests = await _dataService.getDateChangeRequests();
+      final pendingCount = requests.where((r) => r.status == RequestStatus.pending).length;
+      if (mounted) {
+        setState(() => _pendingRequestCount = pendingCount);
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+
   void _refresh() {
     setState(() {
       _loadDogs();
+      _loadPendingRequestCount();
     });
   }
 
@@ -84,15 +101,46 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           if (_isStaff)
-            IconButton(
-              icon: const Icon(Icons.notifications),
-              tooltip: 'Date Change Requests',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const StaffNotificationsScreen()),
-                );
-              },
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications),
+                  tooltip: 'Date Change Requests',
+                  onPressed: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StaffNotificationsScreen()),
+                    );
+                    // Refresh count when returning from notifications screen
+                    if (result == true) {
+                      _loadPendingRequestCount();
+                    }
+                  },
+                ),
+                if (_pendingRequestCount > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                      child: Center(
+                        child: Text(
+                          '$_pendingRequestCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           IconButton(
             icon: const Icon(Icons.person),

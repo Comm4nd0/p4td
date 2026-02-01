@@ -20,6 +20,8 @@ abstract class DataService {
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare});
+  Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
+  Future<void> updateDateChangeRequestStatus(String requestId, String status);
 }
 
 class ApiDataService implements DataService {
@@ -645,5 +647,15 @@ class MockDataService implements DataService {
       ));
     }
     return photos;
+  }
+
+  @override
+  Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
+    return [];
+  }
+
+  @override
+  Future<void> updateDateChangeRequestStatus(String requestId, String status) async {
+    // Mock implementation
   }
 }
