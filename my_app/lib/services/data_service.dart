@@ -5,6 +5,7 @@ import '../models/dog.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
+import '../models/owner_profile.dart';
 import '../models/group_media.dart';
 import 'auth_service.dart';
 
