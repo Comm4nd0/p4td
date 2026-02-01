@@ -10,6 +10,7 @@ import io
 from PIL import Image
 import os
 import tempfile
+import subprocess
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
@@ -116,43 +117,61 @@ class PhotoViewSet(viewsets.ModelViewSet):
     def _generate_video_thumbnail(self, serializer):
         """Generate a thumbnail for video uploads"""
         try:
-            import subprocess
-            
             file_obj = serializer.validated_data.get('file')
             if not file_obj:
                 return
             
-            # Save video temporarily
+            # Save video temporarily to disk
             with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
-                for chunk in file_obj.chunks():
-                    tmp_video.write(chunk)
+                # Reset file pointer to beginning
+                if hasattr(file_obj, 'seek'):
+                    file_obj.seek(0)
+                
+                # Write file content
+                if hasattr(file_obj, 'read'):
+                    tmp_video.write(file_obj.read())
+                else:
+                    for chunk in file_obj.chunks():
+                        tmp_video.write(chunk)
+                
                 tmp_video_path = tmp_video.name
             
             try:
-                # Generate thumbnail at 1 second mark using ffmpeg
-                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_thumb:
-                    thumb_path = tmp_thumb.name
+                # Create thumbnail file path
+                thumb_path = tempfile.mktemp(suffix='.jpg')
                 
-                subprocess.run([
+                # Generate thumbnail at 1 second mark using ffmpeg
+                result = subprocess.run([
                     'ffmpeg', '-i', tmp_video_path, 
                     '-ss', '00:00:01', 
                     '-vframes', '1', 
                     '-s', '320x320', 
+                    '-y',  # Overwrite output file
                     thumb_path
-                ], capture_output=True, timeout=30)
+                ], capture_output=True, timeout=30, text=True)
                 
-                # Load thumbnail image and save to serializer
-                if os.path.exists(thumb_path):
+                # Check if thumbnail was created successfully
+                if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
                     with open(thumb_path, 'rb') as f:
                         thumb_content = ContentFile(f.read(), name='thumbnail.jpg')
                         serializer.validated_data['thumbnail'] = thumb_content
                     os.unlink(thumb_path)
+                else:
+                    if result.returncode != 0 and result.stderr:
+                        print(f"FFmpeg error: {result.stderr}")
             finally:
+                # Clean up temporary video file
                 if os.path.exists(tmp_video_path):
-                    os.unlink(tmp_video_path)
+                    try:
+                        os.unlink(tmp_video_path)
+                    except:
+                        pass
+        except FileNotFoundError:
+            print("FFmpeg not found - install it to enable video thumbnails: sudo apt-get install ffmpeg")
         except Exception as e:
-            # Fail silently - thumbnail is optional
             print(f"Error generating video thumbnail: {e}")
+            import traceback
+            traceback.print_exc()
 
     @action(detail=False, methods=['get'])
     def by_dog(self, request):
