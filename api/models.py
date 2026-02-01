@@ -90,6 +90,19 @@ class DateChangeRequest(models.Model):
             return f"{self.dog.name} - Cancel {self.original_date}"
         return f"{self.dog.name} - Change {self.original_date} to {self.new_date}"
 
+
+class DateChangeRequestHistory(models.Model):
+    request = models.ForeignKey(DateChangeRequest, on_delete=models.CASCADE, related_name='history')
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    from_status = models.CharField(max_length=10, choices=DateChangeRequest.STATUS_CHOICES)
+    to_status = models.CharField(max_length=10, choices=DateChangeRequest.STATUS_CHOICES)
+    reason = models.TextField(blank=True, null=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+
+
 class GroupMedia(models.Model):
     MEDIA_TYPE_CHOICES = [
         ('PHOTO', 'Photo'),
