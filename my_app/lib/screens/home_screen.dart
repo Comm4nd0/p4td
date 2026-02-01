@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../models/dog.dart';
+import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
 import 'dog_home_screen.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
+import 'staff_notifications_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,18 +17,31 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final DataService _dataService = ApiDataService(); 
+  final DataService _dataService = ApiDataService();
   final AuthService _authService = AuthService();
   late Future<List<Dog>> _dogsFuture;
+  bool _isStaff = false;
 
   @override
   void initState() {
     super.initState();
     _loadDogs();
+    _checkStaffStatus();
   }
 
   void _loadDogs() {
     _dogsFuture = _dataService.getDogs();
+  }
+
+  Future<void> _checkStaffStatus() async {
+    try {
+      final profile = await _dataService.getProfile();
+      if (mounted) {
+        setState(() => _isStaff = profile.isStaff);
+      }
+    } catch (e) {
+      // Ignore errors
+    }
   }
 
   void _refresh() {
@@ -66,6 +81,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          if (_isStaff)
+            IconButton(
+              icon: const Icon(Icons.notifications),
+              tooltip: 'Date Change Requests',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const StaffNotificationsScreen()),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.person),
             onPressed: () {

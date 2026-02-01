@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
+import '../models/date_change_request.dart';
 import '../services/data_service.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
@@ -17,11 +18,31 @@ class DogHomeScreen extends StatefulWidget {
 class _DogHomeScreenState extends State<DogHomeScreen> {
   late Dog _dog;
   final _dataService = ApiDataService();
+  List<DateChangeRequest> _requests = [];
+  bool _loadingRequests = false;
 
   @override
   void initState() {
     super.initState();
     _dog = widget.dog;
+    _loadRequests();
+  }
+
+  Future<void> _loadRequests() async {
+    setState(() => _loadingRequests = true);
+    try {
+      final requests = await _dataService.getDateChangeRequests(dogId: _dog.id);
+      if (mounted) {
+        setState(() {
+          _requests = requests;
+          _loadingRequests = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingRequests = false);
+      }
+    }
   }
 
   List<DateTime> _getUpcomingDaycareDates() {
@@ -277,6 +298,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             backgroundColor: Colors.green,
           ),
         );
+        _loadRequests(); // Refresh the requests list
       }
     } catch (e) {
       if (mounted) {
@@ -287,6 +309,91 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           ),
         );
       }
+    }
+  }
+
+  Widget _buildRequestsSection() {
+    if (_loadingRequests) {
+      return const Padding(
+        padding: EdgeInsets.all(8.0),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
+    if (_requests.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text(
+          'Your Requests',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[700],
+          ),
+        ),
+        const SizedBox(height: 8),
+        ..._requests.map((request) => Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            dense: true,
+            leading: Icon(
+              request.requestType == RequestType.cancel
+                  ? Icons.cancel_outlined
+                  : Icons.swap_horiz,
+              color: request.requestType == RequestType.cancel
+                  ? Colors.red
+                  : Colors.blue,
+            ),
+            title: Text(
+              request.requestType == RequestType.cancel
+                  ? 'Cancel ${DateFormat('EEE, d MMM').format(request.originalDate)}'
+                  : '${DateFormat('EEE, d MMM').format(request.originalDate)} → ${DateFormat('EEE, d MMM').format(request.newDate!)}',
+              style: const TextStyle(fontSize: 14),
+            ),
+            subtitle: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(request.status).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    request.statusDisplayName,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _getStatusColor(request.status),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (request.isCharged) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '(charged)',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        )),
+      ],
+    );
+  }
+
+  Color _getStatusColor(RequestStatus status) {
+    switch (status) {
+      case RequestStatus.pending:
+        return Colors.orange;
+      case RequestStatus.approved:
+        return Colors.green;
+      case RequestStatus.denied:
+        return Colors.red;
     }
   }
 
@@ -416,6 +523,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     ],
                   ),
                 ],
+                _buildRequestsSection(),
               ],
             ),
           ),

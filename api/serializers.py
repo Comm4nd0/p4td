@@ -4,10 +4,11 @@ from .models import Dog, Photo, UserProfile, DateChangeRequest
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
+    is_staff = serializers.BooleanField(source='user.is_staff', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['username', 'email', 'address', 'phone_number', 'pickup_instructions']
+        fields = ['username', 'email', 'address', 'phone_number', 'pickup_instructions', 'is_staff']
 
 class DogSerializer(serializers.ModelSerializer):
     class Meta:
@@ -27,4 +28,11 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = DateChangeRequest
         fields = ['id', 'dog', 'dog_name', 'owner_name', 'request_type', 'original_date', 'new_date', 'status', 'is_charged', 'created_at']
-        read_only_fields = ['status', 'created_at']
+        read_only_fields = ['created_at']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        # Only staff can modify status, regular users can't
+        if request and not request.user.is_staff:
+            self.fields['status'].read_only = True
