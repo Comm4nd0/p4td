@@ -116,32 +116,6 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Daycare Schedule',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: ([..._dog.daysInDaycare]..sort((a, b) => a.dayNumber.compareTo(b.dayNumber))).map((day) {
-                          return Chip(
-                            label: Text(
-                              day.displayName.substring(0, 3),
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            backgroundColor: Colors.blue[100],
-                            labelStyle: const TextStyle(
-                              color: Colors.blue,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
                         'Upcoming Dates',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.bold,
