@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/dog.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
+import '../models/date_change_request.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -282,6 +283,50 @@ class ApiDataService implements DataService {
         }
       } catch (_) {
         // Response is not JSON (e.g., HTML error page)
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
+  Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/date-change-requests/'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      var requests = data.map((json) => DateChangeRequest.fromJson(json)).toList();
+
+      // Filter by dogId if specified
+      if (dogId != null) {
+        requests = requests.where((r) => r.dogId == dogId).toList();
+      }
+
+      return requests;
+    } else {
+      throw Exception('Failed to load requests');
+    }
+  }
+
+  Future<void> updateDateChangeRequestStatus(String requestId, String status) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/date-change-requests/$requestId/'),
+      headers: headers,
+      body: json.encode({'status': status}),
+    );
+
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to update request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
         errorMessage = 'Server error (${response.statusCode})';
       }
       throw Exception(errorMessage);
