@@ -249,6 +249,33 @@ class ApiDataService implements DataService {
       }
     }
   }
+
+  Future<void> submitDateChangeRequest({
+    required String dogId,
+    required DateTime originalDate,
+    DateTime? newDate,
+  }) async {
+    final headers = await _getHeaders();
+    final now = DateTime.now();
+    final oneMonthLater = DateTime(now.year, now.month + 1, now.day);
+    final isCharged = originalDate.isBefore(oneMonthLater);
+
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/date-change-requests/'),
+      headers: headers,
+      body: json.encode({
+        'dog': int.parse(dogId),
+        'request_type': newDate == null ? 'CANCEL' : 'CHANGE',
+        'original_date': originalDate.toIso8601String().split('T')[0],
+        if (newDate != null) 'new_date': newDate.toIso8601String().split('T')[0],
+        'is_charged': isCharged,
+      }),
+    );
+
+    if (response.statusCode != 201) {
+      throw Exception('Failed to submit request: ${response.body}');
+    }
+  }
 }
 
 class MockDataService implements DataService {
