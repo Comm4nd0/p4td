@@ -21,7 +21,6 @@ extension WeekdayExtension on Weekday {
 class Dog {
   final String id;
   final String name;
-  final String breed;
   final String ownerId;
   final String? profileImageUrl;
   final String? foodInstructions;
@@ -31,7 +30,6 @@ class Dog {
   Dog({
     required this.id,
     required this.name,
-    required this.breed,
     required this.ownerId,
     this.profileImageUrl,
     this.foodInstructions,
@@ -42,7 +40,6 @@ class Dog {
   Dog copyWith({
     String? id,
     String? name,
-    String? breed,
     String? ownerId,
     String? profileImageUrl,
     String? foodInstructions,
@@ -52,7 +49,6 @@ class Dog {
     return Dog(
       id: id ?? this.id,
       name: name ?? this.name,
-      breed: breed ?? this.breed,
       ownerId: ownerId ?? this.ownerId,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       foodInstructions: foodInstructions ?? this.foodInstructions,

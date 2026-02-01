@@ -19,7 +19,6 @@ class _EditDogScreenState extends State<EditDogScreen> {
   bool _isSaving = false;
 
   late TextEditingController _nameController;
-  late TextEditingController _breedController;
   late TextEditingController _foodController;
   late TextEditingController _medicalController;
 
@@ -34,7 +33,6 @@ class _EditDogScreenState extends State<EditDogScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.dog.name);
-    _breedController = TextEditingController(text: widget.dog.breed);
     _foodController = TextEditingController(text: widget.dog.foodInstructions ?? '');
     _medicalController = TextEditingController(text: widget.dog.medicalNotes ?? '');
     _currentImageUrl = widget.dog.profileImageUrl;
@@ -235,16 +233,6 @@ class _EditDogScreenState extends State<EditDogScreen> {
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.pets),
             ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _breedController,
-            decoration: const InputDecoration(
-              labelText: 'Breed',
-              border: OutlineInputBorder(),
-              helperText: 'Cannot edit breed directly',
-            ),
-            enabled: false, 
           ),
           const SizedBox(height: 16),
           const Text('Care Instructions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),

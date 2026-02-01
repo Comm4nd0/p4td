@@ -14,8 +14,7 @@ abstract class DataService {
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
-  Future<List<String>> getBreeds();
-  Future<Dog> createDog({required String name, required String breed, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare});
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare});
 }
 
 class ApiDataService implements DataService {
@@ -47,7 +46,6 @@ class ApiDataService implements DataService {
         return Dog(
           id: json['id'].toString(),
           name: json['name'],
-          breed: json['breed'],
           ownerId: (json['owner'] ?? '').toString(),
           profileImageUrl: json['profile_image'],
           foodInstructions: json['food_instructions'],
@@ -143,7 +141,6 @@ class ApiDataService implements DataService {
     return Dog(
       id: data['id'].toString(),
       name: data['name'],
-      breed: data['breed'],
       ownerId: (data['owner'] ?? '').toString(),
       profileImageUrl: data['profile_image'],
       foodInstructions: data['food_instructions'],
@@ -208,20 +205,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<String>> getBreeds() async {
-    final headers = await _getHeaders();
-    final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/breeds/'), headers: headers);
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((json) => json['name'].toString()).toList();
-    } else {
-      throw Exception('Failed to load breeds');
-    }
-  }
-
-  @override
-  Future<Dog> createDog({required String name, required String breed, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
     final token = await _authService.getToken();
     
     if (imageBytes != null) {
@@ -230,7 +214,6 @@ class ApiDataService implements DataService {
       request.headers['Authorization'] = 'Token $token';
       
       request.fields['name'] = name;
-      request.fields['breed'] = breed;
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (daysInDaycare != null && daysInDaycare.isNotEmpty) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
@@ -257,7 +240,6 @@ class ApiDataService implements DataService {
         return Dog(
           id: data['id'].toString(),
           name: data['name'],
-          breed: data['breed'],
           ownerId: data['owner'].toString(),
           profileImageUrl: data['profile_image'],
           foodInstructions: data['food_instructions'],
@@ -275,7 +257,6 @@ class ApiDataService implements DataService {
         headers: headers,
         body: json.encode({
           'name': name,
-          'breed': breed,
           'food_instructions': foodInstructions,
           'medical_notes': medicalNotes,
           if (daysInDaycare != null && daysInDaycare.isNotEmpty) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
@@ -294,7 +275,6 @@ class ApiDataService implements DataService {
         return Dog(
           id: data['id'].toString(),
           name: data['name'],
-          breed: data['breed'],
           ownerId: data['owner'].toString(),
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
@@ -312,14 +292,12 @@ class MockDataService implements DataService {
     Dog(
       id: '1',
       name: 'Buddy',
-      breed: 'Golden Retriever',
       ownerId: 'user1',
       profileImageUrl: 'https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=500&q=60',
     ),
     Dog(
       id: '2',
       name: 'Bella',
-      breed: 'French Bulldog',
       ownerId: 'user1',
       profileImageUrl: 'https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?auto=format&fit=crop&w=500&q=60',
     ),
@@ -358,13 +336,8 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<List<String>> getBreeds() async {
-    return ['Golden Retriever', 'French Bulldog', 'Labrador', 'Poodle'];
-  }
-
-  @override
-  Future<Dog> createDog({required String name, required String breed, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
-    return Dog(id: '99', name: name, breed: breed, ownerId: 'user1');
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
+    return Dog(id: '99', name: name, ownerId: 'user1');
   }
 
   @override

@@ -15,12 +15,8 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final _formKey = GlobalKey<FormState>();
   final DataService _dataService = ApiDataService();
   final ImagePicker _picker = ImagePicker();
-  
-  bool _isLoading = true;
+
   bool _isSaving = false;
-  String? _error;
-  List<String> _breeds = [];
-  String? _selectedBreed;
   XFile? _selectedImage;
   Uint8List? _imageBytes;
   final Set<Weekday> _selectedDays = {};
@@ -28,27 +24,6 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final _nameController = TextEditingController();
   final _foodController = TextEditingController();
   final _medicalController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBreeds();
-  }
-
-  Future<void> _loadBreeds() async {
-    try {
-      final breeds = await _dataService.getBreeds();
-      setState(() {
-        _breeds = breeds;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load breeds: $e';
-        _isLoading = false;
-      });
-    }
-  }
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -105,12 +80,6 @@ class _AddDogScreenState extends State<AddDogScreen> {
 
   Future<void> _saveDog() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedBreed == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a breed')),
-      );
-      return;
-    }
 
     setState(() {
       _isSaving = true;
@@ -119,7 +88,6 @@ class _AddDogScreenState extends State<AddDogScreen> {
     try {
       await _dataService.createDog(
         name: _nameController.text.trim(),
-        breed: _selectedBreed!,
         foodInstructions: _foodController.text.trim().isEmpty ? null : _foodController.text.trim(),
         medicalNotes: _medicalController.text.trim().isEmpty ? null : _medicalController.text.trim(),
         imageBytes: _imageBytes,
@@ -160,11 +128,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : Form(
+      body: Form(
                   key: _formKey,
                   child: ListView(
                     padding: const EdgeInsets.all(16),
@@ -223,24 +187,6 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         ),
                         textCapitalization: TextCapitalization.words,
                         validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        value: _selectedBreed,
-                        decoration: const InputDecoration(
-                          labelText: 'Breed',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.category),
-                        ),
-                        items: _breeds.map((breed) {
-                          return DropdownMenuItem(value: breed, child: Text(breed));
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedBreed = value;
-                          });
-                        },
-                        validator: (v) => v == null ? 'Please select a breed' : null,
                       ),
                       const SizedBox(height: 24),
                       const Text(
