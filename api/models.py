@@ -50,22 +50,6 @@ def save_user_profile(sender, instance, **kwargs):
     except ObjectDoesNotExist:
         UserProfile.objects.create(user=instance)
 
-class Booking(models.Model):
-    STATUS_CHOICES = [
-        ('CONFIRMED', 'Confirmed'),
-        ('PENDING', 'Pending'),
-        ('CANCELLED', 'Cancelled'),
-    ]
-
-    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='bookings')
-    date = models.DateField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-    notes = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.dog.name} - {self.date}"
-
 class Photo(models.Model):
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='photos')
     image = models.ImageField(upload_to='dog_photos/')

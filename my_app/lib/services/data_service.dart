@@ -2,14 +2,12 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/dog.dart';
-import '../models/booking.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
   Future<List<Dog>> getDogs();
-  Future<List<Booking>> getBookings(String dogId);
   Future<List<Photo>> getPhotos(String dogId);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
@@ -150,31 +148,6 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<Booking>> getBookings(String dogId) async {
-    final headers = await _getHeaders();
-    // Note: The API should ideally allow filtering by dog_id via query param or sub-route
-    // For now, fetching all bookings (which are already filtered by user permission)
-    // and filtering client-side for the specific dog.
-    final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/bookings/'), headers: headers);
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      
-      return data
-          .where((json) => json['dog'].toString() == dogId)
-          .map((json) => Booking(
-            id: json['id'].toString(),
-            dogId: json['dog'].toString(),
-            date: DateTime.parse(json['date']),
-            status: _parseStatus(json['status']),
-            notes: json['notes'],
-          )).toList();
-    } else {
-      throw Exception('Failed to load bookings');
-    }
-  }
-
-  @override
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
     final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/photos/'), headers: headers);
@@ -192,15 +165,6 @@ class ApiDataService implements DataService {
           )).toList();
     } else {
       throw Exception('Failed to load photos');
-    }
-  }
-
-  BookingStatus _parseStatus(String status) {
-    switch (status) {
-      case 'CONFIRMED': return BookingStatus.confirmed;
-      case 'PENDING': return BookingStatus.pending;
-      case 'CANCELLED': return BookingStatus.cancelled;
-      default: return BookingStatus.pending;
     }
   }
 
@@ -338,32 +302,6 @@ class MockDataService implements DataService {
   @override
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
     return Dog(id: '99', name: name, ownerId: 'user1');
-  }
-
-  @override
-  Future<List<Booking>> getBookings(String dogId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return [
-      Booking(
-        id: 'b1',
-        dogId: dogId,
-        date: DateTime.now().add(const Duration(days: 2)),
-        status: BookingStatus.confirmed,
-        notes: 'Drop off at 8am',
-      ),
-      Booking(
-        id: 'b2',
-        dogId: dogId,
-        date: DateTime.now().add(const Duration(days: 5)),
-        status: BookingStatus.confirmed,
-      ),
-      Booking(
-        id: 'b3',
-        dogId: dogId,
-        date: DateTime.now().add(const Duration(days: 10)),
-        status: BookingStatus.pending,
-      ),
-    ];
   }
 
   @override

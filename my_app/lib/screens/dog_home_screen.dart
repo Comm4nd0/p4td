@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
-import 'bookings_screen.dart';
 import 'gallery_screen.dart';
-import 'edit_dog_screen.dart'; // Import EditDogScreen
+import 'edit_dog_screen.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -15,7 +14,6 @@ class DogHomeScreen extends StatefulWidget {
 }
 
 class _DogHomeScreenState extends State<DogHomeScreen> {
-  int _currentIndex = 0;
   late Dog _dog;
 
   @override
@@ -49,13 +47,67 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     return date.isBefore(oneMonthLater);
   }
 
+  void _showDateChangeRequest(DateTime date) {
+    final isConfirmed = _isConfirmed(date);
+    final formattedDate = DateFormat('EEEE, d MMMM yyyy').format(date);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Request Date Change'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Date: $formattedDate'),
+            const SizedBox(height: 16),
+            if (isConfirmed) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange[800]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This date is within 1 month. You will still be charged for this day.',
+                        style: TextStyle(color: Colors.orange[800]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            const Text('Would you like to request a change for this date?'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Date change request submitted')),
+              );
+            },
+            child: const Text('Request Change'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Re-create screens with current dog data
-    final screens = [
-      BookingsScreen(dogId: _dog.id),
-      GalleryScreen(dogId: _dog.id),
-    ];
     final upcomingDates = _getUpcomingDaycareDates();
 
     return Scaffold(
@@ -116,32 +168,6 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Daycare Schedule',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: ([..._dog.daysInDaycare]..sort((a, b) => a.dayNumber.compareTo(b.dayNumber))).map((day) {
-                          return Chip(
-                            label: Text(
-                              day.displayName.substring(0, 3),
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            backgroundColor: Colors.blue[100],
-                            labelStyle: const TextStyle(
-                              color: Colors.blue,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
                         'Upcoming Dates',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.bold,
@@ -157,44 +183,47 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           itemBuilder: (context, index) {
                             final date = upcomingDates[index];
                             final isConfirmed = _isConfirmed(date);
-                            return Container(
-                              width: 60,
-                              margin: const EdgeInsets.only(right: 8),
-                              decoration: BoxDecoration(
-                                color: isConfirmed ? Colors.green[100] : Colors.grey[200],
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: isConfirmed ? Colors.green : Colors.grey[400]!,
-                                  width: 1,
+                            return GestureDetector(
+                              onTap: () => _showDateChangeRequest(date),
+                              child: Container(
+                                width: 60,
+                                margin: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(
+                                  color: isConfirmed ? Colors.green[100] : Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: isConfirmed ? Colors.green : Colors.grey[400]!,
+                                    width: 1,
+                                  ),
                                 ),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    DateFormat('E').format(date),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      DateFormat('E').format(date),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    DateFormat('d').format(date),
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                    Text(
+                                      DateFormat('d').format(date),
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    DateFormat('MMM').format(date),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isConfirmed ? Colors.green[700] : Colors.grey[500],
+                                    Text(
+                                      DateFormat('MMM').format(date),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isConfirmed ? Colors.green[700] : Colors.grey[500],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             );
                           },
@@ -206,21 +235,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               ],
             ),
           ),
-          Expanded(child: screens[_currentIndex]),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: 'Bookings',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.photo_library),
-            label: 'Gallery',
-          ),
+          Expanded(child: GalleryScreen(dogId: _dog.id)),
         ],
       ),
     );
