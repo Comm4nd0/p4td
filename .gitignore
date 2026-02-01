@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.env
+db.sqlite3
+
+# Django
+*.log
+*.pot
+local_settings.py
+
+# IDE / Editor
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.build/
+
+# Android / Gradle
+**/local.properties
+.gradle/
+build/
+*/build/
+
+# iOS
+Pods/
+*.xcworkspace
+
+# Build outputs
+/build/
+/out/
+
+# Flutter ephemeral
+my_app/linux/flutter/ephemeral/
