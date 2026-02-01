@@ -31,7 +31,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadDogs();
     _checkStaffStatus();
-    _loadPendingRequestCount();
   }
 
   void _loadDogs() {
@@ -43,6 +42,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final profile = await _dataService.getProfile();
       if (mounted) {
         setState(() => _isStaff = profile.isStaff);
+        // Load pending requests count after setting staff status
+        if (profile.isStaff) {
+          await _loadPendingRequestCount();
+        }
       }
     } catch (e) {
       // Ignore errors
@@ -65,8 +68,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _refresh() {
     setState(() {
       _loadDogs();
-      _loadPendingRequestCount();
     });
+    _loadPendingRequestCount();
   }
 
   Future<void> _logout() async {
