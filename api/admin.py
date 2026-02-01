@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Dog, Photo, UserProfile, DateChangeRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
@@ -60,3 +60,22 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
     def deny_requests(self, request, queryset):
         updated = queryset.filter(status='PENDING').update(status='DENIED')
         self.message_user(request, f'{updated} request(s) denied.')
+
+@admin.register(GroupMedia)
+class GroupMediaAdmin(admin.ModelAdmin):
+    list_display = ('id', 'media_type', 'uploaded_by', 'caption_preview', 'created_at')
+    list_filter = ('media_type', 'created_at')
+    search_fields = ('caption', 'uploaded_by__username')
+    readonly_fields = ('uploaded_by', 'created_at')
+    ordering = ['-created_at']
+
+    def caption_preview(self, obj):
+        if obj.caption:
+            return obj.caption[:50] + '...' if len(obj.caption) > 50 else obj.caption
+        return '-'
+    caption_preview.short_description = 'Caption'
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.uploaded_by = request.user
+        super().save_model(request, obj, form, change)

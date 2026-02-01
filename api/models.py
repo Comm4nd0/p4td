@@ -87,3 +87,23 @@ class DateChangeRequest(models.Model):
         if self.request_type == 'CANCEL':
             return f"{self.dog.name} - Cancel {self.original_date}"
         return f"{self.dog.name} - Change {self.original_date} to {self.new_date}"
+
+class GroupMedia(models.Model):
+    MEDIA_TYPE_CHOICES = [
+        ('PHOTO', 'Photo'),
+        ('VIDEO', 'Video'),
+    ]
+
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='uploaded_media')
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES)
+    file = models.FileField(upload_to='group_media/')
+    thumbnail = models.ImageField(upload_to='group_media/thumbnails/', null=True, blank=True)
+    caption = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'Group media'
+
+    def __str__(self):
+        return f"{self.media_type} by {self.uploaded_by.username} at {self.created_at}"

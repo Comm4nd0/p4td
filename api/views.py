@@ -1,8 +1,8 @@
 from rest_framework import viewsets, mixins
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from .models import Dog, Photo, UserProfile, DateChangeRequest
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
@@ -68,3 +68,19 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
         serializer.save()
+
+class GroupMediaViewSet(viewsets.ModelViewSet):
+    serializer_class = GroupMediaSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return GroupMedia.objects.all()
+
+    def get_permissions(self):
+        # Only staff can create, update, or delete
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
