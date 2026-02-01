@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
+import '../services/data_service.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 
@@ -15,6 +16,7 @@ class DogHomeScreen extends StatefulWidget {
 
 class _DogHomeScreenState extends State<DogHomeScreen> {
   late Dog _dog;
+  final _dataService = ApiDataService();
 
   @override
   void initState() {
@@ -54,7 +56,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Request Date Change'),
+        title: const Text('Date Change Request'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,26 +86,208 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            const Text('Would you like to request a change for this date?'),
+            const Text('What would you like to do?'),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Back'),
+          ),
+          OutlinedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showCancelConfirmation(date, isConfirmed);
+            },
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Cancel Date'),
           ),
           FilledButton(
             onPressed: () {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Date change request submitted')),
-              );
+              _showDatePicker(date, isConfirmed);
             },
-            child: const Text('Request Change'),
+            child: const Text('Change Date'),
           ),
         ],
       ),
     );
+  }
+
+  void _showCancelConfirmation(DateTime originalDate, bool isConfirmed) {
+    final formattedDate = DateFormat('EEEE, d MMMM yyyy').format(originalDate);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Cancellation'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to cancel your daycare booking for $formattedDate?'),
+            if (isConfirmed) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.red[800]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'You will still be charged for this day.',
+                        style: TextStyle(color: Colors.red[800], fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _submitDateChangeRequest(originalDate, null);
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Confirm Cancellation'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDatePicker(DateTime originalDate, bool isConfirmed) async {
+    final now = DateTime.now();
+    final newDate = await showDatePicker(
+      context: context,
+      initialDate: originalDate.add(const Duration(days: 7)),
+      firstDate: now,
+      lastDate: DateTime(now.year, now.month + 3, now.day),
+      helpText: 'Select new date',
+    );
+
+    if (newDate != null && mounted) {
+      _showChangeConfirmation(originalDate, newDate, isConfirmed);
+    }
+  }
+
+  void _showChangeConfirmation(DateTime originalDate, DateTime newDate, bool isConfirmed) {
+    final formattedOriginal = DateFormat('EEE, d MMM').format(originalDate);
+    final formattedNew = DateFormat('EEE, d MMM').format(newDate);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Date Change'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text('From', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Text(formattedOriginal, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text('To', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Text(formattedNew, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (isConfirmed) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[800]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'The original date is within 1 month. You will still be charged for that day.',
+                        style: TextStyle(color: Colors.orange[800]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _submitDateChangeRequest(originalDate, newDate);
+            },
+            child: const Text('Confirm Change'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitDateChangeRequest(DateTime originalDate, DateTime? newDate) async {
+    try {
+      await _dataService.submitDateChangeRequest(
+        dogId: _dog.id,
+        originalDate: originalDate,
+        newDate: newDate,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(newDate == null
+              ? 'Cancellation request submitted'
+              : 'Date change request submitted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override

@@ -1,8 +1,8 @@
 from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Dog, Photo, UserProfile
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
@@ -51,3 +51,20 @@ class PhotoViewSet(viewsets.ModelViewSet):
         if self.request.user.is_staff:
             return Photo.objects.all()
         return Photo.objects.filter(dog__owner=self.request.user)
+
+class DateChangeRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = DateChangeRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return DateChangeRequest.objects.all()
+        return DateChangeRequest.objects.filter(dog__owner=self.request.user)
+
+    def perform_create(self, serializer):
+        # Verify user owns the dog
+        dog = serializer.validated_data['dog']
+        if dog.owner != self.request.user and not self.request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only create requests for your own dogs")
+        serializer.save()
