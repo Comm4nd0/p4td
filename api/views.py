@@ -53,6 +53,35 @@ class PhotoViewSet(viewsets.ModelViewSet):
             return Photo.objects.all()
         return Photo.objects.filter(dog__owner=self.request.user)
 
+    def perform_create(self, serializer):
+        # Validate that user owns the dog or is staff
+        dog = serializer.validated_data['dog']
+        if dog.owner != self.request.user and not self.request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only upload photos for your own dogs")
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def by_dog(self, request):
+        """Get all photos for a specific dog: /photos/by_dog/?dog_id=<id>"""
+        dog_id = request.query_params.get('dog_id')
+        if not dog_id:
+            return Response({'detail': 'dog_id query parameter required'}, status=400)
+        
+        try:
+            dog = Dog.objects.get(id=dog_id)
+        except Dog.DoesNotExist:
+            return Response({'detail': 'Dog not found'}, status=404)
+        
+        # Check permissions
+        if dog.owner != request.user and not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only view photos for your own dogs")
+        
+        photos = Photo.objects.filter(dog=dog).order_by('-created_at')
+        serializer = self.get_serializer(photos, many=True)
+        return Response(serializer.data)
+
 class DateChangeRequestViewSet(viewsets.ModelViewSet):
     serializer_class = DateChangeRequestSerializer
     permission_classes = [IsAuthenticated]

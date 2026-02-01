@@ -153,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => DogHomeScreen(dog: dog),
+                          builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
                         ),
                       );
                     },

@@ -8,8 +8,9 @@ import 'edit_dog_screen.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
+  final bool isStaff;
 
-  const DogHomeScreen({super.key, required this.dog});
+  const DogHomeScreen({super.key, required this.dog, this.isStaff = false});
 
   @override
   State<DogHomeScreen> createState() => _DogHomeScreenState();
@@ -527,7 +528,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               ],
             ),
           ),
-          Expanded(child: GalleryScreen(dogId: _dog.id)),
+          Expanded(child: GalleryScreen(dogId: _dog.id, isStaff: widget.isStaff)),
         ],
       ),
     );

@@ -10,6 +10,7 @@ import 'auth_service.dart';
 abstract class DataService {
   Future<List<Dog>> getDogs();
   Future<List<Photo>> getPhotos(String dogId);
+  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
@@ -151,21 +152,59 @@ class ApiDataService implements DataService {
   @override
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
-    final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/photos/'), headers: headers);
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/photos/by_dog/?dog_id=$dogId'),
+      headers: headers,
+    );
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
-      
-      return data
-          .where((json) => json['dog'].toString() == dogId)
-          .map((json) => Photo(
-            id: json['id'].toString(),
-            dogId: json['dog'].toString(),
-            url: json['image'], 
-            takenAt: DateTime.parse(json['taken_at']),
-          )).toList();
+      return data.map((json) => Photo(
+        id: json['id'].toString(),
+        dogId: json['dog'].toString(),
+        url: json['image'], 
+        takenAt: DateTime.parse(json['taken_at']),
+      )).toList();
     } else {
       throw Exception('Failed to load photos');
+    }
+  }
+
+  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt) async {
+    final token = await _authService.getToken();
+    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/photos/'));
+    request.headers['Authorization'] = 'Token $token';
+
+    request.fields['dog'] = dogId;
+    request.fields['taken_at'] = takenAt.toIso8601String();
+    request.files.add(http.MultipartFile.fromBytes(
+      'image',
+      imageBytes,
+      filename: imageName,
+    ));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 201) {
+      final data = json.decode(response.body);
+      return Photo(
+        id: data['id'].toString(),
+        dogId: data['dog'].toString(),
+        url: data['image'],
+        takenAt: DateTime.parse(data['taken_at']),
+      );
+    } else {
+      String errorMessage = 'Failed to upload photo';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
     }
   }
 
@@ -410,5 +449,16 @@ class MockDataService implements DataService {
         takenAt: DateTime.now().subtract(const Duration(days: 5)),
       ),
     ];
+  }
+
+  @override
+  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return Photo(
+      id: 'p_new',
+      dogId: dogId,
+      url: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=500&q=60',
+      takenAt: takenAt,
+    );
   }
 }

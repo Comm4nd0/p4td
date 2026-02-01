@@ -17,9 +17,13 @@ class DogSerializer(serializers.ModelSerializer):
         read_only_fields = ['owner', 'created_at']
 
 class PhotoSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
     class Meta:
         model = Photo
-        fields = '__all__'
+        fields = ['id', 'dog', 'dog_name', 'image', 'taken_at', 'created_at']
+        read_only_fields = ['created_at']
 
 class DateChangeRequestSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
