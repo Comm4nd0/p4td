@@ -99,7 +99,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       Wrap(
                         spacing: 4,
                         runSpacing: 4,
-                        children: _dog.daysInDaycare.map((day) {
+                        children: ([..._dog.daysInDaycare]..sort((a, b) => a.dayNumber.compareTo(b.dayNumber))).map((day) {
                           return Chip(
                             label: Text(
                               day.displayName.substring(0, 3),
