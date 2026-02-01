@@ -1,13 +1,8 @@
 from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Dog, Booking, Photo, UserProfile, Breed
-from .serializers import DogSerializer, BookingSerializer, PhotoSerializer, UserProfileSerializer, BreedSerializer
-
-class BreedViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Breed.objects.all()
-    serializer_class = BreedSerializer
-    permission_classes = [IsAuthenticated]
+from .models import Dog, Booking, Photo, UserProfile
+from .serializers import DogSerializer, BookingSerializer, PhotoSerializer, UserProfileSerializer
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer

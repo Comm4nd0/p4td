@@ -76,20 +76,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _dog.name,
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                          Text(
-                            _dog.breed,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  color: Colors.grey[700],
-                                ),
-                          ),
-                        ],
+                      child: Text(
+                        _dog.name,
+                        style: Theme.of(context).textTheme.headlineMedium,
                       ),
                     ),
                   ],

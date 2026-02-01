@@ -147,21 +147,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         Padding(
                           padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                dog.name,
-                                style: Theme.of(context).textTheme.headlineSmall,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                dog.breed,
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            dog.name,
+                            style: Theme.of(context).textTheme.headlineSmall,
                           ),
                         ),
                       ],
