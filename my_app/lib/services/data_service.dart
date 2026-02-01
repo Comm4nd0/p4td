@@ -5,7 +5,7 @@ import '../models/dog.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
-import '../models/owner_profile.dart';
+import '../models/group_media.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -423,6 +423,80 @@ class ApiDataService implements DataService {
         errorMessage = 'Server error (${response.statusCode})';
       }
       throw Exception(errorMessage);
+    }
+  }
+
+  Future<List<GroupMedia>> getFeed() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/feed/'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((json) => GroupMedia.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to load feed');
+    }
+  }
+
+  Future<void> uploadGroupMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required bool isVideo,
+    String? caption,
+    Uint8List? thumbnailBytes,
+  }) async {
+    final token = await _authService.getToken();
+    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/feed/'));
+    request.headers['Authorization'] = 'Token $token';
+
+    request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
+    if (caption != null && caption.isNotEmpty) {
+      request.fields['caption'] = caption;
+    }
+
+    request.files.add(http.MultipartFile.fromBytes(
+      'file',
+      fileBytes,
+      filename: fileName,
+    ));
+
+    if (thumbnailBytes != null) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'thumbnail',
+        thumbnailBytes,
+        filename: 'thumbnail.jpg',
+      ));
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode != 201) {
+      String errorMessage = 'Failed to upload media';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
+  Future<void> deleteGroupMedia(String mediaId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/'),
+      headers: headers,
+    );
+
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete media');
     }
   }
 }

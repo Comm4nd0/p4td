@@ -8,6 +8,7 @@ import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
 import 'staff_notifications_screen.dart';
+import 'feed_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,6 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   late Future<List<Dog>> _dogsFuture;
   bool _isStaff = false;
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -73,7 +75,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Image.asset('assets/logo.png', height: 32),
+        title: Row(
+          children: [
+            Image.asset('assets/logo.png', height: 32),
+            const SizedBox(width: 8),
+            Text(_currentIndex == 0 ? 'My Dogs' : 'Feed'),
+          ],
+        ),
         actions: [
           if (_isStaff)
             IconButton(
@@ -101,12 +109,33 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addDog,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Dog'),
+      floatingActionButton: _currentIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: _addDog,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Dog'),
+            )
+          : null,
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.pets),
+            label: 'My Dogs',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.photo_library),
+            label: 'Feed',
+          ),
+        ],
       ),
-      body: FutureBuilder<List<Dog>>(
+      body: _currentIndex == 0 ? _buildDogsView() : FeedScreen(isStaff: _isStaff),
+    );
+  }
+
+  Widget _buildDogsView() {
+    return FutureBuilder<List<Dog>>(
         future: _dogsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

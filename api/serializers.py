@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Dog, Photo, UserProfile, DateChangeRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -56,5 +56,15 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Status is writeable only via the staff endpoint; never allow direct status changes through regular update/partial_update
-        self.fields['status'].read_only = True
+        request = self.context.get('request')
+        # Only staff can modify status, regular users can't
+        if request and not request.user.is_staff:
+            self.fields['status'].read_only = True
+
+class GroupMediaSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.username', read_only=True)
+
+    class Meta:
+        model = GroupMedia
+        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'created_at']
+        read_only_fields = ['uploaded_by', 'created_at']
