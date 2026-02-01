@@ -114,7 +114,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
     });
 
     try {
-      await _dataService.updateDog(
+      final updatedDog = await _dataService.updateDog(
         widget.dog,
         name: _nameController.text,
         foodInstructions: _foodController.text,
@@ -124,12 +124,12 @@ class _EditDogScreenState extends State<EditDogScreen> {
         deletePhoto: _deletePhoto,
         daysInDaycare: _selectedDays.toList(),
       );
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Dog updated successfully')),
         );
-        Navigator.pop(context, true);
+        Navigator.pop(context, updatedDog);
       }
     } catch (e) {
       if (mounted) {

@@ -38,21 +38,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () async {
-              await Navigator.push(
+              final updatedDog = await Navigator.push<Dog>(
                 context,
                 MaterialPageRoute(
                   builder: (_) => EditDogScreen(dog: _dog),
                 ),
               );
-              // In a real app we would reload the dog here.
-              // For now, let's just pop back if we want to refresh via HomeScreen
-              // Or better, we should fetch the dog again.
-              // But DogHomeScreen takes Dog as Argument. 
-              // Simplest for now: If updated, show message or pop?
-              // Ideally: fetch updated dog from API or pass it back.
-              // Let's assume we navigate back to home to see changes if needed 
-              // or just rely on next fetch.
-              // Actually, updating local _dog state would be nice if EditDogScreen returned it.
+              if (updatedDog != null) {
+                setState(() {
+                  _dog = updatedDog;
+                });
+              }
             },
           ),
         ],

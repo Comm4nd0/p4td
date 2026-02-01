@@ -13,7 +13,7 @@ abstract class DataService {
   Future<List<Photo>> getPhotos(String dogId);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
-  Future<void> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
   Future<List<String>> getBreeds();
   Future<Dog> createDog({required String name, required String breed, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare});
 }
@@ -87,19 +87,20 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<void> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {
     final token = await _authService.getToken();
-    
+    http.Response response;
+
     if (imageBytes != null || deletePhoto) {
       // Use multipart request for photo changes
       var request = http.MultipartRequest('PATCH', Uri.parse('${AuthService.baseUrl}/api/dogs/${dog.id}/'));
       request.headers['Authorization'] = 'Token $token';
-      
+
       if (name != null) request.fields['name'] = name;
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (daysInDaycare != null) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
-      
+
       if (deletePhoto) {
         request.fields['profile_image'] = '';  // Empty string to clear the image
       } else if (imageBytes != null) {
@@ -109,17 +110,13 @@ class ApiDataService implements DataService {
           filename: imageName ?? 'dog_photo.jpg',
         ));
       }
-      
+
       final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      
-      if (response.statusCode != 200) {
-        throw Exception('Failed to update dog: ${response.body}');
-      }
+      response = await http.Response.fromStream(streamedResponse);
     } else {
       // No photo changes, use regular JSON request
       final headers = await _getHeaders();
-      final response = await http.patch(
+      response = await http.patch(
         Uri.parse('${AuthService.baseUrl}/api/dogs/${dog.id}/'),
         headers: headers,
         body: json.encode({
@@ -129,11 +126,30 @@ class ApiDataService implements DataService {
           if (daysInDaycare != null) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
         }),
       );
-
-      if (response.statusCode != 200) {
-        throw Exception('Failed to update dog: ${response.body}');
-      }
     }
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update dog: ${response.body}');
+    }
+
+    final data = json.decode(response.body);
+    final updatedDaysInDaycare = (data['daycare_days'] as List<dynamic>?)
+        ?.map((day) => Weekday.values.firstWhere(
+              (w) => w.dayNumber == day,
+              orElse: () => Weekday.monday,
+            ))
+        .toList() ?? [];
+
+    return Dog(
+      id: data['id'].toString(),
+      name: data['name'],
+      breed: data['breed'],
+      ownerId: (data['owner'] ?? '').toString(),
+      profileImageUrl: data['profile_image'],
+      foodInstructions: data['food_instructions'],
+      medicalNotes: data['medical_notes'],
+      daysInDaycare: updatedDaysInDaycare,
+    );
   }
 
   @override
@@ -324,7 +340,22 @@ class MockDataService implements DataService {
   Future<void> updateProfile(UserProfile profile) async {}
 
   @override
-  Future<void> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {}
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {
+    await Future.delayed(const Duration(milliseconds: 300)); // Simulate network
+    final index = _dogs.indexWhere((d) => d.id == dog.id);
+    if (index == -1) {
+      throw Exception('Dog not found');
+    }
+    final updatedDog = _dogs[index].copyWith(
+      name: name,
+      foodInstructions: foodInstructions,
+      medicalNotes: medicalNotes,
+      daysInDaycare: daysInDaycare,
+      profileImageUrl: deletePhoto ? null : _dogs[index].profileImageUrl,
+    );
+    _dogs[index] = updatedDog;
+    return updatedDog;
+  }
 
   @override
   Future<List<String>> getBreeds() async {
