@@ -24,15 +24,15 @@ class PhotoSerializer(serializers.ModelSerializer):
 class DateChangeRequestSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
     owner_name = serializers.CharField(source='dog.owner.username', read_only=True)
+    approved_by_name = serializers.CharField(source='approved_by.username', read_only=True)
+    approved_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = DateChangeRequest
-        fields = ['id', 'dog', 'dog_name', 'owner_name', 'request_type', 'original_date', 'new_date', 'status', 'is_charged', 'created_at']
-        read_only_fields = ['created_at']
+        fields = ['id', 'dog', 'dog_name', 'owner_name', 'request_type', 'original_date', 'new_date', 'status', 'is_charged', 'approved_by_name', 'approved_at', 'created_at']
+        read_only_fields = ['created_at', 'approved_by_name', 'approved_at', 'status']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        request = self.context.get('request')
-        # Only staff can modify status, regular users can't
-        if request and not request.user.is_staff:
-            self.fields['status'].read_only = True
+        # Status is writeable only via the staff endpoint; never allow direct status changes through regular update/partial_update
+        self.fields['status'].read_only = True

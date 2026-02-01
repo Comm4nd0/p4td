@@ -77,6 +77,8 @@ class DateChangeRequest(models.Model):
     new_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
     is_charged = models.BooleanField(default=False, help_text='Whether the original date is within 1 month and will be charged')
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='approved_date_change_requests')
+    approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -87,3 +89,15 @@ class DateChangeRequest(models.Model):
         if self.request_type == 'CANCEL':
             return f"{self.dog.name} - Cancel {self.original_date}"
         return f"{self.dog.name} - Change {self.original_date} to {self.new_date}"
+
+
+class DateChangeRequestHistory(models.Model):
+    request = models.ForeignKey(DateChangeRequest, on_delete=models.CASCADE, related_name='history')
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    from_status = models.CharField(max_length=10, choices=DateChangeRequest.STATUS_CHOICES)
+    to_status = models.CharField(max_length=10, choices=DateChangeRequest.STATUS_CHOICES)
+    reason = models.TextField(blank=True, null=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at']

@@ -1,6 +1,7 @@
 from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
 from .models import Dog, Photo, UserProfile, DateChangeRequest
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer
 
@@ -68,3 +69,43 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
         serializer.save()
+
+    @action(detail=True, methods=['post'])
+    def change_status(self, request, pk=None):
+        # Only staff may change status via this endpoint
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can change request status")
+
+        instance = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(DateChangeRequest.STATUS_CHOICES).keys():
+            return Response({'detail': 'Invalid status'}, status=400)
+
+        old_status = instance.status
+        if old_status == new_status:
+            return Response({'detail': 'Status unchanged'}, status=200)
+
+        # Update approved metadata
+        from django.utils import timezone
+        if new_status == 'APPROVED':
+            instance.approved_by = request.user
+            instance.approved_at = timezone.now()
+        else:
+            instance.approved_by = None
+            instance.approved_at = None
+
+        instance.status = new_status
+        instance.save()
+
+        # Record history
+        from .models import DateChangeRequestHistory
+        DateChangeRequestHistory.objects.create(
+            request=instance,
+            changed_by=request.user,
+            from_status=old_status,
+            to_status=new_status,
+        )
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)

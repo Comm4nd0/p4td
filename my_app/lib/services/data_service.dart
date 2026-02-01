@@ -313,8 +313,8 @@ class ApiDataService implements DataService {
 
   Future<void> updateDateChangeRequestStatus(String requestId, String status) async {
     final headers = await _getHeaders();
-    final response = await http.patch(
-      Uri.parse('${AuthService.baseUrl}/api/date-change-requests/$requestId/'),
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/date-change-requests/$requestId/change_status/'),
       headers: headers,
       body: json.encode({'status': status}),
     );

@@ -299,6 +299,20 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                   ),
                 ],
               ),
+            ]
+            // Action buttons for approved/denied requests (allow reverting)
+            else if (request.status == RequestStatus.approved || request.status == RequestStatus.denied) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => _updateStatus(request, 'PENDING'),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.blue),
+                    child: const Text('Revert to Pending'),
+                  ),
+                ],
+              ),
             ],
           ],
         ),
