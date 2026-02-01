@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../models/dog.dart';
 import 'bookings_screen.dart';
 import 'gallery_screen.dart';
@@ -23,6 +24,31 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     _dog = widget.dog;
   }
 
+  List<DateTime> _getUpcomingDaycareDates() {
+    final List<DateTime> dates = [];
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final threeMonthsLater = DateTime(now.year, now.month + 3, now.day);
+
+    final dayNumbers = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
+
+    var current = today;
+    while (current.isBefore(threeMonthsLater)) {
+      if (dayNumbers.contains(current.weekday)) {
+        dates.add(current);
+      }
+      current = current.add(const Duration(days: 1));
+    }
+
+    return dates;
+  }
+
+  bool _isConfirmed(DateTime date) {
+    final now = DateTime.now();
+    final oneMonthLater = DateTime(now.year, now.month + 1, now.day);
+    return date.isBefore(oneMonthLater);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Re-create screens with current dog data
@@ -30,6 +56,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       BookingsScreen(dogId: _dog.id),
       GalleryScreen(dogId: _dog.id),
     ];
+    final upcomingDates = _getUpcomingDaycareDates();
 
     return Scaffold(
       appBar: AppBar(
@@ -112,6 +139,66 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                             ),
                           );
                         }).toList(),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Upcoming Dates',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 80,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: upcomingDates.length,
+                          itemBuilder: (context, index) {
+                            final date = upcomingDates[index];
+                            final isConfirmed = _isConfirmed(date);
+                            return Container(
+                              width: 60,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: isConfirmed ? Colors.green[100] : Colors.grey[200],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isConfirmed ? Colors.green : Colors.grey[400]!,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    DateFormat('E').format(date),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                    ),
+                                  ),
+                                  Text(
+                                    DateFormat('d').format(date),
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                    ),
+                                  ),
+                                  Text(
+                                    DateFormat('MMM').format(date),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isConfirmed ? Colors.green[700] : Colors.grey[500],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),
