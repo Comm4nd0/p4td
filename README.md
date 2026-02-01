@@ -1,4 +1,4 @@
-# p4td-android
+# p4td-mobile
 
 This repository contains a Django backend (`p4td_backend`) and a Flutter/Android mobile app (`my_app`).
 
