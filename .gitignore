@@ -15,9 +15,13 @@ local_settings.py
 .idea/
 *.iml
 .vscode/
+*.sublime-project
+*.sublime-workspace
 
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
 
 # Flutter / Dart
 .dart_tool/
@@ -25,21 +29,80 @@ local_settings.py
 .flutter-plugins-dependencies
 .packages
 .pub-cache/
-.build/
+.pub/
+/build/
+.flutter-plugins
+
+# Generated files
+coverage/
+lib/generated_plugin_registrant.dart
 
 # Android / Gradle
 **/local.properties
+**/gradle.properties
 .gradle/
 build/
 */build/
+*.apk
+*.aab
+*.jks
+*.keystore
 
 # iOS
 Pods/
 *.xcworkspace
+*.xcworkspace/
+.symlinks/
+Flutter/Flutter.framework
+Flutter/Flutter.podspec
+Frameworks/
 
 # Build outputs
 /build/
 /out/
+dist/
 
 # Flutter ephemeral
 my_app/linux/flutter/ephemeral/
+my_app/windows/flutter/ephemeral/
+my_app/macos/Flutter/ephemeral/
+
+# Media / User Generated Content
+media/
+uploads/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.mov
+*.avi
+dog_profiles/
+dog_photos/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.pem
+*.key
+
+# IDE cache
+.idea/
+.classpath
+.project
+.settings/
+
+# Node (if used)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Misc
+*.swp
+*.swo
+*~
+.#*
