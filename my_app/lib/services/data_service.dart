@@ -273,7 +273,18 @@ class ApiDataService implements DataService {
     );
 
     if (response.statusCode != 201) {
-      throw Exception('Failed to submit request: ${response.body}');
+      // Try to parse error message from JSON, otherwise show generic error
+      String errorMessage = 'Failed to submit request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        // Response is not JSON (e.g., HTML error page)
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
     }
   }
 }
