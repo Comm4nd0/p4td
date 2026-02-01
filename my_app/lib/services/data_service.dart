@@ -5,6 +5,7 @@ import '../models/dog.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
+import '../models/owner_profile.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -13,6 +14,8 @@ abstract class DataService {
   Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
+  Future<OwnerProfile> getOwnerProfile(int userId);
+  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare});
 }
@@ -43,6 +46,11 @@ class ApiDataService implements DataService {
             ))
             .toList() ?? [];
         
+        OwnerDetails? ownerDetails;
+        if (json['owner_details'] != null) {
+          ownerDetails = OwnerDetails.fromJson(json['owner_details']);
+        }
+        
         return Dog(
           id: json['id'].toString(),
           name: json['name'],
@@ -51,6 +59,7 @@ class ApiDataService implements DataService {
           foodInstructions: json['food_instructions'],
           medicalNotes: json['medical_notes'],
           daysInDaycare: daysInDaycare,
+          ownerDetails: ownerDetails,
         );
       }).toList();
     } else {
@@ -81,6 +90,51 @@ class ApiDataService implements DataService {
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to update profile: ${response.body}');
+    }
+  }
+
+  @override
+  Future<OwnerProfile> getOwnerProfile(int userId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/profile/get_owner/?user_id=$userId'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      return OwnerProfile.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to load owner profile');
+    }
+  }
+
+  @override
+  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{};
+    if (address != null) body['address'] = address;
+    if (phoneNumber != null) body['phone_number'] = phoneNumber;
+    if (pickupInstructions != null) body['pickup_instructions'] = pickupInstructions;
+
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/profile/update_owner/?user_id=$userId'),
+      headers: headers,
+      body: json.encode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return OwnerProfile.fromJson(json.decode(response.body));
+    } else {
+      String errorMessage = 'Failed to update owner profile';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
     }
   }
 
@@ -402,6 +456,30 @@ class MockDataService implements DataService {
 
   @override
   Future<void> updateProfile(UserProfile profile) async {}
+
+  @override
+  Future<OwnerProfile> getOwnerProfile(int userId) async {
+    return OwnerProfile(
+      userId: userId,
+      username: 'john_doe',
+      email: 'john@example.com',
+      address: '123 Main St',
+      phoneNumber: '555-1234',
+      pickupInstructions: 'Ring doorbell twice',
+    );
+  }
+
+  @override
+  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions}) async {
+    return OwnerProfile(
+      userId: userId,
+      username: 'john_doe',
+      email: 'john@example.com',
+      address: address ?? '123 Main St',
+      phoneNumber: phoneNumber ?? '555-1234',
+      pickupInstructions: pickupInstructions ?? 'Ring doorbell twice',
+    );
+  }
 
   @override
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {

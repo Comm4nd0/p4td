@@ -18,6 +18,26 @@ extension WeekdayExtension on Weekday {
   }
 }
 
+class OwnerDetails {
+  final int userId;
+  final String username;
+  final String email;
+
+  OwnerDetails({
+    required this.userId,
+    required this.username,
+    required this.email,
+  });
+
+  factory OwnerDetails.fromJson(Map<String, dynamic> json) {
+    return OwnerDetails(
+      userId: json['user_id'] ?? 0,
+      username: json['username'] ?? '',
+      email: json['email'] ?? '',
+    );
+  }
+}
+
 class Dog {
   final String id;
   final String name;
@@ -26,6 +46,7 @@ class Dog {
   final String? foodInstructions;
   final String? medicalNotes;
   final List<Weekday> daysInDaycare;
+  final OwnerDetails? ownerDetails;
 
   Dog({
     required this.id,
@@ -35,6 +56,7 @@ class Dog {
     this.foodInstructions,
     this.medicalNotes,
     this.daysInDaycare = const [],
+    this.ownerDetails,
   });
 
   Dog copyWith({
@@ -45,6 +67,7 @@ class Dog {
     String? foodInstructions,
     String? medicalNotes,
     List<Weekday>? daysInDaycare,
+    OwnerDetails? ownerDetails,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -54,6 +77,7 @@ class Dog {
       foodInstructions: foodInstructions ?? this.foodInstructions,
       medicalNotes: medicalNotes ?? this.medicalNotes,
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
+      ownerDetails: ownerDetails ?? this.ownerDetails,
     );
   }
 }

@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from .models import Dog, Photo, UserProfile, DateChangeRequest
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, OwnerDetailSerializer
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
@@ -26,6 +26,46 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def get_owner(self, request):
+        """Staff-only endpoint to get a specific owner's profile: GET /profile/get_owner/?user_id=<id>"""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can view owner profiles")
+
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id query parameter required'}, status=400)
+
+        try:
+            profile = UserProfile.objects.get(user_id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'detail': 'User profile not found'}, status=404)
+
+        serializer = OwnerDetailSerializer(profile)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def update_owner(self, request):
+        """Staff-only endpoint to update an owner's profile: POST /profile/update_owner/?user_id=<id>"""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can update owner profiles")
+
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id query parameter required'}, status=400)
+
+        try:
+            profile = UserProfile.objects.get(user_id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'detail': 'User profile not found'}, status=404)
+
+        serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
