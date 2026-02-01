@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Dog, Booking, Photo, UserProfile
+from .models import Dog, Photo, UserProfile
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -14,11 +14,6 @@ class DogSerializer(serializers.ModelSerializer):
         model = Dog
         fields = ['id', 'owner', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'created_at']
         read_only_fields = ['owner', 'created_at']
-
-class BookingSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Booking
-        fields = '__all__'
 
 class PhotoSerializer(serializers.ModelSerializer):
     class Meta:

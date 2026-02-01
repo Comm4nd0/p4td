@@ -1,8 +1,8 @@
 from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Dog, Booking, Photo, UserProfile
-from .serializers import DogSerializer, BookingSerializer, PhotoSerializer, UserProfileSerializer
+from .models import Dog, Photo, UserProfile
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
@@ -42,15 +42,6 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Automatically assign the owner
         serializer.save(owner=self.request.user)
-
-class BookingViewSet(viewsets.ModelViewSet):
-    serializer_class = BookingSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        if self.request.user.is_staff:
-            return Booking.objects.all()
-        return Booking.objects.filter(dog__owner=self.request.user)
 
 class PhotoViewSet(viewsets.ModelViewSet):
     serializer_class = PhotoSerializer
