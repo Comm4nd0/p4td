@@ -281,25 +281,30 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
               'Requested: ${DateFormat('d MMM yyyy, HH:mm').format(request.createdAt)}',
               style: TextStyle(color: Colors.grey[500], fontSize: 11),
             ),
-            // Action buttons for pending requests
-            if (request.status == RequestStatus.pending) ...[
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
+            // Action buttons
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (request.status != RequestStatus.pending)
+                  TextButton(
+                    onPressed: () => _updateStatus(request, 'PENDING'),
+                    child: const Text('Set Pending'),
+                  ),
+                if (request.status != RequestStatus.denied)
                   OutlinedButton(
                     onPressed: () => _updateStatus(request, 'DENIED'),
                     style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                     child: const Text('Deny'),
                   ),
-                  const SizedBox(width: 8),
+                const SizedBox(width: 8),
+                if (request.status != RequestStatus.approved)
                   FilledButton(
                     onPressed: () => _updateStatus(request, 'APPROVED'),
                     child: const Text('Approve'),
                   ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ],
         ),
       ),
