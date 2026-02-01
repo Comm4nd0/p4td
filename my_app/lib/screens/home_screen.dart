@@ -22,7 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   late Future<List<Dog>> _dogsFuture;
   bool _isStaff = false;
-  int _currentIndex = 0;
+  int _currentIndex = 1;
 
   @override
   void initState() {

@@ -13,6 +13,7 @@ abstract class DataService {
   Future<List<Dog>> getDogs();
   Future<List<Photo>> getPhotos(String dogId);
   Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt);
+  Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
   Future<OwnerProfile> getOwnerProfile(int userId);
@@ -261,6 +262,22 @@ class ApiDataService implements DataService {
       }
       throw Exception(errorMessage);
     }
+  }
+
+  Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images) async {
+    final uploadedPhotos = <Photo>[];
+    
+    for (final (imageBytes, imageName, takenAt) in images) {
+      try {
+        final photo = await uploadPhoto(dogId, imageBytes, imageName, takenAt);
+        uploadedPhotos.add(photo);
+      } catch (e) {
+        // Continue uploading remaining photos even if one fails
+        rethrow;
+      }
+    }
+    
+    return uploadedPhotos;
   }
 
   @override
@@ -613,5 +630,20 @@ class MockDataService implements DataService {
       url: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=500&q=60',
       takenAt: takenAt,
     );
+  }
+
+  @override
+  Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images) async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    final photos = <Photo>[];
+    for (int i = 0; i < images.length; i++) {
+      photos.add(Photo(
+        id: 'p_new_$i',
+        dogId: dogId,
+        url: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=500&q=60',
+        takenAt: images[i].$3,
+      ));
+    }
+    return photos;
   }
 }

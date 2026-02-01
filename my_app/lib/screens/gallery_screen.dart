@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data';
 import '../models/photo.dart';
 import '../services/data_service.dart';
 
@@ -65,13 +66,81 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
+  Future<void> _pickAndUploadMultipleImages() async {
+    final ImagePicker picker = ImagePicker();
+    final List<XFile> images = await picker.pickMultiImage();
+
+    if (images.isEmpty) return;
+
+    try {
+      setState(() => _uploading = true);
+      
+      final imagesToUpload = <(Uint8List, String, DateTime)>[];
+      final now = DateTime.now();
+      
+      for (final image in images) {
+        final imageBytes = await image.readAsBytes();
+        imagesToUpload.add((imageBytes, image.name, now));
+      }
+      
+      await _dataService.uploadMultiplePhotos(widget.dogId, imagesToUpload);
+
+      // Refresh the gallery
+      setState(() {
+        _photosFuture = _dataService.getPhotos(widget.dogId);
+        _uploading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${images.length} photos uploaded successfully!')),
+        );
+      }
+    } catch (e) {
+      setState(() => _uploading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload photos: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: widget.isStaff && !_uploading
           ? FloatingActionButton(
-              onPressed: _pickAndUploadImage,
-              tooltip: 'Upload Photo',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  builder: (context) => Container(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.image),
+                          title: const Text('Upload Single Photo'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _pickAndUploadImage();
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.collections),
+                          title: const Text('Upload Multiple Photos'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _pickAndUploadMultipleImages();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+              tooltip: 'Upload Photos',
               child: const Icon(Icons.add_photo_alternate),
             )
           : null,
