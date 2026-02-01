@@ -51,15 +51,15 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
         )
     status_display.short_description = 'Status'
 
-    @admin.action(description='Approve selected requests')
     def approve_requests(self, request, queryset):
         updated = queryset.filter(status='PENDING').update(status='APPROVED')
         self.message_user(request, f'{updated} request(s) approved.')
+    approve_requests.short_description = 'Approve selected requests'
 
-    @admin.action(description='Deny selected requests')
     def deny_requests(self, request, queryset):
         updated = queryset.filter(status='PENDING').update(status='DENIED')
         self.message_user(request, f'{updated} request(s) denied.')
+    deny_requests.short_description = 'Deny selected requests'
 
 @admin.register(GroupMedia)
 class GroupMediaAdmin(admin.ModelAdmin):
