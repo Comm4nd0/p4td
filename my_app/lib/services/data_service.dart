@@ -6,7 +6,7 @@ import '../models/photo.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
 import '../models/owner_profile.dart';
-import '../models/group_media.dart';
+import '../models/group_media.dart' as gm;
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -208,6 +208,7 @@ class ApiDataService implements DataService {
   }
 
   @override
+  @override
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -217,26 +218,39 @@ class ApiDataService implements DataService {
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
-      return data.map((json) => Photo(
-        id: json['id'].toString(),
-        dogId: json['dog'].toString(),
-        url: json['image'], 
-        takenAt: DateTime.parse(json['taken_at']),
-      )).toList();
+      return data.map((json) {
+        final mediaTypeStr = json['media_type'] ?? 'PHOTO';
+        final mediaType = mediaTypeStr == 'VIDEO' ? MediaType.video : MediaType.photo;
+        return Photo(
+          id: json['id'].toString(),
+          dogId: json['dog'].toString(),
+          url: json['file'], 
+          thumbnailUrl: json['thumbnail'],
+          mediaType: mediaType,
+          takenAt: DateTime.parse(json['taken_at']),
+        );
+      }).toList();
     } else {
       throw Exception('Failed to load photos');
     }
   }
 
+  @override
   Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt) async {
     final token = await _authService.getToken();
     var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/photos/'));
     request.headers['Authorization'] = 'Token $token';
 
+    // Determine media type from file extension
+    final isVideo = imageName.toLowerCase().endsWith('.mp4') || 
+                    imageName.toLowerCase().endsWith('.mov') ||
+                    imageName.toLowerCase().endsWith('.avi');
+    
     request.fields['dog'] = dogId;
     request.fields['taken_at'] = takenAt.toIso8601String();
+    request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
     request.files.add(http.MultipartFile.fromBytes(
-      'image',
+      'file',
       imageBytes,
       filename: imageName,
     ));
@@ -246,10 +260,14 @@ class ApiDataService implements DataService {
 
     if (response.statusCode == 201) {
       final data = json.decode(response.body);
+      final mediaTypeStr = data['media_type'] ?? 'PHOTO';
+      final mediaType = mediaTypeStr == 'VIDEO' ? MediaType.video : MediaType.photo;
       return Photo(
         id: data['id'].toString(),
         dogId: data['dog'].toString(),
-        url: data['image'],
+        url: data['file'],
+        thumbnailUrl: data['thumbnail'],
+        mediaType: mediaType,
         takenAt: DateTime.parse(data['taken_at']),
       );
     } else {
@@ -446,7 +464,7 @@ class ApiDataService implements DataService {
     }
   }
 
-  Future<List<GroupMedia>> getFeed() async {
+  Future<List<gm.GroupMedia>> getFeed() async {
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('${AuthService.baseUrl}/api/feed/'),
@@ -455,7 +473,7 @@ class ApiDataService implements DataService {
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
-      return data.map((json) => GroupMedia.fromJson(json)).toList();
+      return data.map((json) => gm.GroupMedia.fromJson(json)).toList();
     } else {
       throw Exception('Failed to load feed');
     }

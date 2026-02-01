@@ -51,13 +51,20 @@ def save_user_profile(sender, instance, **kwargs):
         UserProfile.objects.create(user=instance)
 
 class Photo(models.Model):
+    MEDIA_TYPE_CHOICES = [
+        ('PHOTO', 'Photo'),
+        ('VIDEO', 'Video'),
+    ]
+    
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='photos')
-    image = models.ImageField(upload_to='dog_photos/')
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES, default='PHOTO')
+    file = models.FileField(upload_to='dog_photos/')
+    thumbnail = models.ImageField(upload_to='dog_photos/thumbnails/', null=True, blank=True)
     taken_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Photo of {self.dog.name} at {self.taken_at}"
+        return f"{self.get_media_type_display()} of {self.dog.name} at {self.taken_at}"
 
 class DateChangeRequest(models.Model):
     REQUEST_TYPE_CHOICES = [

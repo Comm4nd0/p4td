@@ -40,7 +40,7 @@ class PhotoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Photo
-        fields = ['id', 'dog', 'dog_name', 'image', 'taken_at', 'created_at']
+        fields = ['id', 'dog', 'dog_name', 'media_type', 'file', 'thumbnail', 'taken_at', 'created_at']
         read_only_fields = ['created_at']
 
 class DateChangeRequestSerializer(serializers.ModelSerializer):

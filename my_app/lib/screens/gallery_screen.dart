@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import 'dart:typed_data';
 import '../models/photo.dart';
 import '../services/data_service.dart';
@@ -106,6 +107,46 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
+  Future<void> _pickAndUploadVideo() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? video = await picker.pickVideo(source: ImageSource.gallery);
+
+    if (video == null) return;
+
+    try {
+      setState(() => _uploading = true);
+      
+      final videoBytes = await video.readAsBytes();
+      final now = DateTime.now();
+      
+      await _dataService.uploadPhoto(
+        widget.dogId,
+        videoBytes,
+        video.name,
+        now,
+      );
+
+      // Refresh the gallery
+      setState(() {
+        _photosFuture = _dataService.getPhotos(widget.dogId);
+        _uploading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Video uploaded successfully!')),
+        );
+      }
+    } catch (e) {
+      setState(() => _uploading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload video: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -135,12 +176,20 @@ class _GalleryScreenState extends State<GalleryScreen> {
                             _pickAndUploadMultipleImages();
                           },
                         ),
+                        ListTile(
+                          leading: const Icon(Icons.videocam),
+                          title: const Text('Upload Video'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _pickAndUploadVideo();
+                          },
+                        ),
                       ],
                     ),
                   ),
                 );
               },
-              tooltip: 'Upload Photos',
+              tooltip: 'Upload Photos/Videos',
               child: const Icon(Icons.add_photo_alternate),
             )
           : null,
@@ -172,9 +221,37 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 },
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    photo.url,
-                    fit: BoxFit.cover,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Show thumbnail for videos, image URL for photos
+                      Image.network(
+                        photo.isVideo && photo.thumbnailUrl != null 
+                          ? photo.thumbnailUrl!
+                          : photo.url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: Icon(Icons.image_not_supported),
+                            ),
+                          );
+                        },
+                      ),
+                      // Play button overlay for videos
+                      if (photo.isVideo)
+                        Container(
+                          color: Colors.black26,
+                          child: const Center(
+                            child: Icon(
+                              Icons.play_circle_filled,
+                              color: Colors.white,
+                              size: 48,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               );
@@ -249,9 +326,14 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
             },
             itemCount: widget.photos.length,
             itemBuilder: (context, index) {
-              return Center(
-                child: Image.network(widget.photos[index].url),
-              );
+              final photo = widget.photos[index];
+              if (photo.isVideo) {
+                return VideoViewer(url: photo.url, thumbnail: photo.thumbnailUrl);
+              } else {
+                return Center(
+                  child: Image.network(photo.url),
+                );
+              }
             },
           ),
           // Page indicators at the bottom
@@ -279,6 +361,101 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                   ),
                 ),
               ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+class VideoViewer extends StatefulWidget {
+  final String url;
+  final String? thumbnail;
+
+  const VideoViewer({required this.url, this.thumbnail});
+
+  @override
+  State<VideoViewer> createState() => _VideoViewerState();
+}
+
+class _VideoViewerState extends State<VideoViewer> {
+  VideoPlayerController? _controller;
+  bool _isPlaying = false;
+  bool _initialized = false;
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeVideo() async {
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    await _controller!.initialize();
+    if (mounted) {
+      setState(() => _initialized = true);
+      _controller!.play();
+      setState(() => _isPlaying = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_initialized) {
+      return GestureDetector(
+        onTap: _initializeVideo,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (widget.thumbnail != null)
+              Image.network(
+                widget.thumbnail!,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+              )
+            else
+              Container(
+                width: double.infinity,
+                height: double.infinity,
+                color: Colors.black,
+              ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: const Icon(Icons.play_arrow, color: Colors.white, size: 48),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        if (_isPlaying) {
+          _controller!.pause();
+        } else {
+          _controller!.play();
+        }
+        setState(() => _isPlaying = !_isPlaying);
+      },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AspectRatio(
+            aspectRatio: _controller!.value.aspectRatio,
+            child: VideoPlayer(_controller!),
+          ),
+          if (!_isPlaying)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: const Icon(Icons.play_arrow, color: Colors.white, size: 48),
             ),
         ],
       ),

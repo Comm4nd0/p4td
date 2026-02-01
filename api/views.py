@@ -2,8 +2,14 @@ from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer
+from django.utils import timezone
+from django.core.files.base import ContentFile
+import io
+from PIL import Image
+import os
+import tempfile
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
@@ -99,7 +105,54 @@ class PhotoViewSet(viewsets.ModelViewSet):
         if dog.owner != self.request.user and not self.request.user.is_staff:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only upload photos for your own dogs")
+        
+        # Generate thumbnail for videos
+        media_type = serializer.validated_data.get('media_type', 'PHOTO')
+        if media_type == 'VIDEO':
+            self._generate_video_thumbnail(serializer)
+        
         serializer.save()
+
+    def _generate_video_thumbnail(self, serializer):
+        """Generate a thumbnail for video uploads"""
+        try:
+            import subprocess
+            
+            file_obj = serializer.validated_data.get('file')
+            if not file_obj:
+                return
+            
+            # Save video temporarily
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
+                for chunk in file_obj.chunks():
+                    tmp_video.write(chunk)
+                tmp_video_path = tmp_video.name
+            
+            try:
+                # Generate thumbnail at 1 second mark using ffmpeg
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_thumb:
+                    thumb_path = tmp_thumb.name
+                
+                subprocess.run([
+                    'ffmpeg', '-i', tmp_video_path, 
+                    '-ss', '00:00:01', 
+                    '-vframes', '1', 
+                    '-s', '320x320', 
+                    thumb_path
+                ], capture_output=True, timeout=30)
+                
+                # Load thumbnail image and save to serializer
+                if os.path.exists(thumb_path):
+                    with open(thumb_path, 'rb') as f:
+                        thumb_content = ContentFile(f.read(), name='thumbnail.jpg')
+                        serializer.validated_data['thumbnail'] = thumb_content
+                    os.unlink(thumb_path)
+            finally:
+                if os.path.exists(tmp_video_path):
+                    os.unlink(tmp_video_path)
+        except Exception as e:
+            # Fail silently - thumbnail is optional
+            print(f"Error generating video thumbnail: {e}")
 
     @action(detail=False, methods=['get'])
     def by_dog(self, request):
