@@ -1,0 +1,46 @@
+# Docker Compose for local development with production-like environment
+# Run: docker-compose up
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: p4td
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: devpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SECRET_KEY=dev-secret-key-for-local-docker-only
+      - DJANGO_DEBUG=True
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+      - RDS_HOSTNAME=db
+      - RDS_DB_NAME=p4td
+      - RDS_USERNAME=postgres
+      - RDS_PASSWORD=devpassword
+      - RDS_PORT=5432
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./media:/app/media
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn --bind 0.0.0.0:8000 --workers 2 p4td_backend.wsgi:application"
+
+volumes:
+  postgres_data:

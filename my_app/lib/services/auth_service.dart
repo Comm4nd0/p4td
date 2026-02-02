@@ -7,16 +7,24 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class AuthService {
   final _storage = const FlutterSecureStorage();
 
+  // Production URL can be set at compile time:
+  // flutter build apk --dart-define=API_URL=https://your-api.com
+  static const String _prodUrl = String.fromEnvironment('API_URL');
+  
   static String get baseUrl {
+    // Use production URL if set via --dart-define
+    if (_prodUrl.isNotEmpty) {
+      return _prodUrl;
+    }
+    
+    // Development fallbacks
     if (kIsWeb) {
       return 'http://127.0.0.1:8000';
     } else {
-      // Platform.isAndroid check can throw on Web, so we must be inside the else block of kIsWeb
-      // However, to be safe and simple for MVP:
       try {
         if (Platform.isAndroid) return 'http://10.0.2.2:8000';
       } catch (e) {
-        // Platform.isAndroid might fail on web, but kIsWeb is already checked
+        // Platform check might fail on some platforms
       }
       return 'http://127.0.0.1:8000';
     }

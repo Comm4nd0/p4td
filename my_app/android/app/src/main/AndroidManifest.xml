@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="my_app"
+        android:label="Paws 4 Thought Dogs"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

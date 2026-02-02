@@ -4,6 +4,13 @@ __pycache__/
 *.egg-info/
 venv/
 .env
+aws-config.env
+
+# Android signing keys (NEVER commit these)
+my_app/android/key.properties
+my_app/android/keystore/
+*.jks
+*.keystore
 db.sqlite3
 
 # Django
