@@ -48,7 +48,7 @@ android {
 
     defaultConfig {
         applicationId "uk.co.paws4thoughtdogs.app"
-        minSdkVersion flutter.minSdkVersion
+        minSdkVersion 21
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
