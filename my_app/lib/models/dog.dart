@@ -4,8 +4,7 @@ enum Weekday {
   wednesday,
   thursday,
   friday,
-  saturday,
-  sunday,
+  // Note: saturday and sunday removed - daycare only operates Mon-Fri
 }
 
 extension WeekdayExtension on Weekday {
