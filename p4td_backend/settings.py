@@ -204,11 +204,15 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
-# Allow all origins only in DEBUG mode and if no specific origins are configured
-if DEBUG and not CORS_ALLOWED_ORIGINS:
+# Allow all origins if:
+# 1. CORS_ALLOW_ALL_ORIGINS env var is set to True, OR
+# 2. DEBUG mode and no specific origins configured
+_cors_allow_all_env = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 'yes')
+if _cors_allow_all_env or (DEBUG and not CORS_ALLOWED_ORIGINS):
     CORS_ALLOW_ALL_ORIGINS = True
 else:
     CORS_ALLOW_ALL_ORIGINS = False
+
 
 # =============================================================================
 # SECURITY HEADERS (Production)
