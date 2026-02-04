@@ -1,4 +1,4 @@
-package com.example.my_app
+package uk.co.paws4thoughtdogs.app
 
 import io.flutter.embedding.android.FlutterActivity
 
