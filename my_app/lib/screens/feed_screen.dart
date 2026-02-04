@@ -49,7 +49,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _uploadMedia() async {
     final picker = ImagePicker();
 
-    // Show options for photo or video
+    // Show options for photo, video, or multiple photos
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
@@ -66,12 +66,24 @@ class _FeedScreenState extends State<FeedScreen> {
               title: const Text('Upload Video'),
               onTap: () => Navigator.pop(context, 'video'),
             ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Upload Multiple Photos'),
+              subtitle: const Text('Select several photos at once'),
+              onTap: () => Navigator.pop(context, 'multiple'),
+            ),
           ],
         ),
       ),
     );
 
     if (choice == null) return;
+
+    // Handle multiple photos upload
+    if (choice == 'multiple') {
+      await _uploadMultiplePhotos(picker);
+      return;
+    }
 
     XFile? file;
     if (choice == 'photo') {
@@ -109,6 +121,101 @@ class _FeedScreenState extends State<FeedScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
         );
+      }
+    }
+  }
+
+  Future<void> _uploadMultiplePhotos(ImagePicker picker) async {
+    // Pick multiple images
+    final files = await picker.pickMultiImage();
+    if (files.isEmpty) return;
+
+    // Show caption dialog
+    final caption = await _showCaptionDialog();
+    if (caption == null) return; // User cancelled
+
+    // Prepare files
+    final fileData = <(Uint8List, String)>[];
+    for (final file in files) {
+      final bytes = await file.readAsBytes();
+      fileData.add((bytes, file.name));
+    }
+
+    // Show progress dialog
+    int completed = 0;
+    final total = files.length;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text('Uploading $completed/$total photos...'),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    try {
+      await _dataService.uploadMultipleGroupMedia(
+        files: fileData,
+        caption: caption.isEmpty ? null : caption,
+        onProgress: (done, count) {
+          completed = done;
+          // Update progress - need to rebuild dialog
+          if (mounted) {
+            Navigator.pop(context);
+            if (done < count) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => AlertDialog(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text('Uploading $done/$count photos...'),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(value: done / count),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+        },
+      );
+      if (mounted) {
+        Navigator.pop(context); // Close final dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully uploaded $total photos!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadFeed();
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close progress dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Upload failed after $completed/$total: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        if (completed > 0) _loadFeed(); // Refresh to show any that succeeded
       }
     }
   }

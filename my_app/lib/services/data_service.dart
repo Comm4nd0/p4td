@@ -526,6 +526,26 @@ class ApiDataService implements DataService {
     }
   }
 
+  /// Upload multiple photos to the group feed
+  /// [files] is a list of (bytes, filename) tuples
+  /// [onProgress] is called after each file upload with (completed, total)
+  Future<void> uploadMultipleGroupMedia({
+    required List<(Uint8List, String)> files,
+    String? caption,
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    for (int i = 0; i < files.length; i++) {
+      final (bytes, fileName) = files[i];
+      await uploadGroupMedia(
+        fileBytes: bytes,
+        fileName: fileName,
+        isVideo: false,
+        caption: caption,
+      );
+      onProgress?.call(i + 1, files.length);
+    }
+  }
+
   Future<void> deleteGroupMedia(String mediaId) async {
     final headers = await _getHeaders();
     final response = await http.delete(
