@@ -113,3 +113,4 @@ yarn-error.log
 *.swo
 *~
 .#*
+tools/
