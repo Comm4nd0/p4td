@@ -19,7 +19,8 @@ abstract class DataService {
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare});
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId});
+  Future<List<OwnerProfile>> getOwners();
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
 }
@@ -313,6 +314,7 @@ class ApiDataService implements DataService {
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (daysInDaycare != null && daysInDaycare.isNotEmpty) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
+      if (ownerId != null) request.fields['owner'] = ownerId;
       
       // Use bytes instead of file path for cross-platform compatibility
       request.files.add(http.MultipartFile.fromBytes(
@@ -356,6 +358,7 @@ class ApiDataService implements DataService {
           'food_instructions': foodInstructions,
           'medical_notes': medicalNotes,
           if (daysInDaycare != null && daysInDaycare.isNotEmpty) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
+          if (ownerId != null) 'owner': int.parse(ownerId),
         }),
       );
 
@@ -557,6 +560,23 @@ class ApiDataService implements DataService {
       throw Exception('Failed to delete media');
     }
   }
+  }
+
+  @override
+  Future<List<OwnerProfile>> getOwners() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/profile/get_owners/'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((json) => OwnerProfile.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to load owners');
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -632,7 +652,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId}) async {
     return Dog(id: '99', name: name, ownerId: 'user1');
   }
 
@@ -695,5 +715,14 @@ class MockDataService implements DataService {
   @override
   Future<void> updateDateChangeRequestStatus(String requestId, String status) async {
     // Mock implementation
+  }
+  }
+
+  @override
+  Future<List<OwnerProfile>> getOwners() async {
+    return [
+      OwnerProfile(userId: 1, username: 'user1', email: 'user1@example.com'),
+      OwnerProfile(userId: 2, username: 'user2', email: 'user2@example.com'),
+    ];
   }
 }

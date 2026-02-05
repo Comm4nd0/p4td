@@ -20,19 +20,40 @@ class OwnerDetailSerializer(serializers.ModelSerializer):
         fields = ['user_id', 'username', 'email', 'address', 'phone_number', 'pickup_instructions']
         read_only_fields = ['user_id', 'username', 'email']
 
+class UserSummarySerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+
+    class Meta:
+        model = UserProfile
+        fields = ['user_id', 'username', 'email']
+
 class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Dog
         fields = ['id', 'owner', 'owner_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'created_at']
-        read_only_fields = ['owner', 'created_at']
+        read_only_fields = ['created_at']
+        extra_kwargs = {
+            'owner': {'required': False}
+        }
 
     def get_owner_details(self, obj):
         try:
             return OwnerDetailSerializer(obj.owner.profile).data
         except:
             return None
+
+    def validate_daycare_days(self, value):
+        if isinstance(value, str):
+            import json
+            try:
+                return json.loads(value)
+            except ValueError:
+                raise serializers.ValidationError("Invalid JSON for daycare_days")
+        return value
 
 class PhotoSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)

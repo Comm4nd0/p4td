@@ -75,6 +75,20 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def get_owners(self, request):
+        """Staff-only endpoint to get list of all owners: GET /profile/get_owners/"""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can view owner list")
+
+        profiles = UserProfile.objects.all()
+        # You might want to filter this later, e.g. .select_related('user')
+        from .serializers import UserSummarySerializer
+        serializer = UserSummarySerializer(profiles, many=True)
         return Response(serializer.data)
 
 class DogViewSet(viewsets.ModelViewSet):
@@ -88,8 +102,12 @@ class DogViewSet(viewsets.ModelViewSet):
         return Dog.objects.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
-        # Automatically assign the owner
-        serializer.save(owner=self.request.user)
+        # Allow staff to assign owner, otherwise default to self
+        if self.request.user.is_staff and 'owner' in self.request.data:
+            # Owner is already validated by serializer if present
+            serializer.save()
+        else:
+            serializer.save(owner=self.request.user)
 
 class PhotoViewSet(viewsets.ModelViewSet):
     serializer_class = PhotoSerializer
@@ -265,4 +283,11 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
-        serializer.save(uploaded_by=self.request.user)
+        try:
+            print(f"Creating GroupMedia for user: {self.request.user}")
+            print(f"Data: {self.request.data}")
+            serializer.save(uploaded_by=self.request.user)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise e

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/data_service.dart';
 import '../models/dog.dart';
+import '../models/owner_profile.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -20,10 +21,51 @@ class _AddDogScreenState extends State<AddDogScreen> {
   XFile? _selectedImage;
   Uint8List? _imageBytes;
   final Set<Weekday> _selectedDays = {};
+  
+  bool _isStaff = false;
+  List<OwnerProfile> _owners = [];
+  String? _selectedOwnerId;
+  bool _isLoadingOwners = false;
 
   final _nameController = TextEditingController();
   final _foodController = TextEditingController();
   final _medicalController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkUserRole();
+  }
+
+  Future<void> _checkUserRole() async {
+    try {
+      final profile = await _dataService.getProfile();
+      if (profile.isStaff) {
+        setState(() {
+          _isStaff = true;
+          _isLoadingOwners = true;
+        });
+        await _fetchOwners();
+      }
+    } catch (e) {
+      debugPrint('Error checking user role: $e');
+    }
+  }
+
+  Future<void> _fetchOwners() async {
+    try {
+      final owners = await _dataService.getOwners();
+      setState(() {
+        _owners = owners;
+        _isLoadingOwners = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching owners: $e');
+      setState(() {
+        _isLoadingOwners = false;
+      });
+    }
+  }
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -93,6 +135,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         imageBytes: _imageBytes,
         imageName: _selectedImage?.name,
         daysInDaycare: _selectedDays.toList(),
+        ownerId: _selectedOwnerId,
       );
 
       if (mounted) {
@@ -178,6 +221,32 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           child: const Text('Remove Photo'),
                         ),
                       const SizedBox(height: 24),
+                      if (_isStaff) ...[
+                        if (_isLoadingOwners)
+                          const Center(child: CircularProgressIndicator())
+                        else
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Assign Owner',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.person_search),
+                            ),
+                            value: _selectedOwnerId,
+                            items: _owners.map((owner) {
+                              return DropdownMenuItem(
+                                value: owner.userId.toString(),
+                                child: Text('${owner.username} (${owner.email})'),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedOwnerId = value;
+                              });
+                            },
+                            validator: (value) => value == null ? 'Required for staff' : null,
+                          ),
+                        const SizedBox(height: 24),
+                      ],
                       TextFormField(
                         controller: _nameController,
                         decoration: const InputDecoration(
