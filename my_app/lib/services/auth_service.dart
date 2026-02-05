@@ -26,7 +26,7 @@ class AuthService {
       } catch (e) {
         // Platform check might fail on some platforms
       }
-      return 'http://127.0.0.1:8000';
+      return 'http://46.137.83.83:8000';
     }
   }
 

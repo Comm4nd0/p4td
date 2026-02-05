@@ -209,7 +209,10 @@ class ApiDataService implements DataService {
   }
 
   @override
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
     final response = await http.get(
