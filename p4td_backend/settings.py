@@ -48,6 +48,12 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Always allow localhost and 127.0.0.1 for health checks
+if 'localhost' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('localhost')
+if '127.0.0.1' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('127.0.0.1')
+
 # =============================================================================
 # APPLICATION DEFINITION
 # =============================================================================
@@ -67,7 +73,7 @@ INSTALLED_APPS = [
 ]
 
 # Add storages app for S3 if configured
-if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
+if os.environ.get('AWS_STORAGE_BUCKET_NAME') and os.environ.get('AWS_ACCESS_KEY_ID'):
     INSTALLED_APPS.append('storages')
 
 MIDDLEWARE = [
@@ -160,7 +166,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 print("DEBUG: LOADING SETTINGS - AWS_STORAGE_BUCKET_NAME env:", os.environ.get('AWS_STORAGE_BUCKET_NAME'))
 
-if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
+if os.environ.get('AWS_STORAGE_BUCKET_NAME') and os.environ.get('AWS_ACCESS_KEY_ID'):
     # Production: Use S3 for media files
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
