@@ -209,7 +209,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  @override
+
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -302,7 +302,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId}) async {
     final token = await _authService.getToken();
     
     if (imageBytes != null) {
@@ -560,7 +560,7 @@ class ApiDataService implements DataService {
       throw Exception('Failed to delete media');
     }
   }
-  }
+
 
   @override
   Future<List<OwnerProfile>> getOwners() async {
@@ -716,7 +716,7 @@ class MockDataService implements DataService {
   Future<void> updateDateChangeRequestStatus(String requestId, String status) async {
     // Mock implementation
   }
-  }
+
 
   @override
   Future<List<OwnerProfile>> getOwners() async {
