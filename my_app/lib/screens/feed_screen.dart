@@ -49,7 +49,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _uploadMedia() async {
     final picker = ImagePicker();
 
-    // Show options for photo, video, or multiple photos
+    // Show options
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
@@ -57,19 +57,30 @@ class _FeedScreenState extends State<FeedScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.photo),
-              title: const Text('Upload Photo'),
-              onTap: () => Navigator.pop(context, 'photo'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam),
-              title: const Text('Upload Video'),
-              onTap: () => Navigator.pop(context, 'video'),
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(context, 'camera_photo'),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library),
+              title: const Text('Choose Photo'),
+              onTap: () => Navigator.pop(context, 'gallery_photo'),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.videocam),
+              title: const Text('Record Video'),
+              onTap: () => Navigator.pop(context, 'camera_video'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.video_library),
+              title: const Text('Choose Video'),
+              onTap: () => Navigator.pop(context, 'gallery_video'),
+            ),
+             const Divider(),
+            ListTile(
+              leading: const Icon(Icons.library_add),
               title: const Text('Upload Multiple Photos'),
-              subtitle: const Text('Select several photos at once'),
               onTap: () => Navigator.pop(context, 'multiple'),
             ),
           ],
@@ -86,10 +97,13 @@ class _FeedScreenState extends State<FeedScreen> {
     }
 
     XFile? file;
-    if (choice == 'photo') {
-      file = await picker.pickImage(source: ImageSource.gallery);
+    final isVideo = choice.contains('video');
+    final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
+
+    if (isVideo) {
+      file = await picker.pickVideo(source: source);
     } else {
-      file = await picker.pickVideo(source: ImageSource.gallery);
+      file = await picker.pickImage(source: source, imageQuality: 85);
     }
 
     if (file == null) return;
@@ -105,7 +119,7 @@ class _FeedScreenState extends State<FeedScreen> {
       await _dataService.uploadGroupMedia(
         fileBytes: bytes,
         fileName: file.name,
-        isVideo: choice == 'video',
+        isVideo: isVideo,
         caption: caption.isEmpty ? null : caption,
       );
       if (mounted) {

@@ -285,9 +285,77 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         try:
             print(f"Creating GroupMedia for user: {self.request.user}")
-            print(f"Data: {self.request.data}")
+            # Generate thumbnail for videos
+            media_type = serializer.validated_data.get('media_type', 'PHOTO')
+            if media_type == 'VIDEO':
+                self._generate_video_thumbnail(serializer)
+            
             serializer.save(uploaded_by=self.request.user)
         except Exception as e:
             import traceback
             traceback.print_exc()
             raise e
+
+    def _generate_video_thumbnail(self, serializer):
+        """Generate a thumbnail for video uploads"""
+        try:
+            file_obj = serializer.validated_data.get('file')
+            if not file_obj:
+                return
+            
+            # Save video temporarily to disk
+            import tempfile
+            import subprocess
+            import os
+            from django.core.files.base import ContentFile
+
+            # Create temp file with proper extension
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
+                # Reset file pointer to beginning
+                if hasattr(file_obj, 'seek'):
+                    file_obj.seek(0)
+                
+                # Write file content
+                if hasattr(file_obj, 'read'):
+                    tmp_video.write(file_obj.read())
+                else:
+                    for chunk in file_obj.chunks():
+                        tmp_video.write(chunk)
+                
+                tmp_video_path = tmp_video.name
+            
+            try:
+                # Create thumbnail file path
+                thumb_path = tempfile.mktemp(suffix='.jpg')
+                
+                # Generate thumbnail at 1 second mark using ffmpeg
+                result = subprocess.run([
+                    'ffmpeg', '-i', tmp_video_path, 
+                    '-ss', '00:00:01', 
+                    '-vframes', '1', 
+                    '-s', '320x320', 
+                    '-y',  # Overwrite output file
+                    thumb_path
+                ], capture_output=True, timeout=30, text=True)
+                
+                # Check if thumbnail was created successfully
+                if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+                    with open(thumb_path, 'rb') as f:
+                        thumb_content = ContentFile(f.read(), name='thumbnail.jpg')
+                        serializer.validated_data['thumbnail'] = thumb_content
+                    os.unlink(thumb_path)
+                else:
+                    print(f"Failed to generate thumbnail. Return code: {result.returncode}")
+                    if result.stderr:
+                        print(f"FFmpeg stderr: {result.stderr}")
+            finally:
+                # Clean up temporary video file
+                if os.path.exists(tmp_video_path):
+                    try:
+                        os.unlink(tmp_video_path)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"Error generating video thumbnail: {e}")
+            # Don't fail the upload if thumbnail generation fails
+            pass
