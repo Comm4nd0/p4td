@@ -3,3 +3,5 @@ djangorestframework
 djoser
 django-cors-headers
 python-dotenv
+django-storages
+boto3

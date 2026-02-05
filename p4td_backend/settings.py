@@ -154,12 +154,11 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# WhiteNoise for efficient static file serving
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
 # =============================================================================
 # MEDIA FILES (User uploads)
 # =============================================================================
+
+print("DEBUG: LOADING SETTINGS - AWS_STORAGE_BUCKET_NAME env:", os.environ.get('AWS_STORAGE_BUCKET_NAME'))
 
 if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
     # Production: Use S3 for media files
@@ -173,11 +172,29 @@ if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
     AWS_S3_FILE_OVERWRITE = False
     
     DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
     MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/'
 else:
     # Development: Use local file storage
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
     MEDIA_URL = '/media/'
     MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # =============================================================================
 # REST FRAMEWORK
