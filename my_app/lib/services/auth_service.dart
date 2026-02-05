@@ -46,6 +46,18 @@ class AuthService {
         await _storage.write(key: 'auth_token', value: token);
         return null; // Success
       } else {
+        try {
+          final errorData = json.decode(response.body);
+          if (errorData is Map) {
+            if (errorData.containsKey('non_field_errors')) {
+              return (errorData['non_field_errors'] as List).first.toString();
+            }
+            // Return first value of any other error
+            return errorData.values.first.toString();
+          }
+        } catch (_) {
+          // Fallback if parsing fails
+        }
         return 'Login failed: ${response.statusCode}';
       }
     } catch (e) {
