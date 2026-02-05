@@ -209,10 +209,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-<<<<<<< Updated upstream
 
-=======
->>>>>>> Stashed changes
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -288,6 +285,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images) async {
     final uploadedPhotos = <Photo>[];
     
@@ -426,6 +424,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -448,6 +447,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<void> updateDateChangeRequestStatus(String requestId, String status) async {
     final headers = await _getHeaders();
     final response = await http.post(
