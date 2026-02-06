@@ -12,6 +12,31 @@ import os
 import tempfile
 import subprocess
 
+def process_image(image_file, max_size=(1280, 1280), quality=85):
+    """Resizes and compresses an image while maintaining aspect ratio."""
+    try:
+        img = Image.open(image_file)
+        
+        # Convert to RGB if necessary (e.g., for PNGs with transparency)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        
+        # Resize while maintaining aspect ratio if it's larger than max_size
+        if img.width > max_size[0] or img.height > max_size[1]:
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        # Save to a BytesIO object with compression
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=quality, optimize=True)
+        output.seek(0)
+        
+        # Return a new ContentFile that can be saved to a Django FileField
+        new_name = os.path.splitext(image_file.name)[0] + '.jpg'
+        return ContentFile(output.read(), name=new_name)
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        return image_file
+
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated]
@@ -103,11 +128,24 @@ class DogViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         # Allow staff to assign owner, otherwise default to self
+        self._handle_image_upload(serializer)
         if self.request.user.is_staff and 'owner' in self.request.data:
             # Owner is already validated by serializer if present
             serializer.save()
         else:
             serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer):
+        self._handle_image_upload(serializer)
+        serializer.save()
+
+    def _handle_image_upload(self, serializer):
+        if 'profile_image' in serializer.validated_data:
+            image_file = serializer.validated_data['profile_image']
+            if image_file:
+                # Resize profile images to max 800x800
+                processed_image = process_image(image_file, max_size=(800, 800))
+                serializer.validated_data['profile_image'] = processed_image
 
 class PhotoViewSet(viewsets.ModelViewSet):
     serializer_class = PhotoSerializer
@@ -125,10 +163,20 @@ class PhotoViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only upload photos for your own dogs")
         
-        # Generate thumbnail for videos
+        # Generate thumbnail and resize for photos
         media_type = serializer.validated_data.get('media_type', 'PHOTO')
         if media_type == 'VIDEO':
             self._generate_video_thumbnail(serializer)
+        elif media_type == 'PHOTO':
+            image_file = serializer.validated_data.get('file')
+            if image_file:
+                # Resize main photo to max 1280x1280
+                processed_image = process_image(image_file, max_size=(1280, 1280))
+                serializer.validated_data['file'] = processed_image
+                
+                # Generate a 400x400 thumbnail for the photo
+                thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
+                serializer.validated_data['thumbnail'] = thumbnail
         
         serializer.save()
 
@@ -285,10 +333,20 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         try:
             print(f"Creating GroupMedia for user: {self.request.user}")
-            # Generate thumbnail for videos
+            # Generate thumbnail and resize for photos
             media_type = serializer.validated_data.get('media_type', 'PHOTO')
             if media_type == 'VIDEO':
                 self._generate_video_thumbnail(serializer)
+            elif media_type == 'PHOTO':
+                image_file = serializer.validated_data.get('file')
+                if image_file:
+                    # Resize main photo to max 1280x1280
+                    processed_image = process_image(image_file, max_size=(1280, 1280))
+                    serializer.validated_data['file'] = processed_image
+                    
+                    # Generate a 400x400 thumbnail for the photo
+                    thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
+                    serializer.validated_data['thumbnail'] = thumbnail
             
             serializer.save(uploaded_by=self.request.user)
         except Exception as e:
