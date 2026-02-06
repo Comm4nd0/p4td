@@ -539,9 +539,9 @@ class _FeedScreenState extends State<FeedScreen> {
     try {
       final updatedMedia = await _dataService.toggleReaction(mediaId, emoji);
       setState(() {
-        final index = _mediaItems.indexWhere((m) => m.id == mediaId);
+        final index = _feed.indexWhere((m) => m.id == mediaId);
         if (index != -1) {
-          _mediaItems[index] = updatedMedia;
+          _feed[index] = updatedMedia;
         }
       });
     } catch (e) {

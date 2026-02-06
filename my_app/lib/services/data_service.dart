@@ -485,6 +485,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<List<gm.GroupMedia>> getFeed() async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -567,6 +568,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<void> deleteGroupMedia(String mediaId) async {
     final headers = await _getHeaders();
     final response = await http.delete(
@@ -777,5 +779,13 @@ class MockDataService implements DataService {
   @override
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<List<OwnerProfile>> getOwners() async {
+    return [
+      OwnerProfile(userId: 1, username: 'user1', email: 'user1@example.com'),
+      OwnerProfile(userId: 2, username: 'user2', email: 'user2@example.com'),
+    ];
   }
 }
