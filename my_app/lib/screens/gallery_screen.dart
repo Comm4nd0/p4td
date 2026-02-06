@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
@@ -29,7 +30,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _pickAndUploadImage() async {
     final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1280,
+      maxHeight: 1280,
+      imageQuality: 85,
+    );
 
     if (image == null) return;
 
@@ -225,12 +231,15 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     fit: StackFit.expand,
                     children: [
                       // Show thumbnail for videos, image URL for photos
-                      Image.network(
-                        photo.isVideo && photo.thumbnailUrl != null 
+                      CachedNetworkImage(
+                        imageUrl: photo.isVideo && photo.thumbnailUrl != null 
                           ? photo.thumbnailUrl!
                           : photo.url,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[200],
+                        ),
+                        errorWidget: (context, url, error) {
                           return Container(
                             color: Colors.grey[300],
                             child: const Center(
@@ -331,7 +340,11 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                 return VideoViewer(url: photo.url, thumbnail: photo.thumbnailUrl);
               } else {
                 return Center(
-                  child: Image.network(photo.url),
+                  child: CachedNetworkImage(
+                    imageUrl: photo.url,
+                    placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                    errorWidget: (context, url, error) => const Icon(Icons.error),
+                  ),
                 );
               }
             },
@@ -407,11 +420,18 @@ class _VideoViewerState extends State<VideoViewer> {
           alignment: Alignment.center,
           children: [
             if (widget.thumbnail != null)
-              Image.network(
-                widget.thumbnail!,
+              CachedNetworkImage(
+                imageUrl: widget.thumbnail!,
                 width: double.infinity,
                 height: double.infinity,
                 fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  color: Colors.grey[200],
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: Colors.grey[300],
+                  child: const Center(child: Icon(Icons.error)),
+                ),
               )
             else
               Container(

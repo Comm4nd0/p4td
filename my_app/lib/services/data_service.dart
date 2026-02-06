@@ -23,6 +23,21 @@ abstract class DataService {
   Future<List<OwnerProfile>> getOwners();
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
+  Future<List<gm.GroupMedia>> getFeed();
+  Future<void> uploadGroupMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required bool isVideo,
+    String? caption,
+    Uint8List? thumbnailBytes,
+  });
+  Future<void> uploadMultipleGroupMedia({
+    required List<(Uint8List, String)> files,
+    String? caption,
+    void Function(int completed, int total)? onProgress,
+  });
+  Future<void> deleteGroupMedia(String mediaId);
+  Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji);
 }
 
 class ApiDataService implements DataService {
@@ -470,6 +485,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<List<gm.GroupMedia>> getFeed() async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -552,6 +568,7 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
   Future<void> deleteGroupMedia(String mediaId) async {
     final headers = await _getHeaders();
     final response = await http.delete(
@@ -561,6 +578,22 @@ class ApiDataService implements DataService {
 
     if (response.statusCode != 204) {
       throw Exception('Failed to delete media');
+    }
+  }
+
+  @override
+  Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/react/'),
+      headers: headers,
+      body: json.encode({'emoji': emoji}),
+    );
+
+    if (response.statusCode == 200) {
+      return gm.GroupMedia.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to react: ${response.body}');
     }
   }
 
@@ -720,6 +753,33 @@ class MockDataService implements DataService {
     // Mock implementation
   }
 
+
+  @override
+  Future<List<gm.GroupMedia>> getFeed() async => [];
+  
+  @override
+  Future<void> uploadGroupMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required bool isVideo,
+    String? caption,
+    Uint8List? thumbnailBytes,
+  }) async {}
+
+  @override
+  Future<void> uploadMultipleGroupMedia({
+    required List<(Uint8List, String)> files,
+    String? caption,
+    void Function(int completed, int total)? onProgress,
+  }) async {}
+
+  @override
+  Future<void> deleteGroupMedia(String mediaId) async {}
+
+  @override
+  Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
+    throw UnimplementedError();
+  }
 
   @override
   Future<List<OwnerProfile>> getOwners() async {

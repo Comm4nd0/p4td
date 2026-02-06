@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 
@@ -103,7 +104,12 @@ class _FeedScreenState extends State<FeedScreen> {
     if (isVideo) {
       file = await picker.pickVideo(source: source);
     } else {
-      file = await picker.pickImage(source: source, imageQuality: 85);
+      file = await picker.pickImage(
+        source: source,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
     }
 
     if (file == null) return;
@@ -425,11 +431,16 @@ class _FeedScreenState extends State<FeedScreen> {
           ),
           // Media content
           if (media.isPhoto)
-            Image.network(
-              media.fileUrl,
+            CachedNetworkImage(
+              imageUrl: media.fileUrl,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
+              placeholder: (context, url) => Container(
+                height: 200,
+                color: Colors.grey[200],
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+              errorWidget: (context, url, error) => Container(
                 height: 200,
                 color: Colors.grey[300],
                 child: const Center(child: Icon(Icons.error)),
@@ -440,12 +451,106 @@ class _FeedScreenState extends State<FeedScreen> {
           // Caption
           if (media.caption != null && media.caption!.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
               child: Text(media.caption!),
             ),
+          
+          // Reactions
+          _buildReactionSection(media),
+          
+          const SizedBox(height: 8),
         ],
       ),
     );
+  }
+
+  Widget _buildReactionSection(GroupMedia media) {
+    final List<String> commonEmojis = ['❤️', '👍', '😂', '🔥', '🐾'];
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Current reactions count display
+          if (media.reactions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, top: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: media.reactions.entries.map((entry) {
+                  final isMyReaction = media.userReaction == entry.key;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(entry.key, style: const TextStyle(fontSize: 14)),
+                        const SizedBox(width: 4),
+                        Text(
+                          entry.value.toString(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
+                            color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          
+          // Quick Reaction Row
+          Row(
+            children: commonEmojis.map((emoji) {
+              final isSelected = media.userReaction == emoji;
+              return InkWell(
+                onTap: () => _toggleReaction(media.id, emoji),
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    emoji,
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: isSelected ? null : Colors.grey.withOpacity(0.5),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleReaction(String mediaId, String emoji) async {
+    try {
+      final updatedMedia = await _dataService.toggleReaction(mediaId, emoji);
+      setState(() {
+        final index = _feed.indexWhere((m) => m.id == mediaId);
+        if (index != -1) {
+          _feed[index] = updatedMedia;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 }
 
@@ -489,11 +594,20 @@ class _VideoPlayerState extends State<_VideoPlayer> {
           alignment: Alignment.center,
           children: [
             if (widget.thumbnail != null)
-              Image.network(
-                widget.thumbnail!,
+              CachedNetworkImage(
+                imageUrl: widget.thumbnail!,
                 width: double.infinity,
                 height: 250,
                 fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  height: 250,
+                  color: Colors.grey[200],
+                ),
+                errorWidget: (context, url, error) => Container(
+                  height: 250,
+                  color: Colors.grey[300],
+                  child: const Center(child: Icon(Icons.error)),
+                ),
               )
             else
               Container(

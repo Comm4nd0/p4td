@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
@@ -466,7 +467,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       child: CircleAvatar(
                         radius: 40,
                         backgroundImage: _dog.profileImageUrl != null 
-                            ? NetworkImage(_dog.profileImageUrl!) 
+                            ? CachedNetworkImageProvider(_dog.profileImageUrl!) 
                             : null,
                         child: _dog.profileImageUrl == null 
                             ? const Icon(Icons.pets, size: 40) 

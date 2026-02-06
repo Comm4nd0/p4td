@@ -129,3 +129,15 @@ class GroupMedia(models.Model):
 
     def __str__(self):
         return f"{self.media_type} by {self.uploaded_by.username} at {self.created_at}"
+
+class MediaReaction(models.Model):
+    media = models.ForeignKey(GroupMedia, on_delete=models.CASCADE, related_name='reactions')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='media_reactions')
+    emoji = models.CharField(max_length=20)  # Stores the emoji string
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('media', 'user', 'emoji')
+
+    def __str__(self):
+        return f"{self.user.username} reacted {self.emoji} to {self.media.id}"

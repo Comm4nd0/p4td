@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
@@ -237,11 +238,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (dog.profileImageUrl != null)
                         ClipRRect(
                           borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                          child: Image.network(
-                            dog.profileImageUrl!,
+                          child: CachedNetworkImage(
+                            imageUrl: dog.profileImageUrl!,
                             height: 200,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
+                            placeholder: (context, url) => Container(
+                              height: 200,
+                              color: Colors.grey[200],
+                              child: const Center(child: CircularProgressIndicator()),
+                            ),
+                            errorWidget: (context, url, error) =>
                                 const SizedBox(height: 200, child: Center(child: Icon(Icons.error))),
                           ),
                         ),
