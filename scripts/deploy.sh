@@ -31,8 +31,11 @@ ssh -i $SSH_KEY -o ConnectTimeout=60 ec2-user@$EC2_HOST '
     p4td:latest
 
   echo ">>> Waiting for container to start..."
-  sleep 3
+  sleep 5
   docker ps | grep p4td
+
+  echo ">>> Running migrations..."
+  docker exec p4td python manage.py migrate --noinput
 
   echo "=== DEPLOYMENT COMPLETE ==="
 '

@@ -3,6 +3,11 @@ enum MediaType { photo, video }
 class GroupMedia {
   final String id;
   final String uploadedBy;
+  final String uploadedByName;
+  final MediaType mediaType;
+  final String fileUrl;
+  final String? thumbnailUrl;
+  final String? caption;
   final Map<String, int> reactions;
   final String? userReaction;
   final DateTime createdAt;

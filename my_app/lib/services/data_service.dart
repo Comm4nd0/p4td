@@ -23,6 +23,21 @@ abstract class DataService {
   Future<List<OwnerProfile>> getOwners();
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
+  Future<List<gm.GroupMedia>> getFeed();
+  Future<void> uploadGroupMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required bool isVideo,
+    String? caption,
+    Uint8List? thumbnailBytes,
+  });
+  Future<void> uploadMultipleGroupMedia({
+    required List<(Uint8List, String)> files,
+    String? caption,
+    void Function(int completed, int total)? onProgress,
+  });
+  Future<void> deleteGroupMedia(String mediaId);
+  Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji);
 }
 
 class ApiDataService implements DataService {
@@ -738,10 +753,29 @@ class MockDataService implements DataService {
 
 
   @override
-  Future<List<OwnerProfile>> getOwners() async {
-    return [
-      OwnerProfile(userId: 1, username: 'user1', email: 'user1@example.com'),
-      OwnerProfile(userId: 2, username: 'user2', email: 'user2@example.com'),
-    ];
+  Future<List<gm.GroupMedia>> getFeed() async => [];
+  
+  @override
+  Future<void> uploadGroupMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required bool isVideo,
+    String? caption,
+    Uint8List? thumbnailBytes,
+  }) async {}
+
+  @override
+  Future<void> uploadMultipleGroupMedia({
+    required List<(Uint8List, String)> files,
+    String? caption,
+    void Function(int completed, int total)? onProgress,
+  }) async {}
+
+  @override
+  Future<void> deleteGroupMedia(String mediaId) async {}
+
+  @override
+  Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
+    throw UnimplementedError();
   }
 }
