@@ -375,7 +375,21 @@ class _FeedScreenState extends State<FeedScreen> {
       isStaff: widget.isStaff,
       onDelete: _deleteMedia,
       onReaction: (mediaId, emoji) => _toggleReaction(mediaId, emoji),
+      onComment: (mediaId, text) => _addComment(mediaId, text),
     );
+  }
+
+  Future<void> _addComment(String mediaId, String text) async {
+    try {
+      await _dataService.addComment(mediaId, text);
+      _loadFeed(); // Refresh to show new comment
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error adding comment: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _toggleReaction(String mediaId, String emoji) async {

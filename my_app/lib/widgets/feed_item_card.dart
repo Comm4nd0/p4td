@@ -9,6 +9,7 @@ class FeedItemCard extends StatefulWidget {
   final bool isStaff;
   final Function(GroupMedia) onDelete;
   final Function(String, String) onReaction;
+  final Function(String, String) onComment;
 
   const FeedItemCard({
     super.key,
@@ -16,6 +17,7 @@ class FeedItemCard extends StatefulWidget {
     required this.isStaff,
     required this.onDelete,
     required this.onReaction,
+    required this.onComment,
   });
 
   @override
@@ -24,6 +26,14 @@ class FeedItemCard extends StatefulWidget {
 
 class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderStateMixin {
   bool _isExpanded = false;
+  bool _showComments = false;
+  final TextEditingController _commentController = TextEditingController();
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,9 +125,90 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           // Reactions
           _buildReactionSection(),
           
+          // Comments Section Toggle
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: TextButton.icon(
+              onPressed: () => setState(() => _showComments = !_showComments),
+              icon: Icon(_showComments ? Icons.comment : Icons.comment_outlined, size: 20),
+              label: Text(
+                widget.media.comments.isEmpty 
+                  ? 'Add Comment' 
+                  : '${widget.media.comments.length} Comments',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+
+          if (_showComments) _buildCommentsSection(),
+          
           const SizedBox(height: 8),
         ],
       ),
+    );
+  }
+
+  Widget _buildCommentsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        ...widget.media.comments.map((comment) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    comment.userName,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    DateFormat('d MMM, HH:mm').format(comment.createdAt),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 4),
+                child: Text(comment.text),
+              ),
+            ],
+          ),
+        )),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _commentController,
+                  decoration: InputDecoration(
+                    hintText: 'Add a comment...',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                  maxLines: null,
+                ),
+              ),
+              IconButton(
+                onPressed: () {
+                  if (_commentController.text.trim().isNotEmpty) {
+                    widget.onComment(widget.media.id, _commentController.text.trim());
+                    _commentController.clear();
+                  }
+                },
+                icon: const Icon(Icons.send, color: Colors.blue),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

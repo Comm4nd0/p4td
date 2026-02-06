@@ -1,3 +1,5 @@
+import 'comment.dart';
+
 enum MediaType { photo, video }
 
 class GroupMedia {
@@ -10,6 +12,7 @@ class GroupMedia {
   final String? caption;
   final Map<String, int> reactions;
   final String? userReaction;
+  final List<Comment> comments;
   final DateTime createdAt;
 
   GroupMedia({
@@ -22,6 +25,7 @@ class GroupMedia {
     this.caption,
     required this.reactions,
     this.userReaction,
+    required this.comments,
     required this.createdAt,
   });
 
@@ -43,6 +47,9 @@ class GroupMedia {
       caption: json['caption'],
       reactions: reactionsMap,
       userReaction: json['user_reaction'],
+      comments: (json['comments'] as List? ?? [])
+          .map((c) => Comment.fromJson(c))
+          .toList(),
       createdAt: DateTime.parse(json['created_at']),
     );
   }

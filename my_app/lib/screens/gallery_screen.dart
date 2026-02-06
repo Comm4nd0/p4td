@@ -276,6 +276,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
       builder: (_) => FullScreenImageViewer(
         photos: photos,
         initialIndex: initialIndex,
+        onRefresh: () {
+          setState(() {
+            _photosFuture = _dataService.getPhotos(widget.dogId);
+          });
+        },
       ),
     ));
   }
@@ -284,11 +289,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
 class FullScreenImageViewer extends StatefulWidget {
   final List<Photo> photos;
   final int initialIndex;
+  final VoidCallback? onRefresh;
 
   const FullScreenImageViewer({
     super.key,
     required this.photos,
     required this.initialIndex,
+    this.onRefresh,
   });
 
   @override
@@ -298,6 +305,9 @@ class FullScreenImageViewer extends StatefulWidget {
 class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
   late PageController _pageController;
   late int _currentIndex;
+  final TextEditingController _commentController = TextEditingController();
+  final DataService _dataService = ApiDataService();
+  bool _showComments = false;
 
   @override
   void initState() {
@@ -309,6 +319,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
   @override
   void dispose() {
     _pageController.dispose();
+    _commentController.dispose();
     super.dispose();
   }
 
@@ -317,6 +328,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
     final photo = widget.photos[_currentIndex];
 
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -325,56 +337,170 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
           style: const TextStyle(color: Colors.white),
         ),
       ),
-      backgroundColor: Colors.black,
-      body: Stack(
+      body: Column(
         children: [
-          PageView.builder(
-            controller: _pageController,
-            onPageChanged: (index) {
-              setState(() => _currentIndex = index);
-            },
-            itemCount: widget.photos.length,
-            itemBuilder: (context, index) {
-              final photo = widget.photos[index];
-              if (photo.isVideo) {
-                return VideoViewer(url: photo.url, thumbnail: photo.thumbnailUrl);
-              } else {
-                return Center(
-                  child: CachedNetworkImage(
-                    imageUrl: photo.url,
-                    placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                    errorWidget: (context, url, error) => const Icon(Icons.error),
-                  ),
-                );
-              }
-            },
-          ),
-          // Page indicators at the bottom
-          if (widget.photos.length > 1)
-            Positioned(
-              bottom: 16,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(
-                    widget.photos.length,
-                    (index) => Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: index == _currentIndex
-                            ? Colors.white
-                            : Colors.white.withOpacity(0.5),
+          Expanded(
+            child: Stack(
+              children: [
+                PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: (index) {
+                    setState(() => _currentIndex = index);
+                  },
+                  itemCount: widget.photos.length,
+                  itemBuilder: (context, index) {
+                    final photo = widget.photos[index];
+                    if (photo.isVideo) {
+                      return VideoViewer(url: photo.url, thumbnail: photo.thumbnailUrl);
+                    } else {
+                      return Center(
+                        child: CachedNetworkImage(
+                          imageUrl: photo.url,
+                          placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                          errorWidget: (context, url, error) => const Icon(Icons.error),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                // Page indicators
+                if (widget.photos.length > 1)
+                  Positioned(
+                    bottom: 16,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(
+                          widget.photos.length,
+                          (index) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: index == _currentIndex
+                                  ? Colors.white
+                                  : Colors.white.withOpacity(0.5),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
+              ],
             ),
+          ),
+          // Comments Section
+          Container(
+            color: Colors.grey[900],
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() => _showComments = !_showComments);
+                  },
+                  icon: Icon(
+                    _showComments ? Icons.keyboard_arrow_down : Icons.comment,
+                    color: Colors.white,
+                  ),
+                  label: Text(
+                    photo.comments.isEmpty
+                        ? 'Add a comment'
+                        : '${photo.comments.length} Comments',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                if (_showComments)
+                  Container(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.3,
+                    ),
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: photo.comments.length,
+                            itemBuilder: (context, index) {
+                              final comment = photo.comments[index];
+                              return ListTile(
+                                dense: true,
+                                title: Text(
+                                  comment.userName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  comment.text,
+                                  style: const TextStyle(color: Colors.white70),
+                                ),
+                                trailing: Text(
+                                  DateFormat('MMM d').format(comment.createdAt),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _commentController,
+                                  style: const TextStyle(color: Colors.white),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Add a comment...',
+                                    hintStyle: TextStyle(color: Colors.white38),
+                                    border: InputBorder.none,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.send, color: Colors.blue),
+                                onPressed: () async {
+                                  if (_commentController.text.isNotEmpty) {
+                                    try {
+                                      await _dataService.addComment(
+                                        photo.id,
+                                        _commentController.text,
+                                        isProfilePhoto: true,
+                                      );
+                                      _commentController.clear();
+                                      widget.onRefresh?.call();
+                                      // Note: We need the list to refresh in this view too
+                                      // For now, closing comments to force user to re-open
+                                      // or would be better to have a state manager here
+                                      setState(() => _showComments = false);
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Error: $e')),
+                                        );
+                                      }
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );

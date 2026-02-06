@@ -38,6 +38,8 @@ abstract class DataService {
   });
   Future<void> deleteGroupMedia(String mediaId);
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji);
+  Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false});
+  Future<void> deleteComment(String commentId);
 }
 
 class ApiDataService implements DataService {
@@ -225,6 +227,7 @@ class ApiDataService implements DataService {
 
   @override
 
+  @override
   Future<List<Photo>> getPhotos(String dogId) async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -234,18 +237,7 @@ class ApiDataService implements DataService {
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
-      return data.map((json) {
-        final mediaTypeStr = json['media_type'] ?? 'PHOTO';
-        final mediaType = mediaTypeStr == 'VIDEO' ? MediaType.video : MediaType.photo;
-        return Photo(
-          id: json['id'].toString(),
-          dogId: json['dog'].toString(),
-          url: json['file'], 
-          thumbnailUrl: json['thumbnail'],
-          mediaType: mediaType,
-          takenAt: DateTime.parse(json['taken_at']),
-        );
-      }).toList();
+      return data.map((json) => Photo.fromJson(json)).toList();
     } else {
       throw Exception('Failed to load photos');
     }
@@ -613,6 +605,34 @@ class ApiDataService implements DataService {
       throw Exception('Failed to load owners');
     }
   }
+
+  @override
+  Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false}) async {
+    final headers = await _getHeaders();
+    final endpoint = isProfilePhoto ? 'photos' : 'feed';
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/$endpoint/$mediaId/comment/'),
+      headers: headers,
+      body: json.encode({'text': text}),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Failed to add comment: ${response.body}');
+    }
+  }
+
+  @override
+  Future<void> deleteComment(String commentId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/comments/$commentId/'),
+      headers: headers,
+    );
+
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete comment');
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -788,4 +808,10 @@ class MockDataService implements DataService {
       OwnerProfile(userId: 2, username: 'user2', email: 'user2@example.com'),
     ];
   }
+
+  @override
+  Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false}) async {}
+
+  @override
+  Future<void> deleteComment(String commentId) async {}
 }
