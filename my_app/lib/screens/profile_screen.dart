@@ -17,6 +17,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   UserProfile? _profile;
   String? _error;
 
+  final _firstNameController = TextEditingController();
   final _addressController = TextEditingController();
   final _phoneController = TextEditingController();
   final _pickupController = TextEditingController();
@@ -32,6 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final profile = await _dataService.getProfile();
       setState(() {
         _profile = profile;
+        _firstNameController.text = profile.firstName ?? '';
         _addressController.text = profile.address ?? '';
         _phoneController.text = profile.phoneNumber ?? '';
         _pickupController.text = profile.pickupInstructions ?? '';
@@ -56,6 +58,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final updatedProfile = UserProfile(
         username: _profile!.username,
         email: _profile!.email,
+        firstName: _firstNameController.text,
         address: _addressController.text,
         phoneNumber: _phoneController.text,
         pickupInstructions: _pickupController.text,
@@ -109,6 +112,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       subtitle: Text(_profile!.email),
                     ),
                     const Divider(),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _firstNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'First Name',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.badge),
+                      ),
+                      textCapitalization: TextCapitalization.words,
+                    ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _phoneController,

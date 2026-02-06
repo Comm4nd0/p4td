@@ -44,8 +44,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
+        maxWidth: 800,
+        maxHeight: 800,
         imageQuality: 85,
       );
       if (image != null) {

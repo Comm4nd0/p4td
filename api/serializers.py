@@ -4,30 +4,43 @@ from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     is_staff = serializers.BooleanField(source='user.is_staff', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['username', 'email', 'address', 'phone_number', 'pickup_instructions', 'is_staff']
+        fields = ['username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'is_staff']
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        first_name = user_data.get('first_name')
+        
+        if first_name is not None:
+            instance.user.first_name = first_name
+            instance.user.save()
+            
+        return super().update(instance, validated_data)
 
 class OwnerDetailSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'email', 'address', 'phone_number', 'pickup_instructions']
-        read_only_fields = ['user_id', 'username', 'email']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions']
+        read_only_fields = ['user_id', 'username', 'first_name', 'email']
 
 class UserSummarySerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'email']
+        fields = ['user_id', 'username', 'first_name', 'email']
 
 class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
@@ -66,7 +79,7 @@ class PhotoSerializer(serializers.ModelSerializer):
 
 class DateChangeRequestSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
-    owner_name = serializers.CharField(source='dog.owner.username', read_only=True)
+    owner_name = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(source='approved_by.username', read_only=True)
     approved_at = serializers.DateTimeField(read_only=True)
 
@@ -74,6 +87,12 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
         model = DateChangeRequest
         fields = ['id', 'dog', 'dog_name', 'owner_name', 'request_type', 'original_date', 'new_date', 'status', 'is_charged', 'approved_by_name', 'approved_at', 'created_at']
         read_only_fields = ['created_at', 'approved_by_name', 'approved_at', 'status']
+
+    def get_owner_name(self, obj):
+        user = obj.dog.owner
+        if user.first_name:
+            return user.first_name
+        return user.username
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -83,9 +102,14 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
             self.fields['status'].read_only = True
 
 class GroupMediaSerializer(serializers.ModelSerializer):
-    uploaded_by_name = serializers.CharField(source='uploaded_by.username', read_only=True)
+    uploaded_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = GroupMedia
         fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'created_at']
         read_only_fields = ['uploaded_by', 'created_at']
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by.first_name:
+            return obj.uploaded_by.first_name
+        return obj.uploaded_by.username

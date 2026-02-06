@@ -4,6 +4,7 @@ class UserProfile {
   final String? address;
   final String? phoneNumber;
   final String? pickupInstructions;
+  final String? firstName;
   final bool isStaff;
 
   UserProfile({
@@ -12,6 +13,7 @@ class UserProfile {
     this.address,
     this.phoneNumber,
     this.pickupInstructions,
+    this.firstName,
     this.isStaff = false,
   });
 
@@ -22,12 +24,14 @@ class UserProfile {
       address: json['address'],
       phoneNumber: json['phone_number'],
       pickupInstructions: json['pickup_instructions'],
+      firstName: json['first_name'],
       isStaff: json['is_staff'] ?? false,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'first_name': firstName,
       'address': address,
       'phone_number': phoneNumber,
       'pickup_instructions': pickupInstructions,

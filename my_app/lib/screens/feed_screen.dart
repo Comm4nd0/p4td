@@ -104,7 +104,12 @@ class _FeedScreenState extends State<FeedScreen> {
     if (isVideo) {
       file = await picker.pickVideo(source: source);
     } else {
-      file = await picker.pickImage(source: source, imageQuality: 85);
+      file = await picker.pickImage(
+        source: source,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
     }
 
     if (file == null) return;
