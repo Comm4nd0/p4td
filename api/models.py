@@ -139,5 +139,16 @@ class MediaReaction(models.Model):
     class Meta:
         unique_together = ('media', 'user', 'emoji')
 
+class Comment(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='comments')
+    text = models.TextField()
+    group_media = models.ForeignKey(GroupMedia, on_delete=models.CASCADE, related_name='comments', null=True, blank=True)
+    photo = models.ForeignKey(Photo, on_delete=models.CASCADE, related_name='comments', null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
     def __str__(self):
-        return f"{self.user.username} reacted {self.emoji} to {self.media.id}"
+        target = self.group_media or self.photo
+        return f"Comment by {self.user.username} on {target}"

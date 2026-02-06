@@ -2,8 +2,8 @@ from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer
 from django.utils import timezone
 from django.core.files.base import ContentFile
 import io
@@ -179,6 +179,16 @@ class PhotoViewSet(viewsets.ModelViewSet):
                 serializer.validated_data['thumbnail'] = thumbnail
         
         serializer.save()
+
+    @action(detail=True, methods=['post'])
+    def comment(self, request, pk=None):
+        photo = self.get_object()
+        text = request.data.get('text')
+        if not text:
+            return Response({'detail': 'Text is required'}, status=400)
+        
+        Comment.objects.create(user=request.user, photo=photo, text=text)
+        return Response(self.get_serializer(photo).data)
 
     def _generate_video_thumbnail(self, serializer):
         """Generate a thumbnail for video uploads"""
@@ -438,4 +448,28 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             # Add the new reaction
             MediaReaction.objects.create(media=media, user=request.user, emoji=emoji)
             
+            
         return Response(self.get_serializer(media).data)
+
+    @action(detail=True, methods=['post'])
+    def comment(self, request, pk=None):
+        media = self.get_object()
+        text = request.data.get('text')
+        if not text:
+            return Response({'detail': 'Text is required'}, status=400)
+        
+        Comment.objects.create(user=request.user, group_media=media, text=text)
+        return Response(self.get_serializer(media).data)
+
+class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
+    queryset = Comment.objects.all()
+    serializer_class = CommentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_destroy(self, instance):
+        # Only allow deleting own comments or staff
+        if instance.user == self.request.user or self.request.user.is_staff:
+            instance.delete()
+        else:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only delete your own comments.")

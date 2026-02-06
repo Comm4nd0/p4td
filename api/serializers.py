@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -68,13 +68,27 @@ class DogSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid JSON for daycare_days")
         return value
 
+class CommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Comment
+        fields = ['id', 'user', 'user_name', 'text', 'created_at']
+        read_only_fields = ['user', 'created_at']
+
+    def get_user_name(self, obj):
+        if obj.user.first_name:
+            return obj.user.first_name
+        return obj.user.username
+
 class PhotoSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
+    comments = CommentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Photo
-        fields = ['id', 'dog', 'dog_name', 'media_type', 'file', 'thumbnail', 'taken_at', 'created_at']
+        fields = ['id', 'dog', 'dog_name', 'media_type', 'file', 'thumbnail', 'taken_at', 'created_at', 'comments']
         read_only_fields = ['created_at']
 
 class DateChangeRequestSerializer(serializers.ModelSerializer):
@@ -105,10 +119,11 @@ class GroupMediaSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
     user_reaction = serializers.SerializerMethodField()
+    comments = CommentSerializer(many=True, read_only=True)
 
     class Meta:
         model = GroupMedia
-        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'reactions', 'user_reaction', 'created_at']
+        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'reactions', 'user_reaction', 'comments', 'created_at']
         read_only_fields = ['uploaded_by', 'created_at']
 
     def get_uploaded_by_name(self, obj):
