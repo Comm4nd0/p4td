@@ -3,22 +3,28 @@
 # Fail on any error
 set -e
 
+# FIX: Set locale to avoid Ruby/CocoaPods ASCII errors
+export LANG=en_US.UTF-8
+
 # Debugging
 echo "Starting ci_post_clone.sh..."
 echo "Current directory: $(pwd)"
 
 # Install Flutter
-# We install it to $HOME because we don't want to pollute the source tree
-echo "Downloading Flutter..."
-git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter
+if [ -d "$HOME/flutter" ]; then
+    echo "Flutter already exists at $HOME/flutter"
+else
+    echo "Downloading Flutter..."
+    git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter
+fi
+
 export PATH="$PATH:$HOME/flutter/bin"
 
-# Run flutter doctor to see what state we are in (optional but helpful for debug logs)
+# Run flutter doctor to see what state we are in
+echo "Checking Flutter environment..."
 flutter doctor -v
 
 # Navigate to the Flutter project directory
-# $CI_PRIMARY_REPOSITORY_PATH is the root of the git repo
-# Our flutter project is in the 'my_app' subdirectory
 APP_DIR="$CI_PRIMARY_REPOSITORY_PATH/my_app"
 echo "Navigating to App Directory: $APP_DIR"
 cd "$APP_DIR"
@@ -27,11 +33,14 @@ cd "$APP_DIR"
 echo "Running flutter pub get..."
 flutter pub get
 
+# FIX: Ensure iOS artifacts are downloaded
+echo "Precaching iOS artifacts..."
+flutter precache --ios
+
 # Install CocoaPods
-# Note: Xcode Cloud environments usually have CocoaPods installed, but we run pod install
-# to generate the Pods project and workspace integration that is ignored in git.
 echo "Running pod install in ios/..."
 cd ios
-pod install
+# Use repo-update to ensure specs are fresh
+pod install --repo-update
 
 echo "ci_post_clone.sh completed successfully."
