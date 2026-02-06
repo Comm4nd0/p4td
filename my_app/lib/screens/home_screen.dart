@@ -147,8 +147,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
               ],
-                  ),
-              ],
             ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.calendar_month),
