@@ -7,6 +7,7 @@ import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
 import '../models/owner_profile.dart';
 import '../models/group_media.dart' as gm;
+import '../models/boarding_request.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -40,6 +41,13 @@ abstract class DataService {
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji);
   Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false});
   Future<void> deleteComment(String commentId);
+  Future<List<BoardingRequest>> getBoardingRequests();
+  Future<void> createBoardingRequest({
+    required List<int> dogIds,
+    required DateTime startDate,
+    required DateTime endDate,
+    String? specialInstructions,
+  });
 }
 
 class ApiDataService implements DataService {
@@ -624,6 +632,55 @@ class ApiDataService implements DataService {
       throw Exception('Failed to delete comment');
     }
   }
+
+  @override
+  Future<List<BoardingRequest>> getBoardingRequests() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((json) => BoardingRequest.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to load boarding requests');
+    }
+  }
+
+  @override
+  Future<void> createBoardingRequest({
+    required List<int> dogIds,
+    required DateTime startDate,
+    required DateTime endDate,
+    String? specialInstructions,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/'),
+      headers: headers,
+      body: json.encode({
+        'dogs': dogIds,
+        'start_date': startDate.toIso8601String().split('T').first,
+        'end_date': endDate.toIso8601String().split('T').first,
+        if (specialInstructions != null) 'special_instructions': specialInstructions,
+      }),
+    );
+
+    if (response.statusCode != 201) {
+      String errorMessage = 'Failed to create boarding request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -796,6 +853,19 @@ class MockDataService implements DataService {
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<BoardingRequest>> getBoardingRequests() async {
+    return [];
+  }
+
+  @override
+  Future<void> createBoardingRequest({
+    required List<int> dogIds,
+    required DateTime startDate,
+    required DateTime endDate,
+    String? specialInstructions,
+  }) async {}
 
   @override
   Future<List<OwnerProfile>> getOwners() async {

@@ -11,6 +11,8 @@ import 'profile_screen.dart';
 import 'add_dog_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'feed_screen.dart';
+import 'request_boarding_screen.dart';
+import 'boarding_request_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -145,7 +147,47 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
               ],
+                  ),
+              ],
             ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.calendar_month),
+            onSelected: (value) {
+              if (value == 'request') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RequestBoardingScreen()),
+                );
+              } else if (value == 'list') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+                );
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'request',
+                child: Row(
+                   children: [
+                     Icon(Icons.add, color: Colors.black54),
+                     SizedBox(width: 8),
+                     Text('Request Boarding'),
+                   ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'list',
+                 child: Row(
+                   children: [
+                     Icon(Icons.list, color: Colors.black54),
+                     SizedBox(width: 8),
+                     Text('My Requests'),
+                   ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.person),
             onPressed: () {

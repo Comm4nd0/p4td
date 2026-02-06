@@ -2,8 +2,8 @@ from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer
 from django.utils import timezone
 from django.core.files.base import ContentFile
 import io
@@ -473,3 +473,55 @@ class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
         else:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only delete your own comments.")
+
+class BoardingRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = BoardingRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return BoardingRequest.objects.all()
+        return BoardingRequest.objects.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        # Ensure owner is set to current user (unless staff)
+        if self.request.user.is_staff and 'owner' in self.request.data:
+             serializer.save()
+        else:
+             serializer.save(owner=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def change_status(self, request, pk=None):
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can change request status")
+
+        instance = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(BoardingRequest.STATUS_CHOICES).keys():
+            return Response({'detail': 'Invalid status'}, status=400)
+
+        old_status = instance.status
+        if old_status == new_status:
+             return Response({'detail': 'Status unchanged'}, status=200)
+
+        from django.utils import timezone
+        if new_status == 'APPROVED':
+            instance.approved_by = request.user
+            instance.approved_at = timezone.now()
+        else:
+            instance.approved_by = None
+            instance.approved_at = None
+        
+        instance.status = new_status
+        instance.save()
+
+        # Record history
+        BoardingRequestHistory.objects.create(
+            request=instance,
+            changed_by=request.user,
+            from_status=old_status,
+            to_status=new_status,
+        )
+
+        return Response(self.get_serializer(instance).data)

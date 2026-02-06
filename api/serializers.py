@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -143,3 +143,44 @@ class GroupMediaSerializer(serializers.ModelSerializer):
             if reaction:
                 return reaction.emoji
         return None
+
+class BoardingRequestHistorySerializer(serializers.ModelSerializer):
+    changed_by_name = serializers.CharField(source='changed_by.username', read_only=True)
+
+    class Meta:
+        model = BoardingRequestHistory
+        fields = ['id', 'changed_by', 'changed_by_name', 'from_status', 'to_status', 'changed_at']
+        read_only_fields = ['id', 'changed_by', 'changed_by_name', 'from_status', 'to_status', 'changed_at']
+
+class BoardingRequestSerializer(serializers.ModelSerializer):
+    dog_names = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
+    approved_by_name = serializers.CharField(source='approved_by.username', read_only=True)
+    approved_at = serializers.DateTimeField(read_only=True)
+    history = BoardingRequestHistorySerializer(many=True, read_only=True)
+    dogs = serializers.PrimaryKeyRelatedField(many=True, queryset=Dog.objects.all())
+
+    class Meta:
+        model = BoardingRequest
+        fields = ['id', 'owner', 'owner_name', 'dogs', 'dog_names', 'start_date', 'end_date', 'special_instructions', 'status', 'approved_by_name', 'approved_at', 'created_at', 'updated_at', 'history']
+        read_only_fields = ['owner', 'status', 'approved_by_name', 'approved_at', 'created_at', 'updated_at', 'history']
+
+    def get_dog_names(self, obj):
+        return [dog.name for dog in obj.dogs.all()]
+
+    def get_owner_name(self, obj):
+        if obj.owner.first_name:
+            return obj.owner.first_name
+        return obj.owner.username
+
+    def validate(self, data):
+        if data['start_date'] > data['end_date']:
+            raise serializers.ValidationError("Start date must be before end date")
+        return data
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and not request.user.is_staff:
+             # Limit dog choices to owned dogs for non-staff
+             self.fields['dogs'].queryset = Dog.objects.filter(owner=request.user)

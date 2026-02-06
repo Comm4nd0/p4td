@@ -149,6 +149,41 @@ class Comment(models.Model):
     class Meta:
         ordering = ['created_at']
 
+
     def __str__(self):
         target = self.group_media or self.photo
         return f"Comment by {self.user.username} on {target}"
+
+class BoardingRequest(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('DENIED', 'Denied'),
+    ]
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='boarding_requests')
+    dogs = models.ManyToManyField(Dog, related_name='boarding_requests')
+    start_date = models.DateField()
+    end_date = models.DateField()
+    special_instructions = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='approved_boarding_requests')
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Boarding Request by {self.owner.username} for {self.start_date} to {self.end_date}"
+
+class BoardingRequestHistory(models.Model):
+    request = models.ForeignKey(BoardingRequest, on_delete=models.CASCADE, related_name='history')
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    from_status = models.CharField(max_length=10, choices=BoardingRequest.STATUS_CHOICES)
+    to_status = models.CharField(max_length=10, choices=BoardingRequest.STATUS_CHOICES)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at']
