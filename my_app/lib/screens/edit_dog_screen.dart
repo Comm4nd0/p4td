@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 
@@ -172,12 +173,13 @@ class _EditDogScreenState extends State<EditDogScreen> {
       // Existing photo
       imageWidget = ClipRRect(
         borderRadius: BorderRadius.circular(75),
-        child: Image.network(
-          _currentImageUrl!,
+        child: CachedNetworkImage(
+          imageUrl: _currentImageUrl!,
           fit: BoxFit.cover,
           width: 150,
           height: 150,
-          errorBuilder: (_, __, ___) => Icon(Icons.error, size: 40, color: Colors.grey[600]),
+          placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+          errorWidget: (_, __, ___) => Icon(Icons.error, size: 40, color: Colors.grey[600]),
         ),
       );
     } else {

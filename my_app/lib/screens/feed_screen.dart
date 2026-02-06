@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 
@@ -425,11 +426,16 @@ class _FeedScreenState extends State<FeedScreen> {
           ),
           // Media content
           if (media.isPhoto)
-            Image.network(
-              media.fileUrl,
+            CachedNetworkImage(
+              imageUrl: media.fileUrl,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
+              placeholder: (context, url) => Container(
+                height: 200,
+                color: Colors.grey[200],
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+              errorWidget: (context, url, error) => Container(
                 height: 200,
                 color: Colors.grey[300],
                 child: const Center(child: Icon(Icons.error)),
@@ -489,11 +495,20 @@ class _VideoPlayerState extends State<_VideoPlayer> {
           alignment: Alignment.center,
           children: [
             if (widget.thumbnail != null)
-              Image.network(
-                widget.thumbnail!,
+              CachedNetworkImage(
+                imageUrl: widget.thumbnail!,
                 width: double.infinity,
                 height: 250,
                 fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  height: 250,
+                  color: Colors.grey[200],
+                ),
+                errorWidget: (context, url, error) => Container(
+                  height: 250,
+                  color: Colors.grey[300],
+                  child: const Center(child: Icon(Icons.error)),
+                ),
               )
             else
               Container(
