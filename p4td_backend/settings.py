@@ -73,7 +73,7 @@ INSTALLED_APPS = [
 ]
 
 # Add storages app for S3 if configured
-if os.environ.get('AWS_STORAGE_BUCKET_NAME') and os.environ.get('AWS_ACCESS_KEY_ID'):
+if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
     INSTALLED_APPS.append('storages')
 
 MIDDLEWARE = [
@@ -166,7 +166,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 print("DEBUG: LOADING SETTINGS - AWS_STORAGE_BUCKET_NAME env:", os.environ.get('AWS_STORAGE_BUCKET_NAME'))
 
-if os.environ.get('AWS_STORAGE_BUCKET_NAME') and os.environ.get('AWS_ACCESS_KEY_ID'):
+if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
     # Production: Use S3 for media files
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
