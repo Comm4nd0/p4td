@@ -428,6 +428,22 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             # Don't fail the upload if thumbnail generation fails
             pass
 
+    @action(detail=True, methods=['get'])
+    def reaction_details(self, request, pk=None):
+        media = self.get_object()
+        reactions = MediaReaction.objects.filter(media=media).select_related('user')
+        
+        data = []
+        for reaction in reactions:
+            user_name = reaction.user.first_name if reaction.user.first_name else reaction.user.username
+            data.append({
+                'user_id': reaction.user.id,
+                'user_name': user_name,
+                'emoji': reaction.emoji
+            })
+            
+        return Response(data)
+
     @action(detail=True, methods=['post'])
     def react(self, request, pk=None):
         media = self.get_object()

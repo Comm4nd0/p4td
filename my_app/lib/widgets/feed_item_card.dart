@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../models/group_media.dart';
+import '../services/data_service.dart';
 
 class FeedItemCard extends StatefulWidget {
   final GroupMedia media;
@@ -26,8 +27,9 @@ class FeedItemCard extends StatefulWidget {
 
 class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderStateMixin {
   bool _isExpanded = false;
-  bool _showComments = false;
+  bool _showAllComments = false;
   final TextEditingController _commentController = TextEditingController();
+  final DataService _dataService = ApiDataService();
 
   @override
   void dispose() {
@@ -123,24 +125,13 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
             ),
           
           // Reactions
+          // Reactions
           _buildReactionSection(),
           
-          // Comments Section Toggle
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: TextButton.icon(
-              onPressed: () => setState(() => _showComments = !_showComments),
-              icon: Icon(_showComments ? Icons.comment : Icons.comment_outlined, size: 20),
-              label: Text(
-                widget.media.comments.isEmpty 
-                  ? 'Add Comment' 
-                  : '${widget.media.comments.length} Comments',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-
-          if (_showComments) _buildCommentsSection(),
+          // Comments Section
+          _buildCommentsSection(),
+          
+          const SizedBox(height: 8),
           
           const SizedBox(height: 8),
         ],
@@ -149,11 +140,28 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
   }
 
   Widget _buildCommentsSection() {
+    final comments = widget.media.comments;
+    final displayedComments = _showAllComments ? comments : comments.take(2).toList();
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Divider(),
-        ...widget.media.comments.map((comment) => Padding(
+        if (comments.isNotEmpty) const Divider(),
+        
+        // Comments specific to this version
+        if (comments.isNotEmpty && !_showAllComments && comments.length > 2)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: GestureDetector(
+              onTap: () => setState(() => _showAllComments = true),
+              child: Text(
+                'View all ${comments.length} comments',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+            ),
+          ),
+
+        ...displayedComments.map((comment) => Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,6 +186,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
             ],
           ),
         )),
+        
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Row(
@@ -201,6 +210,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                   if (_commentController.text.trim().isNotEmpty) {
                     widget.onComment(widget.media.id, _commentController.text.trim());
                     _commentController.clear();
+                    setState(() => _showAllComments = true); // Auto expand on new comment
                   }
                 },
                 icon: const Icon(Icons.send, color: Colors.blue),
@@ -209,6 +219,45 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _showReactionDetails() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (_, controller) => FutureBuilder<List<Map<String, dynamic>>>(
+          future: _dataService.getReactionDetails(widget.media.id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            }
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const Center(child: Text('No reactions yet'));
+            }
+
+            final reactions = snapshot.data!;
+            return ListView.builder(
+              controller: controller,
+              itemCount: reactions.length,
+              itemBuilder: (context, index) {
+                final reaction = reactions[index];
+                return ListTile(
+                  leading: Text(reaction['emoji'], style: const TextStyle(fontSize: 24)),
+                  title: Text(reaction['user_name']),
+                );
+              },
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -224,80 +273,52 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           if (widget.media.reactions.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 8, top: 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: widget.media.reactions.entries.map((entry) {
-                  final isMyReaction = widget.media.userReaction == entry.key;
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(entry.key, style: const TextStyle(fontSize: 14)),
-                        const SizedBox(width: 4),
-                        Text(
-                          entry.value.toString(),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
-                            color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
-                          ),
+              child: GestureDetector(
+                onTap: _showReactionDetails,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: widget.media.reactions.entries.map((entry) {
+                    final isMyReaction = widget.media.userReaction == entry.key;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
                         ),
-                      ],
-                    ),
-                  );
-                }).toList(),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(entry.key, style: const TextStyle(fontSize: 14)),
+                          const SizedBox(width: 4),
+                          Text(
+                            entry.value.toString(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
+                              color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
           
           // Expandable Reaction Interface
           Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              if (!_isExpanded)
-                // Single Button State
-                InkWell(
-                  onTap: () {
-                    setState(() => _isExpanded = true);
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          widget.media.userReaction ?? '👍', // Show current reaction or default thumb
-                          style: const TextStyle(fontSize: 20),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          widget.media.userReaction != null ? 'Reacted' : 'React',
-                          style: TextStyle(
-                            color: widget.media.userReaction != null ? Colors.blue : Colors.grey[600],
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                // Expanded State with Animation
+               if (_isExpanded)
                 Expanded(
                   child: Container(
                     height: 50,
+                    margin: const EdgeInsets.only(right: 8),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(25),
@@ -312,13 +333,6 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        // Close button (X)
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20, color: Colors.grey),
-                          onPressed: () => setState(() => _isExpanded = false),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
                         // Emojis
                         ...commonEmojis.map((emoji) {
                           final isSelected = widget.media.userReaction == emoji;
@@ -339,10 +353,48 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                             ),
                           );
                         }),
+                        // Close button (X)
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20, color: Colors.grey),
+                          onPressed: () => setState(() => _isExpanded = false),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
                       ],
                     ),
                   ),
                 ),
+
+              InkWell(
+                onTap: () {
+                  setState(() => _isExpanded = !_isExpanded);
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]!),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.media.userReaction ?? '👍', // Show current reaction or default thumb
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.media.userReaction != null ? 'Reacted' : 'React',
+                        style: TextStyle(
+                          color: widget.media.userReaction != null ? Colors.blue : Colors.grey[600],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ],

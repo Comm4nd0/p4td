@@ -48,6 +48,7 @@ abstract class DataService {
     required DateTime endDate,
     String? specialInstructions,
   });
+  Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId);
 }
 
 class ApiDataService implements DataService {
@@ -588,6 +589,22 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
+  Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/reaction_details/'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    } else {
+      throw Exception('Failed to load reaction details');
+    }
+  }
+
 
   @override
   Future<List<OwnerProfile>> getOwners() async {
@@ -852,6 +869,11 @@ class MockDataService implements DataService {
   @override
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId) async {
+    return [];
   }
 
   @override
