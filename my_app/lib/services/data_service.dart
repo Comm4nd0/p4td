@@ -268,16 +268,7 @@ class ApiDataService implements DataService {
 
     if (response.statusCode == 201) {
       final data = json.decode(response.body);
-      final mediaTypeStr = data['media_type'] ?? 'PHOTO';
-      final mediaType = mediaTypeStr == 'VIDEO' ? MediaType.video : MediaType.photo;
-      return Photo(
-        id: data['id'].toString(),
-        dogId: data['dog'].toString(),
-        url: data['file'],
-        thumbnailUrl: data['thumbnail'],
-        mediaType: mediaType,
-        takenAt: DateTime.parse(data['taken_at']),
-      );
+      return Photo.fromJson(data);
     } else {
       String errorMessage = 'Failed to upload photo';
       try {
@@ -721,18 +712,21 @@ class MockDataService implements DataService {
         dogId: dogId,
         url: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=500&q=60',
         takenAt: DateTime.now().subtract(const Duration(days: 1)),
+        comments: const [],
       ),
       Photo(
         id: 'p2',
         dogId: dogId,
         url: 'https://images.unsplash.com/photo-1591769225440-811ad7d6eca6?auto=format&fit=crop&w=500&q=60',
         takenAt: DateTime.now().subtract(const Duration(days: 3)),
+        comments: const [],
       ),
       Photo(
         id: 'p3',
         dogId: dogId,
         url: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?auto=format&fit=crop&w=500&q=60',
         takenAt: DateTime.now().subtract(const Duration(days: 5)),
+        comments: const [],
       ),
     ];
   }
@@ -745,6 +739,7 @@ class MockDataService implements DataService {
       dogId: dogId,
       url: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=500&q=60',
       takenAt: takenAt,
+      comments: const [],
     );
   }
 
@@ -758,6 +753,7 @@ class MockDataService implements DataService {
         dogId: dogId,
         url: 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=500&q=60',
         takenAt: images[i].$3,
+        comments: const [],
       ));
     }
     return photos;
