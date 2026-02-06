@@ -417,3 +417,25 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             print(f"Error generating video thumbnail: {e}")
             # Don't fail the upload if thumbnail generation fails
             pass
+
+    @action(detail=True, methods=['post'])
+    def react(self, request, pk=None):
+        media = self.get_object()
+        emoji = request.data.get('emoji')
+        
+        if not emoji:
+            return Response({'detail': 'Emoji is required'}, status=400)
+        
+        # Check if this exact reaction already exists for this user
+        existing_reaction = MediaReaction.objects.filter(media=media, user=request.user, emoji=emoji).first()
+        
+        if existing_reaction:
+            # If it exists, remove it (toggle off)
+            existing_reaction.delete()
+        else:
+            # If user has any other reaction on this media, remove it (only one reaction per user/post)
+            MediaReaction.objects.filter(media=media, user=request.user).delete()
+            # Add the new reaction
+            MediaReaction.objects.create(media=media, user=request.user, emoji=emoji)
+            
+        return Response(self.get_serializer(media).data)

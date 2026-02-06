@@ -564,6 +564,22 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
+  Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/react/'),
+      headers: headers,
+      body: json.encode({'emoji': emoji}),
+    );
+
+    if (response.statusCode == 200) {
+      return gm.GroupMedia.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to react: ${response.body}');
+    }
+  }
+
 
   @override
   Future<List<OwnerProfile>> getOwners() async {

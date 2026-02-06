@@ -103,13 +103,28 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
 
 class GroupMediaSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.SerializerMethodField()
+    reactions = serializers.SerializerMethodField()
+    user_reaction = serializers.SerializerMethodField()
 
     class Meta:
         model = GroupMedia
-        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'created_at']
+        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'reactions', 'user_reaction', 'created_at']
         read_only_fields = ['uploaded_by', 'created_at']
 
     def get_uploaded_by_name(self, obj):
         if obj.uploaded_by.first_name:
             return obj.uploaded_by.first_name
         return obj.uploaded_by.username
+
+    def get_reactions(self, obj):
+        from django.db.models import Count
+        reaction_counts = obj.reactions.values('emoji').annotate(count=Count('id'))
+        return {r['emoji']: r['count'] for r in reaction_counts}
+
+    def get_user_reaction(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            reaction = obj.reactions.filter(user=request.user).first()
+            if reaction:
+                return reaction.emoji
+        return None

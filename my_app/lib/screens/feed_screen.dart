@@ -451,12 +451,106 @@ class _FeedScreenState extends State<FeedScreen> {
           // Caption
           if (media.caption != null && media.caption!.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
               child: Text(media.caption!),
             ),
+          
+          // Reactions
+          _buildReactionSection(media),
+          
+          const SizedBox(height: 8),
         ],
       ),
     );
+  }
+
+  Widget _buildReactionSection(GroupMedia media) {
+    final List<String> commonEmojis = ['❤️', '👍', '😂', '🔥', '🐾'];
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Current reactions count display
+          if (media.reactions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, top: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: media.reactions.entries.map((entry) {
+                  final isMyReaction = media.userReaction == entry.key;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(entry.key, style: const TextStyle(fontSize: 14)),
+                        const SizedBox(width: 4),
+                        Text(
+                          entry.value.toString(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
+                            color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          
+          // Quick Reaction Row
+          Row(
+            children: commonEmojis.map((emoji) {
+              final isSelected = media.userReaction == emoji;
+              return InkWell(
+                onTap: () => _toggleReaction(media.id, emoji),
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    emoji,
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: isSelected ? null : Colors.grey.withOpacity(0.5),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleReaction(String mediaId, String emoji) async {
+    try {
+      final updatedMedia = await _dataService.toggleReaction(mediaId, emoji);
+      setState(() {
+        final index = _mediaItems.indexWhere((m) => m.id == mediaId);
+        if (index != -1) {
+          _mediaItems[index] = updatedMedia;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 }
 
