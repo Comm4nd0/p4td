@@ -176,7 +176,7 @@ if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
     AWS_DEFAULT_ACL = None  # Use bucket default ACL
     AWS_S3_FILE_OVERWRITE = False
-    AWS_QUERYSTRING_AUTH = True  # Enable signed URLs for private objects
+    AWS_QUERYSTRING_AUTH = False  # Objects are public via bucket policy
     
     DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
     
