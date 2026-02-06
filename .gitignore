@@ -68,6 +68,7 @@ Frameworks/
 /build/
 /out/
 dist/
+build_output.txt
 
 # Flutter ephemeral
 my_app/linux/flutter/ephemeral/
