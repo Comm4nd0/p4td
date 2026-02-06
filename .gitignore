@@ -57,12 +57,17 @@ build/
 
 # iOS
 Pods/
-# *.xcworkspace
-# *.xcworkspace/
 .symlinks/
 Flutter/Flutter.framework
 Flutter/Flutter.podspec
 Frameworks/
+*.xcuserdata
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# macOS
+my_app/macos/Runner.xcodeproj/project.xcworkspace/
+my_app/macos/Runner.xcworkspace/
 
 # Build outputs
 /build/
