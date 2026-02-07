@@ -39,6 +39,8 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
   void _processEvents(List<BoardingRequest> requests) {
     _events = {};
     for (var request in requests) {
+      if (request.status == BoardingRequestStatus.denied) continue; // Skip denied requests
+      
       // Create events for each day of the request
       // Iterate from start to end date
       for (var day = request.startDate; 
