@@ -41,6 +41,8 @@ post_install do |installer|
     target.build_configurations.each do |config|
       # Fix deployment target warnings for Pods
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
+      
       if config.name == 'Release'
         config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
       end
