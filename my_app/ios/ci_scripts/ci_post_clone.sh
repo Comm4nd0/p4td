@@ -2,6 +2,8 @@
 
 # Fail on any error
 set -e
+# Print commands for debugging
+set -x
 
 # FIX: Set locale to avoid Ruby/CocoaPods ASCII errors
 export LANG=en_US.UTF-8
@@ -56,7 +58,7 @@ fi
 # Install CocoaPods
 echo "Running pod install in ios/..."
 cd ios
-# Use repo-update to ensure specs are fresh
-pod install --repo-update
+# Remove --repo-update to save memory/time. Using lockfile.
+pod install
 
 echo "ci_post_clone.sh completed successfully."
