@@ -102,6 +102,8 @@ Thumbs.db
 .env.local
 *.pem
 *.key
+google-services.json
+GoogleService-Info.plist
 
 # IDE cache
 .idea/

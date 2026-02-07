@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 import '../widgets/feed_item_card.dart';
+import '../main.dart';
 
 class FeedScreen extends StatefulWidget {
   final bool isStaff;
@@ -14,7 +15,7 @@ class FeedScreen extends StatefulWidget {
   State<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
+class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBindingObserver {
   final _dataService = ApiDataService();
   List<GroupMedia> _feed = [];
   bool _loading = true;
@@ -22,11 +23,42 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadFeed();
   }
 
-  Future<void> _loadFeed() async {
-    setState(() => _loading = true);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    // Refresh feed when returning to this screen
+    _loadFeed(showLoading: false);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh feed when app comes to foreground
+      _loadFeed(showLoading: false);
+    }
+  }
+
+  Future<void> _loadFeed({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() => _loading = true);
+    }
+    
     try {
       final feed = await _dataService.getFeed();
       if (mounted) {
@@ -38,9 +70,13 @@ class _FeedScreenState extends State<FeedScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load feed: $e'), backgroundColor: Colors.red),
-        );
+        // Only show error snackbar if we were showing loading indicator (interaction)
+        // or if the feed is empty (initial load failed)
+        if (showLoading || _feed.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load feed: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
