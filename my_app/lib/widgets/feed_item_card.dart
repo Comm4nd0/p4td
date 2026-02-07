@@ -265,100 +265,71 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          // Current reactions count display
-          if (widget.media.reactions.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8, top: 8),
-              child: GestureDetector(
-                onTap: _showReactionDetails,
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: widget.media.reactions.entries.map((entry) {
-                    final isMyReaction = widget.media.userReaction == entry.key;
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(entry.key, style: const TextStyle(fontSize: 14)),
-                          const SizedBox(width: 4),
-                          Text(
-                            entry.value.toString(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
-                              color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+          // "Add Reaction" Button (Thumbs Up Icon)
+          PopupMenuButton<String>(
+            onSelected: (emoji) => widget.onReaction(widget.media.id, emoji),
+            itemBuilder: (context) => commonEmojis.map((emoji) {
+              final isSelected = widget.media.userReaction == emoji;
+              return PopupMenuItem<String>(
+                value: emoji,
+                child: Row(
+                  children: [
+                    Text(emoji, style: const TextStyle(fontSize: 24)),
+                    if (isSelected) ...[
+                       const SizedBox(width: 8),
+                       const Icon(Icons.check, color: Colors.blue, size: 16),
+                    ],
+                  ],
                 ),
-              ),
+              );
+            }).toList(),
+            tooltip: 'Add Reaction',
+             // Use transparent icon button for cleaner look
+            child: Icon(
+              widget.media.userReaction != null ? Icons.thumb_up : Icons.thumb_up_outlined,
+              color: widget.media.userReaction != null ? Colors.blue : Colors.grey[600],
+              size: 20,
             ),
+          ),
           
-          // Popup Reaction Interface
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              PopupMenuButton<String>(
-                onSelected: (emoji) => widget.onReaction(widget.media.id, emoji),
-                itemBuilder: (context) => commonEmojis.map((emoji) {
-                  final isSelected = widget.media.userReaction == emoji;
-                  return PopupMenuItem<String>(
-                    value: emoji,
-                    child: Row(
-                      children: [
-                        Text(emoji, style: const TextStyle(fontSize: 24)),
-                        if (isSelected) ...[
-                           const SizedBox(width: 8),
-                           const Icon(Icons.check, color: Colors.blue, size: 16),
-                        ],
-                      ],
-                    ),
-                  );
-                }).toList(),
-                offset: const Offset(0, -250),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          // Existing reactions
+          if (widget.media.reactions.isNotEmpty)
+            ...widget.media.reactions.entries.map((entry) {
+              final isMyReaction = widget.media.userReaction == entry.key;
+              return GestureDetector(
+                onTap: _showReactionDetails,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey[300]!),
-                    borderRadius: BorderRadius.circular(20),
+                    color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Text(entry.key, style: const TextStyle(fontSize: 14)),
+                      const SizedBox(width: 4),
                       Text(
-                        widget.media.userReaction ?? '👍', // Show current reaction or default thumb
-                        style: const TextStyle(fontSize: 20),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        widget.media.userReaction != null ? 'Reacted' : 'React',
+                        entry.value.toString(),
                         style: TextStyle(
-                          color: widget.media.userReaction != null ? Colors.blue : Colors.grey[600],
-                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
+                          color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
+              );
+            }),
         ],
       ),
     );
