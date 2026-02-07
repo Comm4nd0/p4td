@@ -75,6 +75,7 @@ class GroupMediaAdmin(admin.ModelAdmin):
         return '-'
     caption_preview.short_description = 'Caption'
 
+    def save_model(self, request, obj, form, change):
         if not change:
             obj.uploaded_by = request.user
         super().save_model(request, obj, form, change)
