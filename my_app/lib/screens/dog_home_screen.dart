@@ -384,30 +384,43 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   : '${DateFormat('EEE, d MMM').format(request.originalDate)} → ${DateFormat('EEE, d MMM').format(request.newDate!)}',
               style: const TextStyle(fontSize: 14),
             ),
-            subtitle: Row(
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(request.status).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    request.statusDisplayName,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: _getStatusColor(request.status),
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(request.status).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        request.statusDisplayName,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _getStatusColor(request.status),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    if (request.isCharged) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '(charged)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ],
+                ),
+                if (request.status != RequestStatus.pending && request.approvedByName != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      '${request.status == RequestStatus.approved ? 'Approved' : 'Denied'} by ${request.approvedByName}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                   ),
-                ),
-                if (request.isCharged) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '(charged)',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                  ),
-                ],
               ],
             ),
           ),

@@ -271,7 +271,20 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                     ],
                   ),
                 ),
-                _buildStatusBadge(request.status.toString().split('.').last),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _buildStatusBadge(request.status.toString().split('.').last),
+                    if (request.status != RequestStatus.pending && request.approvedByName != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(
+                          'by ${request.approvedByName}',
+                          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
             const Divider(height: 24),
@@ -415,7 +428,20 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                     ],
                   ),
                 ),
-                _buildStatusBadge(request.status.toString().split('.').last),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _buildStatusBadge(request.status.toString().split('.').last),
+                    if (request.status != BoardingRequestStatus.pending && request.approvedByName != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(
+                          'by ${request.approvedByName}',
+                          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
             const Divider(height: 24),

@@ -11,6 +11,7 @@ class DateChangeRequest {
   final DateTime originalDate;
   final DateTime? newDate;
   final RequestStatus status;
+  final String? approvedByName;
   final bool isCharged;
   final DateTime createdAt;
 
@@ -22,7 +23,9 @@ class DateChangeRequest {
     required this.requestType,
     required this.originalDate,
     this.newDate,
+    this.newDate,
     required this.status,
+    this.approvedByName,
     required this.isCharged,
     required this.createdAt,
   });
@@ -37,6 +40,7 @@ class DateChangeRequest {
       originalDate: DateTime.parse(json['original_date']),
       newDate: json['new_date'] != null ? DateTime.parse(json['new_date']) : null,
       status: _parseStatus(json['status']),
+      approvedByName: json['approved_by_name'],
       isCharged: json['is_charged'] ?? false,
       createdAt: DateTime.parse(json['created_at']),
     );
