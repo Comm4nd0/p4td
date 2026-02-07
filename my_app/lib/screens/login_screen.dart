@@ -37,11 +37,18 @@ class _LoginScreenState extends State<LoginScreen> {
     if (error == null) {
       if (mounted) {
         // Register push notification token
-        NotificationService().updateToken();
+        try {
+          await NotificationService().updateToken();
+        } catch (e) {
+          debugPrint("Failed to update token: $e");
+          // Don't block login
+        }
         
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
       }
     } else {
       setState(() {

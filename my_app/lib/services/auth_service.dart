@@ -38,7 +38,7 @@ class AuthService {
           'username': username,
           'password': password,
         },
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
