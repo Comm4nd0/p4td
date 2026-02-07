@@ -4,6 +4,7 @@ import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/notification_service.dart';
 
 @pragma('vm:entry-point')

@@ -27,7 +27,6 @@ class FeedItemCard extends StatefulWidget {
 
 class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderStateMixin {
   bool _showAllComments = false;
-  bool _isExpanded = false;
   final TextEditingController _commentController = TextEditingController();
   final DataService _dataService = ApiDataService();
 

@@ -23,7 +23,6 @@ class DateChangeRequest {
     required this.requestType,
     required this.originalDate,
     this.newDate,
-    this.newDate,
     required this.status,
     this.approvedByName,
     required this.isCharged,
