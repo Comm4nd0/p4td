@@ -2,82 +2,54 @@
 
 # Fail on any error
 set -e
-# Print commands for debugging
+# Detailed logs
 set -x
 
-# FIX: Set locale to avoid Ruby/CocoaPods ASCII errors
+# Fix Locale for CocoaPods/Ruby
 export LANG=en_US.UTF-8
 
-# Debugging
-echo "Starting ci_post_clone.sh..."
-echo "Current directory: $(pwd)"
+echo "Starting ci_post_clone.sh (Homebrew Approach)..."
 
-# Install Flutter
-# We install it to the repo root ensuring path consistency
-FLUTTER_ROOT="$CI_PRIMARY_REPOSITORY_PATH/flutter"
+# 1. Install Flutter via Homebrew
+# This ensures a standard, system-wide installation path (stable).
+# We disable auto-update to speed it up.
+export HOMEBREW_NO_AUTO_UPDATE=1
+echo "Installing Flutter via Homebrew..."
+brew install --cask flutter
 
-if [ -d "$FLUTTER_ROOT" ]; then
-    echo "Flutter already exists at $FLUTTER_ROOT"
-else
-    echo "Downloading Flutter to $FLUTTER_ROOT..."
-    git clone https://github.com/flutter/flutter.git --depth 1 -b stable "$FLUTTER_ROOT"
+# 2. Add to PATH (Homebrew usually links it, but let's be safe)
+# Try standard locations
+if [ -f "/opt/homebrew/bin/flutter" ]; then
+    export PATH="$PATH:/opt/homebrew/bin"
+elif [ -f "/usr/local/bin/flutter" ]; then
+    export PATH="$PATH:/usr/local/bin"
 fi
 
-export PATH="$PATH:$FLUTTER_ROOT/bin"
+# 3. Verify Flutter
+echo "Checking Flutter version..."
+flutter --version
+flutter config --no-analytics
 
-# Run flutter doctor to see what state we are in
-echo "Checking Flutter environment..."
-flutter doctor -v
-
-# Navigate to the Flutter project directory
+# 4. Navigate to Project
 APP_DIR="$CI_PRIMARY_REPOSITORY_PATH/my_app"
-echo "Navigating to App Directory: $APP_DIR"
+echo "Navigating to $APP_DIR"
 cd "$APP_DIR"
 
-# Get Flutter dependencies
+# 5. Build Flutter Dependencies
+# This generates ios/Flutter/Generated.xcconfig with the correct FLUTTER_ROOT
 echo "Running flutter pub get..."
 flutter pub get
 
-# FIX: Ensure iOS artifacts are downloaded
+# 6. Precache iOS artifacts (critical for first run)
 echo "Precaching iOS artifacts..."
 flutter precache --ios
 
-# FIX: Force FLUTTER_ROOT and FLUTTER_APPLICATION_PATH in Generated.xcconfig
-# This ensures that when Xcode runs, it finds the Flutter we installed, not some other path.
-GENERATED_XCCONFIG="$APP_DIR/ios/Flutter/Generated.xcconfig"
-EXPORT_ENV_SH="$APP_DIR/ios/Flutter/flutter_export_environment.sh"
-
-patch_config() {
-    local file=$1
-    if [ -f "$file" ]; then
-        echo "Patching $file..."
-        # Remove existing definitions
-        sed -i '' '/FLUTTER_ROOT=/d' "$file"
-        sed -i '' '/FLUTTER_APPLICATION_PATH=/d' "$file"
-        
-        # Append correct paths
-        echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$file"
-        echo "FLUTTER_APPLICATION_PATH=$APP_DIR" >> "$file"
-        
-        echo "Updated $file content:"
-        cat "$file"
-    else
-        echo "Warning: $file not found!"
-    fi
-}
-
-patch_config "$GENERATED_XCCONFIG"
-patch_config "$EXPORT_ENV_SH"
-
-# Ensure xcode_backend.sh is executable
-chmod +x "$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh"
-
-# Install CocoaPods
-echo "Running pod install in ios/..."
+# 7. Install CocoaPods
+echo "Running pod install..."
 cd ios
-# Delete Podfile.lock and Pods to force a fresh resolve matching this environment
+# Clean slate
 rm -rf Pods
 rm -f Podfile.lock
 pod install
 
-echo "ci_post_clone.sh completed successfully."
+echo "ci_post_clone.sh setup complete."
