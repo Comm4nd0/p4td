@@ -320,15 +320,6 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Feed'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadFeed,
-          ),
-        ],
-      ),
       floatingActionButton: widget.isStaff
           ? FloatingActionButton.extended(
               onPressed: _uploadMedia,
@@ -338,34 +329,40 @@ class _FeedScreenState extends State<FeedScreen> {
           : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _feed.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No posts yet',
-                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+          : RefreshIndicator(
+              onRefresh: _loadFeed,
+              child: _feed.isEmpty
+                  ? SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.7,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No posts yet',
+                                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                              ),
+                              if (widget.isStaff) ...[
+                                const SizedBox(height: 8),
+                                const Text('Tap the button below to upload photos or videos'),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
-                      if (widget.isStaff) ...[
-                        const SizedBox(height: 8),
-                        const Text('Tap the button below to upload photos or videos'),
-                      ],
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadFeed,
-                  child: ListView.builder(
-                    itemCount: _feed.length,
-                    itemBuilder: (context, index) {
-                      final media = _feed[index];
-                      return _buildMediaCard(media);
-                    },
-                  ),
-                ),
+                    )
+                  : ListView.builder(
+                      itemCount: _feed.length,
+                      itemBuilder: (context, index) {
+                        final media = _feed[index];
+                        return _buildMediaCard(media);
+                      },
+                    ),
+            ),
     );
   }
 
