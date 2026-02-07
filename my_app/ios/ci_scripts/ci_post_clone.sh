@@ -57,6 +57,6 @@ fi
 echo "Running pod install in ios/..."
 cd ios
 # Use repo-update to ensure specs are fresh
-pod install --verbose
+pod install --repo-update
 
 echo "ci_post_clone.sh completed successfully."
