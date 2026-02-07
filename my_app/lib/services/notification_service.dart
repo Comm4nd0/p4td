@@ -105,4 +105,18 @@ class NotificationService {
       );
     }
   }
+
+  Future<void> subscribeToTopic(String topic) async {
+    await _fcm.subscribeToTopic(topic);
+    if (kDebugMode) {
+      print('Subscribed to topic: $topic');
+    }
+  }
+
+  Future<void> unsubscribeFromTopic(String topic) async {
+    await _fcm.unsubscribeFromTopic(topic);
+    if (kDebugMode) {
+      print('Unsubscribed from topic: $topic');
+    }
+  }
 }

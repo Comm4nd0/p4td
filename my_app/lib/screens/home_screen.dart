@@ -6,6 +6,7 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import 'dog_home_screen.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
@@ -25,6 +26,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final DataService _dataService = ApiDataService();
   final AuthService _authService = AuthService();
+  final NotificationService _notificationService = NotificationService();
   late Future<List<Dog>> _dogsFuture;
   bool _isStaff = false;
   int _currentIndex = 1;
@@ -46,9 +48,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final profile = await _dataService.getProfile();
       if (mounted) {
         setState(() => _isStaff = profile.isStaff);
-        // Load pending requests count after setting staff status
+        // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
           await _loadPendingRequestCount();
+          await _notificationService.subscribeToTopic('staff_notifications');
+        } else {
+          await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
       }
     } catch (e) {
