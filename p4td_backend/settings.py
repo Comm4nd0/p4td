@@ -202,9 +202,13 @@ else:
     MEDIA_ROOT = BASE_DIR / 'media'
 
 
+
 # =============================================================================
-# REST FRAMEWORK
+# EMAIL SETTINGS
 # =============================================================================
+
+EMAIL_BACKEND = os.environ.get('DJANGO_EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
