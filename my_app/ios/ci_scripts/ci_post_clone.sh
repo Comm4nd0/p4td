@@ -11,14 +11,17 @@ echo "Starting ci_post_clone.sh..."
 echo "Current directory: $(pwd)"
 
 # Install Flutter
-if [ -d "$HOME/flutter" ]; then
-    echo "Flutter already exists at $HOME/flutter"
+# We install it to the repo root ensuring path consistency
+FLUTTER_ROOT="$CI_PRIMARY_REPOSITORY_PATH/flutter"
+
+if [ -d "$FLUTTER_ROOT" ]; then
+    echo "Flutter already exists at $FLUTTER_ROOT"
 else
-    echo "Downloading Flutter..."
-    git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter
+    echo "Downloading Flutter to $FLUTTER_ROOT..."
+    git clone https://github.com/flutter/flutter.git --depth 1 -b stable "$FLUTTER_ROOT"
 fi
 
-export PATH="$PATH:$HOME/flutter/bin"
+export PATH="$PATH:$FLUTTER_ROOT/bin"
 
 # Run flutter doctor to see what state we are in
 echo "Checking Flutter environment..."
