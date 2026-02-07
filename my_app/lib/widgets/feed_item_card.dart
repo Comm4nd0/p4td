@@ -26,7 +26,6 @@ class FeedItemCard extends StatefulWidget {
 }
 
 class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderStateMixin {
-  bool _isExpanded = false;
   bool _showAllComments = false;
   final TextEditingController _commentController = TextEditingController();
   final DataService _dataService = ApiDataService();
@@ -310,66 +309,29 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
               ),
             ),
           
-          // Expandable Reaction Interface
+          // Popup Reaction Interface
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-               if (_isExpanded)
-                Expanded(
-                  child: Container(
-                    height: 50,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(25),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
+              PopupMenuButton<String>(
+                onSelected: (emoji) => widget.onReaction(widget.media.id, emoji),
+                itemBuilder: (context) => commonEmojis.map((emoji) {
+                  final isSelected = widget.media.userReaction == emoji;
+                  return PopupMenuItem<String>(
+                    value: emoji,
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        // Emojis
-                        ...commonEmojis.map((emoji) {
-                          final isSelected = widget.media.userReaction == emoji;
-                          return InkWell(
-                            onTap: () {
-                              widget.onReaction(widget.media.id, emoji);
-                              setState(() => _isExpanded = false);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-                              child: Transform.scale(
-                                scale: isSelected ? 1.2 : 1.0,
-                                child: Text(
-                                  emoji,
-                                  style: const TextStyle(fontSize: 24),
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                        // Close button (X)
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20, color: Colors.grey),
-                          onPressed: () => setState(() => _isExpanded = false),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
+                        Text(emoji, style: const TextStyle(fontSize: 24)),
+                        if (isSelected) ...[
+                           const SizedBox(width: 8),
+                           const Icon(Icons.check, color: Colors.blue, size: 16),
+                        ],
                       ],
                     ),
-                  ),
-                ),
-
-              InkWell(
-                onTap: () {
-                  setState(() => _isExpanded = !_isExpanded);
-                },
-                borderRadius: BorderRadius.circular(20),
+                  );
+                }).toList(),
+                offset: const Offset(0, -250),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
