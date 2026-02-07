@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
+import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
 import 'dog_home_screen.dart';
@@ -58,10 +59,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadPendingRequestCount() async {
     if (!_isStaff) return;
     try {
-      final requests = await _dataService.getDateChangeRequests();
-      final pendingCount = requests.where((r) => r.status == RequestStatus.pending).length;
+      final dateRequests = await _dataService.getDateChangeRequests();
+      final boardingRequests = await _dataService.getBoardingRequests();
+      
+      final pendingDateCount = dateRequests.where((r) => r.status == RequestStatus.pending).length;
+      final pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
+      
       if (mounted) {
-        setState(() => _pendingRequestCount = pendingCount);
+        setState(() => _pendingRequestCount = pendingDateCount + pendingBoardingCount);
       }
     } catch (e) {
       // Ignore errors
@@ -106,14 +111,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: const Icon(Icons.notifications),
                   tooltip: 'Date Change Requests',
                   onPressed: () async {
-                    final result = await Navigator.push(
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const StaffNotificationsScreen()),
                     );
                     // Refresh count when returning from notifications screen
-                    if (result == true) {
-                      _loadPendingRequestCount();
-                    }
+                    _loadPendingRequestCount();
                   },
                 ),
                 if (_pendingRequestCount > 0)
