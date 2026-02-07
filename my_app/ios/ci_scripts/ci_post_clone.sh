@@ -40,10 +40,23 @@ flutter pub get
 echo "Precaching iOS artifacts..."
 flutter precache --ios
 
+# FIX: Force FLUTTER_ROOT in Generated.xcconfig to match our manual install
+# This ensures that when Xcode runs, it finds the Flutter we installed, not some other path.
+GENERATED_XCCONFIG="$APP_DIR/ios/Flutter/Generated.xcconfig"
+if [ -f "$GENERATED_XCCONFIG" ]; then
+    echo "Forcing FLUTTER_ROOT in Generated.xcconfig..."
+    # Remove existing FLUTTER_ROOT line
+    sed -i '' '/FLUTTER_ROOT=/d' "$GENERATED_XCCONFIG"
+    # Append our correct path
+    echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GENERATED_XCCONFIG"
+    echo "Updated generated config:"
+    cat "$GENERATED_XCCONFIG"
+fi
+
 # Install CocoaPods
 echo "Running pod install in ios/..."
 cd ios
 # Use repo-update to ensure specs are fresh
-pod install --repo-update
+pod install --verbose
 
 echo "ci_post_clone.sh completed successfully."
