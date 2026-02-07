@@ -698,6 +698,28 @@ class ApiDataService implements DataService {
       throw Exception(errorMessage);
     }
   }
+
+  Future<void> updateBoardingRequestStatus(int requestId, String status) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/$requestId/change_status/'),
+      headers: headers,
+      body: json.encode({'status': status}),
+    );
+
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to update request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
 }
 
 class MockDataService implements DataService {
