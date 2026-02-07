@@ -8,31 +8,18 @@ set -x
 # Fix Locale for CocoaPods/Ruby
 export LANG=en_US.UTF-8
 
-echo "Starting ci_post_clone.sh (Homebrew Approach)..."
+# 1. Install Flutter via Git (More reliable than Homebrew in CI)
+echo "Installing Flutter via Git..."
+git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter
+export PATH="$HOME/flutter/bin:$PATH"
 
-# 1. Install Flutter via Homebrew
-# We disable auto-update to speed it up.
-export HOMEBREW_NO_AUTO_UPDATE=1
-echo "Installing Flutter via Homebrew..."
-if brew list --cask flutter > /dev/null 2>&1; then
-    echo "Flutter is already installed."
-else
-    brew install --cask flutter
-fi
+# 2. Precache immediately
+echo "Precaching Flutter artifacts..."
+flutter precache --ios
 
-# 2. Add to PATH (Homebrew usually links it, but let's be safe)
-# Try standard locations
-if [ -f "/opt/homebrew/bin/flutter" ]; then
-    export PATH="$PATH:/opt/homebrew/bin"
-elif [ -f "/usr/local/bin/flutter" ]; then
-    export PATH="$PATH:/usr/local/bin"
-fi
-
-# 3. Verify Flutter
-echo "Checking Flutter version..."
+# 3. Verify
+echo "Flutter version:"
 flutter --version
-flutter doctor -v
-flutter config --no-analytics
 
 # 4. Navigate to Project
 APP_DIR="$CI_PRIMARY_REPOSITORY_PATH/my_app"
