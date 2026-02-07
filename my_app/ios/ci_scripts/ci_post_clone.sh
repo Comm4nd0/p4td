@@ -58,7 +58,9 @@ fi
 # Install CocoaPods
 echo "Running pod install in ios/..."
 cd ios
-# Remove --repo-update to save memory/time. Using lockfile.
+# Delete Podfile.lock and Pods to force a fresh resolve matching this environment
+rm -rf Pods
+rm -f Podfile.lock
 pod install
 
 echo "ci_post_clone.sh completed successfully."
