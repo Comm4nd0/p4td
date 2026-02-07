@@ -2,8 +2,21 @@ from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer
+
+class DeviceTokenViewSet(viewsets.ModelViewSet):
+    serializer_class = DeviceTokenSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return DeviceToken.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        # Update or create: if token exists for any user, reassign to current user
+        token = serializer.validated_data.get('token')
+        DeviceToken.objects.filter(token=token).delete()
+        serializer.save(user=self.request.user)
 from django.utils import timezone
 from django.core.files.base import ContentFile
 import io
@@ -308,12 +321,17 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if new_status == 'APPROVED':
             instance.approved_by = request.user
             instance.approved_at = timezone.now()
-        else:
-            instance.approved_by = None
-            instance.approved_at = None
-
         instance.status = new_status
         instance.save()
+
+        # Send push notification to owner
+        try:
+            from .notifications import send_push_notification
+            title = f"Request {new_status.title()}"
+            body = f"Your {instance.request_type.lower()} request for {instance.dog.name} on {instance.original_date} has been {new_status.lower()}."
+            send_push_notification(instance.dog.owner, title, body, {'type': 'date_change_status', 'id': str(instance.id)})
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
 
         # Record history
         from .models import DateChangeRequestHistory
@@ -358,7 +376,15 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
                     thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
                     serializer.validated_data['thumbnail'] = thumbnail
             
-            serializer.save(uploaded_by=self.request.user)
+            instance = serializer.save(uploaded_by=self.request.user)
+            
+            # Send push notification to other users
+            try:
+                from .notifications import notify_new_post
+                notify_new_post(instance)
+            except Exception as e:
+                print(f"Failed to send notification: {e}")
+                
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -525,12 +551,17 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         if new_status == 'APPROVED':
             instance.approved_by = request.user
             instance.approved_at = timezone.now()
-        else:
-            instance.approved_by = None
-            instance.approved_at = None
-        
         instance.status = new_status
         instance.save()
+
+        # Send push notification to owner
+        try:
+            from .notifications import send_push_notification
+            title = f"Boarding Request {new_status.title()}"
+            body = f"Your boarding request for {', '.join([d.name for d in instance.dogs.all()])} has been {new_status.lower()}."
+            send_push_notification(instance.owner, title, body, {'type': 'boarding_status', 'id': str(instance.id)})
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
 
         # Record history
         BoardingRequestHistory.objects.create(

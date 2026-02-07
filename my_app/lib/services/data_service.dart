@@ -49,6 +49,7 @@ abstract class DataService {
     String? specialInstructions,
   });
   Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId);
+  Future<void> registerDeviceToken(String token, String deviceType);
 }
 
 class ApiDataService implements DataService {
@@ -720,6 +721,25 @@ class ApiDataService implements DataService {
       throw Exception(errorMessage);
     }
   }
+
+  @override
+  Future<void> registerDeviceToken(String token, String deviceType) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/device-tokens/'),
+      headers: headers,
+      body: json.encode({
+        'token': token,
+        'device_type': deviceType,
+      }),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      if (kDebugMode) {
+        print('Failed to register device token: ${response.body}');
+      }
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -924,4 +944,7 @@ class MockDataService implements DataService {
 
   @override
   Future<void> deleteComment(String commentId) async {}
+
+  @override
+  Future<void> registerDeviceToken(String token, String deviceType) async {}
 }
