@@ -25,6 +25,14 @@ class NotificationService {
       sound: true,
     );
 
+    // 1b. Set foreground presentation options (iOS 10+)
+    // This allows heads-up notifications even when the app is open!
+    await _fcm.setForegroundNotificationPresentationOptions(
+      alert: true, 
+      badge: true,
+      sound: true,
+    );
+
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       if (kDebugMode) {
         print('User granted permission');
@@ -68,6 +76,16 @@ class NotificationService {
 
   Future<void> updateToken() async {
     try {
+      String? apnsToken = await _fcm.getAPNSToken();
+      if (apnsToken != null) {
+        if (kDebugMode) {
+          print('APNs Token: $apnsToken');
+        }
+      } else {
+        if (kDebugMode) {
+          print('APNs Token is NULL ❌ (This is the problem)');
+        }
+      }
       String? token = await _fcm.getToken();
       if (token != null) {
         if (kDebugMode) {
