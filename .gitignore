@@ -104,6 +104,7 @@ Thumbs.db
 *.key
 google-services.json
 GoogleService-Info.plist
+p4td-firebase-adminsdk.json
 
 # IDE cache
 .idea/

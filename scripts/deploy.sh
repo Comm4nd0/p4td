@@ -9,6 +9,9 @@ SSH_KEY="~/.ssh/p4td-key.pem"
 
 echo "=== Deploying to EC2 ($EC2_HOST) ==="
 
+echo ">>> Copying Firebase Admin SDK key..."
+scp -i $SSH_KEY -o StrictHostKeyChecking=no p4td-firebase-adminsdk.json ec2-user@$EC2_HOST:/home/ec2-user/p4td/
+
 ssh -i $SSH_KEY -o ConnectTimeout=60 ec2-user@$EC2_HOST '
   set -e
   cd /home/ec2-user/p4td
