@@ -4,8 +4,8 @@ from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, Boar
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests')
-    list_editable = ('can_manage_requests',)
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media')
+    list_editable = ('can_manage_requests', 'can_add_feed_media')
     search_fields = ('user__username', 'phone_number', 'address')
 
 @admin.register(DateChangeRequest)
@@ -89,6 +89,27 @@ class GroupMediaAdmin(admin.ModelAdmin):
     search_fields = ('caption', 'uploaded_by__username')
     readonly_fields = ('uploaded_by', 'created_at')
     ordering = ['-created_at']
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        if hasattr(request.user, 'profile') and request.user.profile.can_add_feed_media:
+            return True
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if hasattr(request.user, 'profile') and request.user.profile.can_add_feed_media:
+            return True
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if hasattr(request.user, 'profile') and request.user.profile.can_add_feed_media:
+            return True
+        return False
 
     def caption_preview(self, obj):
         if obj.caption:

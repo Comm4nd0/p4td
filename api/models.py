@@ -10,6 +10,7 @@ class UserProfile(models.Model):
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     pickup_instructions = models.TextField(blank=True, null=True)
     can_manage_requests = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny requests.')
+    can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
 
     def __str__(self):
         return f"Profile for {self.user.username}"
