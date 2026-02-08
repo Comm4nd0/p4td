@@ -12,10 +12,30 @@ class DeviceTokenViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return DeviceToken.objects.filter(user=self.request.user)
 
+    def create(self, request, *args, **kwargs):
+        # Check if token already exists
+        token = request.data.get('token')
+        if token:
+            existing = DeviceToken.objects.filter(token=token).first()
+            if existing:
+                # If it belongs to a different user, reassign it
+                if existing.user != request.user:
+                    existing.user = request.user
+                    existing.save()
+                # Determine device_type from request if available and not set
+                device_type = request.data.get('device_type')
+                if device_type and existing.device_type != device_type:
+                    existing.device_type = device_type
+                    existing.save()
+                
+                # Return the existing token with 200 OK
+                serializer = self.get_serializer(existing)
+                return Response(serializer.data)
+        
+        # Otherwise create new
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
-        # Update or create: if token exists for any user, reassign to current user
-        token = serializer.validated_data.get('token')
-        DeviceToken.objects.filter(token=token).delete()
         serializer.save(user=self.request.user)
 from django.utils import timezone
 from django.core.files.base import ContentFile
