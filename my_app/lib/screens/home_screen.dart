@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
-import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
-import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import 'dog_home_screen.dart';
-import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
 import 'staff_notifications_screen.dart';
@@ -25,9 +22,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final DataService _dataService = ApiDataService();
-  final AuthService _authService = AuthService();
+  // final AuthService _authService = AuthService(); // Removed unused
   final NotificationService _notificationService = NotificationService();
-  late Future<List<Dog>> _dogsFuture;
+  
+  List<Dog> _allDogs = [];
+  List<Dog> _filteredDogs = [];
+  bool _loadingDogs = true;
+  final TextEditingController _searchController = TextEditingController();
+
   bool _isStaff = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
@@ -39,8 +41,52 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkStaffStatus();
   }
 
-  void _loadDogs() {
-    _dogsFuture = _dataService.getDogs();
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDogs() async {
+    if (!mounted) return;
+    setState(() => _loadingDogs = true);
+    
+    try {
+      final dogs = await _dataService.getDogs();
+      // Alphabetical sort
+      dogs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      
+      if (mounted) {
+        setState(() {
+          _allDogs = dogs;
+          _filteredDogs = dogs;
+          _loadingDogs = false;
+          // Re-apply filter if search text exists
+          if (_searchController.text.isNotEmpty) {
+            _filterDogs(_searchController.text);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingDogs = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Failed to load dogs: $e')),
+        );
+      }
+    }
+  }
+
+  void _filterDogs(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredDogs = _allDogs;
+      } else {
+        _filteredDogs = _allDogs
+            .where((dog) => dog.name.toLowerCase().contains(query.toLowerCase()))
+            .toList();
+      }
+    });
   }
 
   Future<void> _checkStaffStatus() async {
@@ -109,7 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Image.asset('assets/logo.png', height: 32),
             const SizedBox(width: 8),
-            Text(_currentIndex == 0 ? 'My Dogs' : 'Feed'),
+            Text(_currentIndex == 0 
+                ? (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')) 
+                : 'Feed'),
           ],
         ),
         actions: [
@@ -228,85 +276,109 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDogsView() {
-    return FutureBuilder<List<Dog>>(
-      future: _dogsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.pets, size: 64, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                Text(
-                  'No dogs yet!',
-                  style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 8),
-                const Text('Tap the button below to add your first dog.'),
-              ],
-            ),
-          );
-        }
+    if (_loadingDogs) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        final dogs = snapshot.data!;
-        return RefreshIndicator(
-          onRefresh: () async => _refresh(),
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: dogs.length,
-            itemBuilder: (context, index) {
-              final dog = dogs[index];
-              return Card(
-                elevation: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                child: InkWell(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (dog.profileImageUrl != null)
-                        ClipRRect(
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                          child: CachedNetworkImage(
-                            imageUrl: dog.profileImageUrl!,
-                            height: 200,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Container(
-                              height: 200,
-                              color: Colors.grey[200],
-                              child: const Center(child: CircularProgressIndicator()),
-                            ),
-                            errorWidget: (context, url, error) =>
-                                const SizedBox(height: 200, child: Center(child: Icon(Icons.error))),
+    if (_allDogs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'No dogs yet!',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
+            const Text('Tap the button below to add your first dog.'),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        if (_allDogs.length > 1)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search dogs...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+              ),
+              onChanged: _filterDogs,
+            ),
+          ),
+        
+        Expanded(
+          child: _filteredDogs.isEmpty
+              ? Center(
+                  child: Text(
+                    'No dogs found matching "${_searchController.text}"',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: () async => _loadDogs(),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    itemCount: _filteredDogs.length,
+                    itemBuilder: (context, index) {
+                      final dog = _filteredDogs[index];
+                      return Card(
+                        elevation: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
+                              ),
+                            );
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (dog.profileImageUrl != null)
+                                ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                                  child: CachedNetworkImage(
+                                    imageUrl: dog.profileImageUrl!,
+                                    height: 200,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(
+                                      height: 200,
+                                      color: Colors.grey[200],
+                                      child: const Center(child: CircularProgressIndicator()),
+                                    ),
+                                    errorWidget: (context, url, error) =>
+                                        const SizedBox(height: 200, child: Center(child: Icon(Icons.error))),
+                                  ),
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Text(
+                                  dog.name,
+                                  style: Theme.of(context).textTheme.headlineSmall,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          dog.name,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
-              );
-            },
-          ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
