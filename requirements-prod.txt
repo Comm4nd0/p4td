@@ -25,3 +25,4 @@ python-dotenv>=1.0
 
 # Image processing (for thumbnails)
 Pillow>=10.0
+firebase-admin>=6.5.0
