@@ -198,7 +198,7 @@ class DeviceToken(models.Model):
         return f"Token for {self.user.username} ({self.device_type})"
 
 # Signals for Staff Notifications
-from .notifications import send_staff_notification
+from .notifications import send_staff_notification, send_push_notification
 
 @receiver(post_save, sender=DateChangeRequest)
 def notify_staff_date_change(sender, instance, created, **kwargs):
@@ -226,3 +226,70 @@ def notify_staff_boarding_request(sender, instance, created, **kwargs):
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
         send_staff_notification(title, body, data)
+
+# --- User Notifications (Status Changes) ---
+
+@receiver(pre_save, sender=DateChangeRequest)
+def store_old_date_request_status(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_instance = DateChangeRequest.objects.get(pk=instance.pk)
+            instance._old_status = old_instance.status
+        except DateChangeRequest.DoesNotExist:
+            instance._old_status = None
+    else:
+        instance._old_status = None
+
+@receiver(post_save, sender=DateChangeRequest)
+def notify_user_date_request_status(sender, instance, created, **kwargs):
+    if created:
+        return # Already handled by staff notification, user knows they created it locally usually
+
+    if hasattr(instance, '_old_status') and instance._old_status != instance.status:
+        # Status changed!
+        dog_name = instance.dog.name
+        new_status = instance.get_status_display()
+        
+        title = "Request Update"
+        body = f"Your request for {dog_name} is now {new_status}."
+        
+        data = {
+            'type': 'date_change_request_update',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        
+        # Determine owner (via dog)
+        owner = instance.dog.owner
+        send_push_notification(owner, title, body, data)
+
+@receiver(pre_save, sender=BoardingRequest)
+def store_old_boarding_request_status(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_instance = BoardingRequest.objects.get(pk=instance.pk)
+            instance._old_status = old_instance.status
+        except BoardingRequest.DoesNotExist:
+            instance._old_status = None
+    else:
+        instance._old_status = None
+
+@receiver(post_save, sender=BoardingRequest)
+def notify_user_boarding_request_status(sender, instance, created, **kwargs):
+    if created:
+        return
+
+    if hasattr(instance, '_old_status') and instance._old_status != instance.status:
+        # Status changed
+        new_status = instance.get_status_display()
+        
+        title = "Boarding Request Update"
+        body = f"Your boarding request ({instance.start_date} - {instance.end_date}) is now {new_status}."
+        
+        data = {
+            'type': 'boarding_request_update',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        
+        send_push_notification(instance.owner, title, body, data)

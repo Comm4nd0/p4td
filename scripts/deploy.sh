@@ -1,44 +1,58 @@
 #!/bin/bash
-# Deploy script for p4td EC2 instance
-# Usage: ./scripts/deploy.sh
-
 set -e
-
-EC2_HOST="46.137.83.83"
 SSH_KEY="~/.ssh/p4td-key.pem"
+EC2_HOST="46.137.83.83"
 
-echo "=== Deploying to EC2 ($EC2_HOST) ==="
+echo "=== TEXT-BASED DEPLOYMENT ==="
 
-echo ">>> Copying Firebase Admin SDK key..."
-scp -i $SSH_KEY -o StrictHostKeyChecking=no p4td-firebase-adminsdk.json ec2-user@$EC2_HOST:/home/ec2-user/p4td/
+# Read local config files to avoid hardcoding secrets
+if [ ! -f "p4td-firebase-adminsdk.json" ] || [ ! -f "aws-config.env" ]; then
+    echo "Error: Configuration files not found in current directory."
+    exit 1
+fi
 
-ssh -i $SSH_KEY -o ConnectTimeout=60 ec2-user@$EC2_HOST '
+FIREBASE_KEY=$(cat p4td-firebase-adminsdk.json)
+AWS_CONFIG=$(cat aws-config.env)
+
+# Use a single SSH session to write files and execute commands
+ssh -i $SSH_KEY -o ConnectTimeout=60 ec2-user@$EC2_HOST "
   set -e
+  mkdir -p /home/ec2-user/p4td
   cd /home/ec2-user/p4td
 
-  echo ">>> Pulling latest code..."
+  echo '>>> [REMOTE] Writing aws-config.env...'
+  cat > aws-config.env <<EOF
+$AWS_CONFIG
+EOF
+
+  echo '>>> [REMOTE] Writing p4td-firebase-adminsdk.json...'
+  cat > p4td-firebase-adminsdk.json <<EOF
+$FIREBASE_KEY
+EOF
+
+  echo '>>> [REMOTE] Files written. Pulling latest code...'
   git fetch origin
   git reset --hard origin/main
 
-  echo ">>> Stopping container..."
+  echo '>>> [REMOTE] Stopping old container...'
   docker stop p4td_prod 2>/dev/null || true
   docker rm p4td_prod 2>/dev/null || true
 
-  echo ">>> Building Docker image..."
+  echo '>>> [REMOTE] Building Docker image...'
   docker build -t p4td_prod .
 
-  echo ">>> Starting container..."
+  echo '>>> [REMOTE] Starting container...'
   docker run -d --name p4td_prod -p 8000:8000 \
     --env-file aws-config.env \
     -e CORS_ALLOW_ALL_ORIGINS=True \
     p4td_prod:latest
 
-  echo ">>> Waiting for container to start..."
+  echo '>>> [REMOTE] Waiting for container health...'
   sleep 5
   docker ps | grep p4td_prod
 
-  echo ">>> Running migrations..."
+  echo '>>> [REMOTE] Running migrations...'
   docker exec p4td_prod python manage.py migrate --noinput
-
-  echo "=== DEPLOYMENT COMPLETE ==="
-'
+  
+  echo '=== [REMOTE] DEPLOYMENT COMPLETE ==='
+"

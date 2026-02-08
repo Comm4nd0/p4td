@@ -52,15 +52,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (profile.isStaff) {
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Staff Mode: Subscribed to Notifications ✅'), backgroundColor: Colors.green),
-          );
         } else {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
-          // Optional: Show user mode for debugging
-           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('User Mode: Notifications limited'), backgroundColor: Colors.grey),
-          );
         }
       }
     } catch (e) {
