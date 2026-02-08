@@ -18,24 +18,24 @@ ssh -i $SSH_KEY -o ConnectTimeout=60 ec2-user@$EC2_HOST '
   git reset --hard origin/main
 
   echo ">>> Stopping container..."
-  docker stop p4td 2>/dev/null || true
-  docker rm p4td 2>/dev/null || true
+  docker stop p4td_prod 2>/dev/null || true
+  docker rm p4td_prod 2>/dev/null || true
 
   echo ">>> Building Docker image..."
-  docker build -t p4td .
+  docker build -t p4td_prod .
 
   echo ">>> Starting container..."
-  docker run -d --name p4td -p 8000:8000 \
+  docker run -d --name p4td_prod -p 8000:8000 \
     --env-file aws-config.env \
     -e CORS_ALLOW_ALL_ORIGINS=True \
-    p4td:latest
+    p4td_prod:latest
 
   echo ">>> Waiting for container to start..."
   sleep 5
-  docker ps | grep p4td
+  docker ps | grep p4td_prod
 
   echo ">>> Running migrations..."
-  docker exec p4td python manage.py migrate --noinput
+  docker exec p4td_prod python manage.py migrate --noinput
 
   echo "=== DEPLOYMENT COMPLETE ==="
 '
