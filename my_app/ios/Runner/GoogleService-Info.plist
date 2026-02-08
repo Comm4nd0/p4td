@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.paws4thoughtdogs.app</string>
+	<string>uk.co.paws4thoughtdogs.paws4thoughtdogs</string>
 	<key>PROJECT_ID</key>
 	<string>p4td-ebf6d</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:654085987807:ios:5ac83cf7c61e84f9f6f86a</string>
+	<string>1:654085987807:ios:f5ffb2d61c782ddaf6f86a</string>
 </dict>
 </plist>
