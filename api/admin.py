@@ -4,19 +4,9 @@ from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, Boar
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests')
+    list_editable = ('can_manage_requests',)
     search_fields = ('user__username', 'phone_number', 'address')
-
-@admin.register(Dog)
-class DogAdmin(admin.ModelAdmin):
-    list_display = ('name', 'owner', 'created_at')
-    search_fields = ('name', 'owner__username')
-    list_filter = ('created_at',)
-
-@admin.register(Photo)
-class PhotoAdmin(admin.ModelAdmin):
-    list_display = ('dog', 'taken_at', 'created_at')
-    list_filter = ('taken_at',)
 
 @admin.register(DateChangeRequest)
 class DateChangeRequestAdmin(admin.ModelAdmin):
@@ -27,6 +17,29 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
     list_per_page = 20
     ordering = ['-created_at']
     actions = ['approve_requests', 'deny_requests']
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if request.user.is_superuser:
+            return readonly
+        # Check permission
+        if hasattr(request.user, 'profile') and request.user.profile.can_manage_requests:
+            return readonly
+        # If no permission, make status read-only
+        return readonly + ('status',)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if request.user.is_superuser:
+            return actions
+        if hasattr(request.user, 'profile') and request.user.profile.can_manage_requests:
+            return actions
+        # Remove approve/deny actions if no permission
+        if 'approve_requests' in actions:
+            del actions['approve_requests']
+        if 'deny_requests' in actions:
+            del actions['deny_requests']
+        return actions
 
     def owner_name(self, obj):
         return obj.dog.owner.username
@@ -52,12 +65,20 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
     status_display.short_description = 'Status'
 
     def approve_requests(self, request, queryset):
-        updated = queryset.filter(status='PENDING').update(status='APPROVED')
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_manage_requests):
+            self.message_user(request, "You do not have permission to approve requests.", level='ERROR')
+            return
+        
+        updated = queryset.filter(status='PENDING').update(status='APPROVED', approved_by=request.user, approved_at=timezone.now())
         self.message_user(request, f'{updated} request(s) approved.')
     approve_requests.short_description = 'Approve selected requests'
 
     def deny_requests(self, request, queryset):
-        updated = queryset.filter(status='PENDING').update(status='DENIED')
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_manage_requests):
+            self.message_user(request, "You do not have permission to deny requests.", level='ERROR')
+            return
+
+        updated = queryset.filter(status='PENDING').update(status='DENIED', approved_by=None, approved_at=None)
         self.message_user(request, f'{updated} request(s) denied.')
     deny_requests.short_description = 'Deny selected requests'
 
@@ -90,6 +111,26 @@ class BoardingRequestAdmin(admin.ModelAdmin):
     ordering = ['-created_at']
     actions = ['approve_requests', 'deny_requests']
 
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if request.user.is_superuser:
+            return readonly
+        if hasattr(request.user, 'profile') and request.user.profile.can_manage_requests:
+            return readonly
+        return readonly + ('status',)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if request.user.is_superuser:
+            return actions
+        if hasattr(request.user, 'profile') and request.user.profile.can_manage_requests:
+            return actions
+        if 'approve_requests' in actions:
+            del actions['approve_requests']
+        if 'deny_requests' in actions:
+            del actions['deny_requests']
+        return actions
+
     def owner_name(self, obj):
         return obj.owner.username
     owner_name.short_description = 'Owner'
@@ -112,6 +153,10 @@ class BoardingRequestAdmin(admin.ModelAdmin):
     status_display.short_description = 'Status'
 
     def approve_requests(self, request, queryset):
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_manage_requests):
+            self.message_user(request, "You do not have permission to approve requests.", level='ERROR')
+            return
+
         from django.utils import timezone
         updated = queryset.filter(status='PENDING').update(
             status='APPROVED',
@@ -122,6 +167,10 @@ class BoardingRequestAdmin(admin.ModelAdmin):
     approve_requests.short_description = 'Approve selected requests'
 
     def deny_requests(self, request, queryset):
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_manage_requests):
+            self.message_user(request, "You do not have permission to deny requests.", level='ERROR')
+            return
+
         updated = queryset.filter(status='PENDING').update(
             status='DENIED',
             approved_by=None,

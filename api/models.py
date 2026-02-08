@@ -9,6 +9,7 @@ class UserProfile(models.Model):
     address = models.TextField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     pickup_instructions = models.TextField(blank=True, null=True)
+    can_manage_requests = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny requests.')
 
     def __str__(self):
         return f"Profile for {self.user.username}"
