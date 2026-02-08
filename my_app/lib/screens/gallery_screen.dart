@@ -11,7 +11,14 @@ class GalleryScreen extends StatefulWidget {
   final String dogId;
   final bool isStaff;
 
-  const GalleryScreen({super.key, required this.dogId, this.isStaff = false});
+  final bool embed;
+
+  const GalleryScreen({
+    super.key, 
+    required this.dogId, 
+    this.isStaff = false,
+    this.embed = false,
+  });
 
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
@@ -28,7 +35,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _photosFuture = _dataService.getPhotos(widget.dogId);
   }
 
+
+
   Future<void> _pickAndUploadImage() async {
+
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(
       source: ImageSource.gallery,
@@ -155,119 +165,134 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embed) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.isStaff)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: ElevatedButton.icon(
+                onPressed: _uploading ? null : _showUploadOptions,
+                icon: _uploading 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
+                  : const Icon(Icons.add_photo_alternate),
+                label: Text(_uploading ? 'Uploading...' : 'Add Photo/Video'),
+              ),
+            ),
+          _buildGalleryContent(),
+        ],
+      );
+    }
+
     return Scaffold(
       floatingActionButton: widget.isStaff && !_uploading
           ? FloatingActionButton(
-              onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (context) => Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.image),
-                          title: const Text('Upload Single Photo'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _pickAndUploadImage();
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.collections),
-                          title: const Text('Upload Multiple Photos'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _pickAndUploadMultipleImages();
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.videocam),
-                          title: const Text('Upload Video'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _pickAndUploadVideo();
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-              tooltip: 'Upload Photos/Videos',
+              onPressed: _showUploadOptions,
               child: const Icon(Icons.add_photo_alternate),
             )
           : null,
-      body: FutureBuilder<List<Photo>>(
-        future: _photosFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No photos found.'));
-          }
+      body: _buildGalleryContent(),
+    );
+  }
 
-          final photos = snapshot.data!;
-          return GridView.builder(
-            padding: const EdgeInsets.all(8),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
+  void _showUploadOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image),
+              title: const Text('Upload Single Photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUploadImage();
+              },
             ),
-            itemCount: photos.length,
-            itemBuilder: (context, index) {
-              final photo = photos[index];
-              return GestureDetector(
-                onTap: () {
-                  _showFullScreenImage(context, photos, index);
-                },
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // Show thumbnail for videos, image URL for photos
-                      CachedNetworkImage(
-                        imageUrl: photo.isVideo && photo.thumbnailUrl != null 
-                          ? photo.thumbnailUrl!
-                          : photo.url,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
-                          color: Colors.grey[200],
-                        ),
-                        errorWidget: (context, url, error) {
-                          return Container(
-                            color: Colors.grey[300],
-                            child: const Center(
-                              child: Icon(Icons.image_not_supported),
-                            ),
-                          );
-                        },
-                      ),
-                      // Play button overlay for videos
-                      if (photo.isVideo)
-                        Container(
-                          color: Colors.black26,
-                          child: const Center(
-                            child: Icon(
-                              Icons.play_circle_filled,
-                              color: Colors.white,
-                              size: 48,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
+            ListTile(
+              leading: const Icon(Icons.collections),
+              title: const Text('Upload Multiple Photos'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUploadMultipleImages();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam),
+              title: const Text('Upload Video'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUploadVideo();
+              },
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildGalleryContent() {
+    return FutureBuilder<List<Photo>>(
+      future: _photosFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()));
+        } else if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(32.0),
+            child: Center(child: Text('No photos yet.')),
+          );
+        }
+
+        final photos = snapshot.data!;
+        // Sort by takenAt descending (newest first)
+        photos.sort((a, b) => b.takenAt.compareTo(a.takenAt));
+
+        return GridView.builder(
+          padding: const EdgeInsets.all(4),
+          shrinkWrap: widget.embed,
+          physics: widget.embed ? const NeverScrollableScrollPhysics() : null,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 4,
+            mainAxisSpacing: 4,
+          ),
+          itemCount: photos.length,
+          itemBuilder: (context, index) {
+            final photo = photos[index];
+            return GestureDetector(
+              onTap: () {
+                _showFullScreenImage(context, photos, index);
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CachedNetworkImage(
+                      imageUrl: photo.isVideo && photo.thumbnailUrl != null 
+                        ? photo.thumbnailUrl!
+                        : photo.url,
+                      fit: BoxFit.cover,
+                      errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: const Icon(Icons.error)),
+                    ),
+                    if (photo.isVideo)
+                      Container(
+                        color: Colors.black26,
+                        child: const Icon(Icons.play_circle_filled, color: Colors.white),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

@@ -354,19 +354,24 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       return const SizedBox.shrink();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 16),
-        Text(
-          'Your Requests',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+    return Card(
+      margin: const EdgeInsets.only(top: 16),
+      elevation: 0,
+      color: Colors.white.withOpacity(0.5),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ExpansionTile(
+        title: Text(
+          'Active Requests (${_requests.length})',
+          style: TextStyle(
             fontWeight: FontWeight.bold,
-            color: Colors.grey[700],
+            color: Theme.of(context).primaryColor,
+            fontSize: 14,
           ),
         ),
-        const SizedBox(height: 8),
-        ..._requests.map((request) => Card(
+        initiallyExpanded: false,
+        childrenPadding: const EdgeInsets.all(8),
+        children: _requests.map((request) => Card(
+          elevation: 1,
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             dense: true,
@@ -382,50 +387,37 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               request.requestType == RequestType.cancel
                   ? 'Cancel ${DateFormat('EEE, d MMM').format(request.originalDate)}'
                   : '${DateFormat('EEE, d MMM').format(request.originalDate)} → ${DateFormat('EEE, d MMM').format(request.newDate!)}',
-              style: const TextStyle(fontSize: 14),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            subtitle: Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(request.status).withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        request.statusDisplayName,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: _getStatusColor(request.status),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    if (request.isCharged) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        '(charged)',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ],
-                ),
-                if (request.status != RequestStatus.pending && request.approvedByName != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Text(
-                      '${request.status == RequestStatus.approved ? 'Approved' : 'Denied'} by ${request.approvedByName}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(request.status).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    request.statusDisplayName,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _getStatusColor(request.status),
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
+                ),
+                if (request.isCharged) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '(charged)',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
               ],
             ),
           ),
-        )),
-      ],
+        )).toList(),
+      ),
     );
   }
 
@@ -466,126 +458,137 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Theme.of(context).primaryColor.withOpacity(0.1),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Hero(
-                      tag: 'dog_image_${_dog.id}',
-                      child: CircleAvatar(
-                        radius: 40,
-                        backgroundImage: _dog.profileImageUrl != null 
-                            ? CachedNetworkImageProvider(_dog.profileImageUrl!) 
-                            : null,
-                        child: _dog.profileImageUrl == null 
-                            ? const Icon(Icons.pets, size: 40) 
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _dog.name,
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                          if (widget.isStaff && _dog.ownerDetails != null)
-                            TextButton.icon(
-                              onPressed: _showOwnerDetails,
-                              icon: const Icon(Icons.person, size: 18),
-                              label: const Text('Owner Info'),
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (_dog.daysInDaycare.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Theme.of(context).primaryColor.withOpacity(0.1),
+              child: Column(
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        'Upcoming Dates',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[700],
+                      Hero(
+                        tag: 'dog_image_${_dog.id}',
+                        child: CircleAvatar(
+                          radius: 40,
+                          backgroundImage: _dog.profileImageUrl != null 
+                              ? CachedNetworkImageProvider(_dog.profileImageUrl!) 
+                              : null,
+                          child: _dog.profileImageUrl == null 
+                              ? const Icon(Icons.pets, size: 40) 
+                              : null,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        height: 80,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: upcomingDates.length,
-                          itemBuilder: (context, index) {
-                            final date = upcomingDates[index];
-                            final isConfirmed = _isConfirmed(date);
-                            return GestureDetector(
-                              onTap: () => _showDateChangeRequest(date),
-                              child: Container(
-                                width: 60,
-                                margin: const EdgeInsets.only(right: 8),
-                                decoration: BoxDecoration(
-                                  color: isConfirmed ? Colors.green[100] : Colors.grey[200],
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: isConfirmed ? Colors.green : Colors.grey[400]!,
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      DateFormat('E').format(date),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: isConfirmed ? Colors.green[800] : Colors.grey[600],
-                                      ),
-                                    ),
-                                    Text(
-                                      DateFormat('d').format(date),
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: isConfirmed ? Colors.green[800] : Colors.grey[600],
-                                      ),
-                                    ),
-                                    Text(
-                                      DateFormat('MMM').format(date),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isConfirmed ? Colors.green[700] : Colors.grey[500],
-                                      ),
-                                    ),
-                                  ],
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _dog.name,
+                              style: Theme.of(context).textTheme.headlineMedium,
+                            ),
+                            if (widget.isStaff && _dog.ownerDetails != null)
+                              TextButton.icon(
+                                onPressed: _showOwnerDetails,
+                                icon: const Icon(Icons.person, size: 18),
+                                label: const Text('Owner Info'),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
                                 ),
                               ),
-                            );
-                          },
+                          ],
                         ),
                       ),
                     ],
                   ),
+                  if (_dog.daysInDaycare.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Upcoming Dates',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 80,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: upcomingDates.length,
+                            itemBuilder: (context, index) {
+                              final date = upcomingDates[index];
+                              final isConfirmed = _isConfirmed(date);
+                              return GestureDetector(
+                                onTap: () => _showDateChangeRequest(date),
+                                child: Container(
+                                  width: 60,
+                                  margin: const EdgeInsets.only(right: 8),
+                                  decoration: BoxDecoration(
+                                    color: isConfirmed ? Colors.green[100] : Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isConfirmed ? Colors.green : Colors.grey[400]!,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        DateFormat('E').format(date),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                        ),
+                                      ),
+                                      Text(
+                                        DateFormat('d').format(date),
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: isConfirmed ? Colors.green[800] : Colors.grey[600],
+                                        ),
+                                      ),
+                                      Text(
+                                        DateFormat('MMM').format(date),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isConfirmed ? Colors.green[700] : Colors.grey[500],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  _buildRequestsSection(),
                 ],
-                _buildRequestsSection(),
-              ],
+              ),
             ),
-          ),
-          Expanded(child: GalleryScreen(dogId: _dog.id, isStaff: widget.isStaff)),
-        ],
+            // Embedded Gallery
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: GalleryScreen(
+                dogId: _dog.id, 
+                isStaff: widget.isStaff, 
+                embed: true, // IMPORTANT: Enable embedding mode
+              ),
+            ),
+            const SizedBox(height: 80), // Extra space at bottom for scrolling nicely
+          ],
+        ),
       ),
     );
   }
