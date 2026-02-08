@@ -196,3 +196,33 @@ class DeviceToken(models.Model):
 
     def __str__(self):
         return f"Token for {self.user.username} ({self.device_type})"
+
+# Signals for Staff Notifications
+from .notifications import send_staff_notification
+
+@receiver(post_save, sender=DateChangeRequest)
+def notify_staff_date_change(sender, instance, created, **kwargs):
+    if created:
+        dog_name = instance.dog.name
+        request_type = instance.get_request_type_display()
+        title = "New Date Change Request"
+        body = f"{dog_name}: {request_type} requested."
+        data = {
+            'type': 'date_change_request',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        send_staff_notification(title, body, data)
+
+@receiver(post_save, sender=BoardingRequest)
+def notify_staff_boarding_request(sender, instance, created, **kwargs):
+    if created:
+        owner_name = instance.owner.username
+        title = "New Boarding Request"
+        body = f"{owner_name} requested boarding from {instance.start_date} to {instance.end_date}."
+        data = {
+            'type': 'boarding_request',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        send_staff_notification(title, body, data)

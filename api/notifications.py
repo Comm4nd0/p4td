@@ -77,3 +77,23 @@ def notify_new_post(post):
     users = User.objects.exclude(id=post.uploaded_by.id)
     for user in users:
         send_push_notification(user, title, body, data)
+
+def send_staff_notification(title, body, data=None):
+    """Sends a push notification to the staff_notifications topic."""
+    if not initialize_firebase():
+        return
+
+    message = messaging.Message(
+        notification=messaging.Notification(
+            title=title,
+            body=body,
+        ),
+        data=data or {},
+        topic='staff_notifications',
+    )
+
+    try:
+        response = messaging.send(message)
+        print(f"Successfully sent staff notification: {response}")
+    except Exception as e:
+        print(f"Error sending staff notification: {e}")
