@@ -261,6 +261,107 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
+  Future<void> _showReassignDialog(DailyDogAssignment assignment) async {
+    List<Map<String, dynamic>> staffMembers;
+    try {
+      staffMembers = await _dataService.getStaffMembers();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load staff: $e')),
+        );
+      }
+      return;
+    }
+
+    // Remove the currently assigned staff member from the list
+    staffMembers.removeWhere((s) => s['id'] == assignment.staffMemberId);
+
+    if (!mounted) return;
+
+    if (staffMembers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No other staff members available.')),
+      );
+      return;
+    }
+
+    int? selectedStaffId;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Reassign ${assignment.dogName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Currently assigned to ${assignment.staffMemberName}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                decoration: const InputDecoration(
+                  labelText: 'Reassign to',
+                  border: OutlineInputBorder(),
+                ),
+                value: selectedStaffId,
+                items: staffMembers.map((staff) {
+                  final name = (staff['first_name'] != null &&
+                          staff['first_name'].toString().isNotEmpty)
+                      ? staff['first_name']
+                      : staff['username'];
+                  return DropdownMenuItem<int>(
+                    value: staff['id'] as int,
+                    child: Text(name.toString()),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setDialogState(() => selectedStaffId = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selectedStaffId == null
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text('Reassign'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true && selectedStaffId != null) {
+      try {
+        await _dataService.reassignDog(assignment.id, selectedStaffId!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Dog reassigned successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        await _loadAssignments();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to reassign: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _openMaps(String address) async {
     final uri = Uri.parse('https://maps.apple.com/?q=${Uri.encodeComponent(address)}');
     final geoUri = Uri.parse('geo:0,0?q=${Uri.encodeComponent(address)}');
@@ -371,11 +472,25 @@ class StaffDailyAssignmentsScreenState
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       if (widget.canAssignDogs)
-                        Text(
-                          'Staff: ${assignment.staffMemberName}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Staff: ${assignment.staffMemberName}',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () => _showReassignDialog(assignment),
+                              child: Icon(
+                                Icons.swap_horiz,
+                                size: 18,
                                 color: Theme.of(context).colorScheme.primary,
                               ),
+                            ),
+                          ],
                         ),
                     ],
                   ),
