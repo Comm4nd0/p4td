@@ -705,6 +705,45 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
 
+    @action(detail=False, methods=['post'])
+    def assign_dogs(self, request):
+        """Assign one or more dogs to a specified staff member for today.
+        Requires can_assign_dogs permission."""
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to assign dogs to other staff members.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        from datetime import date
+        today = date.today()
+        dog_ids = request.data.get('dog_ids', [])
+        staff_member_id = request.data.get('staff_member_id')
+
+        if not dog_ids:
+            return Response({'detail': 'dog_ids is required'}, status=400)
+        if not staff_member_id:
+            return Response({'detail': 'staff_member_id is required'}, status=400)
+
+        from django.contrib.auth.models import User
+        try:
+            target_staff = User.objects.get(id=staff_member_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found'}, status=404)
+
+        created = []
+        for dog_id in dog_ids:
+            assignment, was_created = DailyDogAssignment.objects.get_or_create(
+                dog_id=dog_id,
+                date=today,
+                defaults={'staff_member': target_staff},
+            )
+            if was_created:
+                created.append(assignment)
+
+        serializer = self.get_serializer(created, many=True)
+        return Response(serializer.data, status=201)
+
     @action(detail=False, methods=['get'])
     def staff_members(self, request):
         """Get list of staff members for assignment dropdown."""

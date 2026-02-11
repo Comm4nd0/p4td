@@ -5,7 +5,9 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 
 class StaffDailyAssignmentsScreen extends StatefulWidget {
-  const StaffDailyAssignmentsScreen({super.key});
+  final bool canAssignDogs;
+
+  const StaffDailyAssignmentsScreen({super.key, this.canAssignDogs = false});
 
   @override
   State<StaffDailyAssignmentsScreen> createState() =>
@@ -28,7 +30,9 @@ class StaffDailyAssignmentsScreenState
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final assignments = await _dataService.getMyAssignments();
+      final assignments = widget.canAssignDogs
+          ? await _dataService.getTodayAssignments()
+          : await _dataService.getMyAssignments();
       if (mounted) {
         setState(() {
           _myAssignments = assignments;
@@ -70,12 +74,16 @@ class StaffDailyAssignmentsScreenState
 
   Future<void> _showAssignDogsDialog() async {
     List<Dog> unassigned;
+    List<Map<String, dynamic>> staffMembers = [];
     try {
       unassigned = await _dataService.getUnassignedDogs();
+      if (widget.canAssignDogs) {
+        staffMembers = await _dataService.getStaffMembers();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load unassigned dogs: $e')),
+          SnackBar(content: Text('Failed to load data: $e')),
         );
       }
       return;
@@ -91,48 +99,79 @@ class StaffDailyAssignmentsScreenState
     }
 
     final selected = <int>{};
+    int? selectedStaffId;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Assign Dogs to Me'),
+          title: Text(widget.canAssignDogs ? 'Assign Dogs' : 'Assign Dogs to Me'),
           content: SizedBox(
             width: double.maxFinite,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: unassigned.length,
-              itemBuilder: (context, index) {
-                final dog = unassigned[index];
-                final dogId = int.parse(dog.id);
-                return CheckboxListTile(
-                  value: selected.contains(dogId),
-                  onChanged: (checked) {
-                    setDialogState(() {
-                      if (checked == true) {
-                        selected.add(dogId);
-                      } else {
-                        selected.remove(dogId);
-                      }
-                    });
-                  },
-                  title: Text(dog.name),
-                  subtitle: dog.ownerDetails != null
-                      ? Text('Owner: ${dog.ownerDetails!.username}')
-                      : null,
-                  secondary: dog.profileImageUrl != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: CachedNetworkImage(
-                            imageUrl: dog.profileImageUrl!,
-                            width: 40,
-                            height: 40,
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      : const CircleAvatar(child: Icon(Icons.pets)),
-                );
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (widget.canAssignDogs) ...[
+                  DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(
+                      labelText: 'Assign to Staff Member',
+                      border: OutlineInputBorder(),
+                    ),
+                    value: selectedStaffId,
+                    items: staffMembers.map((staff) {
+                      final name = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
+                          ? staff['first_name']
+                          : staff['username'];
+                      return DropdownMenuItem<int>(
+                        value: staff['id'] as int,
+                        child: Text(name.toString()),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() => selectedStaffId = value);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: unassigned.length,
+                    itemBuilder: (context, index) {
+                      final dog = unassigned[index];
+                      final dogId = int.parse(dog.id);
+                      return CheckboxListTile(
+                        value: selected.contains(dogId),
+                        onChanged: (checked) {
+                          setDialogState(() {
+                            if (checked == true) {
+                              selected.add(dogId);
+                            } else {
+                              selected.remove(dogId);
+                            }
+                          });
+                        },
+                        title: Text(dog.name),
+                        subtitle: dog.ownerDetails != null
+                            ? Text('Owner: ${dog.ownerDetails!.username}')
+                            : null,
+                        secondary: dog.profileImageUrl != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(20),
+                                child: CachedNetworkImage(
+                                  imageUrl: dog.profileImageUrl!,
+                                  width: 40,
+                                  height: 40,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : const CircleAvatar(child: Icon(Icons.pets)),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
@@ -141,7 +180,7 @@ class StaffDailyAssignmentsScreenState
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: selected.isEmpty
+              onPressed: selected.isEmpty || (widget.canAssignDogs && selectedStaffId == null)
                   ? null
                   : () => Navigator.pop(context, true),
               child: const Text('Assign'),
@@ -153,7 +192,11 @@ class StaffDailyAssignmentsScreenState
 
     if (result == true && selected.isNotEmpty) {
       try {
-        await _dataService.assignDogsToMe(selected.toList());
+        if (widget.canAssignDogs && selectedStaffId != null) {
+          await _dataService.assignDogs(selected.toList(), selectedStaffId!);
+        } else {
+          await _dataService.assignDogsToMe(selected.toList());
+        }
         await _loadAssignments();
       } catch (e) {
         if (mounted) {
@@ -294,6 +337,13 @@ class StaffDailyAssignmentsScreenState
                         'Owner: ${assignment.ownerName}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      if (widget.canAssignDogs)
+                        Text(
+                          'Staff: ${assignment.staffMemberName}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
                     ],
                   ),
                 ),
