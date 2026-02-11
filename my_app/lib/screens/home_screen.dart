@@ -155,8 +155,8 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Image.asset('assets/logo.png', height: 32),
             const SizedBox(width: 8),
-            Text(_currentIndex == 0 
-                ? (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')) 
+            Text(_currentIndex == 0
+                ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
                 : 'Feed'),
           ],
         ),
@@ -260,12 +260,12 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.pets),
-            label: 'My Dogs',
+            icon: const Icon(Icons.pets),
+            label: _isStaff ? 'All Dogs' : 'My Dogs',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.photo_library),
             label: 'Feed',
           ),
