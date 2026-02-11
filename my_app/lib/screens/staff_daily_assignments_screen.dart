@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
@@ -221,6 +222,19 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
+  AssignmentStatus? _previousStatus(AssignmentStatus current) {
+    switch (current) {
+      case AssignmentStatus.assigned:
+        return null;
+      case AssignmentStatus.pickedUp:
+        return AssignmentStatus.assigned;
+      case AssignmentStatus.atDaycare:
+        return AssignmentStatus.pickedUp;
+      case AssignmentStatus.droppedOff:
+        return AssignmentStatus.atDaycare;
+    }
+  }
+
   IconData _statusIcon(AssignmentStatus status) {
     switch (status) {
       case AssignmentStatus.assigned:
@@ -244,6 +258,24 @@ class StaffDailyAssignmentsScreenState
         return Colors.purple;
       case AssignmentStatus.droppedOff:
         return Colors.green;
+    }
+  }
+
+  Future<void> _openMaps(String address) async {
+    final uri = Uri.parse('https://maps.apple.com/?q=${Uri.encodeComponent(address)}');
+    final geoUri = Uri.parse('geo:0,0?q=${Uri.encodeComponent(address)}');
+    // Try geo: first (works on Android), fall back to maps URL
+    if (await canLaunchUrl(geoUri)) {
+      await launchUrl(geoUri);
+    } else if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _callPhone(String phone) async {
+    final uri = Uri.parse('tel:${Uri.encodeComponent(phone)}');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
     }
   }
 
@@ -289,6 +321,7 @@ class StaffDailyAssignmentsScreenState
 
   Widget _buildAssignmentCard(DailyDogAssignment assignment) {
     final next = _nextStatus(assignment.status);
+    final previous = _previousStatus(assignment.status);
     final statusColor = _statusColor(assignment.status);
 
     return Card(
@@ -368,35 +401,48 @@ class StaffDailyAssignmentsScreenState
                 assignment.ownerAddress!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.location_on,
-                        size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        assignment.ownerAddress!,
-                        style: TextStyle(
-                            fontSize: 13, color: Colors.grey[700]),
+                child: InkWell(
+                  onTap: () => _openMaps(assignment.ownerAddress!),
+                  child: Row(
+                    children: [
+                      Icon(Icons.location_on,
+                          size: 16, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          assignment.ownerAddress!,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.primary,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             if (assignment.ownerPhone != null &&
                 assignment.ownerPhone!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.phone, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Text(
-                      assignment.ownerPhone!,
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.grey[700]),
-                    ),
-                  ],
+                child: InkWell(
+                  onTap: () => _callPhone(assignment.ownerPhone!),
+                  child: Row(
+                    children: [
+                      Icon(Icons.phone,
+                          size: 16, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        assignment.ownerPhone!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             if (assignment.pickupInstructions != null &&
@@ -422,16 +468,32 @@ class StaffDailyAssignmentsScreenState
                 ),
               ),
 
-            // Action button
-            if (next != null) ...[
+            // Action buttons
+            if (next != null || previous != null) ...[
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => _updateStatus(assignment, next),
-                  icon: Icon(_statusIcon(next)),
-                  label: Text('Mark as ${next.displayName}'),
-                ),
+              Row(
+                children: [
+                  if (previous != null)
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _updateStatus(assignment, previous),
+                        icon: Icon(_statusIcon(previous), size: 18),
+                        label: Text('Revert to ${previous.displayName}',
+                            style: const TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                  if (previous != null && next != null)
+                    const SizedBox(width: 8),
+                  if (next != null)
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => _updateStatus(assignment, next),
+                        icon: Icon(_statusIcon(next), size: 18),
+                        label: Text('Mark ${next.displayName}',
+                            style: const TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                ],
               ),
             ],
           ],
