@@ -7,6 +7,8 @@ class UserProfile {
   final String? firstName;
   final bool isStaff;
   final bool canAssignDogs;
+  final bool canAddFeedMedia;
+  final bool canManageRequests;
 
   UserProfile({
     required this.username,
@@ -17,6 +19,8 @@ class UserProfile {
     this.firstName,
     this.isStaff = false,
     this.canAssignDogs = false,
+    this.canAddFeedMedia = false,
+    this.canManageRequests = false,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -29,6 +33,8 @@ class UserProfile {
       firstName: json['first_name'],
       isStaff: json['is_staff'] ?? false,
       canAssignDogs: json['can_assign_dogs'] ?? false,
+      canAddFeedMedia: json['can_add_feed_media'] ?? false,
+      canManageRequests: json['can_manage_requests'] ?? false,
     );
   }
 

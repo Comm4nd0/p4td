@@ -8,8 +8,9 @@ import '../main.dart';
 
 class FeedScreen extends StatefulWidget {
   final bool isStaff;
+  final bool canAddFeedMedia;
 
-  const FeedScreen({super.key, required this.isStaff});
+  const FeedScreen({super.key, required this.isStaff, this.canAddFeedMedia = false});
 
   @override
   State<FeedScreen> createState() => _FeedScreenState();
@@ -356,7 +357,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: widget.isStaff
+      floatingActionButton: widget.canAddFeedMedia
           ? FloatingActionButton.extended(
               onPressed: _uploadMedia,
               icon: const Icon(Icons.add),
@@ -382,7 +383,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                                 'No posts yet',
                                 style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                               ),
-                              if (widget.isStaff) ...[
+                              if (widget.canAddFeedMedia) ...[
                                 const SizedBox(height: 8),
                                 const Text('Tap the button below to upload photos or videos'),
                               ],

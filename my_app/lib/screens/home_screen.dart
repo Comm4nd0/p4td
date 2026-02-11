@@ -33,6 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isStaff = false;
   bool _canAssignDogs = false;
+  bool _canAddFeedMedia = false;
+  bool _canManageRequests = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
@@ -99,9 +101,11 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _isStaff = profile.isStaff;
           _canAssignDogs = profile.canAssignDogs;
+          _canAddFeedMedia = profile.canAddFeedMedia;
+          _canManageRequests = profile.canManageRequests;
         });
         // Load pending requests count and subscribe to notifications
-        if (profile.isStaff) {
+        if (profile.canManageRequests) {
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
         } else {
@@ -118,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadPendingRequestCount() async {
-    if (!_isStaff) return;
+    if (!_canManageRequests) return;
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
       final boardingRequests = await _dataService.getBoardingRequests();
@@ -168,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          if (_isStaff)
+          if (_canManageRequests)
             Stack(
               children: [
                 IconButton(
@@ -292,7 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _currentIndex == 0
           ? _buildDogsView()
           : _currentIndex == 1
-              ? FeedScreen(isStaff: _isStaff)
+              ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia)
               : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
     );
   }
