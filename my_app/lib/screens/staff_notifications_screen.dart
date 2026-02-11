@@ -5,7 +5,9 @@ import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 
 class StaffNotificationsScreen extends StatefulWidget {
-  const StaffNotificationsScreen({super.key});
+  final bool canManageRequests;
+
+  const StaffNotificationsScreen({super.key, this.canManageRequests = false});
 
   @override
   State<StaffNotificationsScreen> createState() => _StaffNotificationsScreenState();
@@ -362,29 +364,31 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
               style: TextStyle(color: Colors.grey[500], fontSize: 11),
             ),
             // Actions
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (request.status != RequestStatus.pending)
-                  TextButton(
-                    onPressed: () => _updateDateStatus(request, 'PENDING'),
-                    child: const Text('Set Pending'),
-                  ),
-                if (request.status != RequestStatus.denied)
-                  OutlinedButton(
-                    onPressed: () => _updateDateStatus(request, 'DENIED'),
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                    child: const Text('Deny'),
-                  ),
-                const SizedBox(width: 8),
-                if (request.status != RequestStatus.approved)
-                  FilledButton(
-                    onPressed: () => _updateDateStatus(request, 'APPROVED'),
-                    child: const Text('Approve'),
-                  ),
-              ],
-            ),
+            if (widget.canManageRequests) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (request.status != RequestStatus.pending)
+                    TextButton(
+                      onPressed: () => _updateDateStatus(request, 'PENDING'),
+                      child: const Text('Set Pending'),
+                    ),
+                  if (request.status != RequestStatus.denied)
+                    OutlinedButton(
+                      onPressed: () => _updateDateStatus(request, 'DENIED'),
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                      child: const Text('Deny'),
+                    ),
+                  const SizedBox(width: 8),
+                  if (request.status != RequestStatus.approved)
+                    FilledButton(
+                      onPressed: () => _updateDateStatus(request, 'APPROVED'),
+                      child: const Text('Approve'),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -491,29 +495,31 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                style: TextStyle(color: Colors.grey[500], fontSize: 11),
             ),
             // Actions
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                 if (request.status != BoardingRequestStatus.pending)
-                  TextButton(
-                    onPressed: () => _updateBoardingStatus(request, 'PENDING'),
-                    child: const Text('Set Pending'),
-                  ),
-                if (request.status != BoardingRequestStatus.denied)
-                  OutlinedButton(
-                    onPressed: () => _updateBoardingStatus(request, 'DENIED'),
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                    child: const Text('Deny'),
-                  ),
-                const SizedBox(width: 8),
-                if (request.status != BoardingRequestStatus.approved)
-                  FilledButton(
-                    onPressed: () => _updateBoardingStatus(request, 'APPROVED'),
-                    child: const Text('Approve'),
-                  ),
-              ],
-            ),
+            if (widget.canManageRequests) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                   if (request.status != BoardingRequestStatus.pending)
+                    TextButton(
+                      onPressed: () => _updateBoardingStatus(request, 'PENDING'),
+                      child: const Text('Set Pending'),
+                    ),
+                  if (request.status != BoardingRequestStatus.denied)
+                    OutlinedButton(
+                      onPressed: () => _updateBoardingStatus(request, 'DENIED'),
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                      child: const Text('Deny'),
+                    ),
+                  const SizedBox(width: 8),
+                  if (request.status != BoardingRequestStatus.approved)
+                    FilledButton(
+                      onPressed: () => _updateBoardingStatus(request, 'APPROVED'),
+                      child: const Text('Approve'),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
