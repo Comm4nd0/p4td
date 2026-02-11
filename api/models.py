@@ -189,6 +189,29 @@ class BoardingRequestHistory(models.Model):
 
     class Meta:
         ordering = ['-changed_at']
+class DailyDogAssignment(models.Model):
+    STATUS_CHOICES = [
+        ('ASSIGNED', 'Assigned'),
+        ('PICKED_UP', 'Picked Up'),
+        ('AT_DAYCARE', 'At Daycare'),
+        ('DROPPED_OFF', 'Dropped Off'),
+    ]
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='daily_assignments')
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dog_assignments')
+    date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ASSIGNED')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('dog', 'date')
+        ordering = ['dog__name']
+
+    def __str__(self):
+        return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
+
+
 class DeviceToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
     token = models.CharField(max_length=255, unique=True)

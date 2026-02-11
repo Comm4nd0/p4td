@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment
 
 class DeviceTokenSerializer(serializers.ModelSerializer):
     class Meta:
@@ -190,3 +190,51 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
         if request and not request.user.is_staff:
              # Limit dog choices to owned dogs for non-staff
              self.fields['dogs'].queryset = Dog.objects.filter(owner=request.user)
+
+class DailyDogAssignmentSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    dog_profile_image = serializers.ImageField(source='dog.profile_image', read_only=True)
+    staff_member_name = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
+    owner_address = serializers.SerializerMethodField()
+    owner_phone = serializers.SerializerMethodField()
+    pickup_instructions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DailyDogAssignment
+        fields = [
+            'id', 'dog', 'dog_name', 'dog_profile_image',
+            'staff_member', 'staff_member_name',
+            'owner_name', 'owner_address', 'owner_phone', 'pickup_instructions',
+            'date', 'status', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_staff_member_name(self, obj):
+        if obj.staff_member.first_name:
+            return obj.staff_member.first_name
+        return obj.staff_member.username
+
+    def get_owner_name(self, obj):
+        user = obj.dog.owner
+        if user.first_name:
+            return user.first_name
+        return user.username
+
+    def get_owner_address(self, obj):
+        try:
+            return obj.dog.owner.profile.address
+        except Exception:
+            return None
+
+    def get_owner_phone(self, obj):
+        try:
+            return obj.dog.owner.profile.phone_number
+        except Exception:
+            return None
+
+    def get_pickup_instructions(self, obj):
+        try:
+            return obj.dog.owner.profile.pickup_instructions
+        except Exception:
+            return None

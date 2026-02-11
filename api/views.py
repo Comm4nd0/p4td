@@ -2,8 +2,8 @@ from rest_framework import viewsets, mixins
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer
 
 class DeviceTokenViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceTokenSerializer
@@ -592,3 +592,122 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         )
 
         return Response(self.get_serializer(instance).data)
+
+
+class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
+    serializer_class = DailyDogAssignmentSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        queryset = DailyDogAssignment.objects.select_related(
+            'dog', 'dog__owner', 'dog__owner__profile', 'staff_member'
+        )
+        date = self.request.query_params.get('date')
+        if date:
+            queryset = queryset.filter(date=date)
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            queryset = queryset.filter(staff_member_id=staff_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def today(self, request):
+        """Get all assignments for today."""
+        from datetime import date
+        today = date.today()
+        assignments = self.get_queryset().filter(date=today)
+        serializer = self.get_serializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def my_assignments(self, request):
+        """Get current staff member's assignments for today."""
+        from datetime import date
+        today = date.today()
+        assignments = self.get_queryset().filter(
+            staff_member=request.user, date=today
+        )
+        serializer = self.get_serializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def update_status(self, request, pk=None):
+        """Update the status of an assignment."""
+        assignment = self.get_object()
+        new_status = request.data.get('status')
+        valid_statuses = dict(DailyDogAssignment.STATUS_CHOICES).keys()
+        if new_status not in valid_statuses:
+            return Response({'detail': 'Invalid status'}, status=400)
+        assignment.status = new_status
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=False, methods=['get'])
+    def unassigned_dogs(self, request):
+        """Get dogs scheduled for today that have no assignment yet."""
+        from datetime import date
+        today = date.today()
+        day_number = today.isoweekday()  # Monday=1, Sunday=7
+
+        # Dogs with this weekday in their daycare_days
+        daycare_dogs = Dog.objects.filter(daycare_days__contains=[day_number])
+
+        # Dogs with approved boarding that spans today
+        boarding_dogs = Dog.objects.filter(
+            boarding_requests__status='APPROVED',
+            boarding_requests__start_date__lte=today,
+            boarding_requests__end_date__gte=today,
+        )
+
+        # Dogs with approved cancellations for today
+        cancelled_dog_ids = DateChangeRequest.objects.filter(
+            request_type='CANCEL',
+            status='APPROVED',
+            original_date=today,
+        ).values_list('dog_id', flat=True)
+
+        # Combine daycare + boarding, exclude cancelled
+        scheduled_dogs = (daycare_dogs | boarding_dogs).exclude(
+            id__in=cancelled_dog_ids
+        ).distinct()
+
+        # Exclude dogs already assigned today
+        assigned_dog_ids = DailyDogAssignment.objects.filter(
+            date=today
+        ).values_list('dog_id', flat=True)
+
+        unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
+        serializer = DogSerializer(unassigned, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def assign_to_me(self, request):
+        """Assign one or more dogs to the current staff member for today."""
+        from datetime import date
+        today = date.today()
+        dog_ids = request.data.get('dog_ids', [])
+        if not dog_ids:
+            return Response({'detail': 'dog_ids is required'}, status=400)
+
+        created = []
+        for dog_id in dog_ids:
+            assignment, was_created = DailyDogAssignment.objects.get_or_create(
+                dog_id=dog_id,
+                date=today,
+                defaults={'staff_member': request.user},
+            )
+            if was_created:
+                created.append(assignment)
+
+        serializer = self.get_serializer(created, many=True)
+        return Response(serializer.data, status=201)
+
+    @action(detail=False, methods=['get'])
+    def staff_members(self, request):
+        """Get list of staff members for assignment dropdown."""
+        from django.contrib.auth.models import User
+        staff = User.objects.filter(is_staff=True).values('id', 'username', 'first_name')
+        return Response(list(staff))
