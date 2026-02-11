@@ -6,6 +6,7 @@ class UserProfile {
   final String? pickupInstructions;
   final String? firstName;
   final bool isStaff;
+  final bool canAssignDogs;
 
   UserProfile({
     required this.username,
@@ -15,6 +16,7 @@ class UserProfile {
     this.pickupInstructions,
     this.firstName,
     this.isStaff = false,
+    this.canAssignDogs = false,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class UserProfile {
       pickupInstructions: json['pickup_instructions'],
       firstName: json['first_name'],
       isStaff: json['is_staff'] ?? false,
+      canAssignDogs: json['can_assign_dogs'] ?? false,
     );
   }
 

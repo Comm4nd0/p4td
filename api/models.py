@@ -11,6 +11,7 @@ class UserProfile(models.Model):
     pickup_instructions = models.TextField(blank=True, null=True)
     can_manage_requests = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny requests.')
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
+    can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
 
     def __str__(self):
         return f"Profile for {self.user.username}"

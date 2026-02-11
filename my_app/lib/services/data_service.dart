@@ -56,6 +56,8 @@ abstract class DataService {
   Future<List<DailyDogAssignment>> getTodayAssignments();
   Future<List<Dog>> getUnassignedDogs();
   Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds);
+  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId);
+  Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
 }
 
@@ -831,6 +833,44 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/assign_dogs/'),
+      headers: headers,
+      body: json.encode({'dog_ids': dogIds, 'staff_member_id': staffMemberId}),
+    );
+    if (response.statusCode == 201) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+    } else {
+      String errorMessage = 'Failed to assign dogs';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getStaffMembers() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/staff_members/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    } else {
+      throw Exception('Failed to load staff members');
+    }
+  }
+
+  @override
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status) async {
     final headers = await _getHeaders();
     final response = await http.post(
@@ -1063,6 +1103,12 @@ class MockDataService implements DataService {
 
   @override
   Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds) async => [];
+
+  @override
+  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId) async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> getStaffMembers() async => [];
 
   @override
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status) async {

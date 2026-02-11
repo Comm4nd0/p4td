@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
 
   bool _isStaff = false;
+  bool _canAssignDogs = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
@@ -95,7 +96,10 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final profile = await _dataService.getProfile();
       if (mounted) {
-        setState(() => _isStaff = profile.isStaff);
+        setState(() {
+          _isStaff = profile.isStaff;
+          _canAssignDogs = profile.canAssignDogs;
+        });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
           await _loadPendingRequestCount();
@@ -157,10 +161,10 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Image.asset('assets/logo.png', height: 32),
             const SizedBox(width: 8),
-            Text(_currentIndex == 0
-                ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
-                : _currentIndex == 1 ? 'Feed'
-                : "Today's Dogs"),
+            if (_currentIndex < 2)
+              Text(_currentIndex == 0
+                  ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
+                  : 'Feed'),
           ],
         ),
         actions: [
@@ -289,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? _buildDogsView()
           : _currentIndex == 1
               ? FeedScreen(isStaff: _isStaff)
-              : StaffDailyAssignmentsScreen(key: _assignmentsKey),
+              : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
     );
   }
 
