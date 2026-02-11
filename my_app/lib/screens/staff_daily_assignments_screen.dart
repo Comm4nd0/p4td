@@ -261,6 +261,82 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
+  void _showAssignmentOptionsSheet(DailyDogAssignment assignment) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.swap_horiz),
+              title: const Text('Reassign'),
+              subtitle: Text('Assign ${assignment.dogName} to a different staff member'),
+              onTap: () {
+                Navigator.pop(context);
+                _showReassignDialog(assignment);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.person_remove, color: Colors.red[700]),
+              title: Text('Unassign', style: TextStyle(color: Colors.red[700])),
+              subtitle: Text('Remove ${assignment.dogName} from ${assignment.staffMemberName}'),
+              onTap: () {
+                Navigator.pop(context);
+                _confirmUnassign(assignment);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmUnassign(DailyDogAssignment assignment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unassign Dog'),
+        content: Text(
+          'Are you sure you want to unassign ${assignment.dogName} from ${assignment.staffMemberName}? '
+          'The dog will appear in the unassigned list and can be reassigned later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Unassign'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _dataService.unassignDog(assignment.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${assignment.dogName} has been unassigned'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        await _loadAssignments();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to unassign: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _showReassignDialog(DailyDogAssignment assignment) async {
     List<Map<String, dynamic>> staffMembers;
     try {
@@ -518,9 +594,9 @@ class StaffDailyAssignmentsScreenState
                               ),
                             ),
                             InkWell(
-                              onTap: () => _showReassignDialog(assignment),
+                              onTap: () => _showAssignmentOptionsSheet(assignment),
                               child: Icon(
-                                Icons.swap_horiz,
+                                Icons.more_vert,
                                 size: 18,
                                 color: Theme.of(context).colorScheme.primary,
                               ),

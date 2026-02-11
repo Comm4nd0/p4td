@@ -744,6 +744,45 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
 
+    @action(detail=True, methods=['post'])
+    def reassign(self, request, pk=None):
+        """Reassign a dog to a different staff member.
+        Requires can_assign_dogs permission."""
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to reassign dogs.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        assignment = self.get_object()
+        staff_member_id = request.data.get('staff_member_id')
+        if not staff_member_id:
+            return Response({'detail': 'staff_member_id is required'}, status=400)
+
+        from django.contrib.auth.models import User
+        try:
+            new_staff = User.objects.get(id=staff_member_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found'}, status=404)
+
+        assignment.staff_member = new_staff
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=['post'])
+    def unassign(self, request, pk=None):
+        """Unassign a dog (delete the assignment).
+        Requires can_assign_dogs permission."""
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to unassign dogs.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        assignment = self.get_object()
+        assignment.delete()
+        return Response(status=204)
+
     @action(detail=False, methods=['get'])
     def staff_members(self, request):
         """Get list of staff members for assignment dropdown."""

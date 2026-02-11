@@ -60,6 +60,7 @@ abstract class DataService {
   Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
   Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId);
+  Future<void> unassignDog(int assignmentId);
 }
 
 class ApiDataService implements DataService {
@@ -907,6 +908,25 @@ class ApiDataService implements DataService {
       throw Exception(errorMessage);
     }
   }
+
+  @override
+  Future<void> unassignDog(int assignmentId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/unassign/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      String errorMessage = 'Failed to unassign dog';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -1142,4 +1162,7 @@ class MockDataService implements DataService {
   Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> unassignDog(int assignmentId) async {}
 }

@@ -1,6 +1,46 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, BoardingRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, BoardingRequest, DailyDogAssignment
+
+@admin.register(DailyDogAssignment)
+class DailyDogAssignmentAdmin(admin.ModelAdmin):
+    list_display = ('dog_name', 'owner_name', 'staff_member_name', 'date', 'status_display')
+    list_filter = ('date', 'status', 'staff_member')
+    search_fields = ('dog__name', 'dog__owner__username', 'staff_member__username', 'staff_member__first_name')
+    list_per_page = 30
+    ordering = ['-date', 'dog__name']
+    raw_id_fields = ('dog', 'staff_member')
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def owner_name(self, obj):
+        return obj.dog.owner.username
+    owner_name.short_description = 'Owner'
+    owner_name.admin_order_field = 'dog__owner__username'
+
+    def staff_member_name(self, obj):
+        return obj.staff_member.get_full_name() or obj.staff_member.username
+    staff_member_name.short_description = 'Staff Member'
+    staff_member_name.admin_order_field = 'staff_member__first_name'
+
+    def status_display(self, obj):
+        colors = {
+            'ASSIGNED': '#ffc107',
+            'PICKED_UP': '#0d6efd',
+            'AT_DAYCARE': '#6f42c1',
+            'DROPPED_OFF': '#198754',
+        }
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display()
+        )
+    status_display.short_description = 'Status'
+    status_display.admin_order_field = 'status'
+
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
