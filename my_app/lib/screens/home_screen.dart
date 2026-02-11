@@ -161,10 +161,10 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Image.asset('assets/logo.png', height: 32),
             const SizedBox(width: 8),
-            Text(_currentIndex == 0
-                ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
-                : _currentIndex == 1 ? 'Feed'
-                : "Today's Dogs"),
+            if (_currentIndex < 2)
+              Text(_currentIndex == 0
+                  ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
+                  : 'Feed'),
           ],
         ),
         actions: [
