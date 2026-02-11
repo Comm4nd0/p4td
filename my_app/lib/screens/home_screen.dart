@@ -12,6 +12,7 @@ import 'staff_notifications_screen.dart';
 import 'feed_screen.dart';
 import 'request_boarding_screen.dart';
 import 'boarding_request_list_screen.dart';
+import 'staff_daily_assignments_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isStaff = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
+  final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
 
   @override
   void initState() {
@@ -157,7 +159,8 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 8),
             Text(_currentIndex == 0
                 ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
-                : 'Feed'),
+                : _currentIndex == 1 ? 'Feed'
+                : "Today's Dogs"),
           ],
         ),
         actions: [
@@ -256,7 +259,13 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.add),
               label: const Text('Add Dog'),
             )
-          : null,
+          : _currentIndex == 2 && _isStaff
+              ? FloatingActionButton.extended(
+                  onPressed: () => _assignmentsKey.currentState?.assignDogs(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Assign Dogs'),
+                )
+              : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
@@ -269,9 +278,18 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.photo_library),
             label: 'Feed',
           ),
+          if (_isStaff)
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.today),
+              label: "Today's Dogs",
+            ),
         ],
       ),
-      body: _currentIndex == 0 ? _buildDogsView() : FeedScreen(isStaff: _isStaff),
+      body: _currentIndex == 0
+          ? _buildDogsView()
+          : _currentIndex == 1
+              ? FeedScreen(isStaff: _isStaff)
+              : StaffDailyAssignmentsScreen(key: _assignmentsKey),
     );
   }
 

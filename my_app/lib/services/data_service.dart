@@ -9,6 +9,7 @@ import '../models/date_change_request.dart';
 import '../models/owner_profile.dart';
 import '../models/group_media.dart' as gm;
 import '../models/boarding_request.dart';
+import '../models/daily_dog_assignment.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -51,6 +52,11 @@ abstract class DataService {
   });
   Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId);
   Future<void> registerDeviceToken(String token, String deviceType);
+  Future<List<DailyDogAssignment>> getMyAssignments();
+  Future<List<DailyDogAssignment>> getTodayAssignments();
+  Future<List<Dog>> getUnassignedDogs();
+  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds);
+  Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
 }
 
 class ApiDataService implements DataService {
@@ -741,6 +747,103 @@ class ApiDataService implements DataService {
       }
     }
   }
+
+  @override
+  Future<List<DailyDogAssignment>> getMyAssignments() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/my_assignments/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+    } else {
+      throw Exception('Failed to load assignments');
+    }
+  }
+
+  @override
+  Future<List<DailyDogAssignment>> getTodayAssignments() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/today/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+    } else {
+      throw Exception('Failed to load today assignments');
+    }
+  }
+
+  @override
+  Future<List<Dog>> getUnassignedDogs() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/unassigned_dogs/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) {
+        final daysInDaycare = (j['daycare_days'] as List<dynamic>?)
+            ?.map((day) => Weekday.values.firstWhere(
+                  (w) => w.dayNumber == day,
+                  orElse: () => Weekday.monday,
+                ))
+            .toList() ?? [];
+        OwnerDetails? ownerDetails;
+        if (j['owner_details'] != null) {
+          ownerDetails = OwnerDetails.fromJson(j['owner_details']);
+        }
+        return Dog(
+          id: j['id'].toString(),
+          name: j['name'],
+          ownerId: (j['owner'] ?? '').toString(),
+          profileImageUrl: j['profile_image'],
+          foodInstructions: j['food_instructions'],
+          medicalNotes: j['medical_notes'],
+          daysInDaycare: daysInDaycare,
+          ownerDetails: ownerDetails,
+        );
+      }).toList();
+    } else {
+      throw Exception('Failed to load unassigned dogs');
+    }
+  }
+
+  @override
+  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/assign_to_me/'),
+      headers: headers,
+      body: json.encode({'dog_ids': dogIds}),
+    );
+    if (response.statusCode == 201) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+    } else {
+      throw Exception('Failed to assign dogs');
+    }
+  }
+
+  @override
+  Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/update_status/'),
+      headers: headers,
+      body: json.encode({'status': status.apiValue}),
+    );
+    if (response.statusCode == 200) {
+      return DailyDogAssignment.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to update assignment status');
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -948,4 +1051,21 @@ class MockDataService implements DataService {
 
   @override
   Future<void> registerDeviceToken(String token, String deviceType) async {}
+
+  @override
+  Future<List<DailyDogAssignment>> getMyAssignments() async => [];
+
+  @override
+  Future<List<DailyDogAssignment>> getTodayAssignments() async => [];
+
+  @override
+  Future<List<Dog>> getUnassignedDogs() async => [];
+
+  @override
+  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds) async => [];
+
+  @override
+  Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status) async {
+    throw UnimplementedError();
+  }
 }
