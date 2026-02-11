@@ -261,6 +261,142 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
+  Future<void> _showReassignDialog(DailyDogAssignment assignment) async {
+    List<Map<String, dynamic>> staffMembers;
+    try {
+      staffMembers = await _dataService.getStaffMembers();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load staff: $e')),
+        );
+      }
+      return;
+    }
+
+    // Remove the currently assigned staff member from the list
+    staffMembers.removeWhere((s) => s['id'] == assignment.staffMemberId);
+
+    if (!mounted) return;
+
+    if (staffMembers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No other staff members available.')),
+      );
+      return;
+    }
+
+    int? selectedStaffId;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Reassign ${assignment.dogName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Currently assigned to ${assignment.staffMemberName}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                decoration: const InputDecoration(
+                  labelText: 'Reassign to',
+                  border: OutlineInputBorder(),
+                ),
+                value: selectedStaffId,
+                items: staffMembers.map((staff) {
+                  final name = (staff['first_name'] != null &&
+                          staff['first_name'].toString().isNotEmpty)
+                      ? staff['first_name']
+                      : staff['username'];
+                  return DropdownMenuItem<int>(
+                    value: staff['id'] as int,
+                    child: Text(name.toString()),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setDialogState(() => selectedStaffId = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selectedStaffId == null
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text('Reassign'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true && selectedStaffId != null) {
+      try {
+        await _dataService.reassignDog(assignment.id, selectedStaffId!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Dog reassigned successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        await _loadAssignments();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to reassign: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  void _showPickupInstructions(DailyDogAssignment assignment) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.info_outline),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Pickup Instructions - ${assignment.dogName}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Text(
+                assignment.pickupInstructions!,
+                style: const TextStyle(fontSize: 15, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openMaps(String address) async {
     final uri = Uri.parse('https://maps.apple.com/?q=${Uri.encodeComponent(address)}');
     final geoUri = Uri.parse('geo:0,0?q=${Uri.encodeComponent(address)}');
@@ -371,11 +507,25 @@ class StaffDailyAssignmentsScreenState
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       if (widget.canAssignDogs)
-                        Text(
-                          'Staff: ${assignment.staffMemberName}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Staff: ${assignment.staffMemberName}',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () => _showReassignDialog(assignment),
+                              child: Icon(
+                                Icons.swap_horiz,
+                                size: 18,
                                 color: Theme.of(context).colorScheme.primary,
                               ),
+                            ),
+                          ],
                         ),
                     ],
                   ),
@@ -449,22 +599,23 @@ class StaffDailyAssignmentsScreenState
                 assignment.pickupInstructions!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline,
-                        size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        assignment.pickupInstructions!,
+                child: InkWell(
+                  onTap: () => _showPickupInstructions(assignment),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 16, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Pickup Instructions',
                         style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[700],
-                            fontStyle: FontStyle.italic),
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
 

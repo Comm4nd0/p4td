@@ -59,6 +59,7 @@ abstract class DataService {
   Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId);
   Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
+  Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId);
 }
 
 class ApiDataService implements DataService {
@@ -884,6 +885,28 @@ class ApiDataService implements DataService {
       throw Exception('Failed to update assignment status');
     }
   }
+
+  @override
+  Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/reassign/'),
+      headers: headers,
+      body: json.encode({'staff_member_id': newStaffMemberId}),
+    );
+    if (response.statusCode == 200) {
+      return DailyDogAssignment.fromJson(json.decode(response.body));
+    } else {
+      String errorMessage = 'Failed to reassign dog';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -1112,6 +1135,11 @@ class MockDataService implements DataService {
 
   @override
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId) async {
     throw UnimplementedError();
   }
 }

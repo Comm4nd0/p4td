@@ -105,7 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _canManageRequests = profile.canManageRequests;
         });
         // Load pending requests count and subscribe to notifications
-        if (profile.canManageRequests) {
+        if (profile.isStaff) {
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
         } else {
@@ -122,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadPendingRequestCount() async {
-    if (!_canManageRequests) return;
+    if (!_isStaff) return;
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
       final boardingRequests = await _dataService.getBoardingRequests();
@@ -172,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          if (_canManageRequests)
+          if (_isStaff)
             Stack(
               children: [
                 IconButton(
@@ -181,7 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onPressed: () async {
                     await Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const StaffNotificationsScreen()),
+                      MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests)),
                     );
                     // Refresh count when returning from notifications screen
                     _loadPendingRequestCount();
