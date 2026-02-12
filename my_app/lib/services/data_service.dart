@@ -202,10 +202,12 @@ class ApiDataService implements DataService {
       if (deletePhoto) {
         request.fields['profile_image'] = '';  // Empty string to clear the image
       } else if (imageBytes != null) {
+        final filename = imageName ?? 'dog_photo.jpg';
         request.files.add(http.MultipartFile.fromBytes(
           'profile_image',
           imageBytes,
-          filename: imageName ?? 'dog_photo.jpg',
+          filename: filename,
+          contentType: MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
         ));
       }
 
