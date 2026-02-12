@@ -19,19 +19,58 @@ class StaffDailyAssignmentsScreen extends StatefulWidget {
 class StaffDailyAssignmentsScreenState
     extends State<StaffDailyAssignmentsScreen> {
   final DataService _dataService = ApiDataService();
-  List<DailyDogAssignment> _allAssignments = [];
-  List<DailyDogAssignment> _filteredAssignments = [];
-  bool _loading = true;
 
-  DateTime _selectedDate = DateTime.now();
+  // Cache: date string -> assignments
+  final Map<String, List<DailyDogAssignment>> _assignmentCache = {};
+  final Set<String> _loadingDates = {};
+
+  late final List<DateTime> _dateOptions = _generateWeekdays();
+  late final PageController _pageController;
+  final ScrollController _dateScrollController = ScrollController();
+
   int? _selectedStaffId;
   List<Map<String, dynamic>> _staffMembers = [];
+
+  late DateTime _selectedDate;
 
   @override
   void initState() {
     super.initState();
+    // Start on today if it's a weekday, otherwise the first available weekday
+    final today = DateTime.now();
+    final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
+    final initialIndex = todayIndex >= 0 ? todayIndex : 0;
+    _selectedDate = _dateOptions[initialIndex];
+    _pageController = PageController(initialPage: initialIndex);
     _loadStaffMembers();
-    _loadAssignments();
+    _loadAssignmentsForDate(_selectedDate);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _dateScrollController.dispose();
+    super.dispose();
+  }
+
+  List<DateTime> _generateWeekdays() {
+    final today = DateTime.now();
+    // Start from today (or next Monday if weekend)
+    var start = DateTime(today.year, today.month, today.day);
+    if (start.weekday == DateTime.saturday) {
+      start = start.add(const Duration(days: 2));
+    } else if (start.weekday == DateTime.sunday) {
+      start = start.add(const Duration(days: 1));
+    }
+    final List<DateTime> weekdays = [];
+    var current = start;
+    while (weekdays.length < 10) {
+      if (current.weekday >= DateTime.monday && current.weekday <= DateTime.friday) {
+        weekdays.add(current);
+      }
+      current = current.add(const Duration(days: 1));
+    }
+    return weekdays;
   }
 
   Future<void> _loadStaffMembers() async {
@@ -44,23 +83,26 @@ class StaffDailyAssignmentsScreenState
     } catch (_) {}
   }
 
-  Future<void> _loadAssignments() async {
+  String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
+
+  Future<void> _loadAssignmentsForDate(DateTime date, {bool forceReload = false}) async {
     if (!mounted) return;
-    setState(() => _loading = true);
+    final key = _dateKey(date);
+    if (!forceReload && _assignmentCache.containsKey(key)) return;
+    setState(() => _loadingDates.add(key));
     try {
       final assignments = widget.canAssignDogs
-          ? await _dataService.getTodayAssignments(date: _selectedDate)
-          : await _dataService.getMyAssignments(date: _selectedDate);
+          ? await _dataService.getTodayAssignments(date: date)
+          : await _dataService.getMyAssignments(date: date);
       if (mounted) {
         setState(() {
-          _allAssignments = assignments;
-          _applyFilter();
-          _loading = false;
+          _assignmentCache[key] = assignments;
+          _loadingDates.remove(key);
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() => _loadingDates.remove(key));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load assignments: $e')),
         );
@@ -68,19 +110,13 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
-  void _applyFilter() {
-    if (_selectedStaffId == null) {
-      _filteredAssignments = _allAssignments;
-    } else {
-      _filteredAssignments = _allAssignments
-          .where((a) => a.staffMemberId == _selectedStaffId)
-          .toList();
-    }
-  }
+  // Keep this for compatibility with dialogs that call _loadAssignments()
+  Future<void> _loadAssignments() => _loadAssignmentsForDate(_selectedDate, forceReload: true);
 
-  List<DateTime> get _dateOptions {
-    final today = DateTime.now();
-    return List.generate(8, (i) => DateTime(today.year, today.month, today.day + i));
+  List<DailyDogAssignment> _getFilteredAssignments(DateTime date) {
+    final all = _assignmentCache[_dateKey(date)] ?? [];
+    if (_selectedStaffId == null) return all;
+    return all.where((a) => a.staffMemberId == _selectedStaffId).toList();
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>
@@ -93,12 +129,14 @@ class StaffDailyAssignmentsScreenState
           await _dataService.updateAssignmentStatus(assignment.id, newStatus);
       if (mounted) {
         setState(() {
-          final index =
-              _allAssignments.indexWhere((a) => a.id == assignment.id);
-          if (index != -1) {
-            _allAssignments[index] = updated;
+          final key = _dateKey(_selectedDate);
+          final assignments = _assignmentCache[key];
+          if (assignments != null) {
+            final index = assignments.indexWhere((a) => a.id == assignment.id);
+            if (index != -1) {
+              assignments[index] = updated;
+            }
           }
-          _applyFilter();
         });
       }
     } catch (e) {
@@ -556,6 +594,18 @@ class StaffDailyAssignmentsScreenState
   /// Expose the assign dogs action so the parent can use it in a FAB.
   void assignDogs() => _showAssignDogsDialog();
 
+  void _scrollToDateChip(int index) {
+    // Approximate chip width (~70) to scroll selected chip into view
+    final targetOffset = (index * 78.0) - 100;
+    if (_dateScrollController.hasClients) {
+      _dateScrollController.animateTo(
+        targetOffset.clamp(0.0, _dateScrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
   Widget _buildDateSelector() {
     final today = DateTime.now();
     final dateFormat = DateFormat('EEE');
@@ -564,6 +614,7 @@ class StaffDailyAssignmentsScreenState
     return SizedBox(
       height: 72,
       child: ListView.builder(
+        controller: _dateScrollController,
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         itemCount: _dateOptions.length,
@@ -578,7 +629,12 @@ class StaffDailyAssignmentsScreenState
               selected: isSelected,
               onSelected: (_) {
                 setState(() => _selectedDate = date);
-                _loadAssignments();
+                _pageController.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                );
+                _loadAssignmentsForDate(date);
               },
               label: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -638,50 +694,13 @@ class StaffDailyAssignmentsScreenState
               onChanged: (value) {
                 setState(() {
                   _selectedStaffId = value;
-                  _applyFilter();
                 });
               },
             ),
           ),
-          if (widget.canAssignDogs) ...[
-            const SizedBox(width: 8),
-            Tooltip(
-              message: 'Auto-assign based on history',
-              child: FilledButton.tonalIcon(
-                onPressed: _autoAssign,
-                icon: const Icon(Icons.auto_fix_high, size: 18),
-                label: const Text('Auto', style: TextStyle(fontSize: 13)),
-              ),
-            ),
-          ],
         ],
       ),
     );
-  }
-
-  Future<void> _autoAssign() async {
-    try {
-      final result = await _dataService.autoAssign(date: _selectedDate);
-      final assigned = (result['assigned'] as List?)?.length ?? 0;
-      final skipped = (result['skipped_dog_ids'] as List?)?.length ?? 0;
-
-      if (mounted) {
-        String message = '$assigned dog(s) auto-assigned';
-        if (skipped > 0) {
-          message += ', $skipped had no history';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Colors.green),
-        );
-      }
-      await _loadAssignments();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Auto-assign failed: $e')),
-        );
-      }
-    }
   }
 
   @override
@@ -694,37 +713,57 @@ class StaffDailyAssignmentsScreenState
           const SizedBox(height: 8),
         ],
         Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _filteredAssignments.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.pets, size: 64, color: Colors.grey[400]),
-                          const SizedBox(height: 16),
-                          Text(
-                            _selectedStaffId != null
-                                ? 'No dogs assigned to this staff member'
-                                : 'No dogs assigned for this date',
-                            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text('Tap the + button to assign dogs.'),
-                        ],
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: _dateOptions.length,
+            onPageChanged: (index) {
+              final date = _dateOptions[index];
+              setState(() => _selectedDate = date);
+              _scrollToDateChip(index);
+              _loadAssignmentsForDate(date);
+            },
+            itemBuilder: (context, index) {
+              final date = _dateOptions[index];
+              final key = _dateKey(date);
+              final isLoading = _loadingDates.contains(key);
+              final filtered = _getFilteredAssignments(date);
+
+              if (isLoading && !_assignmentCache.containsKey(key)) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (filtered.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      Text(
+                        _selectedStaffId != null
+                            ? 'No dogs assigned to this staff member'
+                            : 'No dogs assigned for this date',
+                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                       ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadAssignments,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                        itemCount: _filteredAssignments.length,
-                        itemBuilder: (context, index) {
-                          final assignment = _filteredAssignments[index];
-                          return _buildAssignmentCard(assignment);
-                        },
-                      ),
-                    ),
+                      const SizedBox(height: 8),
+                      const Text('Tap the + button to assign dogs.'),
+                    ],
+                  ),
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () => _loadAssignmentsForDate(date, forceReload: true),
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                  itemCount: filtered.length,
+                  itemBuilder: (context, i) {
+                    return _buildAssignmentCard(filtered[i]);
+                  },
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
