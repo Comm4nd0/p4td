@@ -821,39 +821,91 @@ class StaffDailyAssignmentsScreenState
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       if (widget.canAssignDogs)
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Staff: ${assignment.staffMemberName}',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
-                              ),
-                            ),
-                            InkWell(
-                              onTap: () => _showAssignmentOptionsSheet(assignment),
-                              child: Icon(
-                                Icons.more_vert,
-                                size: 18,
+                        Text(
+                          'Staff: ${assignment.staffMemberName}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Theme.of(context).colorScheme.primary,
                               ),
-                            ),
-                          ],
                         ),
                     ],
                   ),
                 ),
-                // Status chip
-                Chip(
-                  avatar: Icon(_statusIcon(assignment.status),
-                      size: 18, color: statusColor),
-                  label: Text(
-                    assignment.status.displayName,
-                    style: TextStyle(color: statusColor, fontSize: 12),
+                // Status button with dropdown
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'reassign') {
+                      _showReassignDialog(assignment);
+                    } else if (value == 'unassign') {
+                      _confirmUnassign(assignment);
+                    } else if (value == 'next' && next != null) {
+                      _updateStatus(assignment, next);
+                    } else if (value == 'previous' && previous != null) {
+                      _updateStatus(assignment, previous);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (next != null)
+                      PopupMenuItem(
+                        value: 'next',
+                        child: Row(
+                          children: [
+                            Icon(_statusIcon(next), size: 18),
+                            const SizedBox(width: 8),
+                            Text('Mark ${next.displayName}'),
+                          ],
+                        ),
+                      ),
+                    if (previous != null)
+                      PopupMenuItem(
+                        value: 'previous',
+                        child: Row(
+                          children: [
+                            Icon(_statusIcon(previous), size: 18),
+                            const SizedBox(width: 8),
+                            Text('Revert to ${previous.displayName}'),
+                          ],
+                        ),
+                      ),
+                    if (widget.canAssignDogs) ...[
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'reassign',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.swap_horiz, size: 18),
+                            const SizedBox(width: 8),
+                            const Text('Reassign'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'unassign',
+                        child: Row(
+                          children: [
+                            Icon(Icons.person_remove, size: 18, color: Colors.red[700]),
+                            const SizedBox(width: 8),
+                            Text('Unassign', style: TextStyle(color: Colors.red[700])),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                  child: Chip(
+                    avatar: Icon(_statusIcon(assignment.status),
+                        size: 18, color: statusColor),
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          assignment.status.displayName,
+                          style: TextStyle(color: statusColor, fontSize: 12),
+                        ),
+                        Icon(Icons.arrow_drop_down, size: 16, color: statusColor),
+                      ],
+                    ),
+                    backgroundColor: statusColor.withValues(alpha: 0.1),
+                    side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
                   ),
-                  backgroundColor: statusColor.withValues(alpha: 0.1),
-                  side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
                 ),
               ],
             ),
@@ -933,34 +985,6 @@ class StaffDailyAssignmentsScreenState
                 ),
               ),
 
-            // Action buttons
-            if (next != null || previous != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (previous != null)
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _updateStatus(assignment, previous),
-                        icon: Icon(_statusIcon(previous), size: 18),
-                        label: Text('Revert to ${previous.displayName}',
-                            style: const TextStyle(fontSize: 13)),
-                      ),
-                    ),
-                  if (previous != null && next != null)
-                    const SizedBox(width: 8),
-                  if (next != null)
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _updateStatus(assignment, next),
-                        icon: Icon(_statusIcon(next), size: 18),
-                        label: Text('Mark ${next.displayName}',
-                            style: const TextStyle(fontSize: 13)),
-                      ),
-                    ),
-                ],
-              ),
-            ],
           ],
         ),
       ),
