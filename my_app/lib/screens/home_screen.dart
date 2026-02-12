@@ -289,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_isStaff)
             const BottomNavigationBarItem(
               icon: Icon(Icons.today),
-              label: "Today's Dogs",
+              label: "Dog Groups",
             ),
         ],
       ),
