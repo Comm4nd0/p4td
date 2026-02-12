@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import '../models/dog.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
@@ -339,10 +340,12 @@ class ApiDataService implements DataService {
       if (ownerId != null) request.fields['owner'] = ownerId;
       
       // Use bytes instead of file path for cross-platform compatibility
+      final filename = imageName ?? 'dog_photo.jpg';
       request.files.add(http.MultipartFile.fromBytes(
         'profile_image',
         imageBytes,
-        filename: imageName ?? 'dog_photo.jpg',
+        filename: filename,
+        contentType: MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
       ));
       
       final streamedResponse = await request.send();
@@ -527,6 +530,9 @@ class ApiDataService implements DataService {
       'file',
       fileBytes,
       filename: fileName,
+      contentType: isVideo
+          ? MediaType('video', 'mp4')
+          : MediaType('image', fileName.endsWith('.png') ? 'png' : 'jpeg'),
     ));
 
     if (thumbnailBytes != null) {
@@ -534,6 +540,7 @@ class ApiDataService implements DataService {
         'thumbnail',
         thumbnailBytes,
         filename: 'thumbnail.jpg',
+        contentType: MediaType('image', 'jpeg'),
       ));
     }
 

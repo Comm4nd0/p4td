@@ -48,6 +48,7 @@ import subprocess
 def process_image(image_file, max_size=(1280, 1280), quality=85):
     """Resizes and compresses an image while maintaining aspect ratio."""
     try:
+        image_file.seek(0)
         img = Image.open(image_file)
         
         # Convert to RGB if necessary (e.g., for PNGs with transparency)
@@ -68,6 +69,7 @@ def process_image(image_file, max_size=(1280, 1280), quality=85):
         return ContentFile(output.read(), name=new_name)
     except Exception as e:
         print(f"Error processing image: {e}")
+        image_file.seek(0)
         return image_file
 
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
