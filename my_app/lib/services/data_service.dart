@@ -52,14 +52,17 @@ abstract class DataService {
   });
   Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId);
   Future<void> registerDeviceToken(String token, String deviceType);
-  Future<List<DailyDogAssignment>> getMyAssignments();
-  Future<List<DailyDogAssignment>> getTodayAssignments();
-  Future<List<Dog>> getUnassignedDogs();
-  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds);
-  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId);
+  Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date});
+  Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date});
+  Future<List<Dog>> getUnassignedDogs({DateTime? date});
+  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds, {DateTime? date});
+  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date});
   Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
   Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId);
+  Future<void> unassignDog(int assignmentId);
+  Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date});
+  Future<Map<String, dynamic>> autoAssign({DateTime? date});
 }
 
 class ApiDataService implements DataService {
@@ -751,11 +754,21 @@ class ApiDataService implements DataService {
     }
   }
 
+  String _dateParam(DateTime? date) {
+    if (date == null) return '';
+    return '?date=${date.toIso8601String().split('T')[0]}';
+  }
+
+  String _dateBody(DateTime? date) {
+    if (date == null) return '';
+    return date.toIso8601String().split('T')[0];
+  }
+
   @override
-  Future<List<DailyDogAssignment>> getMyAssignments() async {
+  Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date}) async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/my_assignments/'),
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/my_assignments/${_dateParam(date)}'),
       headers: headers,
     );
     if (response.statusCode == 200) {
@@ -767,10 +780,10 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<DailyDogAssignment>> getTodayAssignments() async {
+  Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date}) async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/today/'),
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/today/${_dateParam(date)}'),
       headers: headers,
     );
     if (response.statusCode == 200) {
@@ -782,10 +795,10 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<Dog>> getUnassignedDogs() async {
+  Future<List<Dog>> getUnassignedDogs({DateTime? date}) async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/unassigned_dogs/'),
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/unassigned_dogs/${_dateParam(date)}'),
       headers: headers,
     );
     if (response.statusCode == 200) {
@@ -818,12 +831,15 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds) async {
+  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds, {DateTime? date}) async {
     final headers = await _getHeaders();
+    final body = <String, dynamic>{'dog_ids': dogIds};
+    final d = _dateBody(date);
+    if (d.isNotEmpty) body['date'] = d;
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/daily-assignments/assign_to_me/'),
       headers: headers,
-      body: json.encode({'dog_ids': dogIds}),
+      body: json.encode(body),
     );
     if (response.statusCode == 201) {
       final List<dynamic> data = json.decode(response.body);
@@ -834,12 +850,15 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId) async {
+  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date}) async {
     final headers = await _getHeaders();
+    final body = <String, dynamic>{'dog_ids': dogIds, 'staff_member_id': staffMemberId};
+    final d = _dateBody(date);
+    if (d.isNotEmpty) body['date'] = d;
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/daily-assignments/assign_dogs/'),
       headers: headers,
-      body: json.encode({'dog_ids': dogIds, 'staff_member_id': staffMemberId}),
+      body: json.encode(body),
     );
     if (response.statusCode == 201) {
       final List<dynamic> data = json.decode(response.body);
@@ -898,6 +917,64 @@ class ApiDataService implements DataService {
       return DailyDogAssignment.fromJson(json.decode(response.body));
     } else {
       String errorMessage = 'Failed to reassign dog';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
+  Future<void> unassignDog(int assignmentId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/unassign/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      String errorMessage = 'Failed to unassign dog';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date}) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/suggested_assignments/${_dateParam(date)}'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(json.decode(response.body));
+    } else {
+      throw Exception('Failed to load suggestions');
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> autoAssign({DateTime? date}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{};
+    final d = _dateBody(date);
+    if (d.isNotEmpty) body['date'] = d;
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/auto_assign/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode == 201) {
+      return Map<String, dynamic>.from(json.decode(response.body));
+    } else {
+      String errorMessage = 'Failed to auto-assign';
       try {
         final errorData = json.decode(response.body);
         if (errorData is Map && errorData['detail'] != null) {
@@ -1116,19 +1193,19 @@ class MockDataService implements DataService {
   Future<void> registerDeviceToken(String token, String deviceType) async {}
 
   @override
-  Future<List<DailyDogAssignment>> getMyAssignments() async => [];
+  Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date}) async => [];
 
   @override
-  Future<List<DailyDogAssignment>> getTodayAssignments() async => [];
+  Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date}) async => [];
 
   @override
-  Future<List<Dog>> getUnassignedDogs() async => [];
+  Future<List<Dog>> getUnassignedDogs({DateTime? date}) async => [];
 
   @override
-  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds) async => [];
+  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds, {DateTime? date}) async => [];
 
   @override
-  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId) async => [];
+  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date}) async => [];
 
   @override
   Future<List<Map<String, dynamic>>> getStaffMembers() async => [];
@@ -1142,4 +1219,13 @@ class MockDataService implements DataService {
   Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> unassignDog(int assignmentId) async {}
+
+  @override
+  Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date}) async => {};
+
+  @override
+  Future<Map<String, dynamic>> autoAssign({DateTime? date}) async => {};
 }

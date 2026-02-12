@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
@@ -18,13 +19,29 @@ class StaffDailyAssignmentsScreen extends StatefulWidget {
 class StaffDailyAssignmentsScreenState
     extends State<StaffDailyAssignmentsScreen> {
   final DataService _dataService = ApiDataService();
-  List<DailyDogAssignment> _myAssignments = [];
+  List<DailyDogAssignment> _allAssignments = [];
+  List<DailyDogAssignment> _filteredAssignments = [];
   bool _loading = true;
+
+  DateTime _selectedDate = DateTime.now();
+  int? _selectedStaffId;
+  List<Map<String, dynamic>> _staffMembers = [];
 
   @override
   void initState() {
     super.initState();
+    _loadStaffMembers();
     _loadAssignments();
+  }
+
+  Future<void> _loadStaffMembers() async {
+    if (!widget.canAssignDogs) return;
+    try {
+      final staff = await _dataService.getStaffMembers();
+      if (mounted) {
+        setState(() => _staffMembers = staff);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadAssignments() async {
@@ -32,11 +49,12 @@ class StaffDailyAssignmentsScreenState
     setState(() => _loading = true);
     try {
       final assignments = widget.canAssignDogs
-          ? await _dataService.getTodayAssignments()
-          : await _dataService.getMyAssignments();
+          ? await _dataService.getTodayAssignments(date: _selectedDate)
+          : await _dataService.getMyAssignments(date: _selectedDate);
       if (mounted) {
         setState(() {
-          _myAssignments = assignments;
+          _allAssignments = assignments;
+          _applyFilter();
           _loading = false;
         });
       }
@@ -50,6 +68,24 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
+  void _applyFilter() {
+    if (_selectedStaffId == null) {
+      _filteredAssignments = _allAssignments;
+    } else {
+      _filteredAssignments = _allAssignments
+          .where((a) => a.staffMemberId == _selectedStaffId)
+          .toList();
+    }
+  }
+
+  List<DateTime> get _dateOptions {
+    final today = DateTime.now();
+    return List.generate(8, (i) => DateTime(today.year, today.month, today.day + i));
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
   Future<void> _updateStatus(
       DailyDogAssignment assignment, AssignmentStatus newStatus) async {
     try {
@@ -58,10 +94,11 @@ class StaffDailyAssignmentsScreenState
       if (mounted) {
         setState(() {
           final index =
-              _myAssignments.indexWhere((a) => a.id == assignment.id);
+              _allAssignments.indexWhere((a) => a.id == assignment.id);
           if (index != -1) {
-            _myAssignments[index] = updated;
+            _allAssignments[index] = updated;
           }
+          _applyFilter();
         });
       }
     } catch (e) {
@@ -76,10 +113,12 @@ class StaffDailyAssignmentsScreenState
   Future<void> _showAssignDogsDialog() async {
     List<Dog> unassigned;
     List<Map<String, dynamic>> staffMembers = [];
+    Map<String, dynamic> suggestions = {};
     try {
-      unassigned = await _dataService.getUnassignedDogs();
+      unassigned = await _dataService.getUnassignedDogs(date: _selectedDate);
       if (widget.canAssignDogs) {
         staffMembers = await _dataService.getStaffMembers();
+        suggestions = await _dataService.getSuggestedAssignments(date: _selectedDate);
       }
     } catch (e) {
       if (mounted) {
@@ -92,9 +131,13 @@ class StaffDailyAssignmentsScreenState
 
     if (!mounted) return;
 
+    final dateLabel = _isSameDay(_selectedDate, DateTime.now())
+        ? 'today'
+        : DateFormat('EEE d MMM').format(_selectedDate);
+
     if (unassigned.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All dogs scheduled for today are already assigned.')),
+        SnackBar(content: Text('All dogs scheduled for $dateLabel are already assigned.')),
       );
       return;
     }
@@ -106,7 +149,7 @@ class StaffDailyAssignmentsScreenState
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(widget.canAssignDogs ? 'Assign Dogs' : 'Assign Dogs to Me'),
+          title: Text(widget.canAssignDogs ? 'Assign Dogs ($dateLabel)' : 'Assign Dogs to Me'),
           content: SizedBox(
             width: double.maxFinite,
             child: Column(
@@ -142,6 +185,11 @@ class StaffDailyAssignmentsScreenState
                     itemBuilder: (context, index) {
                       final dog = unassigned[index];
                       final dogId = int.parse(dog.id);
+                      final suggestion = suggestions[dogId.toString()];
+                      String? suggestedName;
+                      if (suggestion != null) {
+                        suggestedName = suggestion['staff_member_name'];
+                      }
                       return CheckboxListTile(
                         value: selected.contains(dogId),
                         onChanged: (checked) {
@@ -154,9 +202,23 @@ class StaffDailyAssignmentsScreenState
                           });
                         },
                         title: Text(dog.name),
-                        subtitle: dog.ownerDetails != null
-                            ? Text('Owner: ${dog.ownerDetails!.username}')
-                            : null,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (dog.ownerDetails != null)
+                              Text('Owner: ${dog.ownerDetails!.username}'),
+                            if (suggestedName != null)
+                              Text(
+                                'Usually: $suggestedName',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontSize: 12,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                          ],
+                        ),
                         secondary: dog.profileImageUrl != null
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(20),
@@ -194,9 +256,9 @@ class StaffDailyAssignmentsScreenState
     if (result == true && selected.isNotEmpty) {
       try {
         if (widget.canAssignDogs && selectedStaffId != null) {
-          await _dataService.assignDogs(selected.toList(), selectedStaffId!);
+          await _dataService.assignDogs(selected.toList(), selectedStaffId!, date: _selectedDate);
         } else {
-          await _dataService.assignDogsToMe(selected.toList());
+          await _dataService.assignDogsToMe(selected.toList(), date: _selectedDate);
         }
         await _loadAssignments();
       } catch (e) {
@@ -258,6 +320,82 @@ class StaffDailyAssignmentsScreenState
         return Colors.purple;
       case AssignmentStatus.droppedOff:
         return Colors.green;
+    }
+  }
+
+  void _showAssignmentOptionsSheet(DailyDogAssignment assignment) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.swap_horiz),
+              title: const Text('Reassign'),
+              subtitle: Text('Assign ${assignment.dogName} to a different staff member'),
+              onTap: () {
+                Navigator.pop(context);
+                _showReassignDialog(assignment);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.person_remove, color: Colors.red[700]),
+              title: Text('Unassign', style: TextStyle(color: Colors.red[700])),
+              subtitle: Text('Remove ${assignment.dogName} from ${assignment.staffMemberName}'),
+              onTap: () {
+                Navigator.pop(context);
+                _confirmUnassign(assignment);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmUnassign(DailyDogAssignment assignment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unassign Dog'),
+        content: Text(
+          'Are you sure you want to unassign ${assignment.dogName} from ${assignment.staffMemberName}? '
+          'The dog will appear in the unassigned list and can be reassigned later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Unassign'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _dataService.unassignDog(assignment.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${assignment.dogName} has been unassigned'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        await _loadAssignments();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to unassign: $e')),
+          );
+        }
+      }
     }
   }
 
@@ -418,40 +556,177 @@ class StaffDailyAssignmentsScreenState
   /// Expose the assign dogs action so the parent can use it in a FAB.
   void assignDogs() => _showAssignDogsDialog();
 
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+  Widget _buildDateSelector() {
+    final today = DateTime.now();
+    final dateFormat = DateFormat('EEE');
+    final dayFormat = DateFormat('d');
 
-    if (_myAssignments.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.pets, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'No dogs assigned to you today',
-              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 8),
-            const Text('Tap the button below to assign dogs.'),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadAssignments,
+    return SizedBox(
+      height: 72,
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-        itemCount: _myAssignments.length,
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        itemCount: _dateOptions.length,
         itemBuilder: (context, index) {
-          final assignment = _myAssignments[index];
-          return _buildAssignmentCard(assignment);
+          final date = _dateOptions[index];
+          final isSelected = _isSameDay(date, _selectedDate);
+          final isToday = _isSameDay(date, today);
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: ChoiceChip(
+              selected: isSelected,
+              onSelected: (_) {
+                setState(() => _selectedDate = date);
+                _loadAssignments();
+              },
+              label: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isToday ? 'Today' : dateFormat.format(date),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                  Text(
+                    dayFormat.format(date),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
         },
       ),
+    );
+  }
+
+  Widget _buildStaffFilter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<int?>(
+              decoration: const InputDecoration(
+                labelText: 'Filter by staff',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                isDense: true,
+              ),
+              value: _selectedStaffId,
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('All Staff'),
+                ),
+                ..._staffMembers.map((staff) {
+                  final name = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
+                      ? staff['first_name']
+                      : staff['username'];
+                  return DropdownMenuItem<int?>(
+                    value: staff['id'] as int,
+                    child: Text(name.toString()),
+                  );
+                }),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedStaffId = value;
+                  _applyFilter();
+                });
+              },
+            ),
+          ),
+          if (widget.canAssignDogs) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Auto-assign based on history',
+              child: FilledButton.tonalIcon(
+                onPressed: _autoAssign,
+                icon: const Icon(Icons.auto_fix_high, size: 18),
+                label: const Text('Auto', style: TextStyle(fontSize: 13)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _autoAssign() async {
+    try {
+      final result = await _dataService.autoAssign(date: _selectedDate);
+      final assigned = (result['assigned'] as List?)?.length ?? 0;
+      final skipped = (result['skipped_dog_ids'] as List?)?.length ?? 0;
+
+      if (mounted) {
+        String message = '$assigned dog(s) auto-assigned';
+        if (skipped > 0) {
+          message += ', $skipped had no history';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.green),
+        );
+      }
+      await _loadAssignments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Auto-assign failed: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _buildDateSelector(),
+        if (widget.canAssignDogs && _staffMembers.isNotEmpty) ...[
+          _buildStaffFilter(),
+          const SizedBox(height: 8),
+        ],
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _filteredAssignments.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            _selectedStaffId != null
+                                ? 'No dogs assigned to this staff member'
+                                : 'No dogs assigned for this date',
+                            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text('Tap the + button to assign dogs.'),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadAssignments,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                        itemCount: _filteredAssignments.length,
+                        itemBuilder: (context, index) {
+                          final assignment = _filteredAssignments[index];
+                          return _buildAssignmentCard(assignment);
+                        },
+                      ),
+                    ),
+        ),
+      ],
     );
   }
 
@@ -518,9 +793,9 @@ class StaffDailyAssignmentsScreenState
                               ),
                             ),
                             InkWell(
-                              onTap: () => _showReassignDialog(assignment),
+                              onTap: () => _showAssignmentOptionsSheet(assignment),
                               child: Icon(
-                                Icons.swap_horiz,
+                                Icons.more_vert,
                                 size: 18,
                                 color: Theme.of(context).colorScheme.primary,
                               ),

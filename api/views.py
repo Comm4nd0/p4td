@@ -613,22 +613,40 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save()
 
+    def _parse_date(self, request):
+        """Parse a date from query params, defaulting to today."""
+        from datetime import date, timedelta
+        date_str = request.query_params.get('date')
+        if date_str:
+            try:
+                target = date.fromisoformat(date_str)
+            except ValueError:
+                return None, Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            # Only allow up to 7 days in the future
+            max_date = date.today() + timedelta(days=7)
+            if target > max_date:
+                return None, Response({'detail': 'Cannot view assignments more than 7 days in advance.'}, status=400)
+            return target, None
+        return date.today(), None
+
     @action(detail=False, methods=['get'])
     def today(self, request):
-        """Get all assignments for today."""
-        from datetime import date
-        today = date.today()
-        assignments = self.get_queryset().filter(date=today)
+        """Get all assignments for a date. Accepts optional ?date=YYYY-MM-DD, defaults to today."""
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        assignments = self.get_queryset().filter(date=target_date)
         serializer = self.get_serializer(assignments, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def my_assignments(self, request):
-        """Get current staff member's assignments for today."""
-        from datetime import date
-        today = date.today()
+        """Get current staff member's assignments for a date. Accepts optional ?date=YYYY-MM-DD."""
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
         assignments = self.get_queryset().filter(
-            staff_member=request.user, date=today
+            staff_member=request.user, date=target_date
         )
         serializer = self.get_serializer(assignments, many=True)
         return Response(serializer.data)
@@ -647,26 +665,28 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unassigned_dogs(self, request):
-        """Get dogs scheduled for today that have no assignment yet."""
-        from datetime import date
-        today = date.today()
-        day_number = today.isoweekday()  # Monday=1, Sunday=7
+        """Get dogs scheduled for a date that have no assignment yet.
+        Accepts optional ?date=YYYY-MM-DD, defaults to today."""
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        day_number = target_date.isoweekday()  # Monday=1, Sunday=7
 
         # Dogs with this weekday in their daycare_days
         daycare_dogs = Dog.objects.filter(daycare_days__contains=[day_number])
 
-        # Dogs with approved boarding that spans today
+        # Dogs with approved boarding that spans the target date
         boarding_dogs = Dog.objects.filter(
             boarding_requests__status='APPROVED',
-            boarding_requests__start_date__lte=today,
-            boarding_requests__end_date__gte=today,
+            boarding_requests__start_date__lte=target_date,
+            boarding_requests__end_date__gte=target_date,
         )
 
-        # Dogs with approved cancellations for today
+        # Dogs with approved cancellations for the target date
         cancelled_dog_ids = DateChangeRequest.objects.filter(
             request_type='CANCEL',
             status='APPROVED',
-            original_date=today,
+            original_date=target_date,
         ).values_list('dog_id', flat=True)
 
         # Combine daycare + boarding, exclude cancelled
@@ -674,9 +694,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             id__in=cancelled_dog_ids
         ).distinct()
 
-        # Exclude dogs already assigned today
+        # Exclude dogs already assigned for that date
         assigned_dog_ids = DailyDogAssignment.objects.filter(
-            date=today
+            date=target_date
         ).values_list('dog_id', flat=True)
 
         unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
@@ -685,9 +705,21 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def assign_to_me(self, request):
-        """Assign one or more dogs to the current staff member for today."""
-        from datetime import date
-        today = date.today()
+        """Assign one or more dogs to the current staff member.
+        Accepts optional 'date' in body (YYYY-MM-DD), defaults to today."""
+        from datetime import date, timedelta
+        date_str = request.data.get('date')
+        if date_str:
+            try:
+                target_date = date.fromisoformat(date_str)
+            except ValueError:
+                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            max_date = date.today() + timedelta(days=7)
+            if target_date > max_date:
+                return Response({'detail': 'Cannot assign more than 7 days in advance.'}, status=400)
+        else:
+            target_date = date.today()
+
         dog_ids = request.data.get('dog_ids', [])
         if not dog_ids:
             return Response({'detail': 'dog_ids is required'}, status=400)
@@ -696,7 +728,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         for dog_id in dog_ids:
             assignment, was_created = DailyDogAssignment.objects.get_or_create(
                 dog_id=dog_id,
-                date=today,
+                date=target_date,
                 defaults={'staff_member': request.user},
             )
             if was_created:
@@ -707,7 +739,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def assign_dogs(self, request):
-        """Assign one or more dogs to a specified staff member for today.
+        """Assign one or more dogs to a specified staff member.
+        Accepts optional 'date' in body (YYYY-MM-DD), defaults to today.
         Requires can_assign_dogs permission."""
         try:
             if not request.user.profile.can_assign_dogs:
@@ -715,8 +748,19 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date
-        today = date.today()
+        from datetime import date, timedelta
+        date_str = request.data.get('date')
+        if date_str:
+            try:
+                target_date = date.fromisoformat(date_str)
+            except ValueError:
+                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            max_date = date.today() + timedelta(days=7)
+            if target_date > max_date:
+                return Response({'detail': 'Cannot assign more than 7 days in advance.'}, status=400)
+        else:
+            target_date = date.today()
+
         dog_ids = request.data.get('dog_ids', [])
         staff_member_id = request.data.get('staff_member_id')
 
@@ -735,7 +779,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         for dog_id in dog_ids:
             assignment, was_created = DailyDogAssignment.objects.get_or_create(
                 dog_id=dog_id,
-                date=today,
+                date=target_date,
                 defaults={'staff_member': target_staff},
             )
             if was_created:
@@ -743,6 +787,168 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
+
+    @action(detail=True, methods=['post'])
+    def reassign(self, request, pk=None):
+        """Reassign a dog to a different staff member.
+        Requires can_assign_dogs permission."""
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to reassign dogs.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        assignment = self.get_object()
+        staff_member_id = request.data.get('staff_member_id')
+        if not staff_member_id:
+            return Response({'detail': 'staff_member_id is required'}, status=400)
+
+        from django.contrib.auth.models import User
+        try:
+            new_staff = User.objects.get(id=staff_member_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found'}, status=404)
+
+        assignment.staff_member = new_staff
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=['post'])
+    def unassign(self, request, pk=None):
+        """Unassign a dog (delete the assignment).
+        Requires can_assign_dogs permission."""
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to unassign dogs.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        assignment = self.get_object()
+        assignment.delete()
+        return Response(status=204)
+
+    @action(detail=False, methods=['get'])
+    def suggested_assignments(self, request):
+        """Get suggested staff member for each unassigned dog based on history.
+        Returns a mapping of dog_id -> {staff_member_id, staff_member_name, times_assigned}.
+        Accepts optional ?date=YYYY-MM-DD, defaults to today."""
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+
+        from django.db.models import Count
+
+        # Get the most frequent staff member for each dog
+        history = (
+            DailyDogAssignment.objects
+            .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
+            .annotate(times=Count('id'))
+            .order_by('dog_id', '-times')
+        )
+
+        suggestions = {}
+        for entry in history:
+            dog_id = entry['dog_id']
+            if dog_id not in suggestions:
+                name = entry['staff_member__first_name'] or entry['staff_member__username']
+                suggestions[dog_id] = {
+                    'staff_member_id': entry['staff_member_id'],
+                    'staff_member_name': name,
+                    'times_assigned': entry['times'],
+                }
+
+        return Response(suggestions)
+
+    @action(detail=False, methods=['post'])
+    def auto_assign(self, request):
+        """Auto-assign all unassigned dogs for a date based on history.
+        Requires can_assign_dogs permission.
+        Accepts optional 'date' in body (YYYY-MM-DD), defaults to today."""
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to assign dogs.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        from datetime import date, timedelta
+        from django.db.models import Count
+
+        date_str = request.data.get('date')
+        if date_str:
+            try:
+                target_date = date.fromisoformat(date_str)
+            except ValueError:
+                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            max_date = date.today() + timedelta(days=7)
+            if target_date > max_date:
+                return Response({'detail': 'Cannot assign more than 7 days in advance.'}, status=400)
+        else:
+            target_date = date.today()
+
+        day_number = target_date.isoweekday()
+
+        # Get unassigned dogs for this date (same logic as unassigned_dogs)
+        daycare_dogs = Dog.objects.filter(daycare_days__contains=[day_number])
+        boarding_dogs = Dog.objects.filter(
+            boarding_requests__status='APPROVED',
+            boarding_requests__start_date__lte=target_date,
+            boarding_requests__end_date__gte=target_date,
+        )
+        cancelled_dog_ids = DateChangeRequest.objects.filter(
+            request_type='CANCEL',
+            status='APPROVED',
+            original_date=target_date,
+        ).values_list('dog_id', flat=True)
+
+        scheduled_dogs = (daycare_dogs | boarding_dogs).exclude(
+            id__in=cancelled_dog_ids
+        ).distinct()
+
+        assigned_dog_ids = DailyDogAssignment.objects.filter(
+            date=target_date
+        ).values_list('dog_id', flat=True)
+
+        unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
+
+        # Build suggestion map: dog_id -> most frequent staff_member_id
+        history = (
+            DailyDogAssignment.objects
+            .values('dog_id', 'staff_member_id')
+            .annotate(times=Count('id'))
+            .order_by('dog_id', '-times')
+        )
+        best_staff = {}
+        for entry in history:
+            dog_id = entry['dog_id']
+            if dog_id not in best_staff:
+                best_staff[dog_id] = entry['staff_member_id']
+
+        created = []
+        skipped = []
+        for dog in unassigned:
+            staff_id = best_staff.get(dog.id)
+            if staff_id:
+                from django.contrib.auth.models import User
+                try:
+                    staff = User.objects.get(id=staff_id, is_staff=True)
+                except User.DoesNotExist:
+                    skipped.append(dog.id)
+                    continue
+                assignment, was_created = DailyDogAssignment.objects.get_or_create(
+                    dog=dog,
+                    date=target_date,
+                    defaults={'staff_member': staff},
+                )
+                if was_created:
+                    created.append(assignment)
+            else:
+                skipped.append(dog.id)
+
+        serializer = self.get_serializer(created, many=True)
+        return Response({
+            'assigned': serializer.data,
+            'skipped_dog_ids': skipped,
+        }, status=201)
 
     @action(detail=False, methods=['get'])
     def staff_members(self, request):
