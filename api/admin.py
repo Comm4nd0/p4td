@@ -1,6 +1,64 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.models import User
 from django.utils.html import format_html
+from datetime import date
 from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, BoardingRequest, DailyDogAssignment
+
+
+class DailyDogAssignmentInline(admin.TabularInline):
+    model = DailyDogAssignment
+    fk_name = 'staff_member'
+    extra = 0
+    fields = ('dog', 'date', 'status')
+    readonly_fields = ('dog', 'date', 'status')
+    ordering = ['-date', 'dog__name']
+    verbose_name = 'Dog Assignment'
+    verbose_name_plural = 'Dog Assignments'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('dog').filter(date=date.today())
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class StaffUserAdmin(BaseUserAdmin):
+    inlines = list(BaseUserAdmin.inlines or []) + [DailyDogAssignmentInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_staff=True)
+
+    def get_list_display(self, request):
+        return ('username', 'first_name', 'last_name', 'todays_dogs')
+
+    def todays_dogs(self, obj):
+        assignments = obj.dog_assignments.filter(date=date.today()).select_related('dog')
+        if not assignments.exists():
+            return format_html('<span style="color: #999;">None</span>')
+        dogs = []
+        for a in assignments:
+            color = {
+                'ASSIGNED': '#ffc107',
+                'PICKED_UP': '#0d6efd',
+                'AT_DAYCARE': '#6f42c1',
+                'DROPPED_OFF': '#198754',
+            }.get(a.status, '#6c757d')
+            dogs.append(format_html(
+                '<span style="background-color: {}; padding: 2px 6px; border-radius: 3px; color: white; margin-right: 4px;">{}</span>',
+                color, a.dog.name
+            ))
+        return format_html(''.join(str(d) for d in dogs))
+    todays_dogs.short_description = "Today's Dogs"
+
+
+# Unregister the default User admin; register our customised one
+admin.site.unregister(User)
+admin.site.register(User, StaffUserAdmin)
+
 
 @admin.register(DailyDogAssignment)
 class DailyDogAssignmentAdmin(admin.ModelAdmin):
@@ -8,6 +66,7 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
     list_filter = ('date', 'status', 'staff_member')
     search_fields = ('dog__name', 'dog__owner__username', 'staff_member__username', 'staff_member__first_name')
     list_per_page = 30
+    date_hierarchy = 'date'
     ordering = ['-date', 'dog__name']
     raw_id_fields = ('dog', 'staff_member')
 
