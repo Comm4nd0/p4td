@@ -30,7 +30,9 @@ class DogAssignmentInline(admin.TabularInline):
     verbose_name_plural = 'Recent Assignments'
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('staff_member').order_by('-date')[:10]
+        from datetime import timedelta
+        cutoff = date.today() - timedelta(days=14)
+        return super().get_queryset(request).select_related('staff_member').filter(date__gte=cutoff).order_by('-date')
 
     def has_add_permission(self, request, obj=None):
         return False
