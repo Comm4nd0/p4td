@@ -319,3 +319,37 @@ def notify_user_boarding_request_status(sender, instance, created, **kwargs):
         }
         
         send_push_notification(instance.owner, title, body, data)
+
+# --- Dog Status Change Notifications ---
+
+@receiver(pre_save, sender=DailyDogAssignment)
+def store_old_assignment_status(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_instance = DailyDogAssignment.objects.get(pk=instance.pk)
+            instance._old_status = old_instance.status
+        except DailyDogAssignment.DoesNotExist:
+            instance._old_status = None
+    else:
+        instance._old_status = None
+
+@receiver(post_save, sender=DailyDogAssignment)
+def notify_owner_dog_status_change(sender, instance, created, **kwargs):
+    if created:
+        return
+
+    if hasattr(instance, '_old_status') and instance._old_status != instance.status:
+        new_status = instance.get_status_display()
+        dog_name = instance.dog.name
+
+        title = f"{dog_name} Status Update"
+        body = f"{dog_name} is now {new_status}."
+
+        data = {
+            'type': 'dog_status_update',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+
+        owner = instance.dog.owner
+        send_push_notification(owner, title, body, data)
