@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
+import 'package:http_parser/http_parser.dart' as http_parser;
 import '../models/dog.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
@@ -208,7 +208,7 @@ class ApiDataService implements DataService {
           'profile_image',
           imageBytes,
           filename: filename,
-          contentType: MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+          contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
         ));
       }
 
@@ -348,7 +348,7 @@ class ApiDataService implements DataService {
         'profile_image',
         imageBytes,
         filename: filename,
-        contentType: MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+        contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
       ));
       
       final streamedResponse = await request.send();
@@ -534,8 +534,8 @@ class ApiDataService implements DataService {
       fileBytes,
       filename: fileName,
       contentType: isVideo
-          ? MediaType('video', 'mp4')
-          : MediaType('image', fileName.endsWith('.png') ? 'png' : 'jpeg'),
+          ? http_parser.MediaType('video', 'mp4')
+          : http_parser.MediaType('image', fileName.endsWith('.png') ? 'png' : 'jpeg'),
     ));
 
     if (thumbnailBytes != null) {
@@ -543,7 +543,7 @@ class ApiDataService implements DataService {
         'thumbnail',
         thumbnailBytes,
         filename: 'thumbnail.jpg',
-        contentType: MediaType('image', 'jpeg'),
+        contentType: http_parser.MediaType('image', 'jpeg'),
       ));
     }
 
