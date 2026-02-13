@@ -64,6 +64,7 @@ abstract class DataService {
   Future<void> unassignDog(int assignmentId);
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date});
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
+  Future<void> sendTrafficAlert(String alertType, {DateTime? date});
 }
 
 class ApiDataService implements DataService {
@@ -993,6 +994,29 @@ class ApiDataService implements DataService {
       throw Exception(errorMessage);
     }
   }
+
+  @override
+  Future<void> sendTrafficAlert(String alertType, {DateTime? date}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{'alert_type': alertType};
+    final d = _dateBody(date);
+    if (d.isNotEmpty) body['date'] = d;
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/send_traffic_alert/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to send traffic alert';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -1237,4 +1261,7 @@ class MockDataService implements DataService {
 
   @override
   Future<Map<String, dynamic>> autoAssign({DateTime? date}) async => {};
+
+  @override
+  Future<void> sendTrafficAlert(String alertType, {DateTime? date}) async {}
 }

@@ -78,6 +78,50 @@ def notify_new_post(post):
     for user in users:
         send_push_notification(user, title, body, data)
 
+def send_traffic_alert(alert_type, date, staff_member):
+    """
+    Send a traffic delay notification to owners whose dogs are assigned
+    to the given staff member on the given date (i.e. on their route).
+    alert_type: 'pickup' or 'dropoff'
+    """
+    from .models import DailyDogAssignment
+    from django.contrib.auth.models import User
+
+    # Only notify owners on this staff member's route
+    assignments = DailyDogAssignment.objects.filter(
+        date=date, staff_member=staff_member
+    ).select_related('dog__owner')
+    owner_ids = set()
+    for assignment in assignments:
+        owner_ids.add(assignment.dog.owner_id)
+
+    if not owner_ids:
+        return
+
+    if alert_type == 'pickup':
+        title = "Traffic Update"
+        body = (
+            "There is high traffic in your area so your dog's pickup might be "
+            "a little later than usual, but still within the 08:00–10:00 window."
+        )
+    else:
+        title = "Traffic Update"
+        body = (
+            "There is high traffic in your area so your dog's drop-off might be "
+            "a little later than usual, but still within the 15:00–17:00 window."
+        )
+
+    data = {
+        'type': 'traffic_alert',
+        'alert_type': alert_type,
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+
+    owners = User.objects.filter(id__in=owner_ids)
+    for owner in owners:
+        send_push_notification(owner, title, body, data)
+
+
 def send_staff_notification(title, body, data=None):
     """Sends a push notification to the staff_notifications topic."""
     if not initialize_firebase():

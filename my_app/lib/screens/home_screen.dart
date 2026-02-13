@@ -212,6 +212,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
+          if (_isStaff && _currentIndex == 2)
+            IconButton(
+              icon: const Icon(Icons.traffic),
+              tooltip: 'Traffic Alert',
+              onPressed: () => _assignmentsKey.currentState?.showTrafficAlert(),
+            ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.night_shelter),
             onSelected: (value) {

@@ -958,3 +958,18 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         from django.contrib.auth.models import User
         staff = User.objects.filter(is_staff=True).values('id', 'username', 'first_name')
         return Response(list(staff))
+
+    @action(detail=False, methods=['post'])
+    def send_traffic_alert(self, request):
+        """Send a traffic delay notification to owners on the requesting staff member's route."""
+        alert_type = request.data.get('alert_type')
+        if alert_type not in ('pickup', 'dropoff'):
+            return Response({'detail': 'alert_type must be "pickup" or "dropoff"'}, status=400)
+
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+
+        from .notifications import send_traffic_alert
+        send_traffic_alert(alert_type, target_date, staff_member=request.user)
+        return Response({'detail': 'Traffic alert sent successfully.'})
