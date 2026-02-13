@@ -116,9 +116,6 @@ class DailyDogAssignmentInline(admin.TabularInline):
 class StaffUserAdmin(BaseUserAdmin):
     inlines = list(BaseUserAdmin.inlines or []) + [DailyDogAssignmentInline]
 
-    def get_queryset(self, request):
-        return super().get_queryset(request).filter(is_staff=True)
-
     def get_list_display(self, request):
         return ('username', 'first_name', 'last_name', 'todays_dogs')
 
