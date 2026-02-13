@@ -13,6 +13,7 @@ import 'feed_screen.dart';
 import 'request_boarding_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'staff_daily_assignments_screen.dart';
+import 'query_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,8 +36,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _canAssignDogs = false;
   bool _canAddFeedMedia = false;
   bool _canManageRequests = false;
+  bool _canReplyQueries = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
+  int _unresolvedQueryCount = 0;
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
 
   @override
@@ -103,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _canAssignDogs = profile.canAssignDogs;
           _canAddFeedMedia = profile.canAddFeedMedia;
           _canManageRequests = profile.canManageRequests;
+          _canReplyQueries = profile.canReplyQueries;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -111,6 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
         } else {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
+        await _loadUnresolvedQueryCount();
       }
     } catch (e) {
       if (mounted) {
@@ -138,11 +143,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _loadUnresolvedQueryCount() async {
+    try {
+      final count = await _dataService.getUnresolvedQueryCount();
+      if (mounted) {
+        setState(() => _unresolvedQueryCount = count);
+      }
+    } catch (_) {}
+  }
+
   void _refresh() {
     setState(() {
       _loadDogs();
     });
     _loadPendingRequestCount();
+    _loadUnresolvedQueryCount();
   }
 
 
@@ -229,6 +244,49 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.question_answer),
+                tooltip: 'Support Queries',
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => QueryListScreen(
+                        isStaff: _isStaff,
+                        canReplyQueries: _canReplyQueries,
+                      ),
+                    ),
+                  );
+                  _loadUnresolvedQueryCount();
+                },
+              ),
+              if (_unresolvedQueryCount > 0)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                    child: Center(
+                      child: Text(
+                        '$_unresolvedQueryCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           if (_isStaff)
             Stack(
               children: [

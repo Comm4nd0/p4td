@@ -11,6 +11,7 @@ import '../models/owner_profile.dart';
 import '../models/group_media.dart' as gm;
 import '../models/boarding_request.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/support_query.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -65,6 +66,15 @@ abstract class DataService {
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date});
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
   Future<void> sendTrafficAlert(String alertType, {DateTime? date});
+
+  // Support Queries
+  Future<List<SupportQuery>> getSupportQueries();
+  Future<SupportQuery> getSupportQuery(int queryId);
+  Future<SupportQuery> createSupportQuery({required String subject, required String initialMessage});
+  Future<SupportQuery> addQueryMessage(int queryId, String text);
+  Future<SupportQuery> resolveQuery(int queryId);
+  Future<SupportQuery> reopenQuery(int queryId);
+  Future<int> getUnresolvedQueryCount();
 }
 
 class ApiDataService implements DataService {
@@ -1017,6 +1027,117 @@ class ApiDataService implements DataService {
       throw Exception(errorMessage);
     }
   }
+
+  // --- Support Queries ---
+
+  @override
+  Future<List<SupportQuery>> getSupportQueries() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((json) => SupportQuery.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to load queries');
+    }
+  }
+
+  @override
+  Future<SupportQuery> getSupportQuery(int queryId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return SupportQuery.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to load query');
+    }
+  }
+
+  @override
+  Future<SupportQuery> createSupportQuery({required String subject, required String initialMessage}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
+      headers: headers,
+      body: json.encode({'subject': subject}),
+    );
+    if (response.statusCode != 201) {
+      throw Exception('Failed to create query');
+    }
+    final query = SupportQuery.fromJson(json.decode(response.body));
+    return addQueryMessage(query.id, initialMessage);
+  }
+
+  @override
+  Future<SupportQuery> addQueryMessage(int queryId, String text) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/add_message/'),
+      headers: headers,
+      body: json.encode({'text': text}),
+    );
+    if (response.statusCode == 200) {
+      return SupportQuery.fromJson(json.decode(response.body));
+    } else {
+      String errorMessage = 'Failed to send message';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
+  Future<SupportQuery> resolveQuery(int queryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/resolve/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return SupportQuery.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to resolve query');
+    }
+  }
+
+  @override
+  Future<SupportQuery> reopenQuery(int queryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/reopen/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return SupportQuery.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to reopen query');
+    }
+  }
+
+  @override
+  Future<int> getUnresolvedQueryCount() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/unresolved_count/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['count'] ?? 0;
+    } else {
+      return 0;
+    }
+  }
 }
 
 class MockDataService implements DataService {
@@ -1264,4 +1385,19 @@ class MockDataService implements DataService {
 
   @override
   Future<void> sendTrafficAlert(String alertType, {DateTime? date}) async {}
+
+  @override
+  Future<List<SupportQuery>> getSupportQueries() async => [];
+  @override
+  Future<SupportQuery> getSupportQuery(int queryId) async => throw UnimplementedError();
+  @override
+  Future<SupportQuery> createSupportQuery({required String subject, required String initialMessage}) async => throw UnimplementedError();
+  @override
+  Future<SupportQuery> addQueryMessage(int queryId, String text) async => throw UnimplementedError();
+  @override
+  Future<SupportQuery> resolveQuery(int queryId) async => throw UnimplementedError();
+  @override
+  Future<SupportQuery> reopenQuery(int queryId) async => throw UnimplementedError();
+  @override
+  Future<int> getUnresolvedQueryCount() async => 0;
 }

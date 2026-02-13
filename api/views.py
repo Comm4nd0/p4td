@@ -978,3 +978,93 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         from .notifications import send_traffic_alert
         send_traffic_alert(alert_type, target_date, staff_member=request.user)
         return Response({'detail': 'Traffic alert sent successfully.'})
+
+
+class SupportQueryViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        from .serializers import SupportQuerySerializer, SupportQueryListSerializer
+        if self.action == 'list':
+            return SupportQueryListSerializer
+        return SupportQuerySerializer
+
+    def get_queryset(self):
+        from .models import SupportQuery
+        queryset = SupportQuery.objects.prefetch_related('messages')
+        if self.request.user.is_staff:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def add_message(self, request, pk=None):
+        """Add a message to a query thread."""
+        from .models import SupportMessage
+        from .serializers import SupportQuerySerializer
+
+        query = self.get_object()
+        text = request.data.get('text')
+        if not text:
+            return Response({'detail': 'Text is required'}, status=400)
+
+        user = request.user
+        if user != query.owner:
+            if not user.is_staff:
+                return Response({'detail': 'You do not have permission to reply.'}, status=403)
+            if not hasattr(user, 'profile') or not user.profile.can_reply_queries:
+                return Response({'detail': 'You do not have permission to reply to queries.'}, status=403)
+
+        SupportMessage.objects.create(query=query, sender=user, text=text)
+        query.save()  # Update updated_at timestamp
+        return Response(SupportQuerySerializer(query, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def resolve(self, request, pk=None):
+        """Mark a query as resolved."""
+        from .serializers import SupportQuerySerializer
+
+        if not request.user.is_staff:
+            return Response({'detail': 'Only staff can resolve queries.'}, status=403)
+
+        query = self.get_object()
+        from django.utils import timezone
+        query.status = 'RESOLVED'
+        query.resolved_by = request.user
+        query.resolved_at = timezone.now()
+        query.save()
+
+        from .notifications import send_push_notification
+        staff_name = request.user.first_name or request.user.username
+        send_push_notification(query.owner, "Query Resolved",
+            f"Your query '{query.subject}' has been resolved by {staff_name}.",
+            {'type': 'support_query_resolved', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'})
+
+        return Response(SupportQuerySerializer(query, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None):
+        """Reopen a resolved query."""
+        from .serializers import SupportQuerySerializer
+
+        query = self.get_object()
+        if request.user != query.owner and not request.user.is_staff:
+            return Response({'detail': 'You do not have permission to reopen this query.'}, status=403)
+
+        query.status = 'OPEN'
+        query.resolved_by = None
+        query.resolved_at = None
+        query.save()
+        return Response(SupportQuerySerializer(query, context={'request': request}).data)
+
+    @action(detail=False, methods=['get'])
+    def unresolved_count(self, request):
+        """Get count of open queries for badge display."""
+        from .models import SupportQuery
+        if request.user.is_staff:
+            count = SupportQuery.objects.filter(status='OPEN').count()
+        else:
+            count = SupportQuery.objects.filter(owner=request.user, status='OPEN').count()
+        return Response({'count': count})

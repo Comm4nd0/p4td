@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, SupportQuery, SupportMessage
 
 class DeviceTokenSerializer(serializers.ModelSerializer):
     class Meta:
@@ -15,7 +15,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'is_staff', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests']
+        fields = ['username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'is_staff', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries']
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
@@ -238,3 +238,76 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             return obj.dog.owner.profile.pickup_instructions
         except Exception:
             return None
+
+class SupportMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    is_staff = serializers.BooleanField(source='sender.is_staff', read_only=True)
+
+    class Meta:
+        model = SupportMessage
+        fields = ['id', 'query', 'sender', 'sender_name', 'is_staff', 'text', 'created_at']
+        read_only_fields = ['id', 'sender', 'created_at', 'query']
+
+    def get_sender_name(self, obj):
+        if obj.sender.first_name:
+            return obj.sender.first_name
+        return obj.sender.username
+
+class SupportQuerySerializer(serializers.ModelSerializer):
+    owner_name = serializers.SerializerMethodField()
+    messages = SupportMessageSerializer(many=True, read_only=True)
+    resolved_by_name = serializers.CharField(source='resolved_by.username', read_only=True, default=None)
+    last_message_at = serializers.SerializerMethodField()
+    message_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportQuery
+        fields = [
+            'id', 'owner', 'owner_name', 'subject', 'status',
+            'resolved_by_name', 'resolved_at',
+            'messages', 'message_count', 'last_message_at',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'owner', 'status', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
+
+    def get_owner_name(self, obj):
+        if obj.owner.first_name:
+            return obj.owner.first_name
+        return obj.owner.username
+
+    def get_last_message_at(self, obj):
+        last = obj.messages.order_by('-created_at').first()
+        if last:
+            return last.created_at.isoformat()
+        return obj.created_at.isoformat()
+
+    def get_message_count(self, obj):
+        return obj.messages.count()
+
+class SupportQueryListSerializer(serializers.ModelSerializer):
+    owner_name = serializers.SerializerMethodField()
+    last_message_at = serializers.SerializerMethodField()
+    message_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportQuery
+        fields = [
+            'id', 'owner', 'owner_name', 'subject', 'status',
+            'message_count', 'last_message_at',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'owner', 'status', 'created_at', 'updated_at']
+
+    def get_owner_name(self, obj):
+        if obj.owner.first_name:
+            return obj.owner.first_name
+        return obj.owner.username
+
+    def get_last_message_at(self, obj):
+        last = obj.messages.order_by('-created_at').first()
+        if last:
+            return last.created_at.isoformat()
+        return obj.created_at.isoformat()
+
+    def get_message_count(self, obj):
+        return obj.messages.count()

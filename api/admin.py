@@ -6,7 +6,7 @@ from datetime import date
 from .models import (
     Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
-    DailyDogAssignment, DeviceToken,
+    DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
 )
 
 
@@ -187,8 +187,8 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs')
-    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries')
+    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries')
     search_fields = ('user__username', 'phone_number', 'address')
 
 @admin.register(DateChangeRequest)
@@ -264,6 +264,67 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
         updated = queryset.filter(status='PENDING').update(status='DENIED', approved_by=None, approved_at=None)
         self.message_user(request, f'{updated} request(s) denied.')
     deny_requests.short_description = 'Deny selected requests'
+
+
+class SupportMessageInline(admin.TabularInline):
+    model = SupportMessage
+    extra = 0
+    fields = ('sender', 'text', 'created_at')
+    readonly_fields = ('sender', 'created_at')
+    ordering = ['created_at']
+
+
+@admin.register(SupportQuery)
+class SupportQueryAdmin(admin.ModelAdmin):
+    list_display = ('subject', 'owner_name', 'status_display', 'message_count', 'created_at', 'updated_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('subject', 'owner__username', 'owner__first_name')
+    raw_id_fields = ('owner', 'resolved_by')
+    readonly_fields = ('owner', 'created_at', 'updated_at')
+    list_per_page = 20
+    ordering = ['-updated_at']
+    inlines = [SupportMessageInline]
+
+    def owner_name(self, obj):
+        return obj.owner.first_name or obj.owner.username
+    owner_name.short_description = 'Owner'
+    owner_name.admin_order_field = 'owner__first_name'
+
+    def message_count(self, obj):
+        return obj.messages.count()
+    message_count.short_description = 'Messages'
+
+    def status_display(self, obj):
+        colors = {'OPEN': '#ffc107', 'RESOLVED': '#198754'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display()
+        )
+    status_display.short_description = 'Status'
+
+
+@admin.register(SupportMessage)
+class SupportMessageAdmin(admin.ModelAdmin):
+    list_display = ('query_subject', 'sender_name', 'text_preview', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('text', 'sender__username', 'query__subject')
+    raw_id_fields = ('query', 'sender')
+    readonly_fields = ('created_at',)
+    list_per_page = 30
+    ordering = ['-created_at']
+
+    def query_subject(self, obj):
+        return obj.query.subject[:50]
+    query_subject.short_description = 'Query'
+
+    def sender_name(self, obj):
+        return obj.sender.first_name or obj.sender.username
+    sender_name.short_description = 'Sender'
+
+    def text_preview(self, obj):
+        return obj.text[:80] + '...' if len(obj.text) > 80 else obj.text
+    text_preview.short_description = 'Message'
 
 
 @admin.register(Photo)

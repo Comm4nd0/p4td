@@ -9,6 +9,7 @@ class UserProfile {
   final bool canAssignDogs;
   final bool canAddFeedMedia;
   final bool canManageRequests;
+  final bool canReplyQueries;
 
   UserProfile({
     required this.username,
@@ -21,6 +22,7 @@ class UserProfile {
     this.canAssignDogs = false,
     this.canAddFeedMedia = false,
     this.canManageRequests = false,
+    this.canReplyQueries = false,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -35,6 +37,7 @@ class UserProfile {
       canAssignDogs: json['can_assign_dogs'] ?? false,
       canAddFeedMedia: json['can_add_feed_media'] ?? false,
       canManageRequests: json['can_manage_requests'] ?? false,
+      canReplyQueries: json['can_reply_queries'] ?? false,
     );
   }
 

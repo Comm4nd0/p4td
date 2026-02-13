@@ -12,6 +12,7 @@ class UserProfile(models.Model):
     can_manage_requests = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny requests.')
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
     can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
+    can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
 
     def __str__(self):
         return f"Profile for {self.user.username}"
@@ -223,6 +224,42 @@ class DeviceToken(models.Model):
     def __str__(self):
         return f"Token for {self.user.username} ({self.device_type})"
 
+
+class SupportQuery(models.Model):
+    STATUS_CHOICES = [
+        ('OPEN', 'Open'),
+        ('RESOLVED', 'Resolved'),
+    ]
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='support_queries')
+    subject = models.CharField(max_length=255)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='OPEN')
+    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_queries')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        verbose_name_plural = 'Support queries'
+
+    def __str__(self):
+        return f"Query by {self.owner.username}: {self.subject}"
+
+
+class SupportMessage(models.Model):
+    query = models.ForeignKey(SupportQuery, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='support_messages')
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Message by {self.sender.username} on query #{self.query.id}"
+
+
 # Signals for Staff Notifications
 from .notifications import send_staff_notification, send_push_notification
 
@@ -288,6 +325,50 @@ def notify_user_date_request_status(sender, instance, created, **kwargs):
         # Determine owner (via dog)
         owner = instance.dog.owner
         send_push_notification(owner, title, body, data)
+
+# --- Support Query Notifications ---
+
+@receiver(post_save, sender=SupportQuery)
+def notify_staff_new_query(sender, instance, created, **kwargs):
+    if created:
+        owner_name = instance.owner.first_name or instance.owner.username
+        title = "New Support Query"
+        body = f"{owner_name}: {instance.subject}"
+        data = {
+            'type': 'support_query',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        send_staff_notification(title, body, data)
+
+@receiver(post_save, sender=SupportMessage)
+def notify_query_message(sender, instance, created, **kwargs):
+    if not created:
+        return
+    query = instance.query
+    sender_user = instance.sender
+    if sender_user.is_staff:
+        # Staff replied — notify the owner
+        staff_name = sender_user.first_name or sender_user.username
+        title = "Reply to Your Query"
+        body = f"{staff_name} replied to: {query.subject}"
+        data = {
+            'type': 'support_query_reply',
+            'id': str(query.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        send_push_notification(query.owner, title, body, data)
+    else:
+        # Owner followed up — notify staff
+        owner_name = sender_user.first_name or sender_user.username
+        title = "Query Update"
+        body = f"{owner_name} added a message to: {query.subject}"
+        data = {
+            'type': 'support_query_update',
+            'id': str(query.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        send_staff_notification(title, body, data)
 
 @receiver(pre_save, sender=BoardingRequest)
 def store_old_boarding_request_status(sender, instance, **kwargs):
