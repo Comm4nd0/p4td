@@ -155,6 +155,12 @@ class DogViewSet(viewsets.ModelViewSet):
     serializer_class = DogSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        # Only staff can create or delete dogs
+        if self.action in ('create', 'destroy'):
+            return [IsAdminUser()]
+        return super().get_permissions()
+
     def get_queryset(self):
         # Staff can see all dogs, Clients only see their own
         if self.request.user.is_staff:
@@ -162,10 +168,9 @@ class DogViewSet(viewsets.ModelViewSet):
         return Dog.objects.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
-        # Allow staff to assign owner, otherwise default to self
+        # Staff must assign an owner when creating a dog
         self._handle_image_upload(serializer)
-        if self.request.user.is_staff and 'owner' in self.request.data:
-            # Owner is already validated by serializer if present
+        if 'owner' in self.request.data:
             serializer.save()
         else:
             serializer.save(owner=self.request.user)

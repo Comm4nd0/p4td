@@ -157,6 +157,63 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showTrafficAlertDialog() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.traffic, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Traffic Alert'),
+          ],
+        ),
+        content: const Text(
+          'Send a traffic delay notification to all owners with dogs on your route today. '
+          'Which service is affected?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, 'pickup'),
+            icon: const Icon(Icons.arrow_upward, size: 18),
+            label: const Text('Pickup'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, 'dropoff'),
+            icon: const Icon(Icons.arrow_downward, size: 18),
+            label: const Text('Drop-off'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      try {
+        await _dataService.sendTrafficAlert(result);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Traffic alert sent to all owners for ${result == 'pickup' ? 'pickup' : 'drop-off'}',
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to send traffic alert: $e')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -212,11 +269,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-          if (_isStaff && _currentIndex == 2)
+          if (_isStaff)
             IconButton(
               icon: const Icon(Icons.traffic),
               tooltip: 'Traffic Alert',
-              onPressed: () => _assignmentsKey.currentState?.showTrafficAlert(),
+              onPressed: _showTrafficAlertDialog,
             ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.night_shelter),
@@ -267,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: _currentIndex == 0
+      floatingActionButton: _currentIndex == 0 && _isStaff
           ? FloatingActionButton.extended(
               onPressed: _addDog,
               icon: const Icon(Icons.add),
