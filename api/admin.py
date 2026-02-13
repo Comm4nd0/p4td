@@ -3,7 +3,92 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from django.utils.html import format_html
 from datetime import date
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, BoardingRequest, DailyDogAssignment
+from .models import (
+    Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
+    GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
+    DailyDogAssignment, DeviceToken,
+)
+
+
+class PhotoInline(admin.TabularInline):
+    model = Photo
+    extra = 0
+    fields = ('media_type', 'file', 'thumbnail', 'taken_at', 'created_at')
+    readonly_fields = ('created_at',)
+    ordering = ['-taken_at']
+
+
+class DogAssignmentInline(admin.TabularInline):
+    """Inline showing recent assignments for a dog."""
+    model = DailyDogAssignment
+    fk_name = 'dog'
+    extra = 0
+    fields = ('staff_member', 'date', 'status')
+    readonly_fields = ('staff_member', 'date', 'status')
+    ordering = ['-date']
+    verbose_name = 'Recent Assignment'
+    verbose_name_plural = 'Recent Assignments'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('staff_member').order_by('-date')[:10]
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Dog)
+class DogAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner_name', 'daycare_days_display', 'profile_image_preview', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('name', 'owner__username', 'owner__first_name', 'owner__last_name')
+    raw_id_fields = ('owner',)
+    readonly_fields = ('created_at', 'profile_image_preview_large')
+    list_per_page = 30
+    ordering = ['name']
+    inlines = [PhotoInline, DogAssignmentInline]
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'owner', 'profile_image', 'profile_image_preview_large'),
+        }),
+        ('Daycare', {
+            'fields': ('daycare_days',),
+        }),
+        ('Care Instructions', {
+            'fields': ('food_instructions', 'medical_notes'),
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+        }),
+    )
+
+    def owner_name(self, obj):
+        name = obj.owner.get_full_name() or obj.owner.username
+        return name
+    owner_name.short_description = 'Owner'
+    owner_name.admin_order_field = 'owner__first_name'
+
+    def daycare_days_display(self, obj):
+        if not obj.daycare_days:
+            return format_html('<span style="color: #999;">None</span>')
+        day_map = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}
+        days = [day_map.get(d, '?') for d in sorted(obj.daycare_days)]
+        return ', '.join(days)
+    daycare_days_display.short_description = 'Daycare Days'
+
+    def profile_image_preview(self, obj):
+        if obj.profile_image:
+            return format_html('<img src="{}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;" />', obj.profile_image.url)
+        return format_html('<span style="color: #999;">No image</span>')
+    profile_image_preview.short_description = 'Photo'
+
+    def profile_image_preview_large(self, obj):
+        if obj.profile_image:
+            return format_html('<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px; object-fit: cover;" />', obj.profile_image.url)
+        return format_html('<span style="color: #999;">No image</span>')
+    profile_image_preview_large.short_description = 'Preview'
 
 
 class DailyDogAssignmentInline(admin.TabularInline):
@@ -103,8 +188,8 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media')
-    list_editable = ('can_manage_requests', 'can_add_feed_media')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs')
+    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs')
     search_fields = ('user__username', 'phone_number', 'address')
 
 @admin.register(DateChangeRequest)
@@ -180,6 +265,96 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
         updated = queryset.filter(status='PENDING').update(status='DENIED', approved_by=None, approved_at=None)
         self.message_user(request, f'{updated} request(s) denied.')
     deny_requests.short_description = 'Deny selected requests'
+
+
+@admin.register(Photo)
+class PhotoAdmin(admin.ModelAdmin):
+    list_display = ('dog_name', 'media_type', 'thumbnail_preview', 'taken_at', 'created_at')
+    list_filter = ('media_type', 'created_at')
+    search_fields = ('dog__name', 'dog__owner__username')
+    raw_id_fields = ('dog',)
+    readonly_fields = ('created_at', 'thumbnail_preview_large')
+    list_per_page = 30
+    ordering = ['-taken_at']
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def thumbnail_preview(self, obj):
+        url = obj.thumbnail.url if obj.thumbnail else (obj.file.url if obj.file else None)
+        if url:
+            return format_html('<img src="{}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;" />', url)
+        return '-'
+    thumbnail_preview.short_description = 'Preview'
+
+    def thumbnail_preview_large(self, obj):
+        url = obj.thumbnail.url if obj.thumbnail else (obj.file.url if obj.file else None)
+        if url:
+            return format_html('<img src="{}" style="max-width: 300px; max-height: 300px; border-radius: 8px; object-fit: cover;" />', url)
+        return '-'
+    thumbnail_preview_large.short_description = 'Preview'
+
+
+@admin.register(Comment)
+class CommentAdmin(admin.ModelAdmin):
+    list_display = ('user', 'text_preview', 'target_display', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('user__username', 'text')
+    raw_id_fields = ('user', 'group_media', 'photo')
+    readonly_fields = ('created_at',)
+    list_per_page = 30
+    ordering = ['-created_at']
+
+    def text_preview(self, obj):
+        return obj.text[:80] + '...' if len(obj.text) > 80 else obj.text
+    text_preview.short_description = 'Comment'
+
+    def target_display(self, obj):
+        if obj.group_media:
+            return format_html('Feed post #{}', obj.group_media.id)
+        elif obj.photo:
+            return format_html('Photo of {}', obj.photo.dog.name)
+        return '-'
+    target_display.short_description = 'On'
+
+
+@admin.register(DeviceToken)
+class DeviceTokenAdmin(admin.ModelAdmin):
+    list_display = ('user', 'device_type', 'token_preview', 'created_at', 'updated_at')
+    list_filter = ('device_type', 'created_at')
+    search_fields = ('user__username', 'token')
+    raw_id_fields = ('user',)
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 30
+    ordering = ['-updated_at']
+
+    def token_preview(self, obj):
+        return obj.token[:20] + '...' if len(obj.token) > 20 else obj.token
+    token_preview.short_description = 'Token'
+
+
+@admin.register(DateChangeRequestHistory)
+class DateChangeRequestHistoryAdmin(admin.ModelAdmin):
+    list_display = ('request', 'changed_by', 'from_status', 'to_status', 'changed_at')
+    list_filter = ('from_status', 'to_status', 'changed_at')
+    search_fields = ('request__dog__name', 'changed_by__username')
+    raw_id_fields = ('request', 'changed_by')
+    readonly_fields = ('request', 'changed_by', 'from_status', 'to_status', 'reason', 'changed_at')
+    list_per_page = 30
+    ordering = ['-changed_at']
+
+
+@admin.register(BoardingRequestHistory)
+class BoardingRequestHistoryAdmin(admin.ModelAdmin):
+    list_display = ('request', 'changed_by', 'from_status', 'to_status', 'changed_at')
+    list_filter = ('from_status', 'to_status', 'changed_at')
+    search_fields = ('request__owner__username', 'changed_by__username')
+    raw_id_fields = ('request', 'changed_by')
+    readonly_fields = ('request', 'changed_by', 'from_status', 'to_status', 'changed_at')
+    list_per_page = 30
+    ordering = ['-changed_at']
 
 @admin.register(GroupMedia)
 class GroupMediaAdmin(admin.ModelAdmin):
