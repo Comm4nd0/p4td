@@ -87,9 +87,15 @@ def send_traffic_alert(alert_type, date, staff_member):
     from .models import DailyDogAssignment
     from django.contrib.auth.models import User
 
-    # Only notify owners on this staff member's route
+    # Only notify owners on this staff member's route whose dogs are
+    # still awaiting the relevant action (pickup or dropoff).
+    if alert_type == 'pickup':
+        relevant_statuses = ['ASSIGNED']
+    else:
+        relevant_statuses = ['PICKED_UP', 'AT_DAYCARE']
+
     assignments = DailyDogAssignment.objects.filter(
-        date=date, staff_member=staff_member
+        date=date, staff_member=staff_member, status__in=relevant_statuses
     ).select_related('dog__owner')
     owner_ids = set()
     for assignment in assignments:
@@ -120,6 +126,59 @@ def send_traffic_alert(alert_type, date, staff_member):
     owners = User.objects.filter(id__in=owner_ids)
     for owner in owners:
         send_push_notification(owner, title, body, data)
+
+
+def notify_post_comment(comment, post):
+    """
+    Notify relevant users when someone comments on a GroupMedia post.
+    - The staff member who uploaded the post gets notified of every new comment.
+    - Any user who has previously commented on the same post gets notified
+      of new replies (thread subscription).
+    The commenter themselves is excluded from all notifications.
+    """
+    from .models import Comment
+    from django.contrib.auth.models import User
+
+    commenter = comment.user
+    commenter_name = commenter.first_name or commenter.username
+    post_label = post.caption[:50] if post.caption else f"{post.media_type.lower()} post"
+
+    # Collect user IDs to notify (avoid duplicates)
+    users_to_notify = set()
+
+    # 1. Notify the post uploader (staff member) if they are not the commenter
+    if post.uploaded_by_id != commenter.id:
+        users_to_notify.add(post.uploaded_by_id)
+
+    # 2. Notify all previous commenters on this post (thread subscription)
+    previous_commenter_ids = (
+        Comment.objects.filter(group_media=post)
+        .exclude(user=commenter)
+        .values_list('user_id', flat=True)
+        .distinct()
+    )
+    users_to_notify.update(previous_commenter_ids)
+
+    if not users_to_notify:
+        return
+
+    data = {
+        'type': 'post_comment',
+        'post_id': str(post.id),
+        'comment_id': str(comment.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+
+    users = User.objects.filter(id__in=users_to_notify)
+    for user in users:
+        # Tailor the message depending on whether they are the post owner or a fellow commenter
+        if user.id == post.uploaded_by_id:
+            title = "New Comment on Your Post"
+            body = f"{commenter_name} commented on your {post_label}."
+        else:
+            title = "New Reply"
+            body = f"{commenter_name} also replied to a post you commented on."
+        send_push_notification(user, title, body, data)
 
 
 def send_staff_notification(title, body, data=None):

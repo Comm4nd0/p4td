@@ -526,8 +526,16 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
         text = request.data.get('text')
         if not text:
             return Response({'detail': 'Text is required'}, status=400)
-        
-        Comment.objects.create(user=request.user, group_media=media, text=text)
+
+        comment = Comment.objects.create(user=request.user, group_media=media, text=text)
+
+        # Notify post owner and previous commenters
+        try:
+            from .notifications import notify_post_comment
+            notify_post_comment(comment, media)
+        except Exception as e:
+            print(f"Failed to send comment notification: {e}")
+
         return Response(self.get_serializer(media).data)
 
 class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
