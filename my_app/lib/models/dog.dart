@@ -46,6 +46,7 @@ class Dog {
   final String? medicalNotes;
   final List<Weekday> daysInDaycare;
   final OwnerDetails? ownerDetails;
+  final List<OwnerDetails> additionalOwners;
 
   Dog({
     required this.id,
@@ -56,7 +57,16 @@ class Dog {
     this.medicalNotes,
     this.daysInDaycare = const [],
     this.ownerDetails,
+    this.additionalOwners = const [],
   });
+
+  /// All owners (primary + additional) for convenience
+  List<OwnerDetails> get allOwners {
+    final owners = <OwnerDetails>[];
+    if (ownerDetails != null) owners.add(ownerDetails!);
+    owners.addAll(additionalOwners);
+    return owners;
+  }
 
   Dog copyWith({
     String? id,
@@ -67,6 +77,7 @@ class Dog {
     String? medicalNotes,
     List<Weekday>? daysInDaycare,
     OwnerDetails? ownerDetails,
+    List<OwnerDetails>? additionalOwners,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -77,6 +88,7 @@ class Dog {
       medicalNotes: medicalNotes ?? this.medicalNotes,
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
       ownerDetails: ownerDetails ?? this.ownerDetails,
+      additionalOwners: additionalOwners ?? this.additionalOwners,
     );
   }
 }

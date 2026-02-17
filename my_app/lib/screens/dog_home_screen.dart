@@ -54,14 +54,44 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   Future<void> _showOwnerDetails() async {
     if (_dog.ownerDetails == null) return;
 
+    final allOwners = _dog.allOwners;
+
+    if (allOwners.length <= 1) {
+      // Single owner - show details directly
+      await _showOwnerDetailsFor(_dog.ownerDetails!.userId);
+    } else {
+      // Multiple owners - show picker
+      if (!mounted) return;
+      final selectedId = await showDialog<int>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('Select Owner'),
+          children: allOwners.map((owner) => SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, owner.userId),
+            child: ListTile(
+              leading: const Icon(Icons.person),
+              title: Text(owner.username),
+              subtitle: Text(owner.email),
+              dense: true,
+            ),
+          )).toList(),
+        ),
+      );
+      if (selectedId != null && mounted) {
+        await _showOwnerDetailsFor(selectedId);
+      }
+    }
+  }
+
+  Future<void> _showOwnerDetailsFor(int ownerId) async {
     try {
-      final profile = await _dataService.getOwnerProfile(_dog.ownerDetails!.userId);
+      final profile = await _dataService.getOwnerProfile(ownerId);
       if (mounted) {
         showDialog(
           context: context,
           builder: (context) => OwnerDetailsDialog(
             ownerProfile: profile,
-            ownerId: _dog.ownerDetails!.userId,
+            ownerId: ownerId,
             isStaff: widget.isStaff,
             onUpdated: () {
               // Refresh if needed
@@ -81,102 +111,114 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   Future<void> _contactOwner() async {
     if (_dog.ownerDetails == null) return;
 
-    try {
-      final owner = OwnerProfile(
-        userId: _dog.ownerDetails!.userId,
-        username: _dog.ownerDetails!.username,
-        email: _dog.ownerDetails!.email,
-      );
+    final allOwners = _dog.allOwners;
+    OwnerDetails selectedOwnerDetails;
 
-      final subjectController = TextEditingController(text: 'Re: ${_dog.name}');
-      final messageController = TextEditingController();
-      final formKey = GlobalKey<FormState>();
-
-      final result = await showDialog<bool>(
+    if (allOwners.length > 1) {
+      // Multiple owners - let staff choose
+      final selected = await showDialog<OwnerDetails>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Message ${owner.username}'),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: subjectController,
-                    decoration: const InputDecoration(
-                      labelText: 'Subject',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: messageController,
-                    decoration: const InputDecoration(
-                      labelText: 'Message',
-                      hintText: 'Your message to the owner',
-                      border: OutlineInputBorder(),
-                    ),
-                    maxLines: 4,
-                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                  ),
-                ],
-              ),
+        builder: (context) => SimpleDialog(
+          title: const Text('Message Which Owner?'),
+          children: allOwners.map((owner) => SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, owner),
+            child: ListTile(
+              leading: const Icon(Icons.person),
+              title: Text(owner.username),
+              subtitle: Text(owner.email),
+              dense: true,
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, true);
-                }
-              },
-              child: const Text('Send'),
-            ),
-          ],
+          )).toList(),
         ),
       );
+      if (selected == null || !mounted) return;
+      selectedOwnerDetails = selected;
+    } else {
+      selectedOwnerDetails = _dog.ownerDetails!;
+    }
 
-      if (result == true && mounted) {
-        try {
-          final query = await _dataService.createStaffQuery(
-            ownerId: owner.userId,
-            subject: subjectController.text.trim(),
-            initialMessage: messageController.text.trim(),
-          );
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
-            );
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => QueryDetailScreen(
-                  queryId: query.id,
-                  isStaff: true,
-                  canReplyQueries: true,
+    final subjectController = TextEditingController(text: 'Re: ${_dog.name}');
+    final messageController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Message ${selectedOwnerDetails.username}'),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: subjectController,
+                  decoration: const InputDecoration(
+                    labelText: 'Subject',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
-              ),
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to send message: $e')),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to contact owner: $e')),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: messageController,
+                  decoration: const InputDecoration(
+                    labelText: 'Message',
+                    hintText: 'Your message to the owner',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 4,
+                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, true);
+              }
+            },
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      try {
+        final query = await _dataService.createStaffQuery(
+          ownerId: selectedOwnerDetails.userId,
+          subject: subjectController.text.trim(),
+          initialMessage: messageController.text.trim(),
         );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
+          );
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => QueryDetailScreen(
+                queryId: query.id,
+                isStaff: true,
+                canReplyQueries: true,
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to send message: $e')),
+          );
+        }
       }
     }
   }
@@ -605,7 +647,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                               TextButton.icon(
                                 onPressed: _showOwnerDetails,
                                 icon: const Icon(Icons.person, size: 18),
-                                label: const Text('Owner Info'),
+                                label: Text(_dog.additionalOwners.isEmpty
+                                  ? 'Owner Info'
+                                  : 'Owners (${1 + _dog.additionalOwners.length})'),
                                 style: TextButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
                                 ),

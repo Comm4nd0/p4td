@@ -47,13 +47,14 @@ class DogAdmin(admin.ModelAdmin):
     list_filter = ('created_at',)
     search_fields = ('name', 'owner__username', 'owner__first_name', 'owner__last_name')
     raw_id_fields = ('owner',)
+    filter_horizontal = ('additional_owners',)
     readonly_fields = ('created_at', 'profile_image_preview_large')
     list_per_page = 30
     ordering = ['name']
     inlines = [PhotoInline, DogAssignmentInline]
     fieldsets = (
         (None, {
-            'fields': ('name', 'owner', 'profile_image', 'profile_image_preview_large'),
+            'fields': ('name', 'owner', 'additional_owners', 'profile_image', 'profile_image_preview_large'),
         }),
         ('Daycare', {
             'fields': ('daycare_days',),
