@@ -233,16 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset('assets/logo.png', height: 32),
-            const SizedBox(width: 8),
-            if (_currentIndex < 2)
-              Text(_currentIndex == 0
-                  ? (_isStaff ? 'All Dogs' : (_loadingDogs ? 'My Dogs' : (_allDogs.length == 1 ? 'My Dog' : 'My Dogs')))
-                  : 'Feed'),
-          ],
-        ),
+        title: Image.asset('assets/logo.png', height: 32),
         actions: [
           Stack(
             children: [
