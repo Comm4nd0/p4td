@@ -1005,7 +1005,17 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         return queryset.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        # Staff can create queries on behalf of an owner
+        if self.request.user.is_staff and 'owner_id' in self.request.data:
+            from django.contrib.auth.models import User
+            try:
+                owner = User.objects.get(id=self.request.data['owner_id'])
+            except User.DoesNotExist:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'owner_id': 'User not found'})
+            serializer.save(owner=owner)
+        else:
+            serializer.save(owner=self.request.user)
 
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):

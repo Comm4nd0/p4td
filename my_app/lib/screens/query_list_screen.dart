@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/support_query.dart';
+import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import 'query_detail_screen.dart';
 
@@ -135,19 +136,152 @@ class _QueryListScreenState extends State<QueryListScreen> {
     }
   }
 
+  Future<void> _showStaffNewQueryDialog() async {
+    // First, load the list of owners
+    List<OwnerProfile>? owners;
+    try {
+      owners = await _dataService.getOwners();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load owners: $e')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted || owners == null || owners.isEmpty) return;
+
+    _showStaffQueryForm(owners);
+  }
+
+  Future<void> _showStaffQueryForm(List<OwnerProfile> owners, {OwnerProfile? preselectedOwner}) async {
+    final subjectController = TextEditingController();
+    final messageController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    OwnerProfile? selectedOwner = preselectedOwner;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Message Owner'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (preselectedOwner == null)
+                    DropdownButtonFormField<OwnerProfile>(
+                      decoration: const InputDecoration(
+                        labelText: 'Owner',
+                        border: OutlineInputBorder(),
+                      ),
+                      value: selectedOwner,
+                      items: owners.map((owner) => DropdownMenuItem(
+                        value: owner,
+                        child: Text(owner.username),
+                      )).toList(),
+                      onChanged: (value) => setDialogState(() => selectedOwner = value),
+                      validator: (v) => v == null ? 'Please select an owner' : null,
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'To: ${preselectedOwner.username}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: subjectController,
+                    decoration: const InputDecoration(
+                      labelText: 'Subject',
+                      hintText: 'Brief summary',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: messageController,
+                    decoration: const InputDecoration(
+                      labelText: 'Message',
+                      hintText: 'Your message to the owner',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 4,
+                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(context, true);
+                }
+              },
+              child: const Text('Send'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true && selectedOwner != null) {
+      try {
+        final query = await _dataService.createStaffQuery(
+          ownerId: selectedOwner!.userId,
+          subject: subjectController.text.trim(),
+          initialMessage: messageController.text.trim(),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Query created'), backgroundColor: Colors.green),
+          );
+          // Navigate directly into the new query
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => QueryDetailScreen(
+                queryId: query.id,
+                isStaff: widget.isStaff,
+                canReplyQueries: widget.canReplyQueries,
+              ),
+            ),
+          );
+        }
+        _loadQueries();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to create query: $e')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Support Queries'),
       ),
-      floatingActionButton: !widget.isStaff
-          ? FloatingActionButton.extended(
-              onPressed: _showNewQueryDialog,
-              icon: const Icon(Icons.add),
-              label: const Text('New Query'),
-            )
-          : null,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: widget.isStaff ? _showStaffNewQueryDialog : _showNewQueryDialog,
+        icon: const Icon(Icons.add),
+        label: Text(widget.isStaff ? 'Message Owner' : 'New Query'),
+      ),
       body: Column(
         children: [
           SingleChildScrollView(
