@@ -404,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
         items: [
           BottomNavigationBarItem(
             icon: const Icon(Icons.pets),
-            label: _isStaff ? 'All Dogs' : 'My Dogs',
+            label: _isStaff ? 'All Dogs' : (_allDogs.length == 1 ? _allDogs.first.name : 'My Dogs'),
           ),
           const BottomNavigationBarItem(
             icon: Icon(Icons.photo_library),
