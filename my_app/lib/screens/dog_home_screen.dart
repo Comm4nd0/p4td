@@ -3,12 +3,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
-import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
-import 'query_list_screen.dart';
 import 'query_detail_screen.dart';
 
 class DogHomeScreen extends StatefulWidget {

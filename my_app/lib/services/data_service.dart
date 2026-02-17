@@ -1446,6 +1446,8 @@ class MockDataService implements DataService {
   @override
   Future<SupportQuery> createSupportQuery({required String subject, required String initialMessage}) async => throw UnimplementedError();
   @override
+  Future<SupportQuery> createStaffQuery({required int ownerId, required String subject, required String initialMessage}) async => throw UnimplementedError();
+  @override
   Future<SupportQuery> addQueryMessage(int queryId, String text) async => throw UnimplementedError();
   @override
   Future<SupportQuery> resolveQuery(int queryId) async => throw UnimplementedError();
