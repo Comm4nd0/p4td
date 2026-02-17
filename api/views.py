@@ -162,10 +162,13 @@ class DogViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        # Staff can see all dogs, Clients only see their own
+        # Staff can see all dogs, Clients see dogs they own or co-own
         if self.request.user.is_staff:
             return Dog.objects.all()
-        return Dog.objects.filter(owner=self.request.user)
+        from django.db.models import Q
+        return Dog.objects.filter(
+            Q(owner=self.request.user) | Q(additional_owners=self.request.user)
+        ).distinct()
 
     def perform_create(self, serializer):
         # Staff must assign an owner when creating a dog
@@ -194,12 +197,15 @@ class PhotoViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if self.request.user.is_staff:
             return Photo.objects.all()
-        return Photo.objects.filter(dog__owner=self.request.user)
+        from django.db.models import Q
+        return Photo.objects.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
 
     def perform_create(self, serializer):
         # Validate that user owns the dog or is staff
         dog = serializer.validated_data['dog']
-        if dog.owner != self.request.user and not self.request.user.is_staff:
+        if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only upload photos for your own dogs")
         
@@ -302,7 +308,7 @@ class PhotoViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Dog not found'}, status=404)
         
         # Check permissions
-        if dog.owner != request.user and not request.user.is_staff:
+        if dog.owner != request.user and not request.user.is_staff and not dog.additional_owners.filter(id=request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only view photos for your own dogs")
         
@@ -317,12 +323,15 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if self.request.user.is_staff:
             return DateChangeRequest.objects.all()
-        return DateChangeRequest.objects.filter(dog__owner=self.request.user)
+        from django.db.models import Q
+        return DateChangeRequest.objects.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
 
     def perform_create(self, serializer):
         # Verify user owns the dog
         dog = serializer.validated_data['dog']
-        if dog.owner != self.request.user and not self.request.user.is_staff:
+        if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
         serializer.save()
@@ -351,12 +360,15 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         instance.status = new_status
         instance.save()
 
-        # Send push notification to owner
+        # Send push notification to all owners
         try:
             from .notifications import send_push_notification
             title = f"Request {new_status.title()}"
             body = f"Your {instance.request_type.lower()} request for {instance.dog.name} on {instance.original_date} has been {new_status.lower()}."
-            send_push_notification(instance.dog.owner, title, body, {'type': 'date_change_status', 'id': str(instance.id)})
+            data = {'type': 'date_change_status', 'id': str(instance.id)}
+            send_push_notification(instance.dog.owner, title, body, data)
+            for additional_owner in instance.dog.additional_owners.all():
+                send_push_notification(additional_owner, title, body, data)
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
@@ -616,7 +628,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = DailyDogAssignment.objects.select_related(
             'dog', 'dog__owner', 'dog__owner__profile', 'staff_member'
-        )
+        ).prefetch_related('dog__additional_owners', 'dog__additional_owners__profile')
         date = self.request.query_params.get('date')
         if date:
             queryset = queryset.filter(date=date)

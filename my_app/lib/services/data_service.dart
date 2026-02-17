@@ -108,7 +108,10 @@ class ApiDataService implements DataService {
         if (json['owner_details'] != null) {
           ownerDetails = OwnerDetails.fromJson(json['owner_details']);
         }
-        
+        final additionalOwners = (json['additional_owners_details'] as List<dynamic>?)
+            ?.map((o) => OwnerDetails.fromJson(o))
+            .toList() ?? [];
+
         return Dog(
           id: json['id'].toString(),
           name: json['name'],
@@ -118,6 +121,7 @@ class ApiDataService implements DataService {
           medicalNotes: json['medical_notes'],
           daysInDaycare: daysInDaycare,
           ownerDetails: ownerDetails,
+          additionalOwners: additionalOwners,
         );
       }).toList();
     } else {
@@ -251,6 +255,13 @@ class ApiDataService implements DataService {
               orElse: () => Weekday.monday,
             ))
         .toList() ?? [];
+    OwnerDetails? ownerDetails;
+    if (data['owner_details'] != null) {
+      ownerDetails = OwnerDetails.fromJson(data['owner_details']);
+    }
+    final additionalOwners = (data['additional_owners_details'] as List<dynamic>?)
+        ?.map((o) => OwnerDetails.fromJson(o))
+        .toList() ?? [];
 
     return Dog(
       id: data['id'].toString(),
@@ -260,6 +271,8 @@ class ApiDataService implements DataService {
       foodInstructions: data['food_instructions'],
       medicalNotes: data['medical_notes'],
       daysInDaycare: updatedDaysInDaycare,
+      ownerDetails: ownerDetails,
+      additionalOwners: additionalOwners,
     );
   }
 
@@ -374,6 +387,14 @@ class ApiDataService implements DataService {
             ))
             .toList() ?? [];
         
+        OwnerDetails? ownerDetails;
+        if (data['owner_details'] != null) {
+          ownerDetails = OwnerDetails.fromJson(data['owner_details']);
+        }
+        final additionalOwners = (data['additional_owners_details'] as List<dynamic>?)
+            ?.map((o) => OwnerDetails.fromJson(o))
+            .toList() ?? [];
+
         return Dog(
           id: data['id'].toString(),
           name: data['name'],
@@ -382,6 +403,8 @@ class ApiDataService implements DataService {
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
           daysInDaycare: daysInDaycareResult,
+          ownerDetails: ownerDetails,
+          additionalOwners: additionalOwners,
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -410,6 +433,14 @@ class ApiDataService implements DataService {
             ))
             .toList() ?? [];
         
+        OwnerDetails? ownerDetails;
+        if (data['owner_details'] != null) {
+          ownerDetails = OwnerDetails.fromJson(data['owner_details']);
+        }
+        final additionalOwners = (data['additional_owners_details'] as List<dynamic>?)
+            ?.map((o) => OwnerDetails.fromJson(o))
+            .toList() ?? [];
+
         return Dog(
           id: data['id'].toString(),
           name: data['name'],
@@ -417,6 +448,8 @@ class ApiDataService implements DataService {
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
           daysInDaycare: daysInDaycareResult,
+          ownerDetails: ownerDetails,
+          additionalOwners: additionalOwners,
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -835,6 +868,9 @@ class ApiDataService implements DataService {
         if (j['owner_details'] != null) {
           ownerDetails = OwnerDetails.fromJson(j['owner_details']);
         }
+        final additionalOwners = (j['additional_owners_details'] as List<dynamic>?)
+            ?.map((o) => OwnerDetails.fromJson(o))
+            .toList() ?? [];
         return Dog(
           id: j['id'].toString(),
           name: j['name'],
@@ -844,6 +880,7 @@ class ApiDataService implements DataService {
           medicalNotes: j['medical_notes'],
           daysInDaycare: daysInDaycare,
           ownerDetails: ownerDetails,
+          additionalOwners: additionalOwners,
         );
       }).toList();
     } else {

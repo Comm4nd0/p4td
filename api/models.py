@@ -30,6 +30,7 @@ class Dog(models.Model):
     ]
 
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dogs')
+    additional_owners = models.ManyToManyField(User, related_name='additional_dogs', blank=True)
     name = models.CharField(max_length=100)
     profile_image = models.ImageField(upload_to='dog_profiles/', null=True, blank=True)
     food_instructions = models.TextField(blank=True, null=True)
@@ -322,9 +323,11 @@ def notify_user_date_request_status(sender, instance, created, **kwargs):
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
         
-        # Determine owner (via dog)
+        # Notify all owners (primary + additional)
         owner = instance.dog.owner
         send_push_notification(owner, title, body, data)
+        for additional_owner in instance.dog.additional_owners.all():
+            send_push_notification(additional_owner, title, body, data)
 
 # --- Support Query Notifications ---
 
@@ -434,3 +437,5 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
 
         owner = instance.dog.owner
         send_push_notification(owner, title, body, data)
+        for additional_owner in instance.dog.additional_owners.all():
+            send_push_notification(additional_owner, title, body, data)

@@ -96,10 +96,12 @@ def send_traffic_alert(alert_type, date, staff_member):
 
     assignments = DailyDogAssignment.objects.filter(
         date=date, staff_member=staff_member, status__in=relevant_statuses
-    ).select_related('dog__owner')
+    ).select_related('dog__owner').prefetch_related('dog__additional_owners')
     owner_ids = set()
     for assignment in assignments:
         owner_ids.add(assignment.dog.owner_id)
+        for additional_owner in assignment.dog.additional_owners.all():
+            owner_ids.add(additional_owner.id)
 
     if not owner_ids:
         return

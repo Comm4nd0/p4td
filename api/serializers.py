@@ -50,13 +50,15 @@ class UserSummarySerializer(serializers.ModelSerializer):
 
 class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
+    additional_owners_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'created_at']
         read_only_fields = ['created_at']
         extra_kwargs = {
-            'owner': {'required': False}
+            'owner': {'required': False},
+            'additional_owners': {'required': False},
         }
 
     def get_owner_details(self, obj):
@@ -64,6 +66,15 @@ class DogSerializer(serializers.ModelSerializer):
             return OwnerDetailSerializer(obj.owner.profile).data
         except:
             return None
+
+    def get_additional_owners_details(self, obj):
+        details = []
+        for user in obj.additional_owners.all():
+            try:
+                details.append(OwnerDetailSerializer(user.profile).data)
+            except:
+                pass
+        return details
 
     def validate_daycare_days(self, value):
         if isinstance(value, str):
