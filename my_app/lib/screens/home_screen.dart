@@ -388,7 +388,19 @@ class _HomeScreenState extends State<HomeScreen> {
               : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: (index) {
+          // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
+          if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DogHomeScreen(dog: _allDogs.first, isStaff: false),
+              ),
+            );
+            return;
+          }
+          setState(() => _currentIndex = index);
+        },
         items: [
           BottomNavigationBarItem(
             icon: const Icon(Icons.pets),
