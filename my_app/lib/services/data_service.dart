@@ -71,6 +71,7 @@ abstract class DataService {
   Future<List<SupportQuery>> getSupportQueries();
   Future<SupportQuery> getSupportQuery(int queryId);
   Future<SupportQuery> createSupportQuery({required String subject, required String initialMessage});
+  Future<SupportQuery> createStaffQuery({required int ownerId, required String subject, required String initialMessage});
   Future<SupportQuery> addQueryMessage(int queryId, String text);
   Future<SupportQuery> resolveQuery(int queryId);
   Future<SupportQuery> reopenQuery(int queryId);
@@ -1066,6 +1067,21 @@ class ApiDataService implements DataService {
       Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
       headers: headers,
       body: json.encode({'subject': subject}),
+    );
+    if (response.statusCode != 201) {
+      throw Exception('Failed to create query');
+    }
+    final query = SupportQuery.fromJson(json.decode(response.body));
+    return addQueryMessage(query.id, initialMessage);
+  }
+
+  @override
+  Future<SupportQuery> createStaffQuery({required int ownerId, required String subject, required String initialMessage}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
+      headers: headers,
+      body: json.encode({'subject': subject, 'owner_id': ownerId}),
     );
     if (response.statusCode != 201) {
       throw Exception('Failed to create query');

@@ -3,10 +3,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
+import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
+import 'query_list_screen.dart';
+import 'query_detail_screen.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -70,6 +73,109 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load owner details: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _contactOwner() async {
+    if (_dog.ownerDetails == null) return;
+
+    try {
+      final owner = OwnerProfile(
+        userId: _dog.ownerDetails!.userId,
+        username: _dog.ownerDetails!.username,
+        email: _dog.ownerDetails!.email,
+      );
+
+      final subjectController = TextEditingController(text: 'Re: ${_dog.name}');
+      final messageController = TextEditingController();
+      final formKey = GlobalKey<FormState>();
+
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Message ${owner.username}'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: subjectController,
+                    decoration: const InputDecoration(
+                      labelText: 'Subject',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: messageController,
+                    decoration: const InputDecoration(
+                      labelText: 'Message',
+                      hintText: 'Your message to the owner',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 4,
+                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(context, true);
+                }
+              },
+              child: const Text('Send'),
+            ),
+          ],
+        ),
+      );
+
+      if (result == true && mounted) {
+        try {
+          final query = await _dataService.createStaffQuery(
+            ownerId: owner.userId,
+            subject: subjectController.text.trim(),
+            initialMessage: messageController.text.trim(),
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
+            );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => QueryDetailScreen(
+                  queryId: query.id,
+                  isStaff: true,
+                  canReplyQueries: true,
+                ),
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to send message: $e')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to contact owner: $e')),
         );
       }
     }
@@ -440,6 +546,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       appBar: AppBar(
         title: Text(_dog.name),
         actions: [
+          if (widget.isStaff && _dog.ownerDetails != null)
+            IconButton(
+              icon: const Icon(Icons.message),
+              tooltip: 'Contact Owner',
+              onPressed: _contactOwner,
+            ),
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () async {
