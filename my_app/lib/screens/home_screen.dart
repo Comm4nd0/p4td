@@ -388,7 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
               : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) {
+        onTap: (index) async {
           // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
           if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
             final result = await Navigator.push(
