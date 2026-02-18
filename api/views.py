@@ -170,6 +170,47 @@ class DogViewSet(viewsets.ModelViewSet):
             Q(owner=self.request.user) | Q(additional_owners=self.request.user)
         ).distinct()
 
+    @action(detail=False, methods=['post'])
+    def bulk_import(self, request):
+        """Staff-only endpoint to bulk import dog names.
+        Accepts: {"names": ["Buddy", "Max", "Luna"], "owner": 1}
+        Owner is optional."""
+        names = request.data.get('names', [])
+        owner_id = request.data.get('owner')
+
+        if not names:
+            return Response({'detail': 'names list is required'}, status=400)
+
+        owner = None
+        if owner_id:
+            from django.contrib.auth.models import User
+            try:
+                owner = User.objects.get(id=owner_id)
+            except User.DoesNotExist:
+                return Response({'detail': 'Owner not found'}, status=404)
+
+        created = []
+        skipped = []
+        for name in names:
+            name = name.strip()
+            if not name:
+                continue
+            existing = Dog.objects.filter(name=name)
+            if owner:
+                existing = existing.filter(owner=owner)
+            else:
+                existing = existing.filter(owner__isnull=True)
+            if existing.exists():
+                skipped.append(name)
+                continue
+            dog = Dog.objects.create(name=name, owner=owner)
+            created.append({'id': dog.id, 'name': dog.name})
+
+        return Response({
+            'created': created,
+            'skipped': skipped,
+        }, status=201)
+
     def perform_create(self, serializer):
         # Staff must assign an owner when creating a dog
         self._handle_image_upload(serializer)
@@ -366,7 +407,8 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             title = f"Request {new_status.title()}"
             body = f"Your {instance.request_type.lower()} request for {instance.dog.name} on {instance.original_date} has been {new_status.lower()}."
             data = {'type': 'date_change_status', 'id': str(instance.id)}
-            send_push_notification(instance.dog.owner, title, body, data)
+            if instance.dog.owner:
+                send_push_notification(instance.dog.owner, title, body, data)
             for additional_owner in instance.dog.additional_owners.all():
                 send_push_notification(additional_owner, title, body, data)
         except Exception as e:

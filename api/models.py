@@ -29,7 +29,7 @@ class Dog(models.Model):
         (7, 'Sunday'),
     ]
 
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dogs')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dogs', null=True, blank=True)
     additional_owners = models.ManyToManyField(User, related_name='additional_dogs', blank=True)
     name = models.CharField(max_length=100)
     profile_image = models.ImageField(upload_to='dog_profiles/', null=True, blank=True)
@@ -313,19 +313,20 @@ def notify_user_date_request_status(sender, instance, created, **kwargs):
         # Status changed!
         dog_name = instance.dog.name
         new_status = instance.get_status_display()
-        
+
         title = "Request Update"
         body = f"Your request for {dog_name} is now {new_status}."
-        
+
         data = {
             'type': 'date_change_request_update',
             'id': str(instance.id),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
-        
+
         # Notify all owners (primary + additional)
         owner = instance.dog.owner
-        send_push_notification(owner, title, body, data)
+        if owner:
+            send_push_notification(owner, title, body, data)
         for additional_owner in instance.dog.additional_owners.all():
             send_push_notification(additional_owner, title, body, data)
 
@@ -436,6 +437,7 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
         }
 
         owner = instance.dog.owner
-        send_push_notification(owner, title, body, data)
+        if owner:
+            send_push_notification(owner, title, body, data)
         for additional_owner in instance.dog.additional_owners.all():
             send_push_notification(additional_owner, title, body, data)
