@@ -20,7 +20,7 @@ echo "Starting new container..."
 docker run -d \
     --name p4td \
     --restart unless-stopped \
-    --env-file /home/ec2-user/p4td/AWS-config.env \
+    --env-file /home/ec2-user/p4td/aws-config.env \
     -p 8000:8000 \
     p4td:latest
 
