@@ -223,6 +223,59 @@ class DogViewSet(viewsets.ModelViewSet):
         self._handle_image_upload(serializer)
         serializer.save()
 
+    def destroy(self, request, *args, **kwargs):
+        """Staff-only endpoint to delete a dog and clean up associated data."""
+        dog = self.get_object()
+        dog_name = dog.name
+        dog_id = dog.id
+
+        # Delete associated media files from storage
+        if dog.profile_image:
+            dog.profile_image.delete(save=False)
+        for photo in dog.photos.all():
+            if photo.file:
+                photo.file.delete(save=False)
+            if photo.thumbnail:
+                photo.thumbnail.delete(save=False)
+
+        dog.delete()
+        return Response({'detail': f'{dog_name} has been deleted.', 'id': dog_id}, status=200)
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        """Staff-only endpoint to assign a dog to a user.
+        Accepts: {"owner": <user_id>} and/or {"additional_owners": [<user_id>, ...]}
+        Pass owner as null to remove the primary owner.
+        Pass additional_owners to replace the full list of additional owners."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can assign dogs to users.")
+
+        dog = self.get_object()
+        from django.contrib.auth.models import User
+
+        if 'owner' in request.data:
+            owner_id = request.data.get('owner')
+            if owner_id is None:
+                dog.owner = None
+            else:
+                try:
+                    owner = User.objects.get(id=owner_id)
+                except User.DoesNotExist:
+                    return Response({'detail': 'Owner not found.'}, status=404)
+                dog.owner = owner
+            dog.save()
+
+        if 'additional_owners' in request.data:
+            additional_owner_ids = request.data.get('additional_owners', [])
+            additional_owners = User.objects.filter(id__in=additional_owner_ids)
+            if len(additional_owners) != len(additional_owner_ids):
+                return Response({'detail': 'One or more additional owners not found.'}, status=404)
+            dog.additional_owners.set(additional_owners)
+
+        serializer = self.get_serializer(dog)
+        return Response(serializer.data)
+
     def _handle_image_upload(self, serializer):
         if 'profile_image' in serializer.validated_data:
             image_file = serializer.validated_data['profile_image']
