@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
+import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
@@ -217,6 +218,175 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             SnackBar(content: Text('Failed to send message: $e')),
           );
         }
+      }
+    }
+  }
+
+  Future<void> _deleteDog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Dog'),
+        content: Text(
+          'Are you sure you want to delete ${_dog.name}? '
+          'This will permanently remove all associated photos, requests, and data. '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _dataService.deleteDog(_dog.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${_dog.name} has been deleted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context, 'deleted');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete dog: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _assignOwner() async {
+    List<OwnerProfile> owners = [];
+    try {
+      owners = await _dataService.getOwners();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load users: $e')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    final currentOwnerId = _dog.ownerDetails?.userId;
+    final currentAdditionalIds = _dog.additionalOwners.map((o) => o.userId).toSet();
+    int? selectedOwnerId = currentOwnerId;
+    Set<int> selectedAdditionalIds = Set.from(currentAdditionalIds);
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Assign ${_dog.name}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Primary Owner', style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int?>(
+                    value: selectedOwnerId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('No owner', style: TextStyle(color: Colors.grey)),
+                      ),
+                      ...owners.map((o) => DropdownMenuItem<int?>(
+                        value: o.userId,
+                        child: Text(o.username),
+                      )),
+                    ],
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedOwnerId = value;
+                        selectedAdditionalIds.remove(value);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Additional Owners', style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  ...owners
+                    .where((o) => o.userId != selectedOwnerId)
+                    .map((o) => CheckboxListTile(
+                      title: Text(o.username),
+                      subtitle: Text(o.email, style: const TextStyle(fontSize: 12)),
+                      value: selectedAdditionalIds.contains(o.userId),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: (checked) {
+                        setDialogState(() {
+                          if (checked == true) {
+                            selectedAdditionalIds.add(o.userId);
+                          } else {
+                            selectedAdditionalIds.remove(o.userId);
+                          }
+                        });
+                      },
+                    )),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, {
+                'owner': selectedOwnerId,
+                'additional_owners': selectedAdditionalIds.toList(),
+              }),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    try {
+      final updatedDog = await _dataService.assignDogToUser(
+        _dog.id,
+        owner: result['owner'] as int?,
+        additionalOwners: (result['additional_owners'] as List<int>),
+      );
+      if (mounted) {
+        setState(() => _dog = updatedDog);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Owner updated'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to assign owner: $e'), backgroundColor: Colors.red),
+        );
       }
     }
   }
@@ -608,6 +778,38 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               }
             },
           ),
+          if (widget.isStaff)
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'assign_owner') {
+                  _assignOwner();
+                } else if (value == 'delete') {
+                  _deleteDog();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'assign_owner',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add, color: Colors.black54),
+                      SizedBox(width: 8),
+                      Text('Assign Owner'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Delete Dog', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       body: SingleChildScrollView(

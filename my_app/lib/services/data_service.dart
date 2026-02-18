@@ -25,6 +25,8 @@ abstract class DataService {
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId});
+  Future<void> deleteDog(String dogId);
+  Future<Dog> assignDogToUser(String dogId, {int? owner, List<int>? additionalOwners});
   Future<List<OwnerProfile>> getOwners();
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
@@ -455,6 +457,82 @@ class ApiDataService implements DataService {
         throw Exception('Failed to create dog: ${response.body}');
       }
     }
+  }
+
+  @override
+  Future<void> deleteDog(String dogId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/'),
+      headers: headers,
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      String errorMessage = 'Failed to delete dog';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
+  Future<Dog> assignDogToUser(String dogId, {int? owner, List<int>? additionalOwners}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{};
+    if (owner != null) body['owner'] = owner;
+    if (additionalOwners != null) body['additional_owners'] = additionalOwners;
+
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/assign/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to assign dog';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+
+    final data = json.decode(response.body);
+    final daysInDaycare = (data['daycare_days'] as List<dynamic>?)
+        ?.map((day) => Weekday.values.firstWhere(
+              (w) => w.dayNumber == day,
+              orElse: () => Weekday.monday,
+            ))
+        .toList() ?? [];
+    OwnerDetails? ownerDetails;
+    if (data['owner_details'] != null) {
+      ownerDetails = OwnerDetails.fromJson(data['owner_details']);
+    }
+    final additionalOwnersList = (data['additional_owners_details'] as List<dynamic>?)
+        ?.map((o) => OwnerDetails.fromJson(o))
+        .toList() ?? [];
+
+    return Dog(
+      id: data['id'].toString(),
+      name: data['name'],
+      ownerId: (data['owner'] ?? '').toString(),
+      profileImageUrl: data['profile_image'],
+      foodInstructions: data['food_instructions'],
+      medicalNotes: data['medical_notes'],
+      daysInDaycare: daysInDaycare,
+      ownerDetails: ownerDetails,
+      additionalOwners: additionalOwnersList,
+    );
   }
 
   Future<void> submitDateChangeRequest({
@@ -1268,6 +1346,18 @@ class MockDataService implements DataService {
   @override
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId}) async {
     return Dog(id: '99', name: name, ownerId: 'user1');
+  }
+
+  @override
+  Future<void> deleteDog(String dogId) async {
+    _dogs.removeWhere((d) => d.id == dogId);
+  }
+
+  @override
+  Future<Dog> assignDogToUser(String dogId, {int? owner, List<int>? additionalOwners}) async {
+    final index = _dogs.indexWhere((d) => d.id == dogId);
+    if (index == -1) throw Exception('Dog not found');
+    return _dogs[index];
   }
 
   @override
