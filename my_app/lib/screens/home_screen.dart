@@ -391,12 +391,13 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: (index) {
           // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
           if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
-            Navigator.push(
+            final result = await Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => DogHomeScreen(dog: _allDogs.first, isStaff: false),
               ),
             );
+            if (result == 'deleted') _refresh();
             return;
           }
           setState(() => _currentIndex = index);
@@ -486,13 +487,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         elevation: 4,
                         margin: const EdgeInsets.only(bottom: 16),
                         child: InkWell(
-                          onTap: () {
-                            Navigator.push(
+                          onTap: () async {
+                            final result = await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
                               ),
                             );
+                            if (result == 'deleted') _refresh();
                           },
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
