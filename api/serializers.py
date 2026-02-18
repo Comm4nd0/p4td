@@ -63,6 +63,8 @@ class DogSerializer(serializers.ModelSerializer):
 
     def get_owner_details(self, obj):
         try:
+            if obj.owner is None:
+                return None
             return OwnerDetailSerializer(obj.owner.profile).data
         except:
             return None
@@ -121,6 +123,8 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
 
     def get_owner_name(self, obj):
         user = obj.dog.owner
+        if user is None:
+            return None
         if user.first_name:
             return user.first_name
         return user.username
@@ -228,6 +232,8 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
 
     def get_owner_name(self, obj):
         user = obj.dog.owner
+        if user is None:
+            return None
         if user.first_name:
             return user.first_name
         return user.username
