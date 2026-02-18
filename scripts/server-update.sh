@@ -13,6 +13,14 @@ echo "Stopping old container..."
 docker stop p4td 2>/dev/null || true
 docker rm p4td 2>/dev/null || true
 
+# Also stop any container using port 8000
+CONTAINER_ON_PORT=$(docker ps --filter "publish=8000" -q)
+if [ -n "$CONTAINER_ON_PORT" ]; then
+    echo "Found container using port 8000, stopping it..."
+    docker stop "$CONTAINER_ON_PORT"
+    docker rm "$CONTAINER_ON_PORT" 2>/dev/null || true
+fi
+
 echo "Building new image..."
 docker build -t p4td:latest .
 
