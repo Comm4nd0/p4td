@@ -11,6 +11,7 @@ class UserProfile(models.Model):
     address = models.TextField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     pickup_instructions = models.TextField(blank=True, null=True)
+    profile_photo = models.ImageField(upload_to='staff_photos/', null=True, blank=True)
     can_manage_requests = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny requests.')
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
     can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
