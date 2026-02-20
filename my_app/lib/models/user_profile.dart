@@ -5,6 +5,7 @@ class UserProfile {
   final String? phoneNumber;
   final String? pickupInstructions;
   final String? firstName;
+  final String? profilePhotoUrl;
   final bool isStaff;
   final bool canAssignDogs;
   final bool canAddFeedMedia;
@@ -18,6 +19,7 @@ class UserProfile {
     this.phoneNumber,
     this.pickupInstructions,
     this.firstName,
+    this.profilePhotoUrl,
     this.isStaff = false,
     this.canAssignDogs = false,
     this.canAddFeedMedia = false,
@@ -33,6 +35,7 @@ class UserProfile {
       phoneNumber: json['phone_number'],
       pickupInstructions: json['pickup_instructions'],
       firstName: json['first_name'],
+      profilePhotoUrl: json['profile_photo'],
       isStaff: json['is_staff'] ?? false,
       canAssignDogs: json['can_assign_dogs'] ?? false,
       canAddFeedMedia: json['can_add_feed_media'] ?? false,
