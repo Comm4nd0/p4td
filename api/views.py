@@ -1,9 +1,12 @@
-from rest_framework import viewsets, mixins
+from rest_framework import viewsets, mixins, status as drf_status
 from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer
+from rest_framework.decorators import action, api_view, permission_classes as perm_classes
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from django.contrib.auth.models import User
+from django.core.mail import send_mail
+from django.conf import settings
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, PasswordResetOTP
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer
 
 class DeviceTokenViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceTokenSerializer
@@ -1193,3 +1196,128 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         else:
             count = SupportQuery.objects.filter(owner=request.user, status='OPEN').count()
         return Response({'count': count})
+
+
+# =============================================================================
+# PASSWORD RESET & CHANGE VIEWS
+# =============================================================================
+
+@api_view(['POST'])
+@perm_classes([AllowAny])
+def request_password_reset(request):
+    """Step 1: User provides email, receives a 6-digit OTP."""
+    serializer = RequestPasswordResetSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    email = serializer.validated_data['email']
+
+    # Always return success to prevent email enumeration
+    try:
+        user = User.objects.get(email__iexact=email)
+        otp_obj = PasswordResetOTP.create_for_user(user)
+        send_mail(
+            subject='Paws4Thought - Password Reset Code',
+            message=(
+                f'Hi {user.first_name or user.username},\n\n'
+                f'Your password reset code is: {otp_obj.otp}\n\n'
+                f'This code expires in 15 minutes.\n\n'
+                f'If you did not request this, please ignore this email.\n\n'
+                f'Paws4Thought Dogs'
+            ),
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@paws4thoughtdogs.co.uk'),
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+    except User.DoesNotExist:
+        pass  # Don't reveal whether the email exists
+
+    return Response(
+        {'detail': 'If an account with that email exists, a reset code has been sent.'},
+        status=drf_status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@perm_classes([AllowAny])
+def verify_otp(request):
+    """Step 2: User provides email + OTP, receives a temporary reset token."""
+    serializer = VerifyOTPSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    email = serializer.validated_data['email']
+    otp = serializer.validated_data['otp']
+
+    try:
+        user = User.objects.get(email__iexact=email)
+        otp_obj = PasswordResetOTP.objects.filter(
+            user=user, otp=otp, is_used=False,
+        ).order_by('-created_at').first()
+
+        if otp_obj and otp_obj.is_valid():
+            reset_token = otp_obj.generate_reset_token()
+            return Response({'reset_token': reset_token}, status=drf_status.HTTP_200_OK)
+    except User.DoesNotExist:
+        pass
+
+    return Response(
+        {'detail': 'Invalid or expired code.'},
+        status=drf_status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@api_view(['POST'])
+@perm_classes([AllowAny])
+def reset_password(request):
+    """Step 3: User provides reset_token + new_password to set their new password."""
+    serializer = ResetPasswordSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    reset_token = serializer.validated_data['reset_token']
+    new_password = serializer.validated_data['new_password']
+
+    try:
+        otp_obj = PasswordResetOTP.objects.get(reset_token=reset_token, is_used=False)
+    except PasswordResetOTP.DoesNotExist:
+        return Response(
+            {'detail': 'Invalid or expired reset token.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    if otp_obj.is_expired():
+        return Response(
+            {'detail': 'Reset token has expired. Please request a new code.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = otp_obj.user
+    user.set_password(new_password)
+    user.save()
+
+    # Mark OTP as used
+    otp_obj.is_used = True
+    otp_obj.save()
+
+    return Response(
+        {'detail': 'Password has been reset successfully.'},
+        status=drf_status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def change_password(request):
+    """Change password for the currently authenticated user."""
+    serializer = ChangePasswordSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    user = request.user
+    if not user.check_password(serializer.validated_data['current_password']):
+        return Response(
+            {'current_password': ['Current password is incorrect.']},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    user.set_password(serializer.validated_data['new_password'])
+    user.save()
+
+    return Response(
+        {'detail': 'Password changed successfully.'},
+        status=drf_status.HTTP_200_OK,
+    )

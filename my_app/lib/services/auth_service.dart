@@ -72,4 +72,113 @@ class AuthService {
   Future<String?> getToken() async {
     return await _storage.read(key: 'auth_token');
   }
+
+  /// Step 1: Request a password reset OTP to be sent to the given email.
+  Future<String?> requestPasswordReset(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/password/reset/request/'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'email': email}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return null; // Success
+      }
+      final data = json.decode(response.body);
+      return data['detail'] ?? 'Request failed';
+    } catch (e) {
+      return 'Error: $e';
+    }
+  }
+
+  /// Step 2: Verify the OTP and get a reset token.
+  Future<Map<String, dynamic>> verifyOTP(String email, String otp) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/password/reset/verify/'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'email': email, 'otp': otp}),
+      ).timeout(const Duration(seconds: 10));
+
+      final data = json.decode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'reset_token': data['reset_token']};
+      }
+      return {'success': false, 'error': data['detail'] ?? 'Verification failed'};
+    } catch (e) {
+      return {'success': false, 'error': 'Error: $e'};
+    }
+  }
+
+  /// Step 3: Set the new password using the reset token.
+  Future<String?> resetPassword(String resetToken, String newPassword) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/password/reset/confirm/'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'reset_token': resetToken,
+          'new_password': newPassword,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return null; // Success
+      }
+      final data = json.decode(response.body);
+      if (data is Map) {
+        if (data.containsKey('new_password')) {
+          final errors = data['new_password'];
+          if (errors is List) return errors.join('\n');
+          return errors.toString();
+        }
+        return data['detail'] ?? 'Reset failed';
+      }
+      return 'Reset failed';
+    } catch (e) {
+      return 'Error: $e';
+    }
+  }
+
+  /// Change password for the currently logged-in user.
+  Future<String?> changePassword(String currentPassword, String newPassword) async {
+    try {
+      final token = await getToken();
+      if (token == null) return 'Not authenticated';
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/password/change/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+        body: json.encode({
+          'current_password': currentPassword,
+          'new_password': newPassword,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return null; // Success
+      }
+      final data = json.decode(response.body);
+      if (data is Map) {
+        if (data.containsKey('current_password')) {
+          final errors = data['current_password'];
+          if (errors is List) return errors.join('\n');
+          return errors.toString();
+        }
+        if (data.containsKey('new_password')) {
+          final errors = data['new_password'];
+          if (errors is List) return errors.join('\n');
+          return errors.toString();
+        }
+        return data['detail'] ?? 'Change failed';
+      }
+      return 'Change failed';
+    } catch (e) {
+      return 'Error: $e';
+    }
+  }
 }
