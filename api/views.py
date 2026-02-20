@@ -53,11 +53,15 @@ def process_image(image_file, max_size=(1280, 1280), quality=85):
     try:
         image_file.seek(0)
         img = Image.open(image_file)
-        
+
+        # Apply EXIF orientation so photos from phones are not rotated
+        from PIL import ImageOps
+        img = ImageOps.exif_transpose(img)
+
         # Convert to RGB if necessary (e.g., for PNGs with transparency)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
-        
+
         # Resize while maintaining aspect ratio if it's larger than max_size
         if img.width > max_size[0] or img.height > max_size[1]:
             img.thumbnail(max_size, Image.Resampling.LANCZOS)

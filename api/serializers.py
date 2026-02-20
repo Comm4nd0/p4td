@@ -166,19 +166,28 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
 
 class GroupMediaSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.SerializerMethodField()
+    uploaded_by_profile_photo = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
     user_reaction = serializers.SerializerMethodField()
     comments = CommentSerializer(many=True, read_only=True)
 
     class Meta:
         model = GroupMedia
-        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'media_type', 'file', 'thumbnail', 'caption', 'reactions', 'user_reaction', 'comments', 'created_at']
+        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'uploaded_by_profile_photo', 'media_type', 'file', 'thumbnail', 'caption', 'reactions', 'user_reaction', 'comments', 'created_at']
         read_only_fields = ['uploaded_by', 'created_at']
 
     def get_uploaded_by_name(self, obj):
         if obj.uploaded_by.first_name:
             return obj.uploaded_by.first_name
         return obj.uploaded_by.username
+
+    def get_uploaded_by_profile_photo(self, obj):
+        try:
+            if obj.uploaded_by.profile.profile_photo:
+                return obj.uploaded_by.profile.profile_photo.url
+        except Exception:
+            pass
+        return None
 
     def get_reactions(self, obj):
         from django.db.models import Count
