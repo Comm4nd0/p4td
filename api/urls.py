@@ -1,6 +1,11 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import DogViewSet, PhotoViewSet, UserProfileViewSet, DateChangeRequestViewSet, GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet, DailyDogAssignmentViewSet, SupportQueryViewSet
+from .views import (
+    DogViewSet, PhotoViewSet, UserProfileViewSet, DateChangeRequestViewSet,
+    GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet,
+    DailyDogAssignmentViewSet, SupportQueryViewSet,
+    request_password_reset, verify_otp, reset_password, change_password,
+)
 
 router = DefaultRouter()
 router.register(r'profile', UserProfileViewSet, basename='profile')
@@ -16,4 +21,8 @@ router.register(r'support-queries', SupportQueryViewSet, basename='support-queri
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('password/reset/request/', request_password_reset, name='password-reset-request'),
+    path('password/reset/verify/', verify_otp, name='password-reset-verify'),
+    path('password/reset/confirm/', reset_password, name='password-reset-confirm'),
+    path('password/change/', change_password, name='password-change'),
 ]
