@@ -97,6 +97,14 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+
+        # Process profile photo upload if present
+        if 'profile_photo' in serializer.validated_data:
+            image_file = serializer.validated_data['profile_photo']
+            if image_file:
+                processed_image = process_image(image_file, max_size=(800, 800))
+                serializer.validated_data['profile_photo'] = processed_image
+
         serializer.save()
         return Response(serializer.data)
 

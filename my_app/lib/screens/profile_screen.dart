@@ -1,4 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
@@ -16,8 +19,10 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final DataService _dataService = ApiDataService();
   final AuthService _authService = AuthService();
+  final ImagePicker _picker = ImagePicker();
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isUploadingPhoto = false;
   UserProfile? _profile;
   String? _error;
 
@@ -71,7 +76,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
 
       await _dataService.updateProfile(updatedProfile);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile updated successfully')),
@@ -92,6 +97,125 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        await _uploadProfilePhoto(bytes, image.name);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
+    setState(() {
+      _isUploadingPhoto = true;
+    });
+
+    try {
+      final updatedProfile = await _dataService.uploadProfilePhoto(imageBytes, imageName);
+      setState(() {
+        _profile = updatedProfile;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingPhoto = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteProfilePhoto() async {
+    setState(() {
+      _isUploadingPhoto = true;
+    });
+
+    try {
+      final updatedProfile = await _dataService.deleteProfilePhoto();
+      setState(() {
+        _profile = updatedProfile;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo removed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingPhoto = false;
+        });
+      }
+    }
+  }
+
+  void _showPhotoOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take Photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from Gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            if (_profile?.profilePhotoUrl != null)
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteProfilePhoto();
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     await _authService.logout();
     if (mounted) {
@@ -100,6 +224,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
         (route) => false,
       );
     }
+  }
+
+  Widget _buildProfilePhoto() {
+    final photoUrl = _profile?.profilePhotoUrl;
+
+    return Center(
+      child: GestureDetector(
+        onTap: _isUploadingPhoto ? null : _showPhotoOptions,
+        child: Stack(
+          children: [
+            CircleAvatar(
+              radius: 56,
+              backgroundColor: Colors.grey[300],
+              backgroundImage: photoUrl != null
+                  ? CachedNetworkImageProvider(photoUrl)
+                  : null,
+              child: photoUrl == null
+                  ? Icon(Icons.person, size: 56, color: Colors.grey[600])
+                  : null,
+            ),
+            if (_isUploadingPhoto)
+              Positioned.fill(
+                child: CircleAvatar(
+                  radius: 56,
+                  backgroundColor: Colors.black38,
+                  child: const CircularProgressIndicator(color: Colors.white),
+                ),
+              )
+            else
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).primaryColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -121,13 +291,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    ListTile(
-                      leading: const Icon(Icons.person),
-                      title: Text(_profile!.username),
-                      subtitle: Text(_profile!.email),
-                    ),
-                    const Divider(),
+                    _buildProfilePhoto(),
                     const SizedBox(height: 16),
+                    Center(
+                      child: Text(
+                        _profile!.username,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    Center(
+                      child: Text(
+                        _profile!.email,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    const Divider(height: 32),
                     TextField(
                       controller: _firstNameController,
                       decoration: const InputDecoration(

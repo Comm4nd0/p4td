@@ -21,6 +21,8 @@ abstract class DataService {
   Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
+  Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName);
+  Future<UserProfile> deleteProfilePhoto();
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
@@ -154,6 +156,47 @@ class ApiDataService implements DataService {
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to update profile: ${response.body}');
+    }
+  }
+
+  @override
+  Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
+    final token = await _authService.getToken();
+    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/profile/'));
+    request.headers['Authorization'] = 'Token $token';
+
+    final filename = imageName;
+    request.files.add(http.MultipartFile.fromBytes(
+      'profile_photo',
+      imageBytes,
+      filename: filename,
+      contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+    ));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return UserProfile.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to upload profile photo: ${response.body}');
+    }
+  }
+
+  @override
+  Future<UserProfile> deleteProfilePhoto() async {
+    final token = await _authService.getToken();
+    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/profile/'));
+    request.headers['Authorization'] = 'Token $token';
+    request.fields['profile_photo'] = '';
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return UserProfile.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to remove profile photo: ${response.body}');
     }
   }
 
@@ -1300,6 +1343,16 @@ class MockDataService implements DataService {
 
   @override
   Future<void> updateProfile(UserProfile profile) async {}
+
+  @override
+  Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
+    return UserProfile(username: 'test', email: 'test@example.com');
+  }
+
+  @override
+  Future<UserProfile> deleteProfilePhoto() async {
+    return UserProfile(username: 'test', email: 'test@example.com');
+  }
 
   @override
   Future<OwnerProfile> getOwnerProfile(int userId) async {
