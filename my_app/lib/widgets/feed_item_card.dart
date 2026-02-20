@@ -49,29 +49,40 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: Colors.blue[100],
-                  child: Text(
-                    widget.media.uploadedByName.isNotEmpty 
-                      ? widget.media.uploadedByName[0].toUpperCase() 
-                      : '?',
-                    style: TextStyle(color: Colors.blue[800]),
+                GestureDetector(
+                  onTap: () => _showProfilePopup(context),
+                  child: CircleAvatar(
+                    backgroundColor: Colors.blue[100],
+                    backgroundImage: widget.media.uploadedByProfilePhoto != null
+                        ? CachedNetworkImageProvider(widget.media.uploadedByProfilePhoto!)
+                        : null,
+                    child: widget.media.uploadedByProfilePhoto == null
+                        ? Text(
+                            widget.media.uploadedByName.isNotEmpty
+                              ? widget.media.uploadedByName[0].toUpperCase()
+                              : '?',
+                            style: TextStyle(color: Colors.blue[800]),
+                          )
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.media.uploadedByName,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        DateFormat('d MMM yyyy, HH:mm').format(widget.media.createdAt),
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                      ),
-                    ],
+                  child: GestureDetector(
+                    onTap: () => _showProfilePopup(context),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.media.uploadedByName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          DateFormat('d MMM yyyy, HH:mm').format(widget.media.createdAt),
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (widget.isStaff)
@@ -218,6 +229,75 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           ),
         ),
       ],
+    );
+  }
+
+  void _showProfilePopup(BuildContext context) {
+    final photoUrl = widget.media.uploadedByProfilePhoto;
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (photoUrl != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CachedNetworkImage(
+                  imageUrl: photoUrl,
+                  width: 280,
+                  height: 280,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    width: 280,
+                    height: 280,
+                    color: Colors.grey[300],
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    width: 280,
+                    height: 280,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.person, size: 100, color: Colors.grey[600]),
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: 280,
+                height: 280,
+                decoration: BoxDecoration(
+                  color: Colors.blue[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    widget.media.uploadedByName.isNotEmpty
+                        ? widget.media.uploadedByName[0].toUpperCase()
+                        : '?',
+                    style: TextStyle(fontSize: 100, color: Colors.blue[800]),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                widget.media.uploadedByName,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

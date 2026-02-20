@@ -6,6 +6,7 @@ class GroupMedia {
   final String id;
   final String uploadedBy;
   final String uploadedByName;
+  final String? uploadedByProfilePhoto;
   final MediaType mediaType;
   final String fileUrl;
   final String? thumbnailUrl;
@@ -19,6 +20,7 @@ class GroupMedia {
     required this.id,
     required this.uploadedBy,
     required this.uploadedByName,
+    this.uploadedByProfilePhoto,
     required this.mediaType,
     required this.fileUrl,
     this.thumbnailUrl,
@@ -41,6 +43,7 @@ class GroupMedia {
       id: json['id'].toString(),
       uploadedBy: json['uploaded_by'].toString(),
       uploadedByName: json['uploaded_by_name'] ?? '',
+      uploadedByProfilePhoto: json['uploaded_by_profile_photo'],
       mediaType: json['media_type'] == 'VIDEO' ? MediaType.video : MediaType.photo,
       fileUrl: json['file'],
       thumbnailUrl: json['thumbnail'],
