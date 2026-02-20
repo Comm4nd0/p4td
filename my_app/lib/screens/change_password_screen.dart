@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../widgets/password_requirements.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -16,6 +17,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  @override
+  void initState() {
+    super.initState();
+    _newPasswordController.addListener(() => setState(() {}));
+  }
+
   Future<void> _changePassword() async {
     final currentPassword = _currentPasswordController.text;
     final newPassword = _newPasswordController.text;
@@ -25,12 +32,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       setState(() => _errorMessage = 'Please fill in all fields.');
       return;
     }
-    if (newPassword != confirmPassword) {
-      setState(() => _errorMessage = 'New passwords do not match.');
+    if (!passwordMeetsRequirements(newPassword)) {
+      setState(() => _errorMessage = 'Please meet all password requirements below.');
       return;
     }
-    if (newPassword.length < 8) {
-      setState(() => _errorMessage = 'New password must be at least 8 characters.');
+    if (newPassword != confirmPassword) {
+      setState(() => _errorMessage = 'New passwords do not match.');
       return;
     }
     if (currentPassword == newPassword) {
@@ -102,6 +109,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 prefixIcon: Icon(Icons.lock_outline),
               ),
             ),
+            const SizedBox(height: 12),
+            PasswordRequirements(password: _newPasswordController.text),
             const SizedBox(height: 16),
             TextField(
               controller: _confirmPasswordController,

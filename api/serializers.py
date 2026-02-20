@@ -14,7 +14,7 @@ class VerifyOTPSerializer(serializers.Serializer):
 
 class ResetPasswordSerializer(serializers.Serializer):
     reset_token = serializers.CharField()
-    new_password = serializers.CharField(min_length=8)
+    new_password = serializers.CharField(min_length=10)
 
     def validate_new_password(self, value):
         validate_password(value)
@@ -23,7 +23,7 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField()
-    new_password = serializers.CharField(min_length=8)
+    new_password = serializers.CharField(min_length=10)
 
     def validate_new_password(self, value):
         validate_password(value)

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../widgets/password_requirements.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -23,6 +24,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _confirmPasswordController = TextEditingController();
 
   String? _resetToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(() => setState(() {}));
+  }
 
   Future<void> _requestOTP() async {
     final email = _emailController.text.trim();
@@ -85,12 +92,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _errorMessage = 'Please enter a new password.');
       return;
     }
-    if (password != confirm) {
-      setState(() => _errorMessage = 'Passwords do not match.');
+    if (!passwordMeetsRequirements(password)) {
+      setState(() => _errorMessage = 'Please meet all password requirements below.');
       return;
     }
-    if (password.length < 8) {
-      setState(() => _errorMessage = 'Password must be at least 8 characters.');
+    if (password != confirm) {
+      setState(() => _errorMessage = 'Passwords do not match.');
       return;
     }
 
@@ -278,6 +285,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                   autofocus: true,
                 ),
+                const SizedBox(height: 12),
+                PasswordRequirements(password: _passwordController.text),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _confirmPasswordController,
