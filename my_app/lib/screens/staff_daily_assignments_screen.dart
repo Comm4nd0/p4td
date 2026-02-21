@@ -225,8 +225,12 @@ class StaffDailyAssignmentsScreenState
                       final dogId = int.parse(dog.id);
                       final suggestion = suggestions[dogId.toString()];
                       String? suggestedName;
+                      String suggestedLabel = 'Last week';
                       if (suggestion != null) {
                         suggestedName = suggestion['staff_member_name'];
+                        if (suggestion['source'] == 'frequency') {
+                          suggestedLabel = 'Usually';
+                        }
                       }
                       return CheckboxListTile(
                         value: selected.contains(dogId),
@@ -248,7 +252,7 @@ class StaffDailyAssignmentsScreenState
                               Text('Owner: ${dog.ownerDetails!.username}'),
                             if (suggestedName != null)
                               Text(
-                                'Usually: $suggestedName',
+                                '$suggestedLabel: $suggestedName',
                                 style: TextStyle(
                                   color: Theme.of(context).colorScheme.primary,
                                   fontSize: 12,

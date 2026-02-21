@@ -967,31 +967,58 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def suggested_assignments(self, request):
         """Get suggested staff member for each unassigned dog based on history.
-        Returns a mapping of dog_id -> {staff_member_id, staff_member_name, times_assigned}.
+        Prioritises the most recent assignment for the same day of the week
+        (e.g. last Monday's assignments are suggested for this Monday), so that
+        weekly rosters repeat by default.  Falls back to the overall most
+        frequent staff member for dogs with no same-weekday history.
+        Returns a mapping of dog_id -> {staff_member_id, staff_member_name, source}.
         Accepts optional ?date=YYYY-MM-DD, defaults to today."""
         target_date, error = self._parse_date(request)
         if error:
             return error
 
         from django.db.models import Count
+        from django.db.models.functions import ExtractIsoWeekDay
 
-        # Get the most frequent staff member for each dog
-        history = (
+        day_number = target_date.isoweekday()  # Monday=1 … Sunday=7
+
+        # 1) Most recent same-weekday assignment per dog
+        same_weekday_history = (
             DailyDogAssignment.objects
+            .annotate(weekday=ExtractIsoWeekDay('date'))
+            .filter(weekday=day_number)
+            .exclude(date=target_date)
+            .order_by('dog_id', '-date')
             .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
-            .annotate(times=Count('id'))
-            .order_by('dog_id', '-times')
         )
 
         suggestions = {}
-        for entry in history:
+        for entry in same_weekday_history:
             dog_id = entry['dog_id']
             if dog_id not in suggestions:
                 name = entry['staff_member__first_name'] or entry['staff_member__username']
                 suggestions[dog_id] = {
                     'staff_member_id': entry['staff_member_id'],
                     'staff_member_name': name,
-                    'times_assigned': entry['times'],
+                    'source': 'same_weekday',
+                }
+
+        # 2) Fallback: overall most-frequent staff member for remaining dogs
+        fallback_history = (
+            DailyDogAssignment.objects
+            .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
+            .annotate(times=Count('id'))
+            .order_by('dog_id', '-times')
+        )
+
+        for entry in fallback_history:
+            dog_id = entry['dog_id']
+            if dog_id not in suggestions:
+                name = entry['staff_member__first_name'] or entry['staff_member__username']
+                suggestions[dog_id] = {
+                    'staff_member_id': entry['staff_member_id'],
+                    'staff_member_name': name,
+                    'source': 'frequency',
                 }
 
         return Response(suggestions)
@@ -999,6 +1026,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def auto_assign(self, request):
         """Auto-assign all unassigned dogs for a date based on history.
+        Prioritises the most recent same-weekday assignment so that weekly
+        rosters repeat by default.  Falls back to overall most-frequent staff
+        member for dogs with no same-weekday history.
         Requires can_assign_dogs permission.
         Accepts optional 'date' in body (YYYY-MM-DD), defaults to today."""
         try:
@@ -1009,6 +1039,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         from datetime import date, timedelta
         from django.db.models import Count
+        from django.db.models.functions import ExtractIsoWeekDay
 
         date_str = request.data.get('date')
         if date_str:
@@ -1047,15 +1078,29 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
 
-        # Build suggestion map: dog_id -> most frequent staff_member_id
-        history = (
+        # 1) Most recent same-weekday assignment per dog
+        same_weekday_history = (
+            DailyDogAssignment.objects
+            .annotate(weekday=ExtractIsoWeekDay('date'))
+            .filter(weekday=day_number)
+            .exclude(date=target_date)
+            .order_by('dog_id', '-date')
+            .values('dog_id', 'staff_member_id')
+        )
+        best_staff = {}
+        for entry in same_weekday_history:
+            dog_id = entry['dog_id']
+            if dog_id not in best_staff:
+                best_staff[dog_id] = entry['staff_member_id']
+
+        # 2) Fallback: overall most-frequent staff member for remaining dogs
+        fallback_history = (
             DailyDogAssignment.objects
             .values('dog_id', 'staff_member_id')
             .annotate(times=Count('id'))
             .order_by('dog_id', '-times')
         )
-        best_staff = {}
-        for entry in history:
+        for entry in fallback_history:
             dog_id = entry['dog_id']
             if dog_id not in best_staff:
                 best_staff[dog_id] = entry['staff_member_id']
