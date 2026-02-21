@@ -173,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showTrafficAlertDialog() async {
+    final detailController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -183,9 +184,26 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Traffic Alert'),
           ],
         ),
-        content: const Text(
-          'Send a traffic delay notification to all owners with dogs on your route today. '
-          'Which service is affected?',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Send a traffic delay notification to all owners with dogs on your route today. '
+              'Which service is affected?',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: detailController,
+              decoration: const InputDecoration(
+                labelText: 'Additional detail (optional)',
+                hintText: 'e.g. Accident on M1, expect 20 min delay',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+              textCapitalization: TextCapitalization.sentences,
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -208,7 +226,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (result != null) {
       try {
-        await _dataService.sendTrafficAlert(result);
+        final detail = detailController.text.trim();
+        await _dataService.sendTrafficAlert(result, detail: detail.isNotEmpty ? detail : null);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
