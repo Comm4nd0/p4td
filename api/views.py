@@ -1105,8 +1105,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if error:
             return error
 
+        detail_text = request.data.get('detail', '')
         from .notifications import send_traffic_alert
-        send_traffic_alert(alert_type, target_date, staff_member=request.user)
+        send_traffic_alert(alert_type, target_date, staff_member=request.user, detail=detail_text)
         return Response({'detail': 'Traffic alert sent successfully.'})
 
 

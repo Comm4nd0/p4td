@@ -69,7 +69,7 @@ abstract class DataService {
   Future<void> unassignDog(int assignmentId);
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date});
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
-  Future<void> sendTrafficAlert(String alertType, {DateTime? date});
+  Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail});
 
   // Support Queries
   Future<List<SupportQuery>> getSupportQueries();
@@ -1165,11 +1165,12 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<void> sendTrafficAlert(String alertType, {DateTime? date}) async {
+  Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail}) async {
     final headers = await _getHeaders();
     final body = <String, dynamic>{'alert_type': alertType};
     final d = _dateBody(date);
     if (d.isNotEmpty) body['date'] = d;
+    if (detail != null && detail.isNotEmpty) body['detail'] = detail;
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/daily-assignments/send_traffic_alert/'),
       headers: headers,
@@ -1580,7 +1581,7 @@ class MockDataService implements DataService {
   Future<Map<String, dynamic>> autoAssign({DateTime? date}) async => {};
 
   @override
-  Future<void> sendTrafficAlert(String alertType, {DateTime? date}) async {}
+  Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail}) async {}
 
   @override
   Future<List<SupportQuery>> getSupportQueries() async => [];

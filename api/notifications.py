@@ -78,11 +78,12 @@ def notify_new_post(post):
     for user in users:
         send_push_notification(user, title, body, data)
 
-def send_traffic_alert(alert_type, date, staff_member):
+def send_traffic_alert(alert_type, date, staff_member, detail=''):
     """
     Send a traffic delay notification to owners whose dogs are assigned
     to the given staff member on the given date (i.e. on their route).
     alert_type: 'pickup' or 'dropoff'
+    detail: optional extra context from the staff member
     """
     from .models import DailyDogAssignment
     from django.contrib.auth.models import User
@@ -118,6 +119,9 @@ def send_traffic_alert(alert_type, date, staff_member):
             "There is high traffic in your area so your dog's drop-off might be "
             "a little later than usual, but still within the 15:00–17:00 window."
         )
+
+    if detail:
+        body += f"\n\nDetail: {detail}"
 
     data = {
         'type': 'traffic_alert',
