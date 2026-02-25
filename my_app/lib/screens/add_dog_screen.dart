@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/data_service.dart';
 import '../models/dog.dart';
 import '../models/owner_profile.dart';
+import '../constants/app_colors.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -295,18 +296,18 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue[50],
+                          color: AppColors.primary.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.blue[200]!),
+                          border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.access_time, color: Colors.blue[700], size: 20),
+                            Icon(Icons.access_time, color: AppColors.primary, size: 20),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 'All dogs aim to be picked up from 08:00 to 09:30',
-                                style: TextStyle(color: Colors.blue[700], fontSize: 13),
+                                style: TextStyle(color: AppColors.primary, fontSize: 13),
                               ),
                             ),
                           ],
@@ -334,7 +335,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 ? const Icon(Icons.check_circle, size: 18)
                                 : null,
                             backgroundColor: Colors.grey[200],
-                            selectedColor: Colors.blue[100],
+                            selectedColor: AppColors.primaryLight.withOpacity(0.2),
                           );
                         }).toList(),
                       ),
@@ -370,7 +371,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 ? const Icon(Icons.check_circle, size: 18)
                                 : null,
                             backgroundColor: Colors.grey[200],
-                            selectedColor: Colors.blue[100],
+                            selectedColor: AppColors.primaryLight.withOpacity(0.2),
                           );
                         }).toList(),
                       ),
