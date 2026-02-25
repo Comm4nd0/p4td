@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -31,6 +32,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
   bool _deletePhoto = false;
   Set<Weekday> _selectedDays = {};
   DropoffTime? _selectedDropoffTime;
+  bool _isStaff = false;
 
   @override
   void initState() {
@@ -41,6 +43,20 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _currentImageUrl = widget.dog.profileImageUrl;
     _selectedDays = Set.from(widget.dog.daysInDaycare);
     _selectedDropoffTime = widget.dog.preferredDropoffTime;
+    _checkUserRole();
+  }
+
+  Future<void> _checkUserRole() async {
+    try {
+      final profile = await _dataService.getProfile();
+      if (profile.isStaff && mounted) {
+        setState(() {
+          _isStaff = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking user role: $e');
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -264,94 +280,96 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ),
             maxLines: 3,
           ),
-          const SizedBox(height: 24),
-          const Text(
-            'Pickup & Drop-off',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
+          if (_isStaff) ...[
+            const SizedBox(height: 24),
+            const Text(
+              'Pickup & Drop-off',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.access_time, color: AppColors.primary, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'All dogs aim to be picked up from 08:00 to 09:30',
-                    style: TextStyle(color: AppColors.primary, fontSize: 13),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.access_time, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'All dogs aim to be picked up from 08:00 to 09:30',
+                      style: TextStyle(color: AppColors.primary, fontSize: 13),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Preferred drop-off time:',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: DropoffTime.values.map((time) {
-              final isSelected = _selectedDropoffTime == time;
-              return ChoiceChip(
-                label: Text(time.displayName),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    _selectedDropoffTime = selected ? time : null;
-                  });
-                },
-                avatar: isSelected
-                    ? const Icon(Icons.check_circle, size: 18)
-                    : null,
-                backgroundColor: Colors.grey[200],
-                selectedColor: AppColors.primaryLight.withOpacity(0.2),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Daycare Schedule',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Select which days your dog attends daycare:',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: Weekday.values.map((day) {
-              final isSelected = _selectedDays.contains(day);
-              return FilterChip(
-                label: Text(day.displayName),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedDays.add(day);
-                    } else {
-                      _selectedDays.remove(day);
-                    }
-                  });
-                },
-                avatar: isSelected
-                    ? const Icon(Icons.check_circle, size: 18)
-                    : null,
-                backgroundColor: Colors.grey[200],
-                selectedColor: AppColors.primaryLight.withOpacity(0.2),
-              );
-            }).toList(),
-          ),
+            const SizedBox(height: 16),
+            const Text(
+              'Preferred drop-off time:',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: DropoffTime.values.map((time) {
+                final isSelected = _selectedDropoffTime == time;
+                return ChoiceChip(
+                  label: Text(time.displayName),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    setState(() {
+                      _selectedDropoffTime = selected ? time : null;
+                    });
+                  },
+                  avatar: isSelected
+                      ? const Icon(Icons.check_circle, size: 18)
+                      : null,
+                  backgroundColor: Colors.grey[200],
+                  selectedColor: AppColors.primaryLight.withOpacity(0.2),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Daycare Schedule',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Select which days your dog attends daycare:',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: Weekday.values.map((day) {
+                final isSelected = _selectedDays.contains(day);
+                return FilterChip(
+                  label: Text(day.displayName),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        _selectedDays.add(day);
+                      } else {
+                        _selectedDays.remove(day);
+                      }
+                    });
+                  },
+                  avatar: isSelected
+                      ? const Icon(Icons.check_circle, size: 18)
+                      : null,
+                  backgroundColor: Colors.grey[200],
+                  selectedColor: AppColors.primaryLight.withOpacity(0.2),
+                );
+              }).toList(),
+            ),
+          ],
           const SizedBox(height: 32),
         ],
       ),
