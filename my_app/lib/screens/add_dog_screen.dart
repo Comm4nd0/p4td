@@ -21,7 +21,8 @@ class _AddDogScreenState extends State<AddDogScreen> {
   XFile? _selectedImage;
   Uint8List? _imageBytes;
   final Set<Weekday> _selectedDays = {};
-  
+  DropoffTime? _selectedDropoffTime;
+
   bool _isStaff = false;
   List<OwnerProfile> _owners = [];
   String? _selectedOwnerId;
@@ -136,6 +137,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         imageName: _selectedImage?.name,
         daysInDaycare: _selectedDays.toList(),
         ownerId: _selectedOwnerId,
+        preferredDropoffTime: _selectedDropoffTime,
       );
 
       if (mounted) {
@@ -283,6 +285,58 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           prefixIcon: Icon(Icons.medical_services),
                         ),
                         maxLines: 3,
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Pickup & Drop-off',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue[200]!),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.access_time, color: Colors.blue[700], size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'All dogs aim to be picked up from 08:00 to 09:30',
+                                style: TextStyle(color: Colors.blue[700], fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Preferred drop-off time:',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: DropoffTime.values.map((time) {
+                          final isSelected = _selectedDropoffTime == time;
+                          return ChoiceChip(
+                            label: Text(time.displayName),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              setState(() {
+                                _selectedDropoffTime = selected ? time : null;
+                              });
+                            },
+                            avatar: isSelected
+                                ? const Icon(Icons.check_circle, size: 18)
+                                : null,
+                            backgroundColor: Colors.grey[200],
+                            selectedColor: Colors.blue[100],
+                          );
+                        }).toList(),
                       ),
                       const SizedBox(height: 24),
                       const Text(

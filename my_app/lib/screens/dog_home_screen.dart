@@ -861,6 +861,42 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   ),
                   if (_dog.daysInDaycare.isNotEmpty) ...[
                     const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.access_time, color: Colors.blue[700], size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Pickup: 08:00 - 09:30',
+                                style: TextStyle(color: Colors.blue[700], fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.access_time, color: Colors.blue[700], size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Drop-off: ${_dog.preferredDropoffTime?.displayName ?? 'Not set'}',
+                                style: TextStyle(color: Colors.blue[700], fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
