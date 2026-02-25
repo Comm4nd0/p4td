@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../constants/app_colors.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import 'package:intl/intl.dart';
@@ -79,6 +80,9 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
         appBar: AppBar(
           title: const Text('My Boarding Requests'),
           bottom: const TabBar(
+            labelColor: AppColors.cream,
+            unselectedLabelColor: AppColors.cream,
+            indicatorColor: AppColors.cream,
             tabs: [
               Tab(icon: Icon(Icons.list), text: 'List'),
               Tab(icon: Icon(Icons.calendar_month), text: 'Calendar'),
