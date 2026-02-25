@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
@@ -357,9 +358,9 @@ class StaffDailyAssignmentsScreenState
       case AssignmentStatus.assigned:
         return Colors.orange;
       case AssignmentStatus.pickedUp:
-        return Colors.blue;
+        return AppColors.primary;
       case AssignmentStatus.atDaycare:
-        return Colors.purple;
+        return AppColors.primaryLight;
       case AssignmentStatus.droppedOff:
         return Colors.green;
     }

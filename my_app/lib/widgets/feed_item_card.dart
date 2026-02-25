@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
+import '../constants/app_colors.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 
@@ -52,7 +53,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                 GestureDetector(
                   onTap: () => _showProfilePopup(context),
                   child: CircleAvatar(
-                    backgroundColor: Colors.blue[100],
+                    backgroundColor: AppColors.primaryLight.withOpacity(0.2),
                     backgroundImage: widget.media.uploadedByProfilePhoto != null
                         ? CachedNetworkImageProvider(widget.media.uploadedByProfilePhoto!)
                         : null,
@@ -61,7 +62,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                             widget.media.uploadedByName.isNotEmpty
                               ? widget.media.uploadedByName[0].toUpperCase()
                               : '?',
-                            style: TextStyle(color: Colors.blue[800]),
+                            style: TextStyle(color: AppColors.primaryDark),
                           )
                         : null,
                   ),
@@ -223,7 +224,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     setState(() => _showAllComments = true); // Auto expand on new comment
                   }
                 },
-                icon: const Icon(Icons.send, color: Colors.blue),
+                icon: const Icon(Icons.send, color: AppColors.primary),
               ),
             ],
           ),
@@ -271,7 +272,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                 width: 280,
                 height: 280,
                 decoration: BoxDecoration(
-                  color: Colors.blue[100],
+                  color: AppColors.primaryLight.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
@@ -279,7 +280,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     widget.media.uploadedByName.isNotEmpty
                         ? widget.media.uploadedByName[0].toUpperCase()
                         : '?',
-                    style: TextStyle(fontSize: 100, color: Colors.blue[800]),
+                    style: TextStyle(fontSize: 100, color: AppColors.primaryDark),
                   ),
                 ),
               ),
@@ -362,7 +363,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     Text(emoji, style: const TextStyle(fontSize: 24)),
                     if (isSelected) ...[
                        const SizedBox(width: 8),
-                       const Icon(Icons.check, color: Colors.blue, size: 16),
+                       const Icon(Icons.check, color: AppColors.primary, size: 16),
                     ],
                   ],
                 ),
@@ -372,7 +373,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
              // Use transparent icon button for cleaner look
             child: Icon(
               widget.media.userReaction != null ? Icons.thumb_up : Icons.thumb_up_outlined,
-              color: widget.media.userReaction != null ? Colors.blue : Colors.grey[600],
+              color: widget.media.userReaction != null ? AppColors.primary : Colors.grey[600],
               size: 20,
             ),
           ),
@@ -386,10 +387,10 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: isMyReaction ? Colors.blue[50] : Colors.grey[100],
+                    color: isMyReaction ? AppColors.primary.withOpacity(0.1) : Colors.grey[100],
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isMyReaction ? Colors.blue[200]! : Colors.transparent,
+                      color: isMyReaction ? AppColors.primaryLight.withOpacity(0.4) : Colors.transparent,
                     ),
                   ),
                   child: Row(
@@ -402,7 +403,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: isMyReaction ? FontWeight.bold : FontWeight.normal,
-                          color: isMyReaction ? Colors.blue[800] : Colors.grey[700],
+                          color: isMyReaction ? AppColors.primaryDark : Colors.grey[700],
                         ),
                       ),
                     ],

@@ -2,9 +2,15 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <color name="cream">#FFF5EDE8</color>
+    <color name="background">#FFEEEEEE</color>
+    <!-- Primary brand colours from paws4thoughtdogs.com -->
+    <color name="primary">#FF165144</color>
+    <color name="primary_dark">#FF01332E</color>
+    <color name="primary_light">#FF2A7A68</color>
+    <!-- Header / footer -->
+    <color name="header">#FF225D3F</color>
+    <color name="footer">#FF272C1B</color>
+    <!-- Button -->
+    <color name="button_dark">#FF32373C</color>
 </resources>

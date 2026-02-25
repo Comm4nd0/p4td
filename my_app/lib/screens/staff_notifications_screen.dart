@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../constants/app_colors.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
@@ -295,14 +296,14 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
               children: [
                 Icon(
                   request.requestType == RequestType.cancel ? Icons.cancel_outlined : Icons.swap_horiz,
-                  color: request.requestType == RequestType.cancel ? Colors.red : Colors.blue,
+                  color: request.requestType == RequestType.cancel ? Colors.red : AppColors.primary,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
                 Text(
                   request.requestType == RequestType.cancel ? 'Cancellation' : 'Date Change',
                   style: TextStyle(
-                    color: request.requestType == RequestType.cancel ? Colors.red : Colors.blue,
+                    color: request.requestType == RequestType.cancel ? Colors.red : AppColors.primary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -415,7 +416,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Header
             Row(
               children: [
-                Icon(Icons.night_shelter, size: 20, color: Colors.purple.shade700),
+                Icon(Icons.night_shelter, size: 20, color: AppColors.primaryDark),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(

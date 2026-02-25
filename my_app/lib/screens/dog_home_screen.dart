@@ -9,6 +9,7 @@ import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
 import 'query_detail_screen.dart';
+import '../constants/app_colors.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -697,7 +698,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   : Icons.swap_horiz,
               color: request.requestType == RequestType.cancel
                   ? Colors.red
-                  : Colors.blue,
+                  : AppColors.primary,
             ),
             title: Text(
               request.requestType == RequestType.cancel
@@ -865,31 +866,31 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blue[50],
+                        color: AppColors.primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue[200]!),
+                        border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.access_time, color: Colors.blue[700], size: 18),
+                              Icon(Icons.access_time, color: AppColors.primary, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 'Pickup: 08:00 - 09:30',
-                                style: TextStyle(color: Colors.blue[700], fontSize: 13, fontWeight: FontWeight.w500),
+                                style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w500),
                               ),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Row(
                             children: [
-                              Icon(Icons.access_time, color: Colors.blue[700], size: 18),
+                              Icon(Icons.access_time, color: AppColors.primary, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 'Drop-off: ${_dog.preferredDropoffTime?.displayName ?? 'Not set'}',
-                                style: TextStyle(color: Colors.blue[700], fontSize: 13, fontWeight: FontWeight.w500),
+                                style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w500),
                               ),
                             ],
                           ),
