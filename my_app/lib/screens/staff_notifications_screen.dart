@@ -113,6 +113,9 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
         appBar: AppBar(
           title: const Text('Staff Dashboard'),
           bottom: TabBar(
+            labelColor: AppColors.cream,
+            unselectedLabelColor: AppColors.cream,
+            indicatorColor: AppColors.cream,
             tabs: [
               Tab(
                 child: Row(
