@@ -25,8 +25,8 @@ abstract class DataService {
   Future<UserProfile> deleteProfilePhoto();
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare});
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId});
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime});
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime});
   Future<void> deleteDog(String dogId);
   Future<Dog> assignDogToUser(String dogId, {int? owner, List<int>? additionalOwners});
   Future<List<OwnerProfile>> getOwners();
@@ -126,6 +126,7 @@ class ApiDataService implements DataService {
           daysInDaycare: daysInDaycare,
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
+          preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
         );
       }).toList();
     } else {
@@ -246,7 +247,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -259,6 +260,7 @@ class ApiDataService implements DataService {
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (daysInDaycare != null) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
+      if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
 
       if (deletePhoto) {
         request.fields['profile_image'] = '';  // Empty string to clear the image
@@ -285,6 +287,7 @@ class ApiDataService implements DataService {
           'food_instructions': foodInstructions ?? dog.foodInstructions,
           'medical_notes': medicalNotes ?? dog.medicalNotes,
           if (daysInDaycare != null) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
+          if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
         }),
       );
     }
@@ -318,6 +321,7 @@ class ApiDataService implements DataService {
       daysInDaycare: updatedDaysInDaycare,
       ownerDetails: ownerDetails,
       additionalOwners: additionalOwners,
+      preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
     );
   }
 
@@ -397,19 +401,20 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime}) async {
     final token = await _authService.getToken();
-    
+
     if (imageBytes != null) {
       // Use multipart request for file upload
       var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/dogs/'));
       request.headers['Authorization'] = 'Token $token';
-      
+
       request.fields['name'] = name;
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (daysInDaycare != null && daysInDaycare.isNotEmpty) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
       if (ownerId != null) request.fields['owner'] = ownerId;
+      if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
       
       // Use bytes instead of file path for cross-platform compatibility
       final filename = imageName ?? 'dog_photo.jpg';
@@ -450,6 +455,7 @@ class ApiDataService implements DataService {
           daysInDaycare: daysInDaycareResult,
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
+          preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -466,6 +472,7 @@ class ApiDataService implements DataService {
           'medical_notes': medicalNotes,
           if (daysInDaycare != null && daysInDaycare.isNotEmpty) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
           if (ownerId != null) 'owner': int.parse(ownerId),
+          if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
         }),
       );
 
@@ -495,6 +502,7 @@ class ApiDataService implements DataService {
           daysInDaycare: daysInDaycareResult,
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
+          preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -1002,6 +1010,7 @@ class ApiDataService implements DataService {
           daysInDaycare: daysInDaycare,
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
+          preferredDropoffTime: DropoffTimeExtension.fromApiValue(j['preferred_dropoff_time']),
         );
       }).toList();
     } else {
@@ -1380,7 +1389,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime}) async {
     await Future.delayed(const Duration(milliseconds: 300)); // Simulate network
     final index = _dogs.indexWhere((d) => d.id == dog.id);
     if (index == -1) {
@@ -1398,7 +1407,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime}) async {
     return Dog(id: '99', name: name, ownerId: 'user1');
   }
 

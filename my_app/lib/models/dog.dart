@@ -37,6 +37,42 @@ class OwnerDetails {
   }
 }
 
+enum DropoffTime {
+  after1530,
+  after1600,
+}
+
+extension DropoffTimeExtension on DropoffTime {
+  String get displayName {
+    switch (this) {
+      case DropoffTime.after1530:
+        return 'After 15:30';
+      case DropoffTime.after1600:
+        return 'After 16:00';
+    }
+  }
+
+  String get apiValue {
+    switch (this) {
+      case DropoffTime.after1530:
+        return 'after_1530';
+      case DropoffTime.after1600:
+        return 'after_1600';
+    }
+  }
+
+  static DropoffTime? fromApiValue(String? value) {
+    switch (value) {
+      case 'after_1530':
+        return DropoffTime.after1530;
+      case 'after_1600':
+        return DropoffTime.after1600;
+      default:
+        return null;
+    }
+  }
+}
+
 class Dog {
   final String id;
   final String name;
@@ -47,6 +83,7 @@ class Dog {
   final List<Weekday> daysInDaycare;
   final OwnerDetails? ownerDetails;
   final List<OwnerDetails> additionalOwners;
+  final DropoffTime? preferredDropoffTime;
 
   Dog({
     required this.id,
@@ -58,6 +95,7 @@ class Dog {
     this.daysInDaycare = const [],
     this.ownerDetails,
     this.additionalOwners = const [],
+    this.preferredDropoffTime,
   });
 
   /// All owners (primary + additional) for convenience
@@ -78,6 +116,7 @@ class Dog {
     List<Weekday>? daysInDaycare,
     OwnerDetails? ownerDetails,
     List<OwnerDetails>? additionalOwners,
+    DropoffTime? preferredDropoffTime,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -89,6 +128,7 @@ class Dog {
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
       ownerDetails: ownerDetails ?? this.ownerDetails,
       additionalOwners: additionalOwners ?? this.additionalOwners,
+      preferredDropoffTime: preferredDropoffTime ?? this.preferredDropoffTime,
     );
   }
 }
