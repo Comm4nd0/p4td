@@ -32,6 +32,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
   bool _deletePhoto = false;
   Set<Weekday> _selectedDays = {};
   DropoffTime? _selectedDropoffTime;
+  ScheduleType _selectedScheduleType = ScheduleType.weekly;
   bool _isStaff = false;
 
   @override
@@ -43,6 +44,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _currentImageUrl = widget.dog.profileImageUrl;
     _selectedDays = Set.from(widget.dog.daysInDaycare);
     _selectedDropoffTime = widget.dog.preferredDropoffTime;
+    _selectedScheduleType = widget.dog.scheduleType;
     _checkUserRole();
   }
 
@@ -142,6 +144,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         deletePhoto: _deletePhoto,
         daysInDaycare: _selectedDays.toList(),
         preferredDropoffTime: _selectedDropoffTime,
+        scheduleType: _selectedScheduleType,
       );
 
       if (mounted) {
@@ -324,6 +327,39 @@ class _EditDogScreenState extends State<EditDogScreen> {
                     setState(() {
                       _selectedDropoffTime = selected ? time : null;
                     });
+                  },
+                  avatar: isSelected
+                      ? const Icon(Icons.check_circle, size: 18)
+                      : null,
+                  backgroundColor: Colors.grey[200],
+                  selectedColor: AppColors.primaryLight.withOpacity(0.2),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Schedule Frequency',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'How often does this dog attend?',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: ScheduleType.values.map((type) {
+                final isSelected = _selectedScheduleType == type;
+                return ChoiceChip(
+                  label: Text(type.displayName),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _selectedScheduleType = type;
+                      });
+                    }
                   },
                   avatar: isSelected
                       ? const Icon(Icons.check_circle, size: 18)
