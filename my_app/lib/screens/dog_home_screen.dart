@@ -889,10 +889,15 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                               Icon(Icons.access_time, color: AppColors.primary, size: 18),
                               const SizedBox(width: 8),
                               Text(
-                                'Drop-off: ${_dog.preferredDropoffTime?.displayName ?? 'Not set'}',
+                                'Drop-off: 15:30 - 16:45',
                                 style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w500),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Every effort is made to stick within these times, but our drivers are at the behest of traffic.',
+                            style: TextStyle(color: AppColors.primary.withOpacity(0.7), fontSize: 11, fontStyle: FontStyle.italic),
                           ),
                         ],
                       ),
