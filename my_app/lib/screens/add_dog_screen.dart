@@ -23,6 +23,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
   Uint8List? _imageBytes;
   final Set<Weekday> _selectedDays = {};
   DropoffTime? _selectedDropoffTime;
+  ScheduleType _selectedScheduleType = ScheduleType.weekly;
 
   bool _isStaff = false;
   List<OwnerProfile> _owners = [];
@@ -139,6 +140,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         daysInDaycare: _selectedDays.toList(),
         ownerId: _selectedOwnerId,
         preferredDropoffTime: _selectedDropoffTime,
+        scheduleType: _selectedScheduleType,
       );
 
       if (mounted) {
@@ -331,6 +333,39 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 setState(() {
                                   _selectedDropoffTime = selected ? time : null;
                                 });
+                              },
+                              avatar: isSelected
+                                  ? const Icon(Icons.check_circle, size: 18)
+                                  : null,
+                              backgroundColor: Colors.grey[200],
+                              selectedColor: AppColors.primaryLight.withOpacity(0.2),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Schedule Frequency',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'How often does this dog attend?',
+                          style: TextStyle(fontSize: 14, color: Colors.grey),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          children: ScheduleType.values.map((type) {
+                            final isSelected = _selectedScheduleType == type;
+                            return ChoiceChip(
+                              label: Text(type.displayName),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setState(() {
+                                    _selectedScheduleType = type;
+                                  });
+                                }
                               },
                               avatar: isSelected
                                   ? const Icon(Icons.check_circle, size: 18)

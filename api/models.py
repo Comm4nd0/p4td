@@ -67,6 +67,12 @@ class Dog(models.Model):
         (7, 'Sunday'),
     ]
 
+    SCHEDULE_TYPE_CHOICES = [
+        ('weekly', 'Weekly'),
+        ('fortnightly', 'Fortnightly'),
+        ('ad_hoc', 'Ad Hoc'),
+    ]
+
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dogs', null=True, blank=True)
     additional_owners = models.ManyToManyField(User, related_name='additional_dogs', blank=True)
     name = models.CharField(max_length=100)
@@ -74,6 +80,7 @@ class Dog(models.Model):
     food_instructions = models.TextField(blank=True, null=True)
     medical_notes = models.TextField(blank=True, null=True)
     daycare_days = models.JSONField(default=list, blank=True, help_text='List of day numbers (1-7) for daycare attendance')
+    schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='weekly', help_text='How often the dog attends: weekly, fortnightly, or ad hoc')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

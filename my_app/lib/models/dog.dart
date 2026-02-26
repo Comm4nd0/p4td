@@ -73,6 +73,47 @@ extension DropoffTimeExtension on DropoffTime {
   }
 }
 
+enum ScheduleType {
+  weekly,
+  fortnightly,
+  adHoc,
+}
+
+extension ScheduleTypeExtension on ScheduleType {
+  String get displayName {
+    switch (this) {
+      case ScheduleType.weekly:
+        return 'Weekly';
+      case ScheduleType.fortnightly:
+        return 'Fortnightly';
+      case ScheduleType.adHoc:
+        return 'Ad Hoc';
+    }
+  }
+
+  String get apiValue {
+    switch (this) {
+      case ScheduleType.weekly:
+        return 'weekly';
+      case ScheduleType.fortnightly:
+        return 'fortnightly';
+      case ScheduleType.adHoc:
+        return 'ad_hoc';
+    }
+  }
+
+  static ScheduleType fromApiValue(String? value) {
+    switch (value) {
+      case 'fortnightly':
+        return ScheduleType.fortnightly;
+      case 'ad_hoc':
+        return ScheduleType.adHoc;
+      default:
+        return ScheduleType.weekly;
+    }
+  }
+}
+
 class Dog {
   final String id;
   final String name;
@@ -84,6 +125,7 @@ class Dog {
   final OwnerDetails? ownerDetails;
   final List<OwnerDetails> additionalOwners;
   final DropoffTime? preferredDropoffTime;
+  final ScheduleType scheduleType;
 
   Dog({
     required this.id,
@@ -96,6 +138,7 @@ class Dog {
     this.ownerDetails,
     this.additionalOwners = const [],
     this.preferredDropoffTime,
+    this.scheduleType = ScheduleType.weekly,
   });
 
   /// All owners (primary + additional) for convenience
@@ -117,6 +160,7 @@ class Dog {
     OwnerDetails? ownerDetails,
     List<OwnerDetails>? additionalOwners,
     DropoffTime? preferredDropoffTime,
+    ScheduleType? scheduleType,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -129,6 +173,7 @@ class Dog {
       ownerDetails: ownerDetails ?? this.ownerDetails,
       additionalOwners: additionalOwners ?? this.additionalOwners,
       preferredDropoffTime: preferredDropoffTime ?? this.preferredDropoffTime,
+      scheduleType: scheduleType ?? this.scheduleType,
     );
   }
 }
