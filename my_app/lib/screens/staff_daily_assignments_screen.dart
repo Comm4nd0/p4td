@@ -111,8 +111,13 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
-  // Keep this for compatibility with dialogs that call _loadAssignments()
-  Future<void> _loadAssignments() => _loadAssignmentsForDate(_selectedDate, forceReload: true);
+  // Reload assignments after mutations (assign/reassign/unassign).
+  // Clears the entire cache because these operations auto-repeat to future
+  // weeks on the same weekday, so other cached dates may have changed.
+  Future<void> _loadAssignments() {
+    _assignmentCache.clear();
+    return _loadAssignmentsForDate(_selectedDate, forceReload: true);
+  }
 
   List<DailyDogAssignment> _getFilteredAssignments(DateTime date) {
     final all = _assignmentCache[_dateKey(date)] ?? [];

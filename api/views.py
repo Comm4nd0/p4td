@@ -759,12 +759,29 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 target = date.fromisoformat(date_str)
             except ValueError:
                 return None, Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            # Only allow up to 7 days in the future
-            max_date = date.today() + timedelta(days=7)
+            # Only allow up to 14 days in the future
+            max_date = date.today() + timedelta(days=14)
             if target > max_date:
-                return None, Response({'detail': 'Cannot view assignments more than 7 days in advance.'}, status=400)
+                return None, Response({'detail': 'Cannot view assignments more than 14 days in advance.'}, status=400)
             return target, None
         return date.today(), None
+
+    def _create_recurring_assignments(self, dog_ids, staff_member, start_date, num_weeks=3):
+        """Create assignments for the same weekday on future weeks.
+
+        After a dog is assigned to a staff member on a given date, this
+        creates the same assignment for the next ``num_weeks`` occurrences
+        of that weekday so the roster automatically repeats.
+        """
+        from datetime import timedelta
+        for week_offset in range(1, num_weeks + 1):
+            future_date = start_date + timedelta(weeks=week_offset)
+            for dog_id in dog_ids:
+                DailyDogAssignment.objects.get_or_create(
+                    dog_id=dog_id,
+                    date=future_date,
+                    defaults={'staff_member': staff_member},
+                )
 
     @action(detail=False, methods=['get'])
     def today(self, request):
@@ -843,7 +860,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def assign_to_me(self, request):
         """Assign one or more dogs to the current staff member.
-        Accepts optional 'date' in body (YYYY-MM-DD), defaults to today."""
+        Accepts optional 'date' in body (YYYY-MM-DD), defaults to today.
+        Automatically repeats assignments for the same weekday on future weeks."""
         from datetime import date, timedelta
         date_str = request.data.get('date')
         if date_str:
@@ -851,9 +869,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 target_date = date.fromisoformat(date_str)
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            max_date = date.today() + timedelta(days=7)
+            max_date = date.today() + timedelta(days=14)
             if target_date > max_date:
-                return Response({'detail': 'Cannot assign more than 7 days in advance.'}, status=400)
+                return Response({'detail': 'Cannot assign more than 14 days in advance.'}, status=400)
         else:
             target_date = date.today()
 
@@ -862,6 +880,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'dog_ids is required'}, status=400)
 
         created = []
+        created_dog_ids = []
         for dog_id in dog_ids:
             assignment, was_created = DailyDogAssignment.objects.get_or_create(
                 dog_id=dog_id,
@@ -870,6 +889,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
+                created_dog_ids.append(dog_id)
+
+        # Auto-repeat for future weeks on the same weekday
+        if created_dog_ids:
+            self._create_recurring_assignments(created_dog_ids, request.user, target_date)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -878,7 +902,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def assign_dogs(self, request):
         """Assign one or more dogs to a specified staff member.
         Accepts optional 'date' in body (YYYY-MM-DD), defaults to today.
-        Requires can_assign_dogs permission."""
+        Requires can_assign_dogs permission.
+        Automatically repeats assignments for the same weekday on future weeks."""
         try:
             if not request.user.profile.can_assign_dogs:
                 return Response({'detail': 'You do not have permission to assign dogs to other staff members.'}, status=403)
@@ -892,9 +917,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 target_date = date.fromisoformat(date_str)
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            max_date = date.today() + timedelta(days=7)
+            max_date = date.today() + timedelta(days=14)
             if target_date > max_date:
-                return Response({'detail': 'Cannot assign more than 7 days in advance.'}, status=400)
+                return Response({'detail': 'Cannot assign more than 14 days in advance.'}, status=400)
         else:
             target_date = date.today()
 
@@ -913,6 +938,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Staff member not found'}, status=404)
 
         created = []
+        created_dog_ids = []
         for dog_id in dog_ids:
             assignment, was_created = DailyDogAssignment.objects.get_or_create(
                 dog_id=dog_id,
@@ -921,6 +947,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
+                created_dog_ids.append(dog_id)
+
+        # Auto-repeat for future weeks on the same weekday
+        if created_dog_ids:
+            self._create_recurring_assignments(created_dog_ids, target_staff, target_date)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -928,6 +959,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reassign(self, request, pk=None):
         """Reassign a dog to a different staff member.
+        Also updates future same-weekday assignments that are still in ASSIGNED status.
         Requires can_assign_dogs permission."""
         try:
             if not request.user.profile.can_assign_dogs:
@@ -946,13 +978,25 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
+        old_staff = assignment.staff_member
         assignment.staff_member = new_staff
         assignment.save()
+
+        # Also reassign future same-weekday assignments still in ASSIGNED status
+        DailyDogAssignment.objects.filter(
+            dog=assignment.dog,
+            staff_member=old_staff,
+            date__gt=assignment.date,
+            date__iso_week_day=assignment.date.isoweekday(),
+            status='ASSIGNED',
+        ).update(staff_member=new_staff)
+
         return Response(self.get_serializer(assignment).data)
 
     @action(detail=True, methods=['post'])
     def unassign(self, request, pk=None):
         """Unassign a dog (delete the assignment).
+        Also removes future same-weekday assignments that are still in ASSIGNED status.
         Requires can_assign_dogs permission."""
         try:
             if not request.user.profile.can_assign_dogs:
@@ -961,7 +1005,20 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Permission check failed.'}, status=403)
 
         assignment = self.get_object()
+        dog = assignment.dog
+        assignment_date = assignment.date
+        weekday = assignment_date.isoweekday()
+
         assignment.delete()
+
+        # Also delete future same-weekday assignments still in ASSIGNED status
+        DailyDogAssignment.objects.filter(
+            dog=dog,
+            date__gt=assignment_date,
+            date__iso_week_day=weekday,
+            status='ASSIGNED',
+        ).delete()
+
         return Response(status=204)
 
     @action(detail=False, methods=['get'])
@@ -1047,9 +1104,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 target_date = date.fromisoformat(date_str)
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            max_date = date.today() + timedelta(days=7)
+            max_date = date.today() + timedelta(days=14)
             if target_date > max_date:
-                return Response({'detail': 'Cannot assign more than 7 days in advance.'}, status=400)
+                return Response({'detail': 'Cannot assign more than 14 days in advance.'}, status=400)
         else:
             target_date = date.today()
 
