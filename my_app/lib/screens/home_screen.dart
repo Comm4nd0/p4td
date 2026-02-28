@@ -4,7 +4,9 @@ import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
+import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
+import '../widgets/no_connection_widget.dart';
 import 'dog_home_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
@@ -30,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Dog> _allDogs = [];
   List<Dog> _filteredDogs = [];
   bool _loadingDogs = true;
+  bool _isOffline = false;
   final TextEditingController _searchController = TextEditingController();
 
   bool _isStaff = false;
@@ -57,13 +60,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadDogs() async {
     if (!mounted) return;
-    setState(() => _loadingDogs = true);
-    
+    setState(() {
+      _loadingDogs = true;
+      _isOffline = false;
+    });
+
     try {
       final dogs = await _dataService.getDogs();
       // Alphabetical sort
       dogs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      
+
       if (mounted) {
         setState(() {
           _allDogs = dogs;
@@ -77,10 +83,16 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loadingDogs = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text('Failed to load dogs: $e')),
-        );
+        final offline = NoConnectionException.isNetworkError(e);
+        setState(() {
+          _loadingDogs = false;
+          _isOffline = offline;
+        });
+        if (!offline) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load dogs: $e')),
+          );
+        }
       }
     }
   }
@@ -119,9 +131,13 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to check staff status: $e'), backgroundColor: Colors.red),
-        );
+        if (NoConnectionException.isNetworkError(e)) {
+          setState(() => _isOffline = true);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to check staff status: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
@@ -437,11 +453,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      body: _currentIndex == 0
-          ? _buildDogsView()
-          : _currentIndex == 1
-              ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia)
-              : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
+      body: _isOffline
+          ? NoConnectionWidget(onRetry: _refresh)
+          : _currentIndex == 0
+              ? _buildDogsView()
+              : _currentIndex == 1
+                  ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia)
+                  : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
     );
   }
 

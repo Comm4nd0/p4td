@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/no_connection_exception.dart';
+import '../widgets/no_connection_widget.dart';
 import 'home_screen.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
@@ -17,49 +19,68 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final _authService = AuthService();
   bool _isLoading = false;
+  bool _isOffline = false;
   String? _errorMessage;
 
   Future<void> _login() async {
     setState(() {
       _isLoading = true;
+      _isOffline = false;
       _errorMessage = null;
     });
 
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    // Email is the username
-    final error = await _authService.login(email, password);
+    try {
+      // Email is the username
+      final error = await _authService.login(email, password);
 
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (error == null) {
-      if (mounted) {
-        // Register push notification token
-        try {
-          await NotificationService().updateToken();
-        } catch (e) {
-          debugPrint("Failed to update token: $e");
-          // Don't block login
-        }
-        
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-          );
-        }
-      }
-    } else {
       setState(() {
-        _errorMessage = error;
+        _isLoading = false;
+      });
+
+      if (error == null) {
+        if (mounted) {
+          // Register push notification token
+          try {
+            await NotificationService().updateToken();
+          } catch (e) {
+            debugPrint("Failed to update token: $e");
+            // Don't block login
+          }
+
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+            );
+          }
+        }
+      } else {
+        setState(() {
+          _errorMessage = error;
+        });
+      }
+    } on NoConnectionException {
+      setState(() {
+        _isLoading = false;
+        _isOffline = true;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isOffline) {
+      return Scaffold(
+        body: NoConnectionWidget(
+          onRetry: () {
+            setState(() => _isOffline = false);
+          },
+        ),
+      );
+    }
+
     return Scaffold(
       body: Center(
         child: Padding(
