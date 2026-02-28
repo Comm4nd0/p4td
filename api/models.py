@@ -17,6 +17,12 @@ class UserProfile(models.Model):
     can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
     can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
 
+    # Notification preferences (all enabled by default)
+    notify_feed = models.BooleanField(default=True, help_text='Receive notifications for new feed posts and comments.')
+    notify_traffic = models.BooleanField(default=True, help_text='Receive traffic delay alerts for pickups and drop-offs.')
+    notify_bookings = models.BooleanField(default=True, help_text='Receive updates on date change and boarding requests.')
+    notify_dog_updates = models.BooleanField(default=True, help_text='Receive updates when your dog is picked up, at daycare, or dropped off.')
+
     def __str__(self):
         return f"Profile for {self.user.username}"
 
@@ -371,9 +377,9 @@ def notify_user_date_request_status(sender, instance, created, **kwargs):
         # Notify all owners (primary + additional)
         owner = instance.dog.owner
         if owner:
-            send_push_notification(owner, title, body, data)
+            send_push_notification(owner, title, body, data, category='bookings')
         for additional_owner in instance.dog.additional_owners.all():
-            send_push_notification(additional_owner, title, body, data)
+            send_push_notification(additional_owner, title, body, data, category='bookings')
 
 # --- Support Query Notifications ---
 
@@ -448,7 +454,7 @@ def notify_user_boarding_request_status(sender, instance, created, **kwargs):
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
         
-        send_push_notification(instance.owner, title, body, data)
+        send_push_notification(instance.owner, title, body, data, category='bookings')
 
 # --- Dog Status Change Notifications ---
 
@@ -483,6 +489,6 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
 
         owner = instance.dog.owner
         if owner:
-            send_push_notification(owner, title, body, data)
+            send_push_notification(owner, title, body, data, category='dog_updates')
         for additional_owner in instance.dog.additional_owners.all():
-            send_push_notification(additional_owner, title, body, data)
+            send_push_notification(additional_owner, title, body, data, category='dog_updates')

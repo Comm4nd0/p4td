@@ -12,6 +12,12 @@ class UserProfile {
   final bool canManageRequests;
   final bool canReplyQueries;
 
+  // Notification preferences
+  final bool notifyFeed;
+  final bool notifyTraffic;
+  final bool notifyBookings;
+  final bool notifyDogUpdates;
+
   UserProfile({
     required this.username,
     required this.email,
@@ -25,6 +31,10 @@ class UserProfile {
     this.canAddFeedMedia = false,
     this.canManageRequests = false,
     this.canReplyQueries = false,
+    this.notifyFeed = true,
+    this.notifyTraffic = true,
+    this.notifyBookings = true,
+    this.notifyDogUpdates = true,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -41,6 +51,10 @@ class UserProfile {
       canAddFeedMedia: json['can_add_feed_media'] ?? false,
       canManageRequests: json['can_manage_requests'] ?? false,
       canReplyQueries: json['can_reply_queries'] ?? false,
+      notifyFeed: json['notify_feed'] ?? true,
+      notifyTraffic: json['notify_traffic'] ?? true,
+      notifyBookings: json['notify_bookings'] ?? true,
+      notifyDogUpdates: json['notify_dog_updates'] ?? true,
     );
   }
 
@@ -50,6 +64,10 @@ class UserProfile {
       'address': address,
       'phone_number': phoneNumber,
       'pickup_instructions': pickupInstructions,
+      'notify_feed': notifyFeed,
+      'notify_traffic': notifyTraffic,
+      'notify_bookings': notifyBookings,
+      'notify_dog_updates': notifyDogUpdates,
     };
   }
 }

@@ -10,13 +10,13 @@ def initialize_firebase():
     global _firebase_app
     if _firebase_app:
         return True
-    
+
     # Path to your service account key file
     cred_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
     if not cred_path or not os.path.exists(cred_path):
         print("Firebase service account key not found. Push notifications will be disabled.")
         return False
-        
+
     try:
         cred = credentials.Certificate(cred_path)
         _firebase_app = firebase_admin.initialize_app(cred)
@@ -25,11 +25,36 @@ def initialize_firebase():
         print(f"Error initializing Firebase Admin: {e}")
         return False
 
-def send_push_notification(user, title, body, data=None):
-    """Sends a push notification to all devices registered for a specific user."""
+
+def _user_has_preference(user, category):
+    """Check whether the user has the given notification category enabled.
+
+    category must be one of: 'feed', 'traffic', 'bookings', 'dog_updates'.
+    Returns True when no profile exists (default to sending).
+    """
+    if category is None:
+        return True
+    try:
+        profile = user.profile
+        field = f'notify_{category}'
+        return getattr(profile, field, True)
+    except Exception:
+        return True
+
+
+def send_push_notification(user, title, body, data=None, category=None):
+    """Sends a push notification to all devices registered for a specific user.
+
+    If *category* is supplied the user's notification preferences are checked
+    first.  When the preference is disabled the notification is silently
+    skipped.
+    """
+    if not _user_has_preference(user, category):
+        return
+
     if not initialize_firebase():
         return
-        
+
     tokens = DeviceToken.objects.filter(user=user).values_list('token', flat=True)
     if not tokens:
         return
@@ -48,7 +73,7 @@ def send_push_notification(user, title, body, data=None):
         response = messaging.send_multicast(message)
         print(f"Successfully sent {response.success_count} messages; "
               f"failed {response.failure_count} messages.")
-        
+
         # Optionally cleanup invalid tokens
         if response.failure_count > 0:
             for idx, resp in enumerate(response.responses):
@@ -63,20 +88,19 @@ def send_push_notification(user, title, body, data=None):
 def notify_new_post(post):
     """Notify all users (except uploader) about a new post."""
     from django.contrib.auth.models import User
-    
+
     title = "New Post"
     uploader_name = post.uploaded_by.first_name if post.uploaded_by.first_name else post.uploaded_by.username
     body = f"{uploader_name} shared a new {post.media_type.lower()}."
-    
+
     data = {
         'type': 'new_post',
         'post_id': str(post.id),
     }
-    
-    # In a real app, you might want to filter users or check preferences
+
     users = User.objects.exclude(id=post.uploaded_by.id)
     for user in users:
-        send_push_notification(user, title, body, data)
+        send_push_notification(user, title, body, data, category='feed')
 
 def send_traffic_alert(alert_type, date, staff_member, detail=''):
     """
@@ -131,7 +155,7 @@ def send_traffic_alert(alert_type, date, staff_member, detail=''):
 
     owners = User.objects.filter(id__in=owner_ids)
     for owner in owners:
-        send_push_notification(owner, title, body, data)
+        send_push_notification(owner, title, body, data, category='traffic')
 
 
 def notify_post_comment(comment, post):
@@ -184,7 +208,7 @@ def notify_post_comment(comment, post):
         else:
             title = "New Reply"
             body = f"{commenter_name} also replied to a post you commented on."
-        send_push_notification(user, title, body, data)
+        send_push_notification(user, title, body, data, category='feed')
 
 
 def send_staff_notification(title, body, data=None):
