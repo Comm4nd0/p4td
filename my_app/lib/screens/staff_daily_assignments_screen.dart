@@ -7,6 +7,15 @@ import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 
+enum DogSortOption {
+  nameAsc('Name (A-Z)'),
+  nameDesc('Name (Z-A)'),
+  pickupOrder('Pickup Order');
+
+  final String label;
+  const DogSortOption(this.label);
+}
+
 class StaffDailyAssignmentsScreen extends StatefulWidget {
   final bool canAssignDogs;
 
@@ -31,6 +40,7 @@ class StaffDailyAssignmentsScreenState
 
   int? _selectedStaffId;
   List<Map<String, dynamic>> _staffMembers = [];
+  DogSortOption _sortOption = DogSortOption.nameAsc;
 
   late DateTime _selectedDate;
 
@@ -120,9 +130,29 @@ class StaffDailyAssignmentsScreenState
   }
 
   List<DailyDogAssignment> _getFilteredAssignments(DateTime date) {
-    final all = _assignmentCache[_dateKey(date)] ?? [];
-    if (_selectedStaffId == null) return all;
-    return all.where((a) => a.staffMemberId == _selectedStaffId).toList();
+    var list = _assignmentCache[_dateKey(date)] ?? [];
+    if (_selectedStaffId != null) {
+      list = list.where((a) => a.staffMemberId == _selectedStaffId).toList();
+    } else {
+      list = List.of(list);
+    }
+
+    switch (_sortOption) {
+      case DogSortOption.nameAsc:
+        list.sort((a, b) => a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase()));
+      case DogSortOption.nameDesc:
+        list.sort((a, b) => b.dogName.toLowerCase().compareTo(a.dogName.toLowerCase()));
+      case DogSortOption.pickupOrder:
+        list.sort((a, b) {
+          final addrA = a.ownerAddress?.toLowerCase() ?? '';
+          final addrB = b.ownerAddress?.toLowerCase() ?? '';
+          final cmp = addrA.compareTo(addrB);
+          if (cmp != 0) return cmp;
+          return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
+        });
+    }
+
+    return list;
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>
@@ -751,9 +781,32 @@ class StaffDailyAssignmentsScreenState
     );
   }
 
+  Widget _buildSortButton() {
+    return PopupMenuButton<DogSortOption>(
+      icon: const Icon(Icons.sort),
+      tooltip: 'Sort dogs',
+      onSelected: (option) => setState(() => _sortOption = option),
+      itemBuilder: (context) => DogSortOption.values.map((option) {
+        return PopupMenuItem(
+          value: option,
+          child: Row(
+            children: [
+              if (_sortOption == option)
+                const Icon(Icons.check, size: 18)
+              else
+                const SizedBox(width: 18),
+              const SizedBox(width: 8),
+              Text(option.label),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildStaffFilter() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.only(left: 16, right: 4),
       child: Row(
         children: [
           Expanded(
@@ -787,6 +840,7 @@ class StaffDailyAssignmentsScreenState
               },
             ),
           ),
+          _buildSortButton(),
         ],
       ),
     );
@@ -800,6 +854,14 @@ class StaffDailyAssignmentsScreenState
         if (widget.canAssignDogs && _staffMembers.isNotEmpty) ...[
           _buildStaffFilter(),
           const SizedBox(height: 8),
+        ] else ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: _buildSortButton(),
+            ),
+          ),
         ],
         Expanded(
           child: PageView.builder(
