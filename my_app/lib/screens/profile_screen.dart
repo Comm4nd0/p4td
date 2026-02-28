@@ -325,27 +325,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       keyboardType: TextInputType.phone,
                     ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _addressController,
-                      decoration: const InputDecoration(
-                        labelText: 'Address',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.home),
+                    if (!_profile!.isStaff) ...[
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'Address',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.home),
+                        ),
+                        maxLines: 3,
                       ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _pickupController,
-                      decoration: const InputDecoration(
-                        labelText: 'Pickup Instructions',
-                        hintText: 'e.g., Key under the mat, Gate code 1234...',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.info),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _pickupController,
+                        decoration: const InputDecoration(
+                          labelText: 'Pickup Instructions',
+                          hintText: 'e.g., Key under the mat, Gate code 1234...',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.info),
+                        ),
+                        maxLines: 4,
                       ),
-                      maxLines: 4,
-                    ),
+                    ],
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
