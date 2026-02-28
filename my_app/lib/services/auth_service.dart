@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'no_connection_exception.dart';
 
 class AuthService {
   final _storage = const FlutterSecureStorage();
@@ -61,6 +62,9 @@ class AuthService {
         return 'Login failed: ${response.statusCode}';
       }
     } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
       return 'Error: $e';
     }
   }
@@ -88,6 +92,9 @@ class AuthService {
       final data = json.decode(response.body);
       return data['detail'] ?? 'Request failed';
     } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
       return 'Error: $e';
     }
   }
@@ -107,6 +114,9 @@ class AuthService {
       }
       return {'success': false, 'error': data['detail'] ?? 'Verification failed'};
     } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
       return {'success': false, 'error': 'Error: $e'};
     }
   }
@@ -137,6 +147,9 @@ class AuthService {
       }
       return 'Reset failed';
     } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
       return 'Error: $e';
     }
   }
@@ -178,6 +191,9 @@ class AuthService {
       }
       return 'Change failed';
     } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
       return 'Error: $e';
     }
   }

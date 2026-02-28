@@ -7,6 +7,15 @@ import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 
+enum DogSortOption {
+  nameAsc('Name (A-Z)'),
+  nameDesc('Name (Z-A)'),
+  pickupOrder('Pickup Order');
+
+  final String label;
+  const DogSortOption(this.label);
+}
+
 class StaffDailyAssignmentsScreen extends StatefulWidget {
   final bool canAssignDogs;
 
@@ -31,6 +40,7 @@ class StaffDailyAssignmentsScreenState
 
   int? _selectedStaffId;
   List<Map<String, dynamic>> _staffMembers = [];
+  DogSortOption _sortOption = DogSortOption.nameAsc;
 
   late DateTime _selectedDate;
 
@@ -120,9 +130,29 @@ class StaffDailyAssignmentsScreenState
   }
 
   List<DailyDogAssignment> _getFilteredAssignments(DateTime date) {
-    final all = _assignmentCache[_dateKey(date)] ?? [];
-    if (_selectedStaffId == null) return all;
-    return all.where((a) => a.staffMemberId == _selectedStaffId).toList();
+    var list = _assignmentCache[_dateKey(date)] ?? [];
+    if (_selectedStaffId != null) {
+      list = list.where((a) => a.staffMemberId == _selectedStaffId).toList();
+    } else {
+      list = List.of(list);
+    }
+
+    switch (_sortOption) {
+      case DogSortOption.nameAsc:
+        list.sort((a, b) => a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase()));
+      case DogSortOption.nameDesc:
+        list.sort((a, b) => b.dogName.toLowerCase().compareTo(a.dogName.toLowerCase()));
+      case DogSortOption.pickupOrder:
+        list.sort((a, b) {
+          final addrA = a.ownerAddress?.toLowerCase() ?? '';
+          final addrB = b.ownerAddress?.toLowerCase() ?? '';
+          final cmp = addrA.compareTo(addrB);
+          if (cmp != 0) return cmp;
+          return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
+        });
+    }
+
+    return list;
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>
@@ -155,13 +185,18 @@ class StaffDailyAssignmentsScreenState
   }
 
   Future<void> _showAssignDogsDialog() async {
+    if (widget.canAssignDogs && _selectedStaffId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a staff member first to assign dogs to them.')),
+      );
+      return;
+    }
+
     List<Dog> unassigned;
-    List<Map<String, dynamic>> staffMembers = [];
     Map<String, dynamic> suggestions = {};
     try {
       unassigned = await _dataService.getUnassignedDogs(date: _selectedDate);
       if (widget.canAssignDogs) {
-        staffMembers = await _dataService.getStaffMembers();
         suggestions = await _dataService.getSuggestedAssignments(date: _selectedDate);
       }
     } catch (e) {
@@ -186,103 +221,83 @@ class StaffDailyAssignmentsScreenState
       return;
     }
 
+    // Resolve the display name for the selected staff member.
+    String? staffName;
+    if (widget.canAssignDogs) {
+      final staff = _staffMembers.firstWhere((s) => s['id'] == _selectedStaffId, orElse: () => {});
+      staffName = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
+          ? staff['first_name'].toString()
+          : staff['username']?.toString();
+    }
+
     final selected = <int>{};
-    int? selectedStaffId;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(widget.canAssignDogs ? 'Assign Dogs ($dateLabel)' : 'Assign Dogs to Me'),
+          title: Text(widget.canAssignDogs
+              ? 'Assign Dogs to $staffName ($dateLabel)'
+              : 'Assign Dogs to Me ($dateLabel)'),
           content: SizedBox(
             width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (widget.canAssignDogs) ...[
-                  DropdownButtonFormField<int>(
-                    decoration: const InputDecoration(
-                      labelText: 'Assign to Staff Member',
-                      border: OutlineInputBorder(),
-                    ),
-                    value: selectedStaffId,
-                    items: staffMembers.map((staff) {
-                      final name = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
-                          ? staff['first_name']
-                          : staff['username'];
-                      return DropdownMenuItem<int>(
-                        value: staff['id'] as int,
-                        child: Text(name.toString()),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setDialogState(() => selectedStaffId = value);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: unassigned.length,
-                    itemBuilder: (context, index) {
-                      final dog = unassigned[index];
-                      final dogId = int.parse(dog.id);
-                      final suggestion = suggestions[dogId.toString()];
-                      String? suggestedName;
-                      String suggestedLabel = 'Last week';
-                      if (suggestion != null) {
-                        suggestedName = suggestion['staff_member_name'];
-                        if (suggestion['source'] == 'frequency') {
-                          suggestedLabel = 'Usually';
-                        }
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: unassigned.length,
+              itemBuilder: (context, index) {
+                final dog = unassigned[index];
+                final dogId = int.parse(dog.id);
+                final suggestion = suggestions[dogId.toString()];
+                String? suggestedName;
+                String suggestedLabel = 'Last week';
+                if (suggestion != null) {
+                  suggestedName = suggestion['staff_member_name'];
+                  if (suggestion['source'] == 'frequency') {
+                    suggestedLabel = 'Usually';
+                  }
+                }
+                return CheckboxListTile(
+                  value: selected.contains(dogId),
+                  onChanged: (checked) {
+                    setDialogState(() {
+                      if (checked == true) {
+                        selected.add(dogId);
+                      } else {
+                        selected.remove(dogId);
                       }
-                      return CheckboxListTile(
-                        value: selected.contains(dogId),
-                        onChanged: (checked) {
-                          setDialogState(() {
-                            if (checked == true) {
-                              selected.add(dogId);
-                            } else {
-                              selected.remove(dogId);
-                            }
-                          });
-                        },
-                        title: Text(dog.name),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (dog.ownerDetails != null)
-                              Text('Owner: ${dog.ownerDetails!.username}'),
-                            if (suggestedName != null)
-                              Text(
-                                '$suggestedLabel: $suggestedName',
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.primary,
-                                  fontSize: 12,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                          ],
+                    });
+                  },
+                  title: Text(dog.name),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (dog.ownerDetails != null)
+                        Text('Owner: ${dog.ownerDetails!.username}'),
+                      if (suggestedName != null)
+                        Text(
+                          '$suggestedLabel: $suggestedName',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
-                        secondary: dog.profileImageUrl != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(20),
-                                child: CachedNetworkImage(
-                                  imageUrl: dog.profileImageUrl!,
-                                  width: 40,
-                                  height: 40,
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-                            : const CircleAvatar(child: Icon(Icons.pets)),
-                      );
-                    },
+                    ],
                   ),
-                ),
-              ],
+                  secondary: dog.profileImageUrl != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: CachedNetworkImage(
+                            imageUrl: dog.profileImageUrl!,
+                            width: 40,
+                            height: 40,
+                            fit: BoxFit.cover,
+                          ),
+                        )
+                      : const CircleAvatar(child: Icon(Icons.pets)),
+                );
+              },
             ),
           ),
           actions: [
@@ -291,7 +306,7 @@ class StaffDailyAssignmentsScreenState
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: selected.isEmpty || (widget.canAssignDogs && selectedStaffId == null)
+              onPressed: selected.isEmpty
                   ? null
                   : () => Navigator.pop(context, true),
               child: const Text('Assign'),
@@ -303,8 +318,8 @@ class StaffDailyAssignmentsScreenState
 
     if (result == true && selected.isNotEmpty) {
       try {
-        if (widget.canAssignDogs && selectedStaffId != null) {
-          await _dataService.assignDogs(selected.toList(), selectedStaffId!, date: _selectedDate);
+        if (widget.canAssignDogs && _selectedStaffId != null) {
+          await _dataService.assignDogs(selected.toList(), _selectedStaffId!, date: _selectedDate);
         } else {
           await _dataService.assignDogsToMe(selected.toList(), date: _selectedDate);
         }
@@ -751,15 +766,38 @@ class StaffDailyAssignmentsScreenState
     );
   }
 
+  Widget _buildSortButton() {
+    return PopupMenuButton<DogSortOption>(
+      icon: const Icon(Icons.sort),
+      tooltip: 'Sort dogs',
+      onSelected: (option) => setState(() => _sortOption = option),
+      itemBuilder: (context) => DogSortOption.values.map((option) {
+        return PopupMenuItem(
+          value: option,
+          child: Row(
+            children: [
+              if (_sortOption == option)
+                const Icon(Icons.check, size: 18)
+              else
+                const SizedBox(width: 18),
+              const SizedBox(width: 8),
+              Text(option.label),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildStaffFilter() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.only(left: 16, right: 4),
       child: Row(
         children: [
           Expanded(
             child: DropdownButtonFormField<int?>(
               decoration: const InputDecoration(
-                labelText: 'Filter by staff',
+                labelText: 'Staff member',
                 border: OutlineInputBorder(),
                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 isDense: true,
@@ -787,6 +825,7 @@ class StaffDailyAssignmentsScreenState
               },
             ),
           ),
+          _buildSortButton(),
         ],
       ),
     );
@@ -800,6 +839,14 @@ class StaffDailyAssignmentsScreenState
         if (widget.canAssignDogs && _staffMembers.isNotEmpty) ...[
           _buildStaffFilter(),
           const SizedBox(height: 8),
+        ] else ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: _buildSortButton(),
+            ),
+          ),
         ],
         Expanded(
           child: PageView.builder(

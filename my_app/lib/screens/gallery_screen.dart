@@ -274,13 +274,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    CachedNetworkImage(
-                      imageUrl: photo.isVideo && photo.thumbnailUrl != null 
-                        ? photo.thumbnailUrl!
-                        : photo.url,
-                      fit: BoxFit.cover,
-                      errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: const Icon(Icons.error)),
-                    ),
+                    if (photo.isVideo && photo.thumbnailUrl == null)
+                      Container(color: Colors.grey[800])
+                    else
+                      CachedNetworkImage(
+                        imageUrl: photo.isVideo && photo.thumbnailUrl != null
+                          ? photo.thumbnailUrl!
+                          : photo.url,
+                        fit: BoxFit.cover,
+                        errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: const Icon(Icons.error)),
+                      ),
                     if (photo.isVideo)
                       Container(
                         color: Colors.black26,

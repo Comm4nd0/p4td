@@ -31,6 +31,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _phoneController = TextEditingController();
   final _pickupController = TextEditingController();
 
+  // Notification preferences
+  bool _notifyFeed = true;
+  bool _notifyTraffic = true;
+  bool _notifyBookings = true;
+  bool _notifyDogUpdates = true;
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +52,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _addressController.text = profile.address ?? '';
         _phoneController.text = profile.phoneNumber ?? '';
         _pickupController.text = profile.pickupInstructions ?? '';
+        _notifyFeed = profile.notifyFeed;
+        _notifyTraffic = profile.notifyTraffic;
+        _notifyBookings = profile.notifyBookings;
+        _notifyDogUpdates = profile.notifyDogUpdates;
         _isLoading = false;
       });
     } catch (e) {
@@ -73,6 +83,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         address: _addressController.text,
         phoneNumber: _phoneController.text,
         pickupInstructions: _pickupController.text,
+        notifyFeed: _notifyFeed,
+        notifyTraffic: _notifyTraffic,
+        notifyBookings: _notifyBookings,
+        notifyDogUpdates: _notifyDogUpdates,
       );
 
       await _dataService.updateProfile(updatedProfile);
@@ -325,27 +339,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       keyboardType: TextInputType.phone,
                     ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _addressController,
-                      decoration: const InputDecoration(
-                        labelText: 'Address',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.home),
+                    if (!_profile!.isStaff) ...[
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'Address',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.home),
+                        ),
+                        maxLines: 3,
                       ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _pickupController,
-                      decoration: const InputDecoration(
-                        labelText: 'Pickup Instructions',
-                        hintText: 'e.g., Key under the mat, Gate code 1234...',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.info),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _pickupController,
+                        decoration: const InputDecoration(
+                          labelText: 'Pickup Instructions',
+                          hintText: 'e.g., Key under the mat, Gate code 1234...',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.info),
+                        ),
+                        maxLines: 4,
                       ),
-                      maxLines: 4,
+                    ],
+                    const Divider(height: 32),
+                    Text(
+                      'Notifications',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      title: const Text('Feed Activity'),
+                      subtitle: const Text('New posts and comments'),
+                      secondary: const Icon(Icons.dynamic_feed),
+                      value: _notifyFeed,
+                      onChanged: (val) => setState(() => _notifyFeed = val),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    if (!_profile!.isStaff) ...[
+                      SwitchListTile(
+                        title: const Text('Traffic Alerts'),
+                        subtitle: const Text('Pickup and drop-off delay alerts'),
+                        secondary: const Icon(Icons.traffic),
+                        value: _notifyTraffic,
+                        onChanged: (val) => setState(() => _notifyTraffic = val),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      SwitchListTile(
+                        title: const Text('Booking Updates'),
+                        subtitle: const Text('Date changes and boarding requests'),
+                        secondary: const Icon(Icons.calendar_today),
+                        value: _notifyBookings,
+                        onChanged: (val) => setState(() => _notifyBookings = val),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      SwitchListTile(
+                        title: const Text('Dog Updates'),
+                        subtitle: const Text('Picked up, at daycare, dropped off'),
+                        secondary: const Icon(Icons.pets),
+                        value: _notifyDogUpdates,
+                        onChanged: (val) => setState(() => _notifyDogUpdates = val),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,

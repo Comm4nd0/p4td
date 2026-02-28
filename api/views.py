@@ -79,6 +79,78 @@ def process_image(image_file, max_size=(1280, 1280), quality=85):
         image_file.seek(0)
         return image_file
 
+def generate_video_thumbnail(file_obj):
+    """Generate a thumbnail image from a video file.
+
+    Extracts the first frame using FFmpeg, scales it to max 400px wide while
+    keeping the original aspect ratio, and returns a ContentFile ready to be
+    saved to an ImageField.  Returns None on any failure so uploads are never
+    blocked by thumbnail issues.
+
+    IMPORTANT: resets file_obj's read pointer to 0 before returning so that
+    Django can still save the original video file afterwards.
+    """
+    try:
+        if not file_obj:
+            return None
+
+        # Determine a proper temp-file suffix from the original filename
+        original_name = getattr(file_obj, 'name', '') or ''
+        ext = os.path.splitext(original_name)[1].lower() or '.mp4'
+
+        # Write the uploaded video to a temp file so FFmpeg can read it
+        if hasattr(file_obj, 'seek'):
+            file_obj.seek(0)
+
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_video:
+            if hasattr(file_obj, 'read'):
+                tmp_video.write(file_obj.read())
+            else:
+                for chunk in file_obj.chunks():
+                    tmp_video.write(chunk)
+            tmp_video_path = tmp_video.name
+
+        # Reset the file pointer so Django can save the video file later
+        if hasattr(file_obj, 'seek'):
+            file_obj.seek(0)
+
+        thumb_path = tempfile.mktemp(suffix='.jpg')
+        try:
+            # Extract the very first frame (works for any video length)
+            # and scale to max 400px wide, keeping aspect ratio.
+            # -2 ensures the height is divisible by 2 (required by many codecs).
+            result = subprocess.run([
+                'ffmpeg',
+                '-i', tmp_video_path,
+                '-vframes', '1',
+                '-vf', 'scale=400:-2',
+                '-y',
+                thumb_path,
+            ], capture_output=True, timeout=30, text=True)
+
+            if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+                with open(thumb_path, 'rb') as f:
+                    return ContentFile(f.read(), name='thumbnail.jpg')
+            else:
+                print(f"FFmpeg failed to generate thumbnail (rc={result.returncode})")
+                if result.stderr:
+                    print(f"FFmpeg stderr: {result.stderr[:500]}")
+                return None
+        finally:
+            for p in (tmp_video_path, thumb_path):
+                try:
+                    if os.path.exists(p):
+                        os.unlink(p)
+                except OSError:
+                    pass
+    except FileNotFoundError:
+        print("FFmpeg not found – install it to enable video thumbnails: sudo apt-get install ffmpeg")
+        return None
+    except Exception as e:
+        print(f"Error generating video thumbnail: {e}")
+        return None
+
+
 class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated]
@@ -321,18 +393,20 @@ class PhotoViewSet(viewsets.ModelViewSet):
         # Generate thumbnail and resize for photos
         media_type = serializer.validated_data.get('media_type', 'PHOTO')
         if media_type == 'VIDEO':
-            self._generate_video_thumbnail(serializer)
+            thumb = generate_video_thumbnail(serializer.validated_data.get('file'))
+            if thumb:
+                serializer.validated_data['thumbnail'] = thumb
         elif media_type == 'PHOTO':
             image_file = serializer.validated_data.get('file')
             if image_file:
                 # Resize main photo to max 1280x1280
                 processed_image = process_image(image_file, max_size=(1280, 1280))
                 serializer.validated_data['file'] = processed_image
-                
+
                 # Generate a 400x400 thumbnail for the photo
                 thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
                 serializer.validated_data['thumbnail'] = thumbnail
-        
+
         serializer.save()
 
     @action(detail=True, methods=['post'])
@@ -344,65 +418,6 @@ class PhotoViewSet(viewsets.ModelViewSet):
         
         Comment.objects.create(user=request.user, photo=photo, text=text)
         return Response(self.get_serializer(photo).data)
-
-    def _generate_video_thumbnail(self, serializer):
-        """Generate a thumbnail for video uploads"""
-        try:
-            file_obj = serializer.validated_data.get('file')
-            if not file_obj:
-                return
-            
-            # Save video temporarily to disk
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
-                # Reset file pointer to beginning
-                if hasattr(file_obj, 'seek'):
-                    file_obj.seek(0)
-                
-                # Write file content
-                if hasattr(file_obj, 'read'):
-                    tmp_video.write(file_obj.read())
-                else:
-                    for chunk in file_obj.chunks():
-                        tmp_video.write(chunk)
-                
-                tmp_video_path = tmp_video.name
-            
-            try:
-                # Create thumbnail file path
-                thumb_path = tempfile.mktemp(suffix='.jpg')
-                
-                # Generate thumbnail at 1 second mark using ffmpeg
-                result = subprocess.run([
-                    'ffmpeg', '-i', tmp_video_path, 
-                    '-ss', '00:00:01', 
-                    '-vframes', '1', 
-                    '-s', '320x320', 
-                    '-y',  # Overwrite output file
-                    thumb_path
-                ], capture_output=True, timeout=30, text=True)
-                
-                # Check if thumbnail was created successfully
-                if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
-                    with open(thumb_path, 'rb') as f:
-                        thumb_content = ContentFile(f.read(), name='thumbnail.jpg')
-                        serializer.validated_data['thumbnail'] = thumb_content
-                    os.unlink(thumb_path)
-                else:
-                    if result.returncode != 0 and result.stderr:
-                        print(f"FFmpeg error: {result.stderr}")
-            finally:
-                # Clean up temporary video file
-                if os.path.exists(tmp_video_path):
-                    try:
-                        os.unlink(tmp_video_path)
-                    except:
-                        pass
-        except FileNotFoundError:
-            print("FFmpeg not found - install it to enable video thumbnails: sudo apt-get install ffmpeg")
-        except Exception as e:
-            print(f"Error generating video thumbnail: {e}")
-            import traceback
-            traceback.print_exc()
 
     @action(detail=False, methods=['get'])
     def by_dog(self, request):
@@ -513,95 +528,33 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             # Generate thumbnail and resize for photos
             media_type = serializer.validated_data.get('media_type', 'PHOTO')
             if media_type == 'VIDEO':
-                self._generate_video_thumbnail(serializer)
+                thumb = generate_video_thumbnail(serializer.validated_data.get('file'))
+                if thumb:
+                    serializer.validated_data['thumbnail'] = thumb
             elif media_type == 'PHOTO':
                 image_file = serializer.validated_data.get('file')
                 if image_file:
                     # Resize main photo to max 1280x1280
                     processed_image = process_image(image_file, max_size=(1280, 1280))
                     serializer.validated_data['file'] = processed_image
-                    
+
                     # Generate a 400x400 thumbnail for the photo
                     thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
                     serializer.validated_data['thumbnail'] = thumbnail
-            
+
             instance = serializer.save(uploaded_by=self.request.user)
-            
+
             # Send push notification to other users
             try:
                 from .notifications import notify_new_post
                 notify_new_post(instance)
             except Exception as e:
                 print(f"Failed to send notification: {e}")
-                
+
         except Exception as e:
             import traceback
             traceback.print_exc()
             raise e
-
-    def _generate_video_thumbnail(self, serializer):
-        """Generate a thumbnail for video uploads"""
-        try:
-            file_obj = serializer.validated_data.get('file')
-            if not file_obj:
-                return
-            
-            # Save video temporarily to disk
-            import tempfile
-            import subprocess
-            import os
-            from django.core.files.base import ContentFile
-
-            # Create temp file with proper extension
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
-                # Reset file pointer to beginning
-                if hasattr(file_obj, 'seek'):
-                    file_obj.seek(0)
-                
-                # Write file content
-                if hasattr(file_obj, 'read'):
-                    tmp_video.write(file_obj.read())
-                else:
-                    for chunk in file_obj.chunks():
-                        tmp_video.write(chunk)
-                
-                tmp_video_path = tmp_video.name
-            
-            try:
-                # Create thumbnail file path
-                thumb_path = tempfile.mktemp(suffix='.jpg')
-                
-                # Generate thumbnail at 1 second mark using ffmpeg
-                result = subprocess.run([
-                    'ffmpeg', '-i', tmp_video_path, 
-                    '-ss', '00:00:01', 
-                    '-vframes', '1', 
-                    '-s', '320x320', 
-                    '-y',  # Overwrite output file
-                    thumb_path
-                ], capture_output=True, timeout=30, text=True)
-                
-                # Check if thumbnail was created successfully
-                if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
-                    with open(thumb_path, 'rb') as f:
-                        thumb_content = ContentFile(f.read(), name='thumbnail.jpg')
-                        serializer.validated_data['thumbnail'] = thumb_content
-                    os.unlink(thumb_path)
-                else:
-                    print(f"Failed to generate thumbnail. Return code: {result.returncode}")
-                    if result.stderr:
-                        print(f"FFmpeg stderr: {result.stderr}")
-            finally:
-                # Clean up temporary video file
-                if os.path.exists(tmp_video_path):
-                    try:
-                        os.unlink(tmp_video_path)
-                    except:
-                        pass
-        except Exception as e:
-            print(f"Error generating video thumbnail: {e}")
-            # Don't fail the upload if thumbnail generation fails
-            pass
 
     @action(detail=True, methods=['get'])
     def reaction_details(self, request, pk=None):
