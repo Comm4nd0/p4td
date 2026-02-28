@@ -745,7 +745,7 @@ class ApiDataService implements DataService {
     }
   }
 
-  /// Upload multiple photos to the group feed
+  /// Upload multiple media files to the group feed
   /// [files] is a list of (bytes, filename) tuples
   /// [onProgress] is called after each file upload with (completed, total)
   Future<void> uploadMultipleGroupMedia({
@@ -755,10 +755,12 @@ class ApiDataService implements DataService {
   }) async {
     for (int i = 0; i < files.length; i++) {
       final (bytes, fileName) = files[i];
+      final ext = fileName.toLowerCase();
+      final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
       await uploadGroupMedia(
         fileBytes: bytes,
         fileName: fileName,
-        isVideo: false,
+        isVideo: isVideo,
         caption: caption,
       );
       onProgress?.call(i + 1, files.length);

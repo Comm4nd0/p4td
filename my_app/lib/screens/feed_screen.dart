@@ -116,7 +116,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
              const Divider(),
             ListTile(
               leading: const Icon(Icons.library_add),
-              title: const Text('Upload Multiple Photos'),
+              title: const Text('Upload Multiple'),
               onTap: () => Navigator.pop(context, 'multiple'),
             ),
           ],
@@ -181,8 +181,8 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   }
 
   Future<void> _uploadMultiplePhotos(ImagePicker picker) async {
-    // Pick multiple images
-    final files = await picker.pickMultiImage();
+    // Pick multiple media (images and videos)
+    final files = await picker.pickMultipleMedia();
     if (files.isEmpty) return;
 
     // Show caption dialog
@@ -196,66 +196,48 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       fileData.add((bytes, file.name));
     }
 
-    // Show progress dialog
-    int completed = 0;
+    // Show progress dialog using a ValueNotifier so we can update it in place
+    final progress = ValueNotifier<int>(0);
     final total = files.length;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: ValueListenableBuilder<int>(
+          valueListenable: progress,
+          builder: (context, completed, _) => AlertDialog(
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
-                Text('Uploading $completed/$total photos...'),
+                Text('Uploading $completed/$total...'),
                 const SizedBox(height: 8),
                 LinearProgressIndicator(value: total > 0 ? completed / total : 0),
               ],
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
 
+    int completed = 0;
     try {
       await _dataService.uploadMultipleGroupMedia(
         files: fileData,
         caption: caption.isEmpty ? null : caption,
         onProgress: (done, count) {
           completed = done;
-          // Update progress - need to rebuild dialog
-          if (mounted) {
-            Navigator.pop(context);
-            if (done < count) {
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) => AlertDialog(
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      Text('Uploading $done/$count photos...'),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(value: done / count),
-                    ],
-                  ),
-                ),
-              );
-            }
-          }
+          progress.value = done;
         },
       );
       if (mounted) {
-        Navigator.pop(context); // Close final dialog
+        Navigator.pop(context); // Close progress dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Successfully uploaded $total photos!'),
+            content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
             backgroundColor: Colors.green,
           ),
         );
