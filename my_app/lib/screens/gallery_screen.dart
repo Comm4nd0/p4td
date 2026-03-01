@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
@@ -381,11 +382,15 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                     if (photo.isVideo) {
                       return VideoViewer(url: photo.url, thumbnail: photo.thumbnailUrl);
                     } else {
-                      return Center(
-                        child: CachedNetworkImage(
-                          imageUrl: photo.url,
-                          placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                          errorWidget: (context, url, error) => const Icon(Icons.error),
+                      return InteractiveViewer(
+                        minScale: 1.0,
+                        maxScale: 4.0,
+                        child: Center(
+                          child: CachedNetworkImage(
+                            imageUrl: photo.url,
+                            placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                            errorWidget: (context, url, error) => const Icon(Icons.error),
+                          ),
                         ),
                       );
                     }
@@ -429,7 +434,7 @@ class VideoViewer extends StatefulWidget {
   final String url;
   final String? thumbnail;
 
-  const VideoViewer({required this.url, this.thumbnail});
+  const VideoViewer({super.key, required this.url, this.thumbnail});
 
   @override
   State<VideoViewer> createState() => _VideoViewerState();
@@ -439,9 +444,12 @@ class _VideoViewerState extends State<VideoViewer> {
   VideoPlayerController? _controller;
   bool _isPlaying = false;
   bool _initialized = false;
+  bool _showControls = true;
+  Timer? _hideTimer;
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _controller?.dispose();
     super.dispose();
   }
@@ -450,10 +458,48 @@ class _VideoViewerState extends State<VideoViewer> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     await _controller!.initialize();
     if (mounted) {
+      _controller!.addListener(_onVideoUpdate);
       setState(() => _initialized = true);
       _controller!.play();
       setState(() => _isPlaying = true);
+      _startHideTimer();
     }
+  }
+
+  void _onVideoUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  void _togglePlayPause() {
+    if (_isPlaying) {
+      _controller!.pause();
+    } else {
+      _controller!.play();
+    }
+    setState(() => _isPlaying = !_isPlaying);
+    _startHideTimer();
+  }
+
+  void _toggleControls() {
+    setState(() => _showControls = !_showControls);
+    if (_showControls && _isPlaying) {
+      _startHideTimer();
+    }
+  }
+
+  void _startHideTimer() {
+    _hideTimer?.cancel();
+    if (_isPlaying) {
+      _hideTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _showControls = false);
+      });
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   @override
@@ -497,15 +543,11 @@ class _VideoViewerState extends State<VideoViewer> {
       );
     }
 
+    final position = _controller!.value.position;
+    final duration = _controller!.value.duration;
+
     return GestureDetector(
-      onTap: () {
-        if (_isPlaying) {
-          _controller!.pause();
-        } else {
-          _controller!.play();
-        }
-        setState(() => _isPlaying = !_isPlaying);
-      },
+      onTap: _toggleControls,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -513,15 +555,70 @@ class _VideoViewerState extends State<VideoViewer> {
             aspectRatio: _controller!.value.aspectRatio,
             child: VideoPlayer(_controller!),
           ),
-          if (!_isPlaying)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(50),
+          // Controls overlay
+          if (_showControls) ...[
+            // Play/pause button
+            GestureDetector(
+              onTap: _togglePlayPause,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(50),
+                ),
+                child: Icon(
+                  _isPlaying ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                  size: 48,
+                ),
               ),
-              child: const Icon(Icons.play_arrow, color: Colors.white, size: 48),
             ),
+            // Bottom controls bar
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [Colors.black54, Colors.transparent],
+                  ),
+                ),
+                padding: const EdgeInsets.fromLTRB(12, 24, 12, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    VideoProgressIndicator(
+                      _controller!,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                        playedColor: Colors.white,
+                        bufferedColor: Colors.white38,
+                        backgroundColor: Colors.white24,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _formatDuration(position),
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                        Text(
+                          _formatDuration(duration),
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
