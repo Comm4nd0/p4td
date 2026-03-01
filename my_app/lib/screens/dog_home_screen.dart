@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/owner_profile.dart';
@@ -659,6 +660,202 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
   }
 
+  Future<void> _showRequestAdditionalDays() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    Set<DateTime> selectedDates = {};
+
+    final result = await showDialog<Set<DateTime>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Request Additional Days'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Tap dates to select them for ${_dog.name}',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 350,
+                    child: TableCalendar(
+                      firstDay: today,
+                      lastDay: DateTime(now.year, now.month + 3, now.day),
+                      focusedDay: today,
+                      startingDayOfWeek: StartingDayOfWeek.monday,
+                      calendarFormat: CalendarFormat.month,
+                      selectedDayPredicate: (day) {
+                        return selectedDates.contains(DateTime(day.year, day.month, day.day));
+                      },
+                      onDaySelected: (selectedDay, focusedDay) {
+                        final normalized = DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
+                        setDialogState(() {
+                          if (selectedDates.contains(normalized)) {
+                            selectedDates.remove(normalized);
+                          } else {
+                            selectedDates.add(normalized);
+                          }
+                        });
+                      },
+                      calendarStyle: CalendarStyle(
+                        selectedDecoration: BoxDecoration(
+                          color: Colors.green[600],
+                          shape: BoxShape.circle,
+                        ),
+                        todayDecoration: BoxDecoration(
+                          color: Colors.green[100],
+                          shape: BoxShape.circle,
+                        ),
+                        todayTextStyle: TextStyle(color: Colors.green[800]!),
+                      ),
+                      headerStyle: const HeaderStyle(
+                        formatButtonVisible: false,
+                        titleCentered: true,
+                      ),
+                    ),
+                  ),
+                  if (selectedDates.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '${selectedDates.length} day${selectedDates.length == 1 ? '' : 's'} selected',
+                      style: TextStyle(
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: selectedDates.isEmpty
+                    ? null
+                    : () => Navigator.pop(context, selectedDates),
+                child: Text(selectedDates.isEmpty
+                    ? 'Select dates'
+                    : 'Request ${selectedDates.length} day${selectedDates.length == 1 ? '' : 's'}'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result != null && result.isNotEmpty && mounted) {
+      _showAdditionalDaysConfirmation(result);
+    }
+  }
+
+  void _showAdditionalDaysConfirmation(Set<DateTime> dates) {
+    final sortedDates = dates.toList()..sort();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Request ${_dog.name} to attend daycare on:'),
+            const SizedBox(height: 12),
+            ...sortedDates.map((date) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green[300]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.add_circle_outline, color: Colors.green[800], size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      DateFormat('EEE, d MMMM yyyy').format(date),
+                      style: TextStyle(
+                        color: Colors.green[800],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )),
+            const SizedBox(height: 8),
+            Text(
+              'Each day will need to be approved by staff.',
+              style: TextStyle(color: Colors.grey[600], fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _submitAdditionalDayRequests(sortedDates);
+            },
+            child: Text('Submit ${sortedDates.length} Request${sortedDates.length == 1 ? '' : 's'}'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitAdditionalDayRequests(List<DateTime> dates) async {
+    int successCount = 0;
+    int failCount = 0;
+
+    for (final date in dates) {
+      try {
+        await _dataService.submitAdditionalDayRequest(
+          dogId: _dog.id,
+          requestedDate: date,
+        );
+        successCount++;
+      } catch (e) {
+        failCount++;
+      }
+    }
+
+    if (mounted) {
+      if (failCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successCount == 1
+                ? 'Additional day request submitted'
+                : '$successCount additional day requests submitted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$successCount submitted, $failCount failed'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      _loadRequests();
+    }
+  }
+
   Widget _buildRequestsSection() {
     if (_loadingRequests) {
       return const Padding(
@@ -695,15 +892,21 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             leading: Icon(
               request.requestType == RequestType.cancel
                   ? Icons.cancel_outlined
-                  : Icons.swap_horiz,
+                  : request.requestType == RequestType.addDay
+                      ? Icons.add_circle_outline
+                      : Icons.swap_horiz,
               color: request.requestType == RequestType.cancel
                   ? Colors.red
-                  : AppColors.primary,
+                  : request.requestType == RequestType.addDay
+                      ? Colors.green
+                      : AppColors.primary,
             ),
             title: Text(
               request.requestType == RequestType.cancel
-                  ? 'Cancel ${DateFormat('EEE, d MMM').format(request.originalDate)}'
-                  : '${DateFormat('EEE, d MMM').format(request.originalDate)} → ${DateFormat('EEE, d MMM').format(request.newDate!)}',
+                  ? 'Cancel ${DateFormat('EEE, d MMM').format(request.originalDate!)}'
+                  : request.requestType == RequestType.addDay
+                      ? 'Add ${DateFormat('EEE, d MMM').format(request.newDate!)}'
+                      : '${DateFormat('EEE, d MMM').format(request.originalDate!)} → ${DateFormat('EEE, d MMM').format(request.newDate!)}',
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             ),
             subtitle: Row(
@@ -969,6 +1172,21 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ],
+                  if (!widget.isStaff) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _showRequestAdditionalDays,
+                        icon: const Icon(Icons.add_circle_outline),
+                        label: const Text('Request Additional Days'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green[700],
+                          side: BorderSide(color: Colors.green[300]!),
+                        ),
+                      ),
                     ),
                   ],
                   _buildRequestsSection(),

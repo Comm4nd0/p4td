@@ -126,6 +126,7 @@ class DateChangeRequest(models.Model):
     REQUEST_TYPE_CHOICES = [
         ('CANCEL', 'Cancellation'),
         ('CHANGE', 'Date Change'),
+        ('ADD_DAY', 'Additional Day'),
     ]
 
     STATUS_CHOICES = [
@@ -136,7 +137,7 @@ class DateChangeRequest(models.Model):
 
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='date_change_requests')
     request_type = models.CharField(max_length=10, choices=REQUEST_TYPE_CHOICES)
-    original_date = models.DateField()
+    original_date = models.DateField(null=True, blank=True)
     new_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
     is_charged = models.BooleanField(default=False, help_text='Whether the original date is within 1 month and will be charged')
@@ -151,6 +152,8 @@ class DateChangeRequest(models.Model):
     def __str__(self):
         if self.request_type == 'CANCEL':
             return f"{self.dog.name} - Cancel {self.original_date}"
+        if self.request_type == 'ADD_DAY':
+            return f"{self.dog.name} - Add {self.new_date}"
         return f"{self.dog.name} - Change {self.original_date} to {self.new_date}"
 
 
@@ -320,8 +323,12 @@ def notify_staff_date_change(sender, instance, created, **kwargs):
     if created:
         dog_name = instance.dog.name
         request_type = instance.get_request_type_display()
-        title = "New Date Change Request"
-        body = f"{dog_name}: {request_type} requested."
+        if instance.request_type == 'ADD_DAY':
+            title = "New Additional Day Request"
+            body = f"{dog_name}: {request_type} requested for {instance.new_date}."
+        else:
+            title = "New Date Change Request"
+            body = f"{dog_name}: {request_type} requested."
         data = {
             'type': 'date_change_request',
             'id': str(instance.id),

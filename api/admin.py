@@ -232,6 +232,8 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
     def request_type_display(self, obj):
         if obj.request_type == 'CANCEL':
             return format_html('<span style="color: #dc3545;">Cancellation</span>')
+        if obj.request_type == 'ADD_DAY':
+            return format_html('<span style="color: #198754;">Additional Day</span>')
         return format_html('<span style="color: #0d6efd;">Date Change</span>')
     request_type_display.short_description = 'Type'
 
