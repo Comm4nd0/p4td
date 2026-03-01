@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -111,19 +112,22 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           ),
           // Media content
           if (widget.media.isPhoto)
-            CachedNetworkImage(
-              imageUrl: widget.media.fileUrl,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              placeholder: (context, url) => Container(
-                height: 200,
-                color: Colors.grey[200],
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-              errorWidget: (context, url, error) => Container(
-                height: 200,
-                color: Colors.grey[300],
-                child: const Center(child: Icon(Icons.error)),
+            GestureDetector(
+              onTap: () => _openFullScreenImage(context, widget.media.fileUrl),
+              child: CachedNetworkImage(
+                imageUrl: widget.media.fileUrl,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  height: 200,
+                  color: Colors.grey[200],
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+                errorWidget: (context, url, error) => Container(
+                  height: 200,
+                  color: Colors.grey[300],
+                  child: const Center(child: Icon(Icons.error)),
+                ),
               ),
             )
           else
@@ -231,6 +235,29 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
         ),
       ],
     );
+  }
+
+  void _openFullScreenImage(BuildContext context, String imageUrl) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: 1.0,
+            maxScale: 4.0,
+            child: CachedNetworkImage(
+              imageUrl: imageUrl,
+              placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+              errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    ));
   }
 
   void _showProfilePopup(BuildContext context) {
@@ -431,9 +458,12 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   VideoPlayerController? _controller;
   bool _isPlaying = false;
   bool _initialized = false;
+  bool _showControls = true;
+  Timer? _hideTimer;
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _controller?.dispose();
     super.dispose();
   }
@@ -442,10 +472,48 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     await _controller!.initialize();
     if (mounted) {
+      _controller!.addListener(_onVideoUpdate);
       setState(() => _initialized = true);
       _controller!.play();
       setState(() => _isPlaying = true);
+      _startHideTimer();
     }
+  }
+
+  void _onVideoUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  void _togglePlayPause() {
+    if (_isPlaying) {
+      _controller!.pause();
+    } else {
+      _controller!.play();
+    }
+    setState(() => _isPlaying = !_isPlaying);
+    _startHideTimer();
+  }
+
+  void _toggleControls() {
+    setState(() => _showControls = !_showControls);
+    if (_showControls && _isPlaying) {
+      _startHideTimer();
+    }
+  }
+
+  void _startHideTimer() {
+    _hideTimer?.cancel();
+    if (_isPlaying) {
+      _hideTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _showControls = false);
+      });
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   @override
@@ -491,15 +559,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       );
     }
 
+    final position = _controller!.value.position;
+    final duration = _controller!.value.duration;
+
     return GestureDetector(
-      onTap: () {
-        if (_isPlaying) {
-          _controller!.pause();
-        } else {
-          _controller!.play();
-        }
-        setState(() => _isPlaying = !_isPlaying);
-      },
+      onTap: _toggleControls,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -507,15 +571,70 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
             aspectRatio: _controller!.value.aspectRatio,
             child: VideoPlayer(_controller!),
           ),
-          if (!_isPlaying)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(50),
+          // Controls overlay
+          if (_showControls) ...[
+            // Play/pause button
+            GestureDetector(
+              onTap: _togglePlayPause,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(50),
+                ),
+                child: Icon(
+                  _isPlaying ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                  size: 36,
+                ),
               ),
-              child: const Icon(Icons.play_arrow, color: Colors.white, size: 48),
             ),
+            // Bottom controls bar
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [Colors.black54, Colors.transparent],
+                  ),
+                ),
+                padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    VideoProgressIndicator(
+                      _controller!,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                        playedColor: Colors.white,
+                        bufferedColor: Colors.white38,
+                        backgroundColor: Colors.white24,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _formatDuration(position),
+                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                        Text(
+                          _formatDuration(duration),
+                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
