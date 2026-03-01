@@ -488,7 +488,10 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         try:
             from .notifications import send_push_notification
             title = f"Request {new_status.title()}"
-            body = f"Your {instance.request_type.lower()} request for {instance.dog.name} on {instance.original_date} has been {new_status.lower()}."
+            if instance.request_type == 'ADD_DAY':
+                body = f"Your additional day request for {instance.dog.name} on {instance.new_date} has been {new_status.lower()}."
+            else:
+                body = f"Your {instance.request_type.lower()} request for {instance.dog.name} on {instance.original_date} has been {new_status.lower()}."
             data = {'type': 'date_change_status', 'id': str(instance.id)}
             if instance.dog.owner:
                 send_push_notification(instance.dog.owner, title, body, data)

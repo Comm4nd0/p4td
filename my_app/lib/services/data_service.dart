@@ -632,6 +632,37 @@ class ApiDataService implements DataService {
     }
   }
 
+  Future<void> submitAdditionalDayRequest({
+    required String dogId,
+    required DateTime requestedDate,
+  }) async {
+    final headers = await _getHeaders();
+
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/date-change-requests/'),
+      headers: headers,
+      body: json.encode({
+        'dog': int.parse(dogId),
+        'request_type': 'ADD_DAY',
+        'new_date': requestedDate.toIso8601String().split('T')[0],
+        'is_charged': false,
+      }),
+    );
+
+    if (response.statusCode != 201) {
+      String errorMessage = 'Failed to submit request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
   @override
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
     final headers = await _getHeaders();

@@ -298,15 +298,27 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             Row(
               children: [
                 Icon(
-                  request.requestType == RequestType.cancel ? Icons.cancel_outlined : Icons.swap_horiz,
-                  color: request.requestType == RequestType.cancel ? Colors.red : AppColors.primary,
+                  request.requestType == RequestType.cancel
+                      ? Icons.cancel_outlined
+                      : request.requestType == RequestType.addDay
+                          ? Icons.add_circle_outline
+                          : Icons.swap_horiz,
+                  color: request.requestType == RequestType.cancel
+                      ? Colors.red
+                      : request.requestType == RequestType.addDay
+                          ? Colors.green
+                          : AppColors.primary,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  request.requestType == RequestType.cancel ? 'Cancellation' : 'Date Change',
+                  request.requestTypeDisplayName,
                   style: TextStyle(
-                    color: request.requestType == RequestType.cancel ? Colors.red : AppColors.primary,
+                    color: request.requestType == RequestType.cancel
+                        ? Colors.red
+                        : request.requestType == RequestType.addDay
+                            ? Colors.green
+                            : AppColors.primary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -315,7 +327,12 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             const SizedBox(height: 8),
             if (request.requestType == RequestType.cancel)
               Text(
-                'Cancel: ${DateFormat('EEE, d MMM yyyy').format(request.originalDate)}',
+                'Cancel: ${DateFormat('EEE, d MMM yyyy').format(request.originalDate!)}',
+                style: const TextStyle(fontSize: 14),
+              )
+            else if (request.requestType == RequestType.addDay)
+              Text(
+                'Additional day: ${DateFormat('EEE, d MMM yyyy').format(request.newDate!)}',
                 style: const TextStyle(fontSize: 14),
               )
             else
@@ -326,7 +343,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('From:', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                        Text(DateFormat('EEE, d MMM').format(request.originalDate)),
+                        Text(DateFormat('EEE, d MMM').format(request.originalDate!)),
                       ],
                     ),
                   ),
