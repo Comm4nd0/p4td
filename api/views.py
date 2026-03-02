@@ -308,6 +308,9 @@ class DogViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
+        # Attach the requesting user so the care-instructions signal can
+        # include who made the change in the staff notification.
+        serializer.instance._changed_by = self.request.user
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
