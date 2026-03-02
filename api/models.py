@@ -114,8 +114,8 @@ class Photo(models.Model):
     
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='photos')
     media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES, default='PHOTO')
-    file = models.FileField(upload_to='dog_photos/')
-    thumbnail = models.ImageField(upload_to='dog_photos/thumbnails/', null=True, blank=True)
+    file = models.FileField(upload_to='dog_photos/', max_length=150)
+    thumbnail = models.ImageField(upload_to='dog_photos/thumbnails/', max_length=150, null=True, blank=True)
     taken_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -177,8 +177,8 @@ class GroupMedia(models.Model):
 
     uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='uploaded_media')
     media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES)
-    file = models.FileField(upload_to='group_media/')
-    thumbnail = models.ImageField(upload_to='group_media/thumbnails/', null=True, blank=True)
+    file = models.FileField(upload_to='group_media/', max_length=150)
+    thumbnail = models.ImageField(upload_to='group_media/thumbnails/', max_length=150, null=True, blank=True)
     caption = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
