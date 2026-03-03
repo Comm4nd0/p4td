@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../constants/app_colors.dart';
 import '../models/staff_availability.dart';
 import '../services/data_service.dart';
@@ -22,6 +23,11 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   bool _loadingMy = true;
   bool _saving = false;
 
+  // Calendar state
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+  DateTime _focusedDay = DateTime.now();
+  DateTime _selectedDay = DateTime.now();
+
   // Coverage tab
   Map<String, dynamic> _coverage = {};
   bool _loadingCoverage = true;
@@ -30,6 +36,10 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday',
     5: 'Friday', 6: 'Saturday', 7: 'Sunday',
   };
+
+  /// Convert DateTime.weekday (1=Mon..7=Sun) to our model key (1=Mon..7=Sun).
+  /// They happen to match, but this keeps intent clear.
+  int _dayOfWeek(DateTime date) => date.weekday;
 
   @override
   void initState() {
@@ -152,98 +162,171 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     );
   }
 
+  // ── My Availability Tab (Calendar) ──────────────────────────────────
+
   Widget _buildMyAvailabilityTab() {
     if (_loadingMy) return const Center(child: CircularProgressIndicator());
 
+    final dow = _dayOfWeek(_selectedDay);
+    final daycareAvail = _myDaycareAvailability[dow] ?? true;
+    final boardingAvail = _myBoardingAvailability[dow] ?? true;
+
     return Column(
       children: [
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: 7,
-            itemBuilder: (context, index) {
-              final day = index + 1;
-              final daycareAvail = _myDaycareAvailability[day] ?? true;
-              final boardingAvail = _myBoardingAvailability[day] ?? true;
-              final anyAvailable = daycareAvail || boardingAvail;
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: anyAvailable
-                                ? AppColors.success.withAlpha(30)
-                                : AppColors.error.withAlpha(30),
-                            child: Icon(
-                              anyAvailable ? Icons.check : Icons.close,
-                              color: anyAvailable ? AppColors.success : AppColors.error,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _dayNames[day]!,
-                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                                ),
-                                if (_myNotes[day]?.isNotEmpty == true)
-                                  GestureDetector(
-                                    onTap: () => _editNote(day),
-                                    child: Text(
-                                      _myNotes[day]!,
-                                      style: TextStyle(fontSize: 13, color: AppColors.grey600),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_note, size: 20),
-                            onPressed: () => _editNote(day),
-                            tooltip: 'Edit note',
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _ServiceToggle(
-                              label: 'Day Care',
-                              icon: Icons.wb_sunny_outlined,
-                              value: daycareAvail,
-                              onChanged: (val) {
-                                setState(() => _myDaycareAvailability[day] = val);
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _ServiceToggle(
-                              label: 'Boarding',
-                              icon: Icons.nightlight_outlined,
-                              value: boardingAvail,
-                              onChanged: (val) {
-                                setState(() => _myBoardingAvailability[day] = val);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
+        // Format selector
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: SegmentedButton<CalendarFormat>(
+            segments: const [
+              ButtonSegment(value: CalendarFormat.month, label: Text('Month')),
+              ButtonSegment(value: CalendarFormat.week, label: Text('Week')),
+              ButtonSegment(value: CalendarFormat.twoWeeks, label: Text('Day')),
+            ],
+            selected: {_calendarFormat},
+            onSelectionChanged: (selection) {
+              setState(() => _calendarFormat = selection.first);
             },
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              textStyle: WidgetStatePropertyAll(
+                Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
           ),
         ),
+
+        // Calendar
+        TableCalendar(
+          firstDay: DateTime.utc(2020, 1, 1),
+          lastDay: DateTime.utc(2030, 12, 31),
+          focusedDay: _focusedDay,
+          calendarFormat: _calendarFormat,
+          startingDayOfWeek: StartingDayOfWeek.monday,
+          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+          onDaySelected: (selectedDay, focusedDay) {
+            setState(() {
+              _selectedDay = selectedDay;
+              _focusedDay = focusedDay;
+            });
+          },
+          onFormatChanged: (format) {
+            setState(() => _calendarFormat = format);
+          },
+          onPageChanged: (focusedDay) {
+            _focusedDay = focusedDay;
+          },
+          calendarBuilders: CalendarBuilders(
+            defaultBuilder: _buildCalendarCell,
+            todayBuilder: _buildCalendarCell,
+            selectedBuilder: (context, date, focusedDay) {
+              return _buildCalendarCell(context, date, focusedDay, isSelected: true);
+            },
+          ),
+          headerStyle: HeaderStyle(
+            formatButtonVisible: false,
+            titleCentered: true,
+            titleTextStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            leftChevronIcon: const Icon(Icons.chevron_left, color: AppColors.primary),
+            rightChevronIcon: const Icon(Icons.chevron_right, color: AppColors.primary),
+          ),
+          daysOfWeekStyle: DaysOfWeekStyle(
+            weekdayStyle: TextStyle(color: AppColors.grey600, fontWeight: FontWeight.w600, fontSize: 12),
+            weekendStyle: TextStyle(color: AppColors.grey500, fontWeight: FontWeight.w600, fontSize: 12),
+          ),
+          calendarStyle: const CalendarStyle(
+            outsideDaysVisible: false,
+            cellMargin: EdgeInsets.all(4),
+          ),
+        ),
+
+        const Divider(height: 1),
+
+        // Selected day detail panel
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Day header
+                Row(
+                  children: [
+                    _buildStatusIndicator(daycareAvail, boardingAvail),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _dayNames[dow]!,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                          ),
+                          Text(
+                            _formatDate(_selectedDay),
+                            style: TextStyle(fontSize: 13, color: AppColors.grey600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_note),
+                      onPressed: () => _editNote(dow),
+                      tooltip: 'Edit note',
+                    ),
+                  ],
+                ),
+
+                // Note
+                if (_myNotes[dow]?.isNotEmpty == true) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.grey100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.sticky_note_2_outlined, size: 16, color: AppColors.grey500),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _myNotes[dow]!,
+                            style: TextStyle(fontSize: 13, color: AppColors.grey700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+
+                // Service toggles
+                _ServiceToggle(
+                  label: 'Day Care',
+                  icon: Icons.wb_sunny_outlined,
+                  value: daycareAvail,
+                  onChanged: (val) {
+                    setState(() => _myDaycareAvailability[dow] = val);
+                  },
+                ),
+                const SizedBox(height: 8),
+                _ServiceToggle(
+                  label: 'Boarding',
+                  icon: Icons.nightlight_outlined,
+                  value: boardingAvail,
+                  onChanged: (val) {
+                    setState(() => _myBoardingAvailability[dow] = val);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Save button
         Padding(
           padding: const EdgeInsets.all(16),
           child: SizedBox(
@@ -259,6 +342,103 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         ),
       ],
     );
+  }
+
+  Widget? _buildCalendarCell(BuildContext context, DateTime date, DateTime focusedDay, {bool isSelected = false}) {
+    final dow = _dayOfWeek(date);
+    final dc = _myDaycareAvailability[dow] ?? true;
+    final bd = _myBoardingAvailability[dow] ?? true;
+
+    Color bgColor;
+    Color textColor;
+
+    if (isSelected) {
+      bgColor = AppColors.primary;
+      textColor = Colors.white;
+    } else if (dc && bd) {
+      bgColor = AppColors.success.withAlpha(30);
+      textColor = AppColors.success;
+    } else if (dc || bd) {
+      bgColor = AppColors.warning.withAlpha(30);
+      textColor = AppColors.warning;
+    } else {
+      bgColor = AppColors.error.withAlpha(30);
+      textColor = AppColors.error;
+    }
+
+    return Container(
+      margin: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${date.day}',
+              style: TextStyle(
+                color: textColor,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: 14,
+              ),
+            ),
+            if (!isSelected)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: dc ? AppColors.success : AppColors.error,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bd ? AppColors.success : AppColors.error,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusIndicator(bool daycare, bool boarding) {
+    final both = daycare && boarding;
+    final neither = !daycare && !boarding;
+
+    Color color;
+    IconData icon;
+    if (both) {
+      color = AppColors.success;
+      icon = Icons.check_circle;
+    } else if (neither) {
+      color = AppColors.error;
+      icon = Icons.cancel;
+    } else {
+      color = AppColors.warning;
+      icon = Icons.remove_circle;
+    }
+
+    return CircleAvatar(
+      backgroundColor: color.withAlpha(30),
+      child: Icon(icon, color: color),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 
   Future<void> _editNote(int day) async {
@@ -285,6 +465,8 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
       setState(() => _myNotes[day] = note.trim());
     }
   }
+
+  // ── Team Coverage Tab ───────────────────────────────────────────────
 
   Widget _buildCoverageTab() {
     if (_loadingCoverage) return const Center(child: CircularProgressIndicator());
@@ -415,7 +597,7 @@ class _ServiceToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: value ? AppColors.success.withAlpha(20) : AppColors.grey100,
         borderRadius: BorderRadius.circular(8),
@@ -425,27 +607,22 @@ class _ServiceToggle extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: value ? AppColors.success : AppColors.grey500),
-          const SizedBox(width: 4),
+          Icon(icon, size: 20, color: value ? AppColors.success : AppColors.grey500),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: FontWeight.w500,
                 color: value ? AppColors.success : AppColors.grey600,
               ),
             ),
           ),
-          SizedBox(
-            height: 28,
-            child: FittedBox(
-              child: Switch(
-                value: value,
-                onChanged: onChanged,
-                activeColor: AppColors.success,
-              ),
-            ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: AppColors.success,
           ),
         ],
       ),
