@@ -332,6 +332,28 @@ class StaffAvailability(models.Model):
         return f"{self.staff_member.username} - {day_map.get(self.day_of_week, '?')} ({status})"
 
 
+class DayOffRequest(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('DENIED', 'Denied'),
+    ]
+
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='day_off_requests')
+    date = models.DateField()
+    reason = models.CharField(max_length=500, blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_day_off_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.staff_member.username} - {self.date} ({self.get_status_display()})"
+
+
 class DeviceToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
     token = models.CharField(max_length=255, unique=True)

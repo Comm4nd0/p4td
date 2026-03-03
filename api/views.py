@@ -1441,6 +1441,167 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
 
         return Response(coverage)
 
+    @action(detail=False, methods=['get'], url_path=r'available_staff/(?P<date_str>[0-9-]+)')
+    def available_staff(self, request, date_str=None):
+        """Get staff members available on a specific date.
+        Considers day-of-week availability and approved day-off requests."""
+        from .models import StaffAvailability, DayOffRequest
+        from datetime import datetime
+
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        dow = target_date.isoweekday()  # 1=Mon..7=Sun
+        staff = User.objects.filter(is_staff=True)
+
+        # Get day-of-week availability
+        avail_map = {}
+        for a in StaffAvailability.objects.filter(day_of_week=dow):
+            avail_map[a.staff_member_id] = a.is_available_daycare or a.is_available_boarding
+
+        # Get approved day-off requests for this date
+        approved_off = set(
+            DayOffRequest.objects.filter(date=target_date, status='APPROVED')
+            .values_list('staff_member_id', flat=True)
+        )
+
+        available = []
+        for s in staff:
+            is_avail = avail_map.get(s.id, True)  # Default available if no record
+            if is_avail and s.id not in approved_off:
+                name = s.first_name or s.username
+                available.append({'id': s.id, 'name': name, 'username': s.username})
+
+        return Response(available)
+
+
+class DayOffRequestViewSet(viewsets.ModelViewSet):
+    """ViewSet for day-off requests.
+    Staff can create/view their own requests.
+    Managers (is_staff + has canAssignDogs equivalent) can view all and approve/deny."""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from .models import DayOffRequest
+        return DayOffRequest.objects.select_related('staff_member', 'reviewed_by').all()
+
+    def get_serializer_class(self):
+        from .serializers import DayOffRequestSerializer
+        return DayOffRequestSerializer
+
+    def list(self, request):
+        """List all day-off requests (admin/managers only)."""
+        from .models import DayOffRequest
+        if not request.user.is_staff:
+            return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        # Check if user has canAssignDogs permission
+        profile = getattr(request.user, 'profile', None)
+        if profile and not profile.can_assign_dogs:
+            return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        queryset = DayOffRequest.objects.select_related('staff_member', 'reviewed_by').all()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request):
+        """Create a day-off request for the current user.
+        Accepts: {"date": "2024-03-15", "reason": "optional"}
+        For date ranges, the Flutter app creates one request per date."""
+        from .models import DayOffRequest
+        from .serializers import DayOffRequestSerializer
+
+        date_str = request.data.get('date')
+        if not date_str:
+            return Response({'detail': 'date is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        from datetime import datetime
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        # Check for duplicate
+        existing = DayOffRequest.objects.filter(
+            staff_member=request.user,
+            date=target_date,
+            status__in=['PENDING', 'APPROVED'],
+        ).first()
+        if existing:
+            return Response(
+                {'detail': f'You already have a {existing.get_status_display().lower()} request for this date.'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        obj = DayOffRequest.objects.create(
+            staff_member=request.user,
+            date=target_date,
+            reason=request.data.get('reason', ''),
+        )
+        serializer = DayOffRequestSerializer(obj)
+        return Response(serializer.data, status=drf_status.HTTP_201_CREATED)
+
+    def destroy(self, request, pk=None):
+        """Cancel (delete) a pending day-off request. Only the owner can cancel."""
+        from .models import DayOffRequest
+
+        try:
+            obj = DayOffRequest.objects.get(pk=pk)
+        except DayOffRequest.DoesNotExist:
+            return Response(status=drf_status.HTTP_404_NOT_FOUND)
+
+        if obj.staff_member != request.user:
+            return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
+        if obj.status != 'PENDING':
+            return Response({'detail': 'Only pending requests can be cancelled.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        obj.delete()
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['get'])
+    def my_requests(self, request):
+        """Get the current user's day-off requests."""
+        from .models import DayOffRequest
+        queryset = DayOffRequest.objects.filter(staff_member=request.user).select_related('reviewed_by')
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a day-off request (managers only)."""
+        return self._review(request, pk, 'APPROVED')
+
+    @action(detail=True, methods=['post'])
+    def deny(self, request, pk=None):
+        """Deny a day-off request (managers only)."""
+        return self._review(request, pk, 'DENIED')
+
+    def _review(self, request, pk, new_status):
+        from .models import DayOffRequest
+        from django.utils import timezone
+
+        profile = getattr(request.user, 'profile', None)
+        if not (request.user.is_staff and profile and profile.can_assign_dogs):
+            return Response({'detail': 'Not authorized to review requests.'}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        try:
+            obj = DayOffRequest.objects.select_related('staff_member', 'reviewed_by').get(pk=pk)
+        except DayOffRequest.DoesNotExist:
+            return Response(status=drf_status.HTTP_404_NOT_FOUND)
+
+        if obj.status != 'PENDING':
+            return Response({'detail': 'Only pending requests can be reviewed.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        obj.status = new_status
+        obj.reviewed_by = request.user
+        obj.reviewed_at = timezone.now()
+        obj.save()
+
+        serializer = self.get_serializer(obj)
+        return Response(serializer.data)
+
 
 # =============================================================================
 # PASSWORD RESET & CHANGE VIEWS

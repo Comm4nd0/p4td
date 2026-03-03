@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -414,3 +414,26 @@ class StaffAvailabilitySerializer(serializers.ModelSerializer):
     def get_day_name(self, obj):
         day_map = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'}
         return day_map.get(obj.day_of_week, 'Unknown')
+
+
+class DayOffRequestSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DayOffRequest
+        fields = [
+            'id', 'staff_member', 'staff_member_name', 'date', 'reason',
+            'status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'created_at',
+        ]
+        read_only_fields = ['id', 'staff_member', 'staff_member_name', 'status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'created_at']
+
+    def get_staff_member_name(self, obj):
+        if obj.staff_member.first_name:
+            return obj.staff_member.first_name
+        return obj.staff_member.username
+
+    def get_reviewed_by_name(self, obj):
+        if obj.reviewed_by:
+            return obj.reviewed_by.first_name or obj.reviewed_by.username
+        return None

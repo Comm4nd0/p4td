@@ -802,21 +802,30 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   }
 
   Future<void> _showRequestDayOffDialog() async {
-    DateTime? pickedDate = await showDatePicker(
+    final now = DateTime.now();
+    final pickedRange = await showDateRangePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      helpText: 'Select day off',
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      helpText: 'Select day(s) off',
+      saveText: 'NEXT',
     );
 
-    if (pickedDate == null || !mounted) return;
+    if (pickedRange == null || !mounted) return;
+
+    final start = pickedRange.start;
+    final end = pickedRange.end;
+    final isSingle = start.year == end.year && start.month == end.month && start.day == end.day;
+
+    final dateLabel = isSingle
+        ? DateFormat('EEE d MMM').format(start)
+        : '${DateFormat('d MMM').format(start)} - ${DateFormat('d MMM').format(end)}';
 
     final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Request ${DateFormat('EEE d MMM').format(pickedDate!)} Off'),
+        title: Text('Request $dateLabel Off'),
         content: TextField(
           controller: reasonController,
           decoration: const InputDecoration(
@@ -835,13 +844,24 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
 
     if (confirmed == true && mounted) {
       try {
-        await _dataService.requestDayOff(
-          date: pickedDate!,
-          reason: reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null,
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Day off request submitted'), backgroundColor: AppColors.success),
-        );
+        // Create one request per date in the range
+        final reason = reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null;
+        var current = start;
+        while (!current.isAfter(end)) {
+          await _dataService.requestDayOff(date: current, reason: reason);
+          current = current.add(const Duration(days: 1));
+        }
+        if (mounted) {
+          final count = end.difference(start).inDays + 1;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isSingle
+                  ? 'Day off request submitted'
+                  : '$count day off requests submitted'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
         _loadDayOffRequests();
       } catch (e) {
         if (mounted) {
