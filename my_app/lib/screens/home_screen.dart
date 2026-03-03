@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
@@ -270,49 +271,6 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Image.asset('assets/logo.png', height: 32),
         actions: [
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.question_answer),
-                tooltip: 'Support Queries',
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => QueryListScreen(
-                        isStaff: _isStaff,
-                        canReplyQueries: _canReplyQueries,
-                      ),
-                    ),
-                  );
-                  _loadUnresolvedQueryCount();
-                },
-              ),
-              if (_unresolvedQueryCount > 0)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                    child: Center(
-                      child: Text(
-                        '$_unresolvedQueryCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
           if (_isStaff)
             Stack(
               children: [
@@ -324,7 +282,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       context,
                       MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests)),
                     );
-                    // Refresh count when returning from notifications screen
                     _loadPendingRequestCount();
                   },
                 ),
@@ -353,61 +310,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-          if (_isStaff)
-            IconButton(
-              icon: const Icon(Icons.traffic),
-              tooltip: 'Traffic Alert',
-              onPressed: _showTrafficAlertDialog,
-            ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.night_shelter),
-            onSelected: (value) {
-              if (value == 'request') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const RequestBoardingScreen()),
-                );
-              } else if (value == 'list') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
-                );
-              }
-            },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(
-                value: 'request',
-                child: Row(
-                   children: [
-                     Icon(Icons.add, color: Colors.black54),
-                     SizedBox(width: 8),
-                     Text('Request Boarding'),
-                   ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'list',
-                 child: Row(
-                   children: [
-                     Icon(Icons.list, color: Colors.black54),
-                     SizedBox(width: 8),
-                     Text('My Requests'),
-                   ],
-                ),
-              ),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfileScreen()),
-              );
-            },
-          ),
         ],
       ),
+      drawer: _buildDrawer(),
       floatingActionButton: _currentIndex == 0 && _isStaff
           ? FloatingActionButton.extended(
               onPressed: _addDog,
@@ -460,6 +365,106 @@ class _HomeScreenState extends State<HomeScreen> {
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia)
                   : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
+    );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: const BoxDecoration(color: AppColors.primary),
+            child: Center(
+              child: Image.asset('assets/logo.png', height: 48),
+            ),
+          ),
+          ListTile(
+            leading: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.question_answer),
+                if (_unresolvedQueryCount > 0)
+                  Positioned(
+                    right: -6,
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      child: Text(
+                        '$_unresolvedQueryCount',
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            title: const Text('Support Queries'),
+            onTap: () async {
+              Navigator.pop(context); // close drawer
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => QueryListScreen(
+                    isStaff: _isStaff,
+                    canReplyQueries: _canReplyQueries,
+                  ),
+                ),
+              );
+              _loadUnresolvedQueryCount();
+            },
+          ),
+          if (_isStaff)
+            ListTile(
+              leading: const Icon(Icons.traffic),
+              title: const Text('Traffic Alert'),
+              onTap: () {
+                Navigator.pop(context);
+                _showTrafficAlertDialog();
+              },
+            ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.night_shelter),
+            title: const Text('Request Boarding'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RequestBoardingScreen()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.list),
+            title: const Text('My Boarding Requests'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+              );
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.person),
+            title: const Text('Profile'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
