@@ -43,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _canAddFeedMedia = false;
   bool _canManageRequests = false;
   bool _canReplyQueries = false;
+  bool _canApproveTimeoff = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -122,6 +123,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _canAddFeedMedia = profile.canAddFeedMedia;
           _canManageRequests = profile.canManageRequests;
           _canReplyQueries = profile.canReplyQueries;
+          _canApproveTimeoff = profile.canApproveTimeoff;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -406,7 +408,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-            title: const Text('Support Queries'),
+            title: const Text('Contact Staff'),
             onTap: () async {
               Navigator.pop(context); // close drawer
               await Navigator.push(
@@ -439,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs),
+                    builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canApproveTimeoff: _canApproveTimeoff),
                   ),
                 );
               },

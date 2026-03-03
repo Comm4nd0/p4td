@@ -45,7 +45,7 @@ class _QueryListScreenState extends State<QueryListScreen> {
       if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load queries: $e')),
+          SnackBar(content: Text('Failed to load messages: $e')),
         );
       }
     }
@@ -68,7 +68,7 @@ class _QueryListScreenState extends State<QueryListScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('New Query'),
+        title: const Text('New Message'),
         content: Form(
           key: formKey,
           child: Column(
@@ -78,7 +78,7 @@ class _QueryListScreenState extends State<QueryListScreen> {
                 controller: subjectController,
                 decoration: const InputDecoration(
                   labelText: 'Subject',
-                  hintText: 'Brief summary of your question',
+                  hintText: 'Brief summary',
                   border: OutlineInputBorder(),
                 ),
                 validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
@@ -88,7 +88,7 @@ class _QueryListScreenState extends State<QueryListScreen> {
                 controller: messageController,
                 decoration: const InputDecoration(
                   labelText: 'Message',
-                  hintText: 'Describe your question in detail',
+                  hintText: 'Your message',
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 4,
@@ -122,14 +122,14 @@ class _QueryListScreenState extends State<QueryListScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Query submitted'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
           );
         }
         _loadQueries();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to submit query: $e')),
+            SnackBar(content: Text('Failed to send message: $e')),
           );
         }
       }
@@ -246,7 +246,7 @@ class _QueryListScreenState extends State<QueryListScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Query created'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
           );
           // Navigate directly into the new query
           await Navigator.push(
@@ -264,7 +264,7 @@ class _QueryListScreenState extends State<QueryListScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to create query: $e')),
+            SnackBar(content: Text('Failed to send message: $e')),
           );
         }
       }
@@ -275,12 +275,12 @@ class _QueryListScreenState extends State<QueryListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Support Queries'),
+        title: const Text('Contact Staff'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: widget.isStaff ? _showStaffNewQueryDialog : _showNewQueryDialog,
         icon: const Icon(Icons.add),
-        label: Text(widget.isStaff ? 'Message Owner' : 'New Query'),
+        label: Text(widget.isStaff ? 'Message Owner' : 'New Message'),
       ),
       body: Column(
         children: [
@@ -309,10 +309,10 @@ class _QueryListScreenState extends State<QueryListScreen> {
                             const SizedBox(height: 16),
                             Text(
                               _filter == 'OPEN'
-                                  ? 'No open queries'
+                                  ? 'No open conversations'
                                   : _filter == 'RESOLVED'
-                                      ? 'No resolved queries'
-                                      : 'No queries yet',
+                                      ? 'No resolved conversations'
+                                      : 'No conversations yet',
                               style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                             ),
                           ],

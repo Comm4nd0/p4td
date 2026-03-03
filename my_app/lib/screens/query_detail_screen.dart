@@ -56,7 +56,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
       if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load query: $e')),
+          SnackBar(content: Text('Failed to load conversation: $e')),
         );
       }
     }
@@ -106,7 +106,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
       if (mounted) {
         setState(() => _query = updated);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Query resolved'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Conversation resolved'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -145,7 +145,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_query?.subject ?? 'Query'),
+        title: Text(_query?.subject ?? 'Conversation'),
         actions: [
           if (_query != null && widget.isStaff && _query!.status == QueryStatus.open)
             IconButton(
@@ -164,7 +164,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _query == null
-              ? const Center(child: Text('Query not found'))
+              ? const Center(child: Text('Conversation not found'))
               : Column(
                   children: [
                     // Query info header
@@ -263,7 +263,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         child: const Text(
-                          'This query has been resolved.',
+                          'This conversation has been resolved.',
                           style: TextStyle(color: Colors.grey),
                           textAlign: TextAlign.center,
                         ),
@@ -272,7 +272,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         child: const Text(
-                          'You do not have permission to reply to queries.',
+                          'You do not have permission to reply.',
                           style: TextStyle(color: Colors.grey),
                           textAlign: TextAlign.center,
                         ),
