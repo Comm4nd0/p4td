@@ -499,3 +499,57 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
             send_push_notification(owner, title, body, data, category='dog_updates')
         for additional_owner in instance.dog.additional_owners.all():
             send_push_notification(additional_owner, title, body, data, category='dog_updates')
+
+# --- Care Instructions Change Notifications ---
+
+@receiver(pre_save, sender=Dog)
+def store_old_care_instructions(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_instance = Dog.objects.get(pk=instance.pk)
+            instance._old_food_instructions = old_instance.food_instructions
+            instance._old_medical_notes = old_instance.medical_notes
+        except Dog.DoesNotExist:
+            instance._old_food_instructions = None
+            instance._old_medical_notes = None
+    else:
+        instance._old_food_instructions = None
+        instance._old_medical_notes = None
+
+@receiver(post_save, sender=Dog)
+def notify_staff_care_instructions_changed(sender, instance, created, **kwargs):
+    if created:
+        return
+
+    old_food = getattr(instance, '_old_food_instructions', None)
+    old_medical = getattr(instance, '_old_medical_notes', None)
+
+    food_changed = old_food != instance.food_instructions
+    medical_changed = old_medical != instance.medical_notes
+
+    if not food_changed and not medical_changed:
+        return
+
+    # Build a description of what changed
+    changes = []
+    if food_changed:
+        changes.append('food instructions')
+    if medical_changed:
+        changes.append('medical notes')
+
+    changed_by = getattr(instance, '_changed_by', None)
+    if changed_by:
+        user_name = changed_by.first_name or changed_by.username
+    else:
+        user_name = 'A user'
+
+    title = "Care Instructions Updated"
+    body = f"{user_name} updated {' and '.join(changes)} for {instance.name}."
+
+    data = {
+        'type': 'care_instructions_update',
+        'dog_id': str(instance.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+
+    send_staff_notification(title, body, data)
