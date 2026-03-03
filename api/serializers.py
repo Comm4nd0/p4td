@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, SupportQuery, SupportMessage
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -365,3 +365,52 @@ class SupportQueryListSerializer(serializers.ModelSerializer):
 
     def get_message_count(self, obj):
         return obj.messages.count()
+
+
+class ClosureDaySerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClosureDay
+        fields = ['id', 'date', 'closure_type', 'reason', 'created_by', 'created_by_name', 'created_at']
+        read_only_fields = ['id', 'created_by', 'created_by_name', 'created_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return None
+
+
+class DogNoteSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    related_dog_name = serializers.CharField(source='related_dog.name', read_only=True, default=None)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DogNote
+        fields = ['id', 'dog', 'dog_name', 'related_dog', 'related_dog_name', 'note_type', 'text', 'is_positive', 'created_by', 'created_by_name', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'created_by_name', 'created_at', 'updated_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return None
+
+
+class StaffAvailabilitySerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    day_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffAvailability
+        fields = ['id', 'staff_member', 'staff_member_name', 'day_of_week', 'day_name', 'is_available', 'note']
+        read_only_fields = ['id', 'staff_member_name', 'day_name']
+
+    def get_staff_member_name(self, obj):
+        if obj.staff_member.first_name:
+            return obj.staff_member.first_name
+        return obj.staff_member.username
+
+    def get_day_name(self, obj):
+        day_map = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'}
+        return day_map.get(obj.day_of_week, 'Unknown')

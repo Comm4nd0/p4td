@@ -1272,6 +1272,150 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         return Response({'count': count})
 
 
+class ClosureDayViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from .models import ClosureDay
+        queryset = ClosureDay.objects.all()
+        # Optional date range filtering
+        from_date = self.request.query_params.get('from_date')
+        to_date = self.request.query_params.get('to_date')
+        if from_date:
+            queryset = queryset.filter(date__gte=from_date)
+        if to_date:
+            queryset = queryset.filter(date__lte=to_date)
+        return queryset
+
+    def get_serializer_class(self):
+        from .serializers import ClosureDaySerializer
+        return ClosureDaySerializer
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class DogNoteViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        from .models import DogNote
+        queryset = DogNote.objects.select_related('dog', 'related_dog', 'created_by')
+        dog_id = self.request.query_params.get('dog_id')
+        if dog_id:
+            from django.db.models import Q
+            queryset = queryset.filter(Q(dog_id=dog_id) | Q(related_dog_id=dog_id))
+        note_type = self.request.query_params.get('note_type')
+        if note_type:
+            queryset = queryset.filter(note_type=note_type)
+        return queryset
+
+    def get_serializer_class(self):
+        from .serializers import DogNoteSerializer
+        return DogNoteSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class StaffAvailabilityViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        from .models import StaffAvailability
+        queryset = StaffAvailability.objects.select_related('staff_member')
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            queryset = queryset.filter(staff_member_id=staff_id)
+        return queryset
+
+    def get_serializer_class(self):
+        from .serializers import StaffAvailabilitySerializer
+        return StaffAvailabilitySerializer
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    @action(detail=False, methods=['post'])
+    def set_my_availability(self, request):
+        """Set the current staff member's availability for multiple days at once.
+        Accepts: {"availability": [{"day_of_week": 1, "is_available": true, "note": ""}, ...]}"""
+        from .models import StaffAvailability
+        from .serializers import StaffAvailabilitySerializer
+
+        availability_data = request.data.get('availability', [])
+        if not availability_data:
+            return Response({'detail': 'availability list is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        results = []
+        for entry in availability_data:
+            day = entry.get('day_of_week')
+            if day is None or day < 1 or day > 7:
+                continue
+            obj, _ = StaffAvailability.objects.update_or_create(
+                staff_member=request.user,
+                day_of_week=day,
+                defaults={
+                    'is_available': entry.get('is_available', True),
+                    'note': entry.get('note', ''),
+                },
+            )
+            results.append(obj)
+
+        serializer = StaffAvailabilitySerializer(results, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def my_availability(self, request):
+        """Get the current staff member's availability."""
+        from .models import StaffAvailability
+        from .serializers import StaffAvailabilitySerializer
+
+        availability = StaffAvailability.objects.filter(staff_member=request.user)
+        serializer = StaffAvailabilitySerializer(availability, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def coverage(self, request):
+        """Get a summary of staff coverage per day of week.
+        Returns: {"1": {"available": ["Alice", "Bob"], "unavailable": ["Charlie"]}, ...}"""
+        from .models import StaffAvailability
+        from django.contrib.auth.models import User
+
+        staff = User.objects.filter(is_staff=True)
+        day_map = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'}
+
+        # Pre-fetch all availability records
+        all_availability = {
+            (a.staff_member_id, a.day_of_week): a.is_available
+            for a in StaffAvailability.objects.all()
+        }
+
+        coverage = {}
+        for day_num in range(1, 8):
+            available = []
+            unavailable = []
+            for s in staff:
+                name = s.first_name or s.username
+                is_avail = all_availability.get((s.id, day_num), True)  # Default to available
+                if is_avail:
+                    available.append({'id': s.id, 'name': name})
+                else:
+                    unavailable.append({'id': s.id, 'name': name})
+            coverage[str(day_num)] = {
+                'day_name': day_map[day_num],
+                'available': available,
+                'unavailable': unavailable,
+            }
+
+        return Response(coverage)
+
+
 # =============================================================================
 # PASSWORD RESET & CHANGE VIEWS
 # =============================================================================

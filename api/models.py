@@ -269,6 +269,67 @@ class DailyDogAssignment(models.Model):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
 
 
+class ClosureDay(models.Model):
+    CLOSURE_TYPE_CHOICES = [
+        ('CLOSED', 'Closed'),
+        ('REDUCED', 'Reduced Capacity'),
+    ]
+
+    date = models.DateField(unique=True)
+    closure_type = models.CharField(max_length=10, choices=CLOSURE_TYPE_CHOICES, default='CLOSED')
+    reason = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_closures')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f"{self.date} - {self.get_closure_type_display()}"
+
+
+class DogNote(models.Model):
+    NOTE_TYPE_CHOICES = [
+        ('COMPATIBILITY', 'Compatibility'),
+        ('BEHAVIORAL', 'Behavioral'),
+        ('GROUPING', 'Grouping'),
+    ]
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='notes')
+    related_dog = models.ForeignKey(Dog, on_delete=models.CASCADE, null=True, blank=True, related_name='related_notes')
+    note_type = models.CharField(max_length=15, choices=NOTE_TYPE_CHOICES)
+    text = models.TextField()
+    is_positive = models.BooleanField(default=True, help_text='Whether this is a positive or negative note (e.g. gets along vs does not get along)')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_dog_notes')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        if self.related_dog:
+            return f"{self.dog.name} & {self.related_dog.name} - {self.get_note_type_display()}"
+        return f"{self.dog.name} - {self.get_note_type_display()}"
+
+
+class StaffAvailability(models.Model):
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='availability')
+    day_of_week = models.IntegerField(help_text='1=Monday, 2=Tuesday, ..., 7=Sunday')
+    is_available = models.BooleanField(default=True)
+    note = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        unique_together = ('staff_member', 'day_of_week')
+        ordering = ['day_of_week']
+        verbose_name_plural = 'Staff availability'
+
+    def __str__(self):
+        day_map = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'}
+        status = 'Available' if self.is_available else 'Unavailable'
+        return f"{self.staff_member.username} - {day_map.get(self.day_of_week, '?')} ({status})"
+
+
 class DeviceToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
     token = models.CharField(max_length=255, unique=True)
