@@ -317,6 +317,8 @@ class StaffAvailability(models.Model):
     staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='availability')
     day_of_week = models.IntegerField(help_text='1=Monday, 2=Tuesday, ..., 7=Sunday')
     is_available = models.BooleanField(default=True)
+    is_available_daycare = models.BooleanField(default=True)
+    is_available_boarding = models.BooleanField(default=True)
     note = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:

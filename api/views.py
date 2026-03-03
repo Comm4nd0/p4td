@@ -1357,11 +1357,15 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
             day = entry.get('day_of_week')
             if day is None or day < 1 or day > 7:
                 continue
+            is_daycare = entry.get('is_available_daycare', True)
+            is_boarding = entry.get('is_available_boarding', True)
             obj, _ = StaffAvailability.objects.update_or_create(
                 staff_member=request.user,
                 day_of_week=day,
                 defaults={
-                    'is_available': entry.get('is_available', True),
+                    'is_available': is_daycare or is_boarding,
+                    'is_available_daycare': is_daycare,
+                    'is_available_boarding': is_boarding,
                     'note': entry.get('note', ''),
                 },
             )
@@ -1391,26 +1395,48 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
         day_map = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'}
 
         # Pre-fetch all availability records
-        all_availability = {
-            (a.staff_member_id, a.day_of_week): a.is_available
-            for a in StaffAvailability.objects.all()
-        }
+        all_availability = {}
+        for a in StaffAvailability.objects.all():
+            all_availability[(a.staff_member_id, a.day_of_week)] = {
+                'daycare': a.is_available_daycare,
+                'boarding': a.is_available_boarding,
+            }
 
         coverage = {}
         for day_num in range(1, 8):
             available = []
             unavailable = []
+            daycare_available = []
+            daycare_unavailable = []
+            boarding_available = []
+            boarding_unavailable = []
             for s in staff:
                 name = s.first_name or s.username
-                is_avail = all_availability.get((s.id, day_num), True)  # Default to available
-                if is_avail:
-                    available.append({'id': s.id, 'name': name})
+                avail = all_availability.get((s.id, day_num), {'daycare': True, 'boarding': True})
+                entry = {'id': s.id, 'name': name}
+                # Overall: available if either service is available
+                if avail['daycare'] or avail['boarding']:
+                    available.append(entry)
                 else:
-                    unavailable.append({'id': s.id, 'name': name})
+                    unavailable.append(entry)
+                # Daycare
+                if avail['daycare']:
+                    daycare_available.append(entry)
+                else:
+                    daycare_unavailable.append(entry)
+                # Boarding
+                if avail['boarding']:
+                    boarding_available.append(entry)
+                else:
+                    boarding_unavailable.append(entry)
             coverage[str(day_num)] = {
                 'day_name': day_map[day_num],
                 'available': available,
                 'unavailable': unavailable,
+                'daycare_available': daycare_available,
+                'daycare_unavailable': daycare_unavailable,
+                'boarding_available': boarding_available,
+                'boarding_unavailable': boarding_unavailable,
             }
 
         return Response(coverage)

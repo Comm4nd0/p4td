@@ -5,6 +5,8 @@ class StaffAvailability {
   final int dayOfWeek;
   final String dayName;
   final bool isAvailable;
+  final bool isAvailableDaycare;
+  final bool isAvailableBoarding;
   final String note;
 
   StaffAvailability({
@@ -14,6 +16,8 @@ class StaffAvailability {
     required this.dayOfWeek,
     required this.dayName,
     required this.isAvailable,
+    this.isAvailableDaycare = true,
+    this.isAvailableBoarding = true,
     this.note = '',
   });
 
@@ -27,6 +31,8 @@ class StaffAvailability {
       dayOfWeek: json['day_of_week'],
       dayName: json['day_name'] ?? '',
       isAvailable: json['is_available'] ?? true,
+      isAvailableDaycare: json['is_available_daycare'] ?? true,
+      isAvailableBoarding: json['is_available_boarding'] ?? true,
       note: json['note'] ?? '',
     );
   }
