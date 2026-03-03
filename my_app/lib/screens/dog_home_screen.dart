@@ -10,6 +10,7 @@ import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
 import 'query_detail_screen.dart';
+import 'dog_notes_screen.dart';
 import '../constants/app_colors.dart';
 
 class DogHomeScreen extends StatefulWidget {
@@ -1185,6 +1186,31 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.green[700],
                           side: BorderSide(color: Colors.green[300]!),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (widget.isStaff) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DogNotesScreen(
+                                dogId: int.parse(_dog.id),
+                                dogName: _dog.name,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.note_alt_outlined),
+                        label: const Text('Compatibility & Notes'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primaryLight),
                         ),
                       ),
                     ),

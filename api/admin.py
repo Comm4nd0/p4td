@@ -7,6 +7,7 @@ from .models import (
     Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
     DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
+    ClosureDay, DogNote, StaffAvailability,
 )
 
 
@@ -536,3 +537,88 @@ class BoardingRequestAdmin(admin.ModelAdmin):
         )
         self.message_user(request, f'{updated} request(s) denied.')
     deny_requests.short_description = 'Deny selected requests'
+
+
+@admin.register(ClosureDay)
+class ClosureDayAdmin(admin.ModelAdmin):
+    list_display = ('date', 'closure_type_display', 'reason', 'created_by_name', 'created_at')
+    list_filter = ('closure_type', 'date')
+    search_fields = ('reason',)
+    ordering = ['-date']
+    list_per_page = 30
+
+    def closure_type_display(self, obj):
+        colors = {'CLOSED': '#dc3545', 'REDUCED': '#ffc107'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.closure_type, '#6c757d'),
+            obj.get_closure_type_display()
+        )
+    closure_type_display.short_description = 'Type'
+
+    def created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return '-'
+    created_by_name.short_description = 'Created By'
+
+
+@admin.register(DogNote)
+class DogNoteAdmin(admin.ModelAdmin):
+    list_display = ('dog_name', 'related_dog_name', 'note_type', 'sentiment_display', 'text_preview', 'created_by_name', 'created_at')
+    list_filter = ('note_type', 'is_positive', 'created_at')
+    search_fields = ('dog__name', 'related_dog__name', 'text')
+    raw_id_fields = ('dog', 'related_dog', 'created_by')
+    ordering = ['-created_at']
+    list_per_page = 30
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def related_dog_name(self, obj):
+        return obj.related_dog.name if obj.related_dog else '-'
+    related_dog_name.short_description = 'Related Dog'
+
+    def sentiment_display(self, obj):
+        if obj.is_positive:
+            return format_html('<span style="color: #198754;">Positive</span>')
+        return format_html('<span style="color: #dc3545;">Negative</span>')
+    sentiment_display.short_description = 'Sentiment'
+
+    def text_preview(self, obj):
+        return obj.text[:80] + '...' if len(obj.text) > 80 else obj.text
+    text_preview.short_description = 'Note'
+
+    def created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return '-'
+    created_by_name.short_description = 'By'
+
+
+@admin.register(StaffAvailability)
+class StaffAvailabilityAdmin(admin.ModelAdmin):
+    list_display = ('staff_name', 'day_display', 'availability_display', 'note')
+    list_filter = ('day_of_week', 'is_available')
+    search_fields = ('staff_member__username', 'staff_member__first_name')
+    ordering = ['staff_member__first_name', 'day_of_week']
+    list_per_page = 50
+
+    def staff_name(self, obj):
+        return obj.staff_member.first_name or obj.staff_member.username
+    staff_name.short_description = 'Staff Member'
+    staff_name.admin_order_field = 'staff_member__first_name'
+
+    def day_display(self, obj):
+        day_map = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'}
+        return day_map.get(obj.day_of_week, '?')
+    day_display.short_description = 'Day'
+    day_display.admin_order_field = 'day_of_week'
+
+    def availability_display(self, obj):
+        if obj.is_available:
+            return format_html('<span style="color: #198754;">Available</span>')
+        return format_html('<span style="color: #dc3545;">Unavailable</span>')
+    availability_display.short_description = 'Status'

@@ -17,6 +17,8 @@ import 'request_boarding_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'staff_daily_assignments_screen.dart';
 import 'query_list_screen.dart';
+import 'closure_days_screen.dart';
+import 'staff_availability_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -428,6 +430,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 _showTrafficAlertDialog();
               },
             ),
+          if (_isStaff)
+            ListTile(
+              leading: const Icon(Icons.schedule),
+              title: const Text('My Availability'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs),
+                  ),
+                );
+              },
+            ),
+          ListTile(
+            leading: const Icon(Icons.event_busy),
+            title: const Text('Holidays & Closures'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ClosureDaysScreen(isStaff: _isStaff),
+                ),
+              );
+            },
+          ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.night_shelter),

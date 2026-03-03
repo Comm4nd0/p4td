@@ -12,6 +12,9 @@ import '../models/group_media.dart' as gm;
 import '../models/boarding_request.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/support_query.dart';
+import '../models/closure_day.dart';
+import '../models/dog_note.dart';
+import '../models/staff_availability.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -80,6 +83,22 @@ abstract class DataService {
   Future<SupportQuery> resolveQuery(int queryId);
   Future<SupportQuery> reopenQuery(int queryId);
   Future<int> getUnresolvedQueryCount();
+
+  // Closure Days
+  Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate});
+  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = ''});
+  Future<void> deleteClosureDay(int id);
+
+  // Dog Notes
+  Future<List<DogNote>> getDogNotes({int? dogId, String? noteType});
+  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, required DogNoteType noteType, required String text, bool isPositive = true});
+  Future<void> updateDogNote(int noteId, {String? text, bool? isPositive});
+  Future<void> deleteDogNote(int noteId);
+
+  // Staff Availability
+  Future<List<StaffAvailability>> getMyAvailability();
+  Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability);
+  Future<Map<String, dynamic>> getStaffCoverage();
 }
 
 class ApiDataService implements DataService {
@@ -1363,6 +1382,163 @@ class ApiDataService implements DataService {
       return 0;
     }
   }
+
+  // ---- Closure Days ----
+
+  @override
+  Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (fromDate != null) params['from_date'] = fromDate.toIso8601String().split('T').first;
+    if (toDate != null) params['to_date'] = toDate.toIso8601String().split('T').first;
+    final uri = Uri.parse('${AuthService.baseUrl}/api/closure-days/').replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => ClosureDay.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load closure days: ${response.statusCode}');
+  }
+
+  @override
+  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = ''}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/closure-days/'),
+      headers: headers,
+      body: json.encode({
+        'date': date.toIso8601String().split('T').first,
+        'closure_type': closureType.apiValue,
+        'reason': reason,
+      }),
+    );
+    if (response.statusCode == 201) {
+      return ClosureDay.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to create closure day: ${response.body}');
+  }
+
+  @override
+  Future<void> deleteClosureDay(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/closure-days/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete closure day: ${response.statusCode}');
+    }
+  }
+
+  // ---- Dog Notes ----
+
+  @override
+  Future<List<DogNote>> getDogNotes({int? dogId, String? noteType}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (dogId != null) params['dog_id'] = dogId.toString();
+    if (noteType != null) params['note_type'] = noteType;
+    final uri = Uri.parse('${AuthService.baseUrl}/api/dog-notes/').replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => DogNote.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load dog notes: ${response.statusCode}');
+  }
+
+  @override
+  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, required DogNoteType noteType, required String text, bool isPositive = true}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{
+      'dog': dogId,
+      'note_type': noteType.apiValue,
+      'text': text,
+      'is_positive': isPositive,
+    };
+    if (relatedDogId != null) body['related_dog'] = relatedDogId;
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dog-notes/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode == 201) {
+      return DogNote.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to create dog note: ${response.body}');
+  }
+
+  @override
+  Future<void> updateDogNote(int noteId, {String? text, bool? isPositive}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{};
+    if (text != null) body['text'] = text;
+    if (isPositive != null) body['is_positive'] = isPositive;
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/dog-notes/$noteId/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update dog note: ${response.statusCode}');
+    }
+  }
+
+  @override
+  Future<void> deleteDogNote(int noteId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/dog-notes/$noteId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete dog note: ${response.statusCode}');
+    }
+  }
+
+  // ---- Staff Availability ----
+
+  @override
+  Future<List<StaffAvailability>> getMyAvailability() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/staff-availability/my_availability/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => StaffAvailability.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load availability: ${response.statusCode}');
+  }
+
+  @override
+  Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/staff-availability/set_my_availability/'),
+      headers: headers,
+      body: json.encode({'availability': availability}),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => StaffAvailability.fromJson(e)).toList();
+    }
+    throw Exception('Failed to set availability: ${response.body}');
+  }
+
+  @override
+  Future<Map<String, dynamic>> getStaffCoverage() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/staff-availability/coverage/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    }
+    throw Exception('Failed to load staff coverage: ${response.statusCode}');
+  }
 }
 
 class MockDataService implements DataService {
@@ -1649,4 +1825,30 @@ class MockDataService implements DataService {
   Future<SupportQuery> reopenQuery(int queryId) async => throw UnimplementedError();
   @override
   Future<int> getUnresolvedQueryCount() async => 0;
+
+  // Closure Days
+  @override
+  Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate}) async => [];
+  @override
+  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = ''}) async => throw UnimplementedError();
+  @override
+  Future<void> deleteClosureDay(int id) async {}
+
+  // Dog Notes
+  @override
+  Future<List<DogNote>> getDogNotes({int? dogId, String? noteType}) async => [];
+  @override
+  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, required DogNoteType noteType, required String text, bool isPositive = true}) async => throw UnimplementedError();
+  @override
+  Future<void> updateDogNote(int noteId, {String? text, bool? isPositive}) async {}
+  @override
+  Future<void> deleteDogNote(int noteId) async {}
+
+  // Staff Availability
+  @override
+  Future<List<StaffAvailability>> getMyAvailability() async => [];
+  @override
+  Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability) async => [];
+  @override
+  Future<Map<String, dynamic>> getStaffCoverage() async => {};
 }
