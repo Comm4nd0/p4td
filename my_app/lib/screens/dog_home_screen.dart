@@ -666,6 +666,38 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     final today = DateTime(now.year, now.month, now.day);
     Set<DateTime> selectedDates = {};
 
+    // Build set of dates the dog is already booked for
+    final bookedWeekdays = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
+
+    // Dates with existing pending/approved ADD_DAY requests
+    final pendingAddDayDates = _requests
+        .where((r) =>
+            r.requestType == RequestType.addDay &&
+            r.status != RequestStatus.denied &&
+            r.newDate != null)
+        .map((r) => DateTime(r.newDate!.year, r.newDate!.month, r.newDate!.day))
+        .toSet();
+
+    // Dates with approved cancellations (these are no longer booked)
+    final cancelledDates = _requests
+        .where((r) =>
+            r.requestType == RequestType.cancel &&
+            r.status == RequestStatus.approved &&
+            r.originalDate != null)
+        .map((r) => DateTime(r.originalDate!.year, r.originalDate!.month, r.originalDate!.day))
+        .toSet();
+
+    bool isAlreadyBooked(DateTime day) {
+      final normalized = DateTime(day.year, day.month, day.day);
+      // Check if there's an approved cancellation for this date
+      if (cancelledDates.contains(normalized)) return false;
+      // Check if it's a regular daycare day
+      if (bookedWeekdays.contains(day.weekday)) return true;
+      // Check if there's already a pending/approved ADD_DAY request
+      if (pendingAddDayDates.contains(normalized)) return true;
+      return false;
+    }
+
     final result = await showDialog<Set<DateTime>>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -690,6 +722,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       focusedDay: today,
                       startingDayOfWeek: StartingDayOfWeek.monday,
                       calendarFormat: CalendarFormat.month,
+                      enabledDayPredicate: (day) => !isAlreadyBooked(day),
                       selectedDayPredicate: (day) {
                         return selectedDates.contains(DateTime(day.year, day.month, day.day));
                       },
