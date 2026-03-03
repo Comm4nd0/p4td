@@ -189,8 +189,8 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries')
-    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff')
+    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff')
     search_fields = ('user__username', 'phone_number', 'address')
 
 @admin.register(DateChangeRequest)

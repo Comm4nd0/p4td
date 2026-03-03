@@ -16,6 +16,7 @@ class UserProfile(models.Model):
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
     can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
     can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
+    can_approve_timeoff = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny time off requests.')
 
     # Notification preferences (all enabled by default)
     notify_feed = models.BooleanField(default=True, help_text='Receive notifications for new feed posts and comments.')

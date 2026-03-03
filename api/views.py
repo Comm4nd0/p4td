@@ -1357,15 +1357,14 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
             day = entry.get('day_of_week')
             if day is None or day < 1 or day > 7:
                 continue
-            is_daycare = entry.get('is_available_daycare', True)
-            is_boarding = entry.get('is_available_boarding', True)
+            is_available = entry.get('is_available', True)
             obj, _ = StaffAvailability.objects.update_or_create(
                 staff_member=request.user,
                 day_of_week=day,
                 defaults={
-                    'is_available': is_daycare or is_boarding,
-                    'is_available_daycare': is_daycare,
-                    'is_available_boarding': is_boarding,
+                    'is_available': is_available,
+                    'is_available_daycare': is_available,
+                    'is_available_boarding': False,
                     'note': entry.get('note', ''),
                 },
             )
@@ -1397,46 +1396,24 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
         # Pre-fetch all availability records
         all_availability = {}
         for a in StaffAvailability.objects.all():
-            all_availability[(a.staff_member_id, a.day_of_week)] = {
-                'daycare': a.is_available_daycare,
-                'boarding': a.is_available_boarding,
-            }
+            all_availability[(a.staff_member_id, a.day_of_week)] = a.is_available_daycare
 
         coverage = {}
         for day_num in range(1, 8):
             available = []
             unavailable = []
-            daycare_available = []
-            daycare_unavailable = []
-            boarding_available = []
-            boarding_unavailable = []
             for s in staff:
                 name = s.first_name or s.username
-                avail = all_availability.get((s.id, day_num), {'daycare': True, 'boarding': True})
+                is_avail = all_availability.get((s.id, day_num), True)
                 entry = {'id': s.id, 'name': name}
-                # Overall: available if either service is available
-                if avail['daycare'] or avail['boarding']:
+                if is_avail:
                     available.append(entry)
                 else:
                     unavailable.append(entry)
-                # Daycare
-                if avail['daycare']:
-                    daycare_available.append(entry)
-                else:
-                    daycare_unavailable.append(entry)
-                # Boarding
-                if avail['boarding']:
-                    boarding_available.append(entry)
-                else:
-                    boarding_unavailable.append(entry)
             coverage[str(day_num)] = {
                 'day_name': day_map[day_num],
                 'available': available,
                 'unavailable': unavailable,
-                'daycare_available': daycare_available,
-                'daycare_unavailable': daycare_unavailable,
-                'boarding_available': boarding_available,
-                'boarding_unavailable': boarding_unavailable,
             }
 
         return Response(coverage)
@@ -1459,7 +1436,7 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
         # Get day-of-week availability
         avail_map = {}
         for a in StaffAvailability.objects.filter(day_of_week=dow):
-            avail_map[a.staff_member_id] = a.is_available_daycare or a.is_available_boarding
+            avail_map[a.staff_member_id] = a.is_available_daycare
 
         # Get approved day-off requests for this date
         approved_off = set(
@@ -1492,14 +1469,13 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         return DayOffRequestSerializer
 
     def list(self, request):
-        """List all day-off requests (admin/managers only)."""
+        """List all day-off requests (staff with can_approve_timeoff permission)."""
         from .models import DayOffRequest
         if not request.user.is_staff:
             return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
 
-        # Check if user has canAssignDogs permission
         profile = getattr(request.user, 'profile', None)
-        if profile and not profile.can_assign_dogs:
+        if not profile or not profile.can_approve_timeoff:
             return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         queryset = DayOffRequest.objects.select_related('staff_member', 'reviewed_by').all()
@@ -1583,7 +1559,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         from django.utils import timezone
 
         profile = getattr(request.user, 'profile', None)
-        if not (request.user.is_staff and profile and profile.can_assign_dogs):
+        if not (request.user.is_staff and profile and profile.can_approve_timeoff):
             return Response({'detail': 'Not authorized to review requests.'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         try:
