@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../constants/app_colors.dart';
 import '../models/staff_availability.dart';
+import '../models/day_off_request.dart';
 import '../services/data_service.dart';
 
 class StaffAvailabilityScreen extends StatefulWidget {
@@ -28,6 +30,11 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
+  // Day Off Requests
+  List<DayOffRequest> _myDayOffRequests = [];
+  List<DayOffRequest> _allDayOffRequests = [];
+  bool _loadingDayOff = true;
+
   // Coverage tab
   Map<String, dynamic> _coverage = {};
   bool _loadingCoverage = true;
@@ -41,11 +48,17 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   /// They happen to match, but this keeps intent clear.
   int _dayOfWeek(DateTime date) => date.weekday;
 
+  int get _tabCount {
+    if (widget.canAssignDogs) return 3; // My Availability, Day Off Requests, Team Coverage
+    return 2; // My Availability, Day Off Requests
+  }
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: widget.canAssignDogs ? 2 : 1, vsync: this);
+    _tabController = TabController(length: _tabCount, vsync: this);
     _loadMyAvailability();
+    _loadDayOffRequests();
     if (widget.canAssignDogs) _loadCoverage();
   }
 
@@ -67,7 +80,6 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         boarding[a.dayOfWeek] = a.isAvailableBoarding;
         notes[a.dayOfWeek] = a.note;
       }
-      // Default to available for days not set
       for (int i = 1; i <= 7; i++) {
         daycare.putIfAbsent(i, () => true);
         boarding.putIfAbsent(i, () => true);
@@ -86,6 +98,31 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         setState(() => _loadingMy = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load availability: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadDayOffRequests() async {
+    setState(() => _loadingDayOff = true);
+    try {
+      final myRequests = await _dataService.getMyDayOffRequests();
+      List<DayOffRequest> allRequests = [];
+      if (widget.canAssignDogs) {
+        allRequests = await _dataService.getAllDayOffRequests();
+      }
+      if (mounted) {
+        setState(() {
+          _myDayOffRequests = myRequests;
+          _allDayOffRequests = allRequests;
+          _loadingDayOff = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingDayOff = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load day off requests: $e')),
         );
       }
     }
@@ -136,6 +173,11 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     }
   }
 
+  String _formatDate(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -146,8 +188,10 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           labelColor: AppColors.cream,
           unselectedLabelColor: AppColors.cream.withAlpha(180),
           indicatorColor: AppColors.cream,
+          isScrollable: _tabCount > 2,
           tabs: [
             const Tab(text: 'My Availability'),
+            const Tab(text: 'Time Off'),
             if (widget.canAssignDogs) const Tab(text: 'Team Coverage'),
           ],
         ),
@@ -156,6 +200,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         controller: _tabController,
         children: [
           _buildMyAvailabilityTab(),
+          _buildDayOffTab(),
           if (widget.canAssignDogs) _buildCoverageTab(),
         ],
       ),
@@ -301,6 +346,9 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                   ),
                 ],
 
+                // Day off indicator
+                ..._buildDayOffIndicator(_selectedDay),
+
                 const SizedBox(height: 16),
 
                 // Service toggles
@@ -349,12 +397,26 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     final dc = _myDaycareAvailability[dow] ?? true;
     final bd = _myBoardingAvailability[dow] ?? true;
 
+    // Check for day-off requests
+    final hasApprovedDayOff = _myDayOffRequests.any(
+      (r) => r.status == DayOffStatus.approved && isSameDay(r.date, date),
+    );
+    final hasPendingDayOff = _myDayOffRequests.any(
+      (r) => r.status == DayOffStatus.pending && isSameDay(r.date, date),
+    );
+
     Color bgColor;
     Color textColor;
 
     if (isSelected) {
       bgColor = AppColors.primary;
       textColor = Colors.white;
+    } else if (hasApprovedDayOff) {
+      bgColor = AppColors.error.withAlpha(30);
+      textColor = AppColors.error;
+    } else if (hasPendingDayOff) {
+      bgColor = AppColors.warning.withAlpha(30);
+      textColor = AppColors.warning;
     } else if (dc && bd) {
       bgColor = AppColors.success.withAlpha(30);
       textColor = AppColors.success;
@@ -388,23 +450,31 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 5,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: dc ? AppColors.success : AppColors.error,
+                  if (hasApprovedDayOff || hasPendingDayOff)
+                    Icon(
+                      Icons.event_busy,
+                      size: 10,
+                      color: hasApprovedDayOff ? AppColors.error : AppColors.warning,
+                    )
+                  else ...[
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: dc ? AppColors.success : AppColors.error,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 2),
-                  Container(
-                    width: 5,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: bd ? AppColors.success : AppColors.error,
+                    const SizedBox(width: 2),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: bd ? AppColors.success : AppColors.error,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
           ],
@@ -436,9 +506,63 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     );
   }
 
-  String _formatDate(DateTime date) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  List<Widget> _buildDayOffIndicator(DateTime date) {
+    final approvedOff = _myDayOffRequests.where(
+      (r) => r.status == DayOffStatus.approved && isSameDay(r.date, date),
+    ).toList();
+    final pendingOff = _myDayOffRequests.where(
+      (r) => r.status == DayOffStatus.pending && isSameDay(r.date, date),
+    ).toList();
+
+    if (approvedOff.isEmpty && pendingOff.isEmpty) return [];
+
+    return [
+      const SizedBox(height: 8),
+      if (approvedOff.isNotEmpty)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.error.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.error.withAlpha(60)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.event_busy, size: 16, color: AppColors.error),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Approved day off',
+                  style: TextStyle(fontSize: 13, color: AppColors.error, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+      if (pendingOff.isNotEmpty)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.warning.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.warning.withAlpha(60)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.hourglass_top, size: 16, color: AppColors.warning),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Day off request pending approval',
+                  style: TextStyle(fontSize: 13, color: AppColors.warning, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ];
   }
 
   Future<void> _editNote(int day) async {
@@ -463,6 +587,340 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     );
     if (note != null) {
       setState(() => _myNotes[day] = note.trim());
+    }
+  }
+
+  // ── Day Off Requests Tab ────────────────────────────────────────────
+
+  Widget _buildDayOffTab() {
+    if (_loadingDayOff) return const Center(child: CircularProgressIndicator());
+
+    return RefreshIndicator(
+      onRefresh: _loadDayOffRequests,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Request a day off button
+          FilledButton.icon(
+            onPressed: _showRequestDayOffDialog,
+            icon: const Icon(Icons.add),
+            label: const Text('Request Day Off'),
+          ),
+          const SizedBox(height: 16),
+
+          // My requests
+          if (_myDayOffRequests.isNotEmpty) ...[
+            const Text(
+              'My Requests',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            ..._myDayOffRequests.map((r) => _buildMyDayOffCard(r)),
+            const SizedBox(height: 16),
+          ],
+
+          if (_myDayOffRequests.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Column(
+                children: [
+                  Icon(Icons.event_available, size: 48, color: AppColors.grey400),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No day off requests',
+                    style: TextStyle(color: AppColors.grey600),
+                  ),
+                ],
+              ),
+            ),
+
+          // Pending approvals (managers only)
+          if (widget.canAssignDogs) ...[
+            _buildPendingApprovals(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMyDayOffCard(DayOffRequest request) {
+    final dateStr = DateFormat('EEE d MMM yyyy').format(request.date);
+    final isPast = request.date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
+
+    Color statusColor;
+    IconData statusIcon;
+    switch (request.status) {
+      case DayOffStatus.pending:
+        statusColor = AppColors.warning;
+        statusIcon = Icons.hourglass_top;
+      case DayOffStatus.approved:
+        statusColor = AppColors.success;
+        statusIcon = Icons.check_circle;
+      case DayOffStatus.denied:
+        statusColor = AppColors.error;
+        statusIcon = Icons.cancel;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: statusColor.withAlpha(30),
+          child: Icon(statusIcon, color: statusColor),
+        ),
+        title: Text(dateStr),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(request.status.displayName, style: TextStyle(color: statusColor, fontWeight: FontWeight.w600, fontSize: 12)),
+            if (request.reason.isNotEmpty)
+              Text(request.reason, style: TextStyle(fontSize: 12, color: AppColors.grey600)),
+            if (request.reviewedBy != null)
+              Text(
+                '${request.status == DayOffStatus.approved ? 'Approved' : 'Denied'} by ${request.reviewedBy}',
+                style: TextStyle(fontSize: 11, color: AppColors.grey500),
+              ),
+          ],
+        ),
+        trailing: (request.status == DayOffStatus.pending && !isPast)
+            ? IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: () => _cancelDayOffRequest(request),
+                tooltip: 'Cancel request',
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _buildPendingApprovals() {
+    final pendingRequests = _allDayOffRequests
+        .where((r) => r.status == DayOffStatus.pending)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text(
+              'Pending Approvals',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            if (pendingRequests.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withAlpha(30),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${pendingRequests.length}',
+                  style: const TextStyle(fontSize: 12, color: AppColors.warning, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (pendingRequests.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Text('No pending requests', style: TextStyle(color: AppColors.grey500)),
+          ),
+        ...pendingRequests.map((r) => _buildApprovalCard(r)),
+      ],
+    );
+  }
+
+  Widget _buildApprovalCard(DayOffRequest request) {
+    final dateStr = DateFormat('EEE d MMM yyyy').format(request.date);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppColors.warning.withAlpha(30),
+                  radius: 18,
+                  child: const Icon(Icons.person, color: AppColors.warning, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        request.staffMemberName,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      ),
+                      Text(dateStr, style: TextStyle(fontSize: 13, color: AppColors.grey600)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (request.reason.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(request.reason, style: TextStyle(fontSize: 13, color: AppColors.grey600)),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _denyDayOffRequest(request),
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Deny'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: () => _approveDayOffRequest(request),
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Approve'),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.success),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showRequestDayOffDialog() async {
+    DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      helpText: 'Select day off',
+    );
+
+    if (pickedDate == null || !mounted) return;
+
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Request ${DateFormat('EEE d MMM').format(pickedDate!)} Off'),
+        content: TextField(
+          controller: reasonController,
+          decoration: const InputDecoration(
+            hintText: 'Reason (optional)',
+            border: OutlineInputBorder(),
+          ),
+          textCapitalization: TextCapitalization.sentences,
+          maxLines: 2,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Submit Request')),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await _dataService.requestDayOff(
+          date: pickedDate!,
+          reason: reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Day off request submitted'), backgroundColor: AppColors.success),
+        );
+        _loadDayOffRequests();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to request day off: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _cancelDayOffRequest(DayOffRequest request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Request'),
+        content: Text('Cancel your day off request for ${DateFormat('EEE d MMM').format(request.date)}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Yes, Cancel')),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await _dataService.cancelDayOffRequest(request.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request cancelled')),
+        );
+        _loadDayOffRequests();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to cancel: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _approveDayOffRequest(DayOffRequest request) async {
+    try {
+      await _dataService.approveDayOffRequest(request.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Approved day off for ${request.staffMemberName}'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+      _loadDayOffRequests();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to approve: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _denyDayOffRequest(DayOffRequest request) async {
+    try {
+      await _dataService.denyDayOffRequest(request.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Denied day off for ${request.staffMemberName}'),
+          ),
+        );
+      }
+      _loadDayOffRequests();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to deny: $e')),
+        );
+      }
     }
   }
 
