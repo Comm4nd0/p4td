@@ -11,11 +11,27 @@ export LANG=en_US.UTF-8
 # ---- Flutter version ----
 # Pin to a specific stable tag so builds are reproducible.
 # Update this when you upgrade Flutter locally.
-FLUTTER_VERSION="3.38.4"
+FLUTTER_VERSION="3.41.2"
 
-# 1. Install Flutter via Git
+# 1. Install Flutter via Git (with retry for network issues)
 echo "Installing Flutter $FLUTTER_VERSION..."
-git clone https://github.com/flutter/flutter.git --depth 1 -b "$FLUTTER_VERSION" "$HOME/flutter"
+MAX_RETRIES=4
+RETRY_DELAY=2
+for i in $(seq 1 $MAX_RETRIES); do
+    if git clone https://github.com/flutter/flutter.git --depth 1 -b "$FLUTTER_VERSION" "$HOME/flutter"; then
+        echo "Flutter cloned successfully."
+        break
+    else
+        if [ "$i" -eq "$MAX_RETRIES" ]; then
+            echo "ERROR: Failed to clone Flutter after $MAX_RETRIES attempts."
+            exit 1
+        fi
+        echo "Clone attempt $i failed, retrying in ${RETRY_DELAY}s..."
+        sleep $RETRY_DELAY
+        RETRY_DELAY=$((RETRY_DELAY * 2))
+        rm -rf "$HOME/flutter"
+    fi
+done
 export PATH="$HOME/flutter/bin:$PATH"
 
 # 2. Verify
@@ -48,9 +64,10 @@ echo "Precaching iOS artifacts..."
 flutter precache --ios
 
 # 7. Install CocoaPods
-# Use the committed Podfile.lock so pod versions are reproducible.
+# Clean old pods to avoid stale cache issues, then install fresh.
 echo "Running pod install..."
 cd ios
-pod install
+rm -rf Pods
+pod install --repo-update
 
 echo "ci_post_clone.sh setup complete."
