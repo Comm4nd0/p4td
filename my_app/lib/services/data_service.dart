@@ -15,6 +15,7 @@ import '../models/support_query.dart';
 import '../models/closure_day.dart';
 import '../models/dog_note.dart';
 import '../models/staff_availability.dart';
+import '../models/day_off_request.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -99,6 +100,15 @@ abstract class DataService {
   Future<List<StaffAvailability>> getMyAvailability();
   Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability);
   Future<Map<String, dynamic>> getStaffCoverage();
+  Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date);
+
+  // Day Off Requests
+  Future<List<DayOffRequest>> getMyDayOffRequests();
+  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason});
+  Future<void> cancelDayOffRequest(int requestId);
+  Future<List<DayOffRequest>> getAllDayOffRequests();
+  Future<DayOffRequest> approveDayOffRequest(int requestId);
+  Future<DayOffRequest> denyDayOffRequest(int requestId);
 }
 
 class ApiDataService implements DataService {
@@ -1539,6 +1549,105 @@ class ApiDataService implements DataService {
     }
     throw Exception('Failed to load staff coverage: ${response.statusCode}');
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date) async {
+    final headers = await _getHeaders();
+    final dateParam = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/staff-availability/available_staff/$dateParam/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    throw Exception('Failed to load available staff: ${response.statusCode}');
+  }
+
+  @override
+  Future<List<DayOffRequest>> getMyDayOffRequests() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/my_requests/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => DayOffRequest.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load day off requests: ${response.statusCode}');
+  }
+
+  @override
+  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason}) async {
+    final headers = await _getHeaders();
+    final dateParam = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/'),
+      headers: headers,
+      body: json.encode({
+        'date': dateParam,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      }),
+    );
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return DayOffRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to request day off: ${response.body}');
+  }
+
+  @override
+  Future<void> cancelDayOffRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/$requestId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204 && response.statusCode != 200) {
+      throw Exception('Failed to cancel day off request: ${response.statusCode}');
+    }
+  }
+
+  @override
+  Future<List<DayOffRequest>> getAllDayOffRequests() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => DayOffRequest.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load all day off requests: ${response.statusCode}');
+  }
+
+  @override
+  Future<DayOffRequest> approveDayOffRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/$requestId/approve/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return DayOffRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to approve day off request: ${response.statusCode}');
+  }
+
+  @override
+  Future<DayOffRequest> denyDayOffRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/$requestId/deny/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return DayOffRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to deny day off request: ${response.statusCode}');
+  }
 }
 
 class MockDataService implements DataService {
@@ -1851,4 +1960,21 @@ class MockDataService implements DataService {
   Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability) async => [];
   @override
   Future<Map<String, dynamic>> getStaffCoverage() async => {};
+  @override
+  Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date) async => [];
+  @override
+  Future<List<DayOffRequest>> getMyDayOffRequests() async => [];
+  @override
+  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason}) async =>
+      DayOffRequest(id: 1, staffMemberId: 1, staffMemberName: 'Test', date: date, createdAt: DateTime.now());
+  @override
+  Future<void> cancelDayOffRequest(int requestId) async {}
+  @override
+  Future<List<DayOffRequest>> getAllDayOffRequests() async => [];
+  @override
+  Future<DayOffRequest> approveDayOffRequest(int requestId) async =>
+      DayOffRequest(id: requestId, staffMemberId: 1, staffMemberName: 'Test', date: DateTime.now(), status: DayOffStatus.approved, createdAt: DateTime.now());
+  @override
+  Future<DayOffRequest> denyDayOffRequest(int requestId) async =>
+      DayOffRequest(id: requestId, staffMemberId: 1, staffMemberName: 'Test', date: DateTime.now(), status: DayOffStatus.denied, createdAt: DateTime.now());
 }

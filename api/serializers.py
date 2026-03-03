@@ -403,7 +403,7 @@ class StaffAvailabilitySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StaffAvailability
-        fields = ['id', 'staff_member', 'staff_member_name', 'day_of_week', 'day_name', 'is_available', 'note']
+        fields = ['id', 'staff_member', 'staff_member_name', 'day_of_week', 'day_name', 'is_available', 'is_available_daycare', 'is_available_boarding', 'note']
         read_only_fields = ['id', 'staff_member_name', 'day_name']
 
     def get_staff_member_name(self, obj):

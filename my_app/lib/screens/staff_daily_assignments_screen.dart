@@ -40,6 +40,7 @@ class StaffDailyAssignmentsScreenState
 
   int? _selectedStaffId;
   List<Map<String, dynamic>> _staffMembers = [];
+  Set<int> _availableStaffIds = {};
   DogSortOption _sortOption = DogSortOption.nameAsc;
 
   late DateTime _selectedDate;
@@ -91,7 +92,27 @@ class StaffDailyAssignmentsScreenState
       if (mounted) {
         setState(() => _staffMembers = staff);
       }
+      _loadAvailableStaff(_selectedDate);
     } catch (_) {}
+  }
+
+  Future<void> _loadAvailableStaff(DateTime date) async {
+    if (!widget.canAssignDogs) return;
+    try {
+      final available = await _dataService.getAvailableStaffForDate(date);
+      if (mounted) {
+        setState(() {
+          _availableStaffIds = available.map((s) => s['id'] as int).toSet();
+        });
+      }
+    } catch (_) {
+      // If the endpoint isn't available yet, treat all staff as available
+      if (mounted) {
+        setState(() {
+          _availableStaffIds = _staffMembers.map((s) => s['id'] as int).toSet();
+        });
+      }
+    }
   }
 
   String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
@@ -464,8 +485,16 @@ class StaffDailyAssignmentsScreenState
 
   Future<void> _showReassignDialog(DailyDogAssignment assignment) async {
     List<Map<String, dynamic>> staffMembers;
+    Set<int> availableIds = {};
     try {
       staffMembers = await _dataService.getStaffMembers();
+      try {
+        final available = await _dataService.getAvailableStaffForDate(_selectedDate);
+        availableIds = available.map((s) => s['id'] as int).toSet();
+      } catch (_) {
+        // If endpoint not available, treat all as available
+        availableIds = staffMembers.map((s) => s['id'] as int).toSet();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -477,6 +506,15 @@ class StaffDailyAssignmentsScreenState
 
     // Remove the currently assigned staff member from the list
     staffMembers.removeWhere((s) => s['id'] == assignment.staffMemberId);
+
+    // Sort: available staff first, then unavailable
+    staffMembers.sort((a, b) {
+      final aAvail = availableIds.isEmpty || availableIds.contains(a['id'] as int);
+      final bAvail = availableIds.isEmpty || availableIds.contains(b['id'] as int);
+      if (aAvail && !bAvail) return -1;
+      if (!aAvail && bAvail) return 1;
+      return 0;
+    });
 
     if (!mounted) return;
 
@@ -514,9 +552,26 @@ class StaffDailyAssignmentsScreenState
                           staff['first_name'].toString().isNotEmpty)
                       ? staff['first_name']
                       : staff['username'];
+                  final staffId = staff['id'] as int;
+                  final isAvailable = availableIds.isEmpty || availableIds.contains(staffId);
                   return DropdownMenuItem<int>(
-                    value: staff['id'] as int,
-                    child: Text(name.toString()),
+                    value: staffId,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isAvailable ? Icons.circle : Icons.circle_outlined,
+                          size: 10,
+                          color: isAvailable ? AppColors.success : AppColors.grey400,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          name.toString(),
+                          style: TextStyle(color: isAvailable ? null : AppColors.grey500),
+                        ),
+                        if (!isAvailable)
+                          Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
+                      ],
+                    ),
                   );
                 }).toList(),
                 onChanged: (value) {
@@ -739,6 +794,7 @@ class StaffDailyAssignmentsScreenState
                   curve: Curves.easeInOut,
                 );
                 _loadAssignmentsForDate(date);
+                _loadAvailableStaff(date);
               },
               label: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -812,9 +868,28 @@ class StaffDailyAssignmentsScreenState
                   final name = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
                       ? staff['first_name']
                       : staff['username'];
+                  final staffId = staff['id'] as int;
+                  final isAvailable = _availableStaffIds.isEmpty || _availableStaffIds.contains(staffId);
                   return DropdownMenuItem<int?>(
-                    value: staff['id'] as int,
-                    child: Text(name.toString()),
+                    value: staffId,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isAvailable ? Icons.circle : Icons.circle_outlined,
+                          size: 10,
+                          color: isAvailable ? AppColors.success : AppColors.grey400,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          name.toString(),
+                          style: TextStyle(
+                            color: isAvailable ? null : AppColors.grey500,
+                          ),
+                        ),
+                        if (!isAvailable)
+                          Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
+                      ],
+                    ),
                   );
                 }),
               ],
@@ -857,6 +932,7 @@ class StaffDailyAssignmentsScreenState
               setState(() => _selectedDate = date);
               _scrollToDateChip(index);
               _loadAssignmentsForDate(date);
+              _loadAvailableStaff(date);
             },
             itemBuilder: (context, index) {
               final date = _dateOptions[index];
