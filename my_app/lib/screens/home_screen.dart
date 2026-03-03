@@ -408,7 +408,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-            title: const Text('Support Queries'),
+            title: const Text('Contact Staff'),
             onTap: () async {
               Navigator.pop(context); // close drawer
               await Navigator.push(

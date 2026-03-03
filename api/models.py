@@ -382,10 +382,11 @@ class SupportQuery(models.Model):
 
     class Meta:
         ordering = ['-updated_at']
-        verbose_name_plural = 'Support queries'
+        verbose_name = 'Contact staff message'
+        verbose_name_plural = 'Contact staff messages'
 
     def __str__(self):
-        return f"Query by {self.owner.username}: {self.subject}"
+        return f"Message from {self.owner.username}: {self.subject}"
 
 
 class SupportMessage(models.Model):
@@ -396,9 +397,11 @@ class SupportMessage(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        verbose_name = 'Contact staff reply'
+        verbose_name_plural = 'Contact staff replies'
 
     def __str__(self):
-        return f"Message by {self.sender.username} on query #{self.query.id}"
+        return f"Reply by {self.sender.username} on #{self.query.id}"
 
 
 # Signals for Staff Notifications
@@ -474,13 +477,13 @@ def notify_user_date_request_status(sender, instance, created, **kwargs):
         for additional_owner in instance.dog.additional_owners.all():
             send_push_notification(additional_owner, title, body, data, category='bookings')
 
-# --- Support Query Notifications ---
+# --- Contact Staff Notifications ---
 
 @receiver(post_save, sender=SupportQuery)
 def notify_staff_new_query(sender, instance, created, **kwargs):
     if created:
         owner_name = instance.owner.first_name or instance.owner.username
-        title = "New Support Query"
+        title = "New Message from Owner"
         body = f"{owner_name}: {instance.subject}"
         data = {
             'type': 'support_query',
@@ -498,7 +501,7 @@ def notify_query_message(sender, instance, created, **kwargs):
     if sender_user.is_staff:
         # Staff replied — notify the owner
         staff_name = sender_user.first_name or sender_user.username
-        title = "Reply to Your Query"
+        title = "Staff Reply"
         body = f"{staff_name} replied to: {query.subject}"
         data = {
             'type': 'support_query_reply',
@@ -509,7 +512,7 @@ def notify_query_message(sender, instance, created, **kwargs):
     else:
         # Owner followed up — notify staff
         owner_name = sender_user.first_name or sender_user.username
-        title = "Query Update"
+        title = "New Reply from Owner"
         body = f"{owner_name} added a message to: {query.subject}"
         data = {
             'type': 'support_query_update',

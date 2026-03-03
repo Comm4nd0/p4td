@@ -320,7 +320,7 @@ class SupportMessageAdmin(admin.ModelAdmin):
 
     def query_subject(self, obj):
         return obj.query.subject[:50]
-    query_subject.short_description = 'Query'
+    query_subject.short_description = 'Conversation'
 
     def sender_name(self, obj):
         return obj.sender.first_name or obj.sender.username
