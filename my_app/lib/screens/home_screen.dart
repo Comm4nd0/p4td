@@ -273,7 +273,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Image.asset('assets/logo.png', height: 32),
+        title: GestureDetector(
+          onTap: () => setState(() => _currentIndex = 1),
+          child: Image.asset('assets/logo.png', height: 32),
+        ),
         actions: [
           if (_isStaff)
             Stack(
