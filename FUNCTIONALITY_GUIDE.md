@@ -21,13 +21,14 @@ This document provides a complete overview of what **standard users (dog owners)
 
 | Feature | Description |
 |---------|-------------|
-| Add Dogs | Create profiles for owned dogs with name, photo, food instructions, and medical notes |
+| View Dogs | See a list and detail view of all owned dogs |
 | Edit Dogs | Update dog information at any time |
 | Set Daycare Schedule | Choose which days of the week each dog attends (Mon-Sun) and the schedule type (weekly, fortnightly, or ad hoc) |
-| View Dogs | See a list and detail view of all owned dogs |
 | Co-ownership | Be assigned as an additional owner on another person's dog |
 | Upload Dog Photos/Videos | Add photos and videos to individual dog profiles |
 | Comment on Dog Photos | Add comments to photos on dog profiles |
+
+> **Note:** Only staff can add or delete dogs. Owners can view and edit their existing dogs but cannot create new ones.
 
 ### Daycare Requests
 
@@ -209,7 +210,7 @@ All staff receive notifications for:
 |---------|:-----:|:-------------:|:-----------------:|:----------------:|:-------------:|:---------------:|:-----------------:|
 | View own dogs | Yes | - | - | - | - | - | - |
 | View all dogs | - | Yes | Yes | Yes | Yes | Yes | Yes |
-| Create/delete dogs | - | Yes | Yes | Yes | Yes | Yes | Yes |
+| Add/delete dogs | - | Yes | Yes | Yes | Yes | Yes | Yes |
 | Add dog notes | - | Yes | Yes | Yes | Yes | Yes | Yes |
 | Request date changes | Yes | - | - | - | - | - | - |
 | Request boarding | Yes | - | - | - | - | - | - |
