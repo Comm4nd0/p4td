@@ -23,11 +23,11 @@ class AuthService {
       return 'http://127.0.0.1:8000';
     } else {
       try {
-        if (Platform.isAndroid) return 'http://46.137.83.83:8000';
+        if (Platform.isAndroid) return 'http://178.104.29.66';
       } catch (e) {
         // Platform check might fail on some platforms
       }
-      return 'http://46.137.83.83:8000';
+      return 'http://178.104.29.66';
     }
   }
 
