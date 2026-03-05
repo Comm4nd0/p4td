@@ -1,4 +1,4 @@
-{$DOMAIN_NAME} {
+:80 {
     # Reverse proxy to Django
     reverse_proxy web:8000
 
