@@ -3,20 +3,22 @@
 # Run this ON the Hetzner server after transferring migration data
 #
 # Prerequisites:
-#   - Fresh Ubuntu 22.04/24.04 on Hetzner CX22
-#   - SSH access as root
-#   - migration-data/ directory uploaded to /root/
+#   - Fresh Ubuntu/Debian on Hetzner CX22
+#   - SSH access (will use sudo for privileged operations)
+#   - migration-data/ directory uploaded to ~/migration-data
 #   - Git repo URL available
 #
-# Usage: ./scripts/setup-hetzner.sh
+# Usage: bash setup-hetzner.sh
 
 set -e
 
-APP_DIR="/opt/p4td"
+APP_DIR="$HOME/p4td"
 REPO_URL="https://github.com/Comm4nd0/p4td.git"
-MIGRATION_DIR="/root/migration-data"
+MIGRATION_DIR="$HOME/migration-data"
 
 echo "=== P4TD: Hetzner Server Setup ==="
+echo "User: $(whoami)"
+echo "Home: $HOME"
 echo ""
 
 # ============================================================================
@@ -24,18 +26,26 @@ echo ""
 # ============================================================================
 echo "1. Installing Docker..."
 if ! command -v docker &> /dev/null; then
-    apt-get update
-    apt-get install -y ca-certificates curl
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    # Add current user to docker group so we don't need sudo for docker commands
+    sudo usermod -aG docker "$(whoami)"
     echo "   Docker installed."
+    echo "   NOTE: You may need to log out and back in for docker group to take effect."
+    echo "   Or run: newgrp docker"
 else
     echo "   Docker already installed."
 fi
+
+# Use sudo for docker commands in case the group hasn't taken effect yet
+DOCKER="sudo docker"
+DOCKER_COMPOSE="sudo docker compose"
 
 # ============================================================================
 # 2. Clone repo
@@ -87,13 +97,13 @@ source "$APP_DIR/.env"
 echo ""
 echo "4. Starting database..."
 cd "$APP_DIR"
-docker compose -f docker-compose.prod.yml up -d db
+$DOCKER_COMPOSE -f docker-compose.prod.yml up -d db
 echo "   Waiting for PostgreSQL to be ready..."
 sleep 10
 
 # Wait for postgres to accept connections
 for i in $(seq 1 30); do
-    if docker compose -f docker-compose.prod.yml exec -T db pg_isready -U "${RDS_USERNAME:-postgres}" > /dev/null 2>&1; then
+    if $DOCKER_COMPOSE -f docker-compose.prod.yml exec -T db pg_isready -U "${RDS_USERNAME:-postgres}" > /dev/null 2>&1; then
         echo "   PostgreSQL is ready."
         break
     fi
@@ -106,7 +116,7 @@ done
 echo ""
 echo "5. Importing database dump..."
 if [ -f "$MIGRATION_DIR/db-dump.sql" ]; then
-    docker compose -f docker-compose.prod.yml exec -T db pg_restore \
+    $DOCKER_COMPOSE -f docker-compose.prod.yml exec -T db pg_restore \
         -U "${RDS_USERNAME:-postgres}" \
         -d "${RDS_DB_NAME:-p4td}" \
         --no-owner \
@@ -127,15 +137,15 @@ echo ""
 echo "6. Copying media files..."
 if [ -d "$MIGRATION_DIR/media" ]; then
     # Start web temporarily to create the volume, then copy media into it
-    docker compose -f docker-compose.prod.yml up -d web
+    $DOCKER_COMPOSE -f docker-compose.prod.yml up -d web
     sleep 5
 
     # Get the media volume mount path
-    MEDIA_VOLUME=$(docker volume inspect p4td_media_data --format '{{ .Mountpoint }}' 2>/dev/null || echo "")
+    MEDIA_VOLUME=$($DOCKER volume inspect p4td_media_data --format '{{ .Mountpoint }}' 2>/dev/null || echo "")
     if [ -n "$MEDIA_VOLUME" ]; then
-        cp -r "$MIGRATION_DIR/media/"* "$MEDIA_VOLUME/" 2>/dev/null || true
+        sudo cp -r "$MIGRATION_DIR/media/"* "$MEDIA_VOLUME/" 2>/dev/null || true
         # Fix permissions for the appuser (UID 1000 in the container)
-        chown -R 1000:1000 "$MEDIA_VOLUME/"
+        sudo chown -R 1000:1000 "$MEDIA_VOLUME/"
         echo "   Media files copied to volume."
     else
         echo "   Warning: Could not find media volume. Copy media manually."
@@ -149,19 +159,19 @@ fi
 # ============================================================================
 echo ""
 echo "7. Starting full stack..."
-docker compose -f docker-compose.prod.yml up -d --build
+$DOCKER_COMPOSE -f docker-compose.prod.yml up -d --build
 sleep 10
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Services:"
-docker compose -f docker-compose.prod.yml ps
+$DOCKER_COMPOSE -f docker-compose.prod.yml ps
 echo ""
 echo "Your app should be available at: https://9hj3.your-vhost.de"
 echo ""
 echo "Useful commands:"
 echo "  cd $APP_DIR"
-echo "  docker compose -f docker-compose.prod.yml logs -f        # View logs"
-echo "  docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser  # Create admin"
-echo "  docker compose -f docker-compose.prod.yml restart web    # Restart app"
+echo "  sudo docker compose -f docker-compose.prod.yml logs -f        # View logs"
+echo "  sudo docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser  # Create admin"
+echo "  sudo docker compose -f docker-compose.prod.yml restart web    # Restart app"
