@@ -34,8 +34,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-# Create staticfiles directory with correct permissions
-RUN mkdir -p /app/staticfiles && chown -R appuser:appuser /app/staticfiles
+# Create staticfiles and media directories with correct permissions
+RUN mkdir -p /app/staticfiles /app/media && chown -R appuser:appuser /app/staticfiles /app/media
 
 # Switch to non-root user
 USER appuser
