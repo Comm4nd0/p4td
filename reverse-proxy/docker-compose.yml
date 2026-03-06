@@ -1,0 +1,43 @@
+# Shared reverse proxy for multi-app hosting
+# This runs independently and routes traffic to app containers via shared networks.
+#
+# Setup:
+#   1. Create the shared network: docker network create caddy-net
+#   2. Start the proxy:          docker compose up -d
+#   3. Connect app stacks to caddy-net (see each app's docker-compose.prod.yml)
+#
+# Adding a new app:
+#   1. Add a site block to Caddyfile with the app's domain
+#   2. Ensure the app's docker-compose joins the "caddy-net" external network
+#   3. Reload Caddy: docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      # Mount media volumes from each app (read-only)
+      - p4td_media:/srv/p4td/media:ro
+    networks:
+      - caddy-net
+
+volumes:
+  caddy_data:
+  caddy_config:
+  # External volumes owned by each app stack
+  p4td_media:
+    external: true
+    name: p4td_media_data
+
+networks:
+  caddy-net:
+    external: true
+    name: caddy-net

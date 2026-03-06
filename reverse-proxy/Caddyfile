@@ -1,0 +1,34 @@
+# Shared Caddyfile for multi-app hosting
+#
+# Each app gets its own site block, routing by domain name.
+# To add a new app:
+#   1. Add a new site block below
+#   2. Point the domain's DNS A record to this server's IP
+#   3. Caddy will automatically provision HTTPS certificates via Let's Encrypt
+#
+# For IP-only access (no domain), use :80 as the site address.
+
+# ---------------------------------------------------------------------------
+# P4TD (Paws4Thought Dogs)
+# ---------------------------------------------------------------------------
+{$P4TD_DOMAIN:localhost} {
+    # Reverse proxy to the p4td Django app
+    reverse_proxy p4td-web:8000
+
+    # Serve media files directly (faster than proxying through Django)
+    handle_path /media/* {
+        root * /srv/p4td/media
+        file_server
+    }
+
+    encode gzip
+}
+
+# ---------------------------------------------------------------------------
+# Example: Adding another app
+# ---------------------------------------------------------------------------
+# {$ANOTHER_APP_DOMAIN} {
+#     reverse_proxy another-app-web:3000
+#
+#     encode gzip
+# }

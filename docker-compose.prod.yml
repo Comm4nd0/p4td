@@ -1,4 +1,10 @@
-# Production Docker Compose for Hetzner CX22
+# Production Docker Compose for P4TD
+# Works with the shared reverse proxy in ../reverse-proxy/
+#
+# Prerequisites:
+#   - Shared network exists: docker network create caddy-net
+#   - Reverse proxy is running: cd ../reverse-proxy && docker compose up -d
+#
 # Usage: docker compose -f docker-compose.prod.yml up -d
 
 services:
@@ -19,6 +25,7 @@ services:
 
   web:
     build: .
+    container_name: p4td-web
     restart: unless-stopped
     env_file: .env
     environment:
@@ -28,29 +35,18 @@ services:
         condition: service_healthy
     volumes:
       - media_data:/app/media
+    networks:
+      - default
+      - caddy-net
     command: >
       sh -c "python manage.py migrate --noinput &&
              gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 2 p4td_backend.wsgi:application"
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-      - media_data:/srv/media:ro
-    depends_on:
-      - web
-
 volumes:
   postgres_data:
   media_data:
-  caddy_data:
-  caddy_config:
+
+networks:
+  caddy-net:
+    external: true
+    name: caddy-net

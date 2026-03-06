@@ -1,11 +1,13 @@
 #!/bin/bash
-# Deploy latest code to Hetzner server
+# Deploy latest P4TD code to Hetzner server
+# Only deploys this app — does not touch the shared reverse proxy or other apps.
+#
 # Usage: ./scripts/deploy-to-hetzner.sh
 
 set -e
 
 HETZNER_HOST="${HETZNER_HOST:-root@9hj3.your-vhost.de}"
-APP_DIR="/opt/p4td"
+APP_DIR="/root/p4td"
 SSH_KEY="${SSH_KEY:-}"
 
 # Build SSH command
@@ -25,7 +27,7 @@ $SSH_CMD "$HETZNER_HOST" "
     echo '>>> Pulling latest code...'
     git pull origin main
 
-    echo '>>> Rebuilding and restarting...'
+    echo '>>> Rebuilding and restarting P4TD...'
     docker compose -f docker-compose.prod.yml up -d --build
 
     echo '>>> Waiting for services...'
@@ -41,4 +43,4 @@ $SSH_CMD "$HETZNER_HOST" "
 "
 
 echo ""
-echo "Done. App is live at: https://9hj3.your-vhost.de"
+echo "Done. P4TD is live."

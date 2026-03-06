@@ -1,51 +1,35 @@
 #!/bin/bash
-# Initial setup for Hetzner CX22 server
-# Run this ON the Hetzner server after transferring migration data
+# P4TD app setup for Hetzner server (multi-app architecture)
+# Run this ON the server AFTER setup-server.sh has been run.
 #
 # Prerequisites:
-#   - Fresh Ubuntu/Debian on Hetzner CX22
-#   - SSH access (will use sudo for privileged operations)
-#   - migration-data/ directory uploaded to ~/migration-data
-#   - Git repo URL available
+#   - setup-server.sh has been run (Docker installed, caddy-net exists, proxy running)
+#   - Optional: migration-data/ directory uploaded to ~/migration-data
 #
 # Usage: bash setup-hetzner.sh
 
 set -e
 
 APP_DIR="$HOME/p4td"
+PROXY_DIR="$HOME/reverse-proxy"
 REPO_URL="https://github.com/Comm4nd0/p4td.git"
 MIGRATION_DIR="$HOME/migration-data"
 
-echo "=== P4TD: Hetzner Server Setup ==="
-echo "User: $(whoami)"
-echo "Home: $HOME"
+DOCKER="sudo docker"
+DOCKER_COMPOSE="sudo docker compose"
+
+echo "=== P4TD: App Setup ==="
 echo ""
 
 # ============================================================================
-# 1. Install Docker
+# 1. Verify server setup
 # ============================================================================
-echo "1. Installing Docker..."
-if ! command -v docker &> /dev/null; then
-    sudo apt-get update
-    sudo apt-get install -y ca-certificates curl
-    sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-    # Add current user to docker group so we don't need sudo for docker commands
-    sudo usermod -aG docker "$(whoami)"
-    echo "   Docker installed."
-    echo "   NOTE: You may need to log out and back in for docker group to take effect."
-    echo "   Or run: newgrp docker"
-else
-    echo "   Docker already installed."
+echo "1. Checking prerequisites..."
+if ! $DOCKER network inspect caddy-net > /dev/null 2>&1; then
+    echo "   ERROR: caddy-net network not found. Run setup-server.sh first."
+    exit 1
 fi
-
-# Use sudo for docker commands in case the group hasn't taken effect yet
-DOCKER="sudo docker"
-DOCKER_COMPOSE="sudo docker compose"
+echo "   caddy-net network exists."
 
 # ============================================================================
 # 2. Clone repo
@@ -88,11 +72,10 @@ else
     echo "   .env already exists, skipping."
 fi
 
-# Source .env for DB password
 source "$APP_DIR/.env"
 
 # ============================================================================
-# 4. Start database first
+# 4. Start database
 # ============================================================================
 echo ""
 echo "4. Starting database..."
@@ -101,7 +84,6 @@ $DOCKER_COMPOSE -f docker-compose.prod.yml up -d db
 echo "   Waiting for PostgreSQL to be ready..."
 sleep 10
 
-# Wait for postgres to accept connections
 for i in $(seq 1 30); do
     if $DOCKER_COMPOSE -f docker-compose.prod.yml exec -T db pg_isready -U "${RDS_USERNAME:-postgres}" > /dev/null 2>&1; then
         echo "   PostgreSQL is ready."
@@ -136,15 +118,12 @@ fi
 echo ""
 echo "6. Copying media files..."
 if [ -d "$MIGRATION_DIR/media" ]; then
-    # Start web temporarily to create the volume, then copy media into it
     $DOCKER_COMPOSE -f docker-compose.prod.yml up -d web
     sleep 5
 
-    # Get the media volume mount path
     MEDIA_VOLUME=$($DOCKER volume inspect p4td_media_data --format '{{ .Mountpoint }}' 2>/dev/null || echo "")
     if [ -n "$MEDIA_VOLUME" ]; then
         sudo cp -r "$MIGRATION_DIR/media/"* "$MEDIA_VOLUME/" 2>/dev/null || true
-        # Fix permissions for the appuser (UID 1000 in the container)
         sudo chown -R 1000:1000 "$MEDIA_VOLUME/"
         echo "   Media files copied to volume."
     else
@@ -155,23 +134,98 @@ else
 fi
 
 # ============================================================================
-# 7. Start full stack
+# 7. Start app stack
 # ============================================================================
 echo ""
-echo "7. Starting full stack..."
+echo "7. Starting P4TD app stack..."
+cd "$APP_DIR"
 $DOCKER_COMPOSE -f docker-compose.prod.yml up -d --build
-sleep 10
+
+# ============================================================================
+# 8. Register with reverse proxy
+# ============================================================================
+echo ""
+echo "8. Registering with reverse proxy..."
+
+# Add P4TD's media volume to the proxy's docker-compose
+# and add the Caddy site block
+DOMAIN="${DOMAIN_NAME:-localhost}"
+
+# Append P4TD site block to Caddyfile if not already present
+if ! grep -q "p4td-web" "$PROXY_DIR/Caddyfile" 2>/dev/null; then
+    cat >> "$PROXY_DIR/Caddyfile" << CADDYEOF
+
+# ---------------------------------------------------------------------------
+# P4TD (Paws4Thought Dogs)
+# ---------------------------------------------------------------------------
+${DOMAIN} {
+    reverse_proxy p4td-web:8000
+
+    handle_path /media/* {
+        root * /srv/p4td/media
+        file_server
+    }
+
+    encode gzip
+}
+CADDYEOF
+    echo "   Added P4TD site block to Caddyfile."
+else
+    echo "   P4TD already configured in Caddyfile."
+fi
+
+# Add media volume mount to proxy if not already present
+cd "$PROXY_DIR"
+if ! grep -q "p4td_media" "$PROXY_DIR/docker-compose.yml" 2>/dev/null; then
+    # Recreate proxy compose with the p4td media volume
+    cat > "$PROXY_DIR/docker-compose.yml" << 'COMPOSEEOF'
+# Shared reverse proxy for multi-app hosting
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - p4td_media:/srv/p4td/media:ro
+    networks:
+      - caddy-net
+
+volumes:
+  caddy_data:
+  caddy_config:
+  p4td_media:
+    external: true
+    name: p4td_media_data
+
+networks:
+  caddy-net:
+    external: true
+    name: caddy-net
+COMPOSEEOF
+    echo "   Added P4TD media volume to proxy."
+fi
+
+# Restart proxy to pick up changes
+$DOCKER_COMPOSE up -d
+sleep 5
 
 echo ""
-echo "=== Setup Complete ==="
+echo "=== P4TD Setup Complete ==="
 echo ""
 echo "Services:"
+cd "$APP_DIR"
 $DOCKER_COMPOSE -f docker-compose.prod.yml ps
 echo ""
-echo "Your app should be available at: https://9hj3.your-vhost.de"
+echo "Your app should be available at: https://${DOMAIN}"
 echo ""
 echo "Useful commands:"
 echo "  cd $APP_DIR"
-echo "  sudo docker compose -f docker-compose.prod.yml logs -f        # View logs"
-echo "  sudo docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser  # Create admin"
-echo "  sudo docker compose -f docker-compose.prod.yml restart web    # Restart app"
+echo "  sudo docker compose -f docker-compose.prod.yml logs -f        # P4TD logs"
+echo "  sudo docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser"
