@@ -184,6 +184,9 @@ class GroupMediaSerializer(serializers.ModelSerializer):
     def get_uploaded_by_profile_photo(self, obj):
         try:
             if obj.uploaded_by.profile.profile_photo:
+                request = self.context.get('request')
+                if request:
+                    return request.build_absolute_uri(obj.uploaded_by.profile.profile_photo.url)
                 return obj.uploaded_by.profile.profile_photo.url
         except Exception:
             pass

@@ -129,6 +129,9 @@ tools/
 .windsurf/
 .cursor/
 
+# Migration data
+migration-data/
+
 # Large Binaries / Installers
 get-pip.py
 
