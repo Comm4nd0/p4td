@@ -163,7 +163,7 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         profiles = UserProfile.objects.all()
         # You might want to filter this later, e.g. .select_related('user')
         from .serializers import UserSummarySerializer
-        serializer = UserSummarySerializer(profiles, many=True)
+        serializer = UserSummarySerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)
 
 class DogViewSet(viewsets.ModelViewSet):
@@ -837,7 +837,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         ).values_list('dog_id', flat=True)
 
         unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
-        serializer = DogSerializer(unassigned, many=True)
+        serializer = DogSerializer(unassigned, many=True, context={'request': request})
         return Response(serializer.data)
 
     @action(detail=False, methods=['post'])
