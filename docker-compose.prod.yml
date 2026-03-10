@@ -30,7 +30,7 @@ services:
       - media_data:/app/media
     command: >
       sh -c "python manage.py migrate --noinput &&
-             gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 2 p4td_backend.wsgi:application"
+             gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 2 --timeout 120 p4td_backend.wsgi:application"
 
   caddy:
     image: caddy:2-alpine
