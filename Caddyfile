@@ -1,11 +1,13 @@
 :80 {
-    # Reverse proxy to Django
-    reverse_proxy web:8000
-
-    # Serve media files directly
+    # Serve media files directly (must be before reverse_proxy)
     handle_path /media/* {
         root * /srv/media
         file_server
+    }
+
+    # Reverse proxy everything else to Django
+    handle {
+        reverse_proxy web:8000
     }
 
     # Compression

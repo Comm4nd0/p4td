@@ -174,7 +174,14 @@ STORAGES = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# =============================================================================
+# REVERSE PROXY SETTINGS (Caddy)
+# =============================================================================
 
+# Trust X-Forwarded-Host header from Caddy so build_absolute_uri() returns
+# the correct public URL instead of the internal Docker hostname.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # =============================================================================
 # EMAIL SETTINGS
