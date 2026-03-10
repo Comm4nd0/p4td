@@ -205,6 +205,16 @@ class GroupMediaSerializer(serializers.ModelSerializer):
                 return reaction.emoji
         return None
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request:
+            if instance.file:
+                data['file'] = request.build_absolute_uri(instance.file.url)
+            if instance.thumbnail:
+                data['thumbnail'] = request.build_absolute_uri(instance.thumbnail.url)
+        return data
+
 class BoardingRequestHistorySerializer(serializers.ModelSerializer):
     changed_by_name = serializers.CharField(source='changed_by.username', read_only=True)
 
