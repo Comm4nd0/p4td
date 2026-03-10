@@ -28,29 +28,12 @@ services:
         condition: service_healthy
     volumes:
       - media_data:/app/media
+    ports:
+      - "8000:8000"
     command: >
       sh -c "python manage.py migrate --noinput &&
              gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 2 --timeout 120 p4td_backend.wsgi:application"
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-      - media_data:/srv/media:ro
-    depends_on:
-      - web
-
 volumes:
   postgres_data:
   media_data:
-  caddy_data:
-  caddy_config:
