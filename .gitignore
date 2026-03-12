@@ -93,6 +93,10 @@ uploads/
 dog_profiles/
 dog_photos/
 
+# Allow website static images
+!website/static/website/images/*.jpg
+!website/static/website/images/*.png
+
 # System files
 .DS_Store
 Thumbs.db
