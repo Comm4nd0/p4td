@@ -1,0 +1,58 @@
+{% extends "website/base.html" %}
+{% load static %}
+
+{% block title %}Field Hire - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Hire our 5-acre secure dog field in Berkshire. £15 per 1-hour slot. Fully enclosed, ample parking. Book now!{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Field Hire</h1>
+</div>
+
+<section class="section">
+    <div class="field-gallery">
+        <img src="{% static 'website/images/field-1.jpg' %}" alt="Field entrance">
+        <img src="{% static 'website/images/field-2.jpg' %}" alt="Open field">
+        <img src="{% static 'website/images/field-3.jpg' %}" alt="Field view">
+    </div>
+    <div class="field-hero-image-container" style="text-align: center;">
+        <img src="{% static 'website/images/field-panorama.jpg' %}" alt="Our 5-acre secure dog field" class="field-hero-image">
+    </div>
+
+    <h2 class="section-title" style="font-size: 2rem; margin-top: 1rem;">Your Dog's Paradise Awaits: 5-Acre Secure Field for Hire</h2>
+
+    <p style="color: #666; line-height: 1.8; margin-bottom: 2rem;">
+        Unleash the joy and set your dog free in our expansive 5-acre field, designed exclusively for dog walks and playtime! This is more than just a field; it's a haven for you and your canine companion.
+    </p>
+
+    <div class="field-details">
+        <h3>Why Choose Our Field?</h3>
+        <ul class="field-features">
+            <li><strong>Space to Roam:</strong> With 5 acres of lush, open land, there's ample room for fetch, frisbee, and frolicking.</li>
+            <li><strong>Utmost Security:</strong> Your pup's safety is our priority. Our field is fully secure, so you can relax while your dog explores.</li>
+            <li><strong>Convenient Parking:</strong> Drive right up to your dog's playground! Ample parking is available on-site for your convenience.</li>
+        </ul>
+
+        <h3>Essential Details</h3>
+        <ul class="field-features">
+            <li><strong>Cost:</strong> £15 per 1-hour slot</li>
+            <li><strong>Booking:</strong> Simply call or email us to reserve your time. Slots fill up fast — book now to ensure your pup's day out!</li>
+        </ul>
+
+        <h3>Our One Rule: Be Responsible</h3>
+        <p style="color: #666; line-height: 1.8;">
+            We love dogs, and we love our field. Help us keep it clean by collecting all dog waste during your visit.
+        </p>
+
+        <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
+
+        <p style="color: #666; line-height: 1.8;">
+            Indulge your dog in a playground as boundless as their energy. Call or email us today to secure your slot and make your dog's tail wag in pure delight.
+        </p>
+
+        <div style="margin-top: 2rem;">
+            <a href="{% url 'website:contact' %}" class="btn btn-primary">Book Now &rarr;</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

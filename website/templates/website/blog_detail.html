@@ -1,0 +1,25 @@
+{% extends "website/base.html" %}
+
+{% block title %}{{ post.title }} - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}{{ post.excerpt }}{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="blog-detail">
+        <div class="blog-detail-header">
+            <h1>{{ post.title }}</h1>
+            <p class="blog-detail-date">{{ post.published_at|date:"d/m/Y" }}</p>
+        </div>
+
+        {% if post.featured_image %}
+        <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="blog-detail-image">
+        {% endif %}
+
+        <div class="blog-detail-body">
+            {{ post.body|safe }}
+        </div>
+
+        <a href="{% url 'website:blog_list' %}" class="back-link">&larr; Back to Blog</a>
+    </div>
+</section>
+{% endblock %}

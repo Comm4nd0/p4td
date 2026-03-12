@@ -1,0 +1,35 @@
+{% extends "website/base.html" %}
+
+{% block title %}Blog - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Read our blog for tips on dog care, training, and day-to-day life at Paws 4 Thought Dogs daycare.{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Blog</h1>
+</div>
+
+<section class="section">
+    {% if posts %}
+    <div class="card-grid">
+        {% for post in posts %}
+        <div class="card">
+            {% if post.featured_image %}
+            <a href="{% url 'website:blog_detail' post.slug %}">
+                <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="card-image">
+            </a>
+            {% endif %}
+            <div class="card-body">
+                <p class="card-date">{{ post.published_at|date:"d/m/Y" }}</p>
+                <h2 class="card-title">
+                    <a href="{% url 'website:blog_detail' post.slug %}">{{ post.title }}</a>
+                </h2>
+                <p class="card-excerpt">{{ post.excerpt }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p style="text-align: center; color: #666;">No blog posts yet. Check back soon!</p>
+    {% endif %}
+</section>
+{% endblock %}
