@@ -1,0 +1,65 @@
+{% extends "website/base.html" %}
+
+{% block title %}Contact - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Contact Paws 4 Thought Dogs. Mon-Fri 8:00-17:00. Call {{ business_phone }}. Enquire about daycare, training, puppy classes, or field hire.{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Contact</h1>
+</div>
+
+<section class="section">
+    <div class="contact-grid">
+        <div>
+            <div class="contact-info-card">
+                <strong>Hours</strong>
+                {{ business_hours }}
+            </div>
+            <div class="contact-info-card">
+                <strong>Call Us</strong>
+                Mobile: <a href="tel:{{ business_phone }}">{{ business_phone }}</a>
+            </div>
+        </div>
+
+        <div>
+            <form method="post" novalidate>
+                {% csrf_token %}
+
+                <div class="form-group">
+                    <label for="id_name">Name <span class="required">*</span></label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                    <div class="form-errors">{{ form.name.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_email">Email <span class="required">*</span></label>
+                    {{ form.email }}
+                    {% if form.email.errors %}
+                    <div class="form-errors">{{ form.email.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_service">Service <span class="required">*</span></label>
+                    {{ form.service }}
+                    {% if form.service.errors %}
+                    <div class="form-errors">{{ form.service.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_message">Comment or Message</label>
+                    {{ form.message }}
+                    {% if form.message.errors %}
+                    <div class="form-errors">{{ form.message.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}

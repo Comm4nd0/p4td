@@ -1,0 +1,78 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Paws 4 Thought Dogs - Dog Day Care in Berkshire & Buckinghamshire{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}Dog day care in Berkshire & Buckinghamshire. Daycare, puppy classes, 1-to-1 training, and field hire. Call {{ business_phone }}.{% endblock %}">
+    <link rel="stylesheet" href="{% static 'website/css/style.css' %}">
+    <link rel="icon" type="image/png" href="{% static 'website/images/logo.png' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="{% url 'website:home' %}" class="logo-link">
+                <img src="{% static 'website/images/logo.png' %}" alt="Paws 4 Thought Dogs" class="logo">
+                <div class="logo-text">
+                    <span class="tagline">Dog Day Care in Berkshire & Buckinghamshire | {{ business_phone }}</span>
+                </div>
+            </a>
+            <button class="mobile-menu-toggle" aria-label="Toggle menu" aria-expanded="false">
+                <span></span><span></span><span></span>
+            </button>
+            <nav class="main-nav" id="main-nav">
+                <a href="{% url 'website:home' %}" class="{% if request.resolver_match.url_name == 'home' %}active{% endif %}">home</a>
+                <a href="{% url 'website:blog_list' %}" class="{% if 'blog' in request.resolver_match.url_name %}active{% endif %}">blog</a>
+                <a href="{% url 'website:field_hire' %}" class="{% if request.resolver_match.url_name == 'field_hire' %}active{% endif %}">field hire</a>
+                <a href="{% url 'website:contact' %}" class="{% if request.resolver_match.url_name == 'contact' %}active{% endif %}">contact</a>
+                <a href="{{ facebook_url }}" target="_blank" rel="noopener noreferrer" class="social-link" aria-label="Facebook">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    {% if messages %}
+    <div class="messages-container">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav">
+                <a href="{% url 'website:home' %}">home</a>
+                <a href="{% url 'website:blog_list' %}">blog</a>
+                <a href="{% url 'website:field_hire' %}">field hire</a>
+                <a href="{% url 'website:contact' %}">contact</a>
+                <a href="{% url 'website:privacy_policy' %}">privacy policy</a>
+            </nav>
+            <div class="footer-right">
+                <a href="{{ facebook_url }}" target="_blank" rel="noopener noreferrer" class="social-link" aria-label="Facebook">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                </a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; {% now "Y" %} Paws4ThoughtLtd</p>
+        </div>
+    </footer>
+
+    <script>
+        document.querySelector('.mobile-menu-toggle').addEventListener('click', function() {
+            const nav = document.getElementById('main-nav');
+            const expanded = this.getAttribute('aria-expanded') === 'true';
+            this.setAttribute('aria-expanded', !expanded);
+            nav.classList.toggle('open');
+        });
+    </script>
+</body>
+</html>
