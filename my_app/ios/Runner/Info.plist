@@ -51,6 +51,11 @@
 	<string>This app needs photo library access to upload photos and videos of dogs.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access to record videos with sound.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
