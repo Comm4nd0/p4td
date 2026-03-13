@@ -19,16 +19,31 @@ class QueryListScreen extends StatefulWidget {
   State<QueryListScreen> createState() => _QueryListScreenState();
 }
 
-class _QueryListScreenState extends State<QueryListScreen> {
+class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingObserver {
   final DataService _dataService = ApiDataService();
   List<SupportQuery> _queries = [];
   bool _loading = true;
+  bool _loadFailed = false;
   String _filter = 'OPEN';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadQueries();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _loadFailed) {
+      _loadQueries();
+    }
   }
 
   Future<void> _loadQueries() async {
@@ -39,11 +54,15 @@ class _QueryListScreenState extends State<QueryListScreen> {
         setState(() {
           _queries = queries;
           _loading = false;
+          _loadFailed = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load messages: $e')),
         );

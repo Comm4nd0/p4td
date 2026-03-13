@@ -20,25 +20,35 @@ class QueryDetailScreen extends StatefulWidget {
   State<QueryDetailScreen> createState() => _QueryDetailScreenState();
 }
 
-class _QueryDetailScreenState extends State<QueryDetailScreen> {
+class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindingObserver {
   final DataService _dataService = ApiDataService();
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   SupportQuery? _query;
   bool _loading = true;
+  bool _loadFailed = false;
   bool _sending = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadQuery();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _loadFailed) {
+      _loadQuery();
+    }
   }
 
   Future<void> _loadQuery() async {
@@ -49,12 +59,16 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> {
         setState(() {
           _query = query;
           _loading = false;
+          _loadFailed = false;
         });
         _scrollToBottom();
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load conversation: $e')),
         );
