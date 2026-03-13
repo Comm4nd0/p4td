@@ -64,8 +64,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadDogs() async {
     if (!mounted) return;
+    // Only show loading spinner on initial load, not on refresh
+    final isInitialLoad = _allDogs.isEmpty;
     setState(() {
-      _loadingDogs = true;
+      if (isInitialLoad) _loadingDogs = true;
       _isOffline = false;
     });
 
@@ -77,12 +79,9 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _allDogs = dogs;
-          _filteredDogs = dogs;
           _loadingDogs = false;
           // Re-apply filter if search text exists
-          if (_searchController.text.isNotEmpty) {
-            _filterDogs(_searchController.text);
-          }
+          _filteredDogs = _applyFilter(_searchController.text);
         });
       }
     } catch (e) {
@@ -102,15 +101,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _filterDogs(String query) {
+    final filtered = _applyFilter(query);
     setState(() {
-      if (query.isEmpty) {
-        _filteredDogs = _allDogs;
-      } else {
-        _filteredDogs = _allDogs
-            .where((dog) => dog.name.toLowerCase().contains(query.toLowerCase()))
-            .toList();
-      }
+      _filteredDogs = filtered;
     });
+  }
+
+  List<Dog> _applyFilter(String query) {
+    if (query.isEmpty) {
+      return _allDogs;
+    }
+    final lowerQuery = query.toLowerCase();
+    return _allDogs.where((dog) {
+      if (dog.name.toLowerCase().contains(lowerQuery)) return true;
+      if (dog.ownerDetails != null) {
+        if (dog.ownerDetails!.username.toLowerCase().contains(lowerQuery)) return true;
+      }
+      for (final owner in dog.additionalOwners) {
+        if (owner.username.toLowerCase().contains(lowerQuery)) return true;
+      }
+      return false;
+    }).toList();
   }
 
   Future<void> _checkStaffStatus() async {
@@ -174,9 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _refresh() {
-    setState(() {
-      _loadDogs();
-    });
+    _loadDogs();
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
   }
@@ -533,8 +542,17 @@ class _HomeScreenState extends State<HomeScreen> {
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Search dogs...',
+                hintText: _isStaff ? 'Search by dog or owner name...' : 'Search dogs...',
                 prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          _filterDogs('');
+                        },
+                      )
+                    : null,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
