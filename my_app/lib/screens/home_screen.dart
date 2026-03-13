@@ -27,7 +27,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final DataService _dataService = ApiDataService();
   // final AuthService _authService = AuthService(); // Removed unused
   final NotificationService _notificationService = NotificationService();
@@ -52,14 +52,23 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDogs();
     _checkStaffStatus();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _isOffline) {
+      _refresh();
+    }
   }
 
   Future<void> _loadDogs() async {
@@ -357,6 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
             return;
           }
           setState(() => _currentIndex = index);
+          if (_isOffline) _refresh();
         },
         items: [
           BottomNavigationBarItem(
