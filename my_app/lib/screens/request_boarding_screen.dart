@@ -14,6 +14,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
   final DataService _dataService = ApiDataService();
 
   bool _isLoading = false;
+  bool _isLoadingDogs = true;
   List<Dog> _dogs = [];
   final List<int> _selectedDogIds = [];
 
@@ -32,10 +33,14 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
       if (mounted) {
         setState(() {
           _dogs = dogs;
+          _isLoadingDogs = false;
         });
       }
     } catch (e) {
       if (mounted) {
+        setState(() {
+          _isLoadingDogs = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load dogs: $e')),
         );
@@ -114,9 +119,31 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
       appBar: AppBar(
         title: const Text('Request Boarding'),
       ),
-      body: _dogs.isEmpty
+      body: _isLoadingDogs
           ? const Center(child: CircularProgressIndicator())
-          : Form(
+          : _dogs.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No dogs on your account',
+                          style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Please contact staff to have your dog added to your profile before requesting boarding.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Form(
               key: _formKey,
               child: ListView(
                 padding: const EdgeInsets.all(16),

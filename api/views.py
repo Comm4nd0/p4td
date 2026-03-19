@@ -1220,7 +1220,22 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'You do not have permission to reply to queries.'}, status=403)
 
         SupportMessage.objects.create(query=query, sender=user, text=text)
+        # Mark unread for the owner when staff replies, clear when owner replies
+        if user.is_staff:
+            query.has_unread_reply = True
+        else:
+            query.has_unread_reply = False
         query.save()  # Update updated_at timestamp
+        return Response(SupportQuerySerializer(query, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Mark a query as read by the owner."""
+        from .serializers import SupportQuerySerializer
+        query = self.get_object()
+        if request.user == query.owner:
+            query.has_unread_reply = False
+            query.save()
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
@@ -1263,12 +1278,12 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unresolved_count(self, request):
-        """Get count of open queries for badge display."""
+        """Get count of queries with unread replies for badge display."""
         from .models import SupportQuery
         if request.user.is_staff:
             count = SupportQuery.objects.filter(status='OPEN').count()
         else:
-            count = SupportQuery.objects.filter(owner=request.user, status='OPEN').count()
+            count = SupportQuery.objects.filter(owner=request.user, has_unread_reply=True).count()
         return Response({'count': count})
 
 
@@ -1689,12 +1704,6 @@ def change_password(request):
     serializer.is_valid(raise_exception=True)
 
     user = request.user
-    if not user.check_password(serializer.validated_data['current_password']):
-        return Response(
-            {'current_password': ['Current password is incorrect.']},
-            status=drf_status.HTTP_400_BAD_REQUEST,
-        )
-
     user.set_password(serializer.validated_data['new_password'])
     user.save()
 

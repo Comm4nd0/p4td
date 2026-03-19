@@ -22,7 +22,6 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
-    current_password = serializers.CharField()
     new_password = serializers.CharField(min_length=10)
 
     def validate_new_password(self, value):
@@ -331,11 +330,11 @@ class SupportQuerySerializer(serializers.ModelSerializer):
         model = SupportQuery
         fields = [
             'id', 'owner', 'owner_name', 'subject', 'status',
-            'resolved_by_name', 'resolved_at',
+            'has_unread_reply', 'resolved_by_name', 'resolved_at',
             'messages', 'message_count', 'last_message_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'status', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
         if obj.owner.first_name:
@@ -360,10 +359,10 @@ class SupportQueryListSerializer(serializers.ModelSerializer):
         model = SupportQuery
         fields = [
             'id', 'owner', 'owner_name', 'subject', 'status',
-            'message_count', 'last_message_at',
+            'has_unread_reply', 'message_count', 'last_message_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
         if obj.owner.first_name:

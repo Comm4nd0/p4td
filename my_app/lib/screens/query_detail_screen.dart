@@ -62,6 +62,10 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
           _loadFailed = false;
         });
         _scrollToBottom();
+        // Mark as read when user opens the conversation
+        if (!widget.isStaff) {
+          _dataService.markQueryRead(widget.queryId);
+        }
       }
     } catch (e) {
       if (mounted) {

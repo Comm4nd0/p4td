@@ -185,7 +185,7 @@ class AuthService {
   }
 
   /// Change password for the currently logged-in user.
-  Future<String?> changePassword(String currentPassword, String newPassword) async {
+  Future<String?> changePassword(String newPassword) async {
     try {
       final token = await getToken();
       if (token == null) return 'Not authenticated';
@@ -197,7 +197,6 @@ class AuthService {
           'Authorization': 'Token $token',
         },
         body: json.encode({
-          'current_password': currentPassword,
           'new_password': newPassword,
         }),
       ).timeout(const Duration(seconds: 10));
@@ -207,11 +206,6 @@ class AuthService {
       }
       final data = json.decode(response.body);
       if (data is Map) {
-        if (data.containsKey('current_password')) {
-          final errors = data['current_password'];
-          if (errors is List) return errors.join('\n');
-          return errors.toString();
-        }
         if (data.containsKey('new_password')) {
           final errors = data['new_password'];
           if (errors is List) return errors.join('\n');

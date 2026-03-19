@@ -538,7 +538,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               style: TextStyle(fontSize: 18, color: Colors.grey[600]),
             ),
             const SizedBox(height: 8),
-            const Text('Tap the button below to add your first dog.'),
+            if (_isStaff)
+              const Text('Tap the button below to add your first dog.')
+            else ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'Please contact staff to request your dog is attached to your profile.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => QueryListScreen(isStaff: _isStaff),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.support_agent),
+                label: const Text('Contact Staff'),
+              ),
+            ],
           ],
         ),
       );
