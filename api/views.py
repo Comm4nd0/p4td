@@ -1702,3 +1702,40 @@ def change_password(request):
         {'detail': 'Password changed successfully.'},
         status=drf_status.HTTP_200_OK,
     )
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def delete_account(request):
+    """Permanently delete the currently authenticated user's account.
+
+    Requires password confirmation. Dogs owned by this user are NOT deleted;
+    their owner field is set to null (handled by SET_NULL on the FK).
+    The user is also removed from any additional_owners M2M relationships.
+    """
+    password = request.data.get('password')
+    if not password:
+        return Response(
+            {'detail': 'Password is required to confirm account deletion.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = request.user
+    if not user.check_password(password):
+        return Response(
+            {'detail': 'Incorrect password.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Remove user from additional_owners on any dogs (M2M cleanup)
+    for dog in Dog.objects.filter(additional_owners=user):
+        dog.additional_owners.remove(user)
+
+    # Delete the user — cascades to profile, tokens, reactions, comments, etc.
+    # Dogs are preserved because owner FK uses on_delete=SET_NULL.
+    user.delete()
+
+    return Response(
+        {'detail': 'Account deleted successfully.'},
+        status=drf_status.HTTP_200_OK,
+    )

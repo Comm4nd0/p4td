@@ -80,7 +80,7 @@ class Dog(models.Model):
         ('ad_hoc', 'Ad Hoc'),
     ]
 
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dogs', null=True, blank=True)
+    owner = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='dogs', null=True, blank=True)
     additional_owners = models.ManyToManyField(User, related_name='additional_dogs', blank=True)
     name = models.CharField(max_length=100)
     profile_image = models.ImageField(upload_to='dog_profiles/', null=True, blank=True)

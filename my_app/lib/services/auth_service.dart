@@ -154,6 +154,36 @@ class AuthService {
     }
   }
 
+  /// Permanently delete the currently authenticated user's account.
+  /// Requires password confirmation. Returns null on success, error message on failure.
+  Future<String?> deleteAccount(String password) async {
+    try {
+      final token = await getToken();
+      if (token == null) return 'Not authenticated';
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/account/delete/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+        body: json.encode({'password': password}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        await logout();
+        return null; // Success
+      }
+      final data = json.decode(response.body);
+      return data['detail'] ?? 'Account deletion failed';
+    } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
+      return 'Error: $e';
+    }
+  }
+
   /// Change password for the currently logged-in user.
   Future<String?> changePassword(String currentPassword, String newPassword) async {
     try {

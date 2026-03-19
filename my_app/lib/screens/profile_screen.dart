@@ -240,6 +240,159 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _showDeleteAccountDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Expanded(child: Text('Delete Account')),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This action is permanent and cannot be undone.',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 16),
+            Text('Deleting your account will:'),
+            SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('  \u2022  '),
+                Expanded(child: Text('Remove all your personal information')),
+              ],
+            ),
+            SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('  \u2022  '),
+                Expanded(child: Text('Delete your booking and request history')),
+              ],
+            ),
+            SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('  \u2022  '),
+                Expanded(child: Text('Remove your feed posts and comments')),
+              ],
+            ),
+            SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('  \u2022  '),
+                Expanded(child: Text('Log you out of the app permanently')),
+              ],
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Your dogs will NOT be deleted and can still be managed by staff.',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Second step: ask for password confirmation
+    final passwordController = TextEditingController();
+    bool isDeleting = false;
+
+    final passwordConfirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Confirm with Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Enter your password to permanently delete your account.'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                enabled: !isDeleting,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isDeleting ? null : () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isDeleting
+                  ? null
+                  : () async {
+                      if (passwordController.text.isEmpty) return;
+                      setDialogState(() => isDeleting = true);
+                      final error = await _authService.deleteAccount(passwordController.text);
+                      if (error != null) {
+                        setDialogState(() => isDeleting = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(error)),
+                          );
+                        }
+                      } else {
+                        if (context.mounted) Navigator.pop(context, true);
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: isDeleting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Text('Delete My Account'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    passwordController.dispose();
+
+    if (passwordConfirmed == true && mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
   Widget _buildProfilePhoto() {
     final photoUrl = _profile?.profilePhotoUrl;
 
@@ -439,6 +592,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 32),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: TextButton(
+                        onPressed: _showDeleteAccountDialog,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.grey,
+                        ),
+                        child: const Text('Delete Account'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                   ],
                 ),
     );
