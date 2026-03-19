@@ -1226,6 +1226,9 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         else:
             query.has_unread_reply = False
         query.save()  # Update updated_at timestamp
+        # Refresh from DB to clear prefetch cache and include the new message
+        query.refresh_from_db()
+        query = SupportQuery.objects.prefetch_related('messages').get(pk=query.pk)
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
