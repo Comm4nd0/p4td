@@ -83,6 +83,7 @@ abstract class DataService {
   Future<SupportQuery> addQueryMessage(int queryId, String text);
   Future<SupportQuery> resolveQuery(int queryId);
   Future<SupportQuery> reopenQuery(int queryId);
+  Future<void> markQueryRead(int queryId);
   Future<int> getUnresolvedQueryCount();
 
   // Closure Days
@@ -1379,6 +1380,15 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<void> markQueryRead(int queryId) async {
+    final headers = await _getHeaders();
+    await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/mark_read/'),
+      headers: headers,
+    );
+  }
+
+  @override
   Future<int> getUnresolvedQueryCount() async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -1932,6 +1942,8 @@ class MockDataService implements DataService {
   Future<SupportQuery> resolveQuery(int queryId) async => throw UnimplementedError();
   @override
   Future<SupportQuery> reopenQuery(int queryId) async => throw UnimplementedError();
+  @override
+  Future<void> markQueryRead(int queryId) async {}
   @override
   Future<int> getUnresolvedQueryCount() async => 0;
 

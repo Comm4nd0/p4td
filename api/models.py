@@ -80,7 +80,7 @@ class Dog(models.Model):
         ('ad_hoc', 'Ad Hoc'),
     ]
 
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dogs', null=True, blank=True)
+    owner = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='dogs', null=True, blank=True)
     additional_owners = models.ManyToManyField(User, related_name='additional_dogs', blank=True)
     name = models.CharField(max_length=100)
     profile_image = models.ImageField(upload_to='dog_profiles/', null=True, blank=True)
@@ -375,6 +375,7 @@ class SupportQuery(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='support_queries')
     subject = models.CharField(max_length=255)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='OPEN')
+    has_unread_reply = models.BooleanField(default=False, help_text='True when staff has replied and user has not yet viewed')
     resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_queries')
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

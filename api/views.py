@@ -1220,7 +1220,25 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'You do not have permission to reply to queries.'}, status=403)
 
         SupportMessage.objects.create(query=query, sender=user, text=text)
+        # Mark unread for the owner when staff replies, clear when owner replies
+        if user.is_staff:
+            query.has_unread_reply = True
+        else:
+            query.has_unread_reply = False
         query.save()  # Update updated_at timestamp
+        # Refresh from DB to clear prefetch cache and include the new message
+        query.refresh_from_db()
+        query = SupportQuery.objects.prefetch_related('messages').get(pk=query.pk)
+        return Response(SupportQuerySerializer(query, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Mark a query as read by the owner."""
+        from .serializers import SupportQuerySerializer
+        query = self.get_object()
+        if request.user == query.owner:
+            query.has_unread_reply = False
+            query.save()
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
@@ -1263,12 +1281,12 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unresolved_count(self, request):
-        """Get count of open queries for badge display."""
+        """Get count of queries with unread replies for badge display."""
         from .models import SupportQuery
         if request.user.is_staff:
             count = SupportQuery.objects.filter(status='OPEN').count()
         else:
-            count = SupportQuery.objects.filter(owner=request.user, status='OPEN').count()
+            count = SupportQuery.objects.filter(owner=request.user, has_unread_reply=True).count()
         return Response({'count': count})
 
 
@@ -1689,16 +1707,47 @@ def change_password(request):
     serializer.is_valid(raise_exception=True)
 
     user = request.user
-    if not user.check_password(serializer.validated_data['current_password']):
-        return Response(
-            {'current_password': ['Current password is incorrect.']},
-            status=drf_status.HTTP_400_BAD_REQUEST,
-        )
-
     user.set_password(serializer.validated_data['new_password'])
     user.save()
 
     return Response(
         {'detail': 'Password changed successfully.'},
+        status=drf_status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def delete_account(request):
+    """Permanently delete the currently authenticated user's account.
+
+    Requires password confirmation. Dogs owned by this user are NOT deleted;
+    their owner field is set to null (handled by SET_NULL on the FK).
+    The user is also removed from any additional_owners M2M relationships.
+    """
+    password = request.data.get('password')
+    if not password:
+        return Response(
+            {'detail': 'Password is required to confirm account deletion.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = request.user
+    if not user.check_password(password):
+        return Response(
+            {'detail': 'Incorrect password.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Remove user from additional_owners on any dogs (M2M cleanup)
+    for dog in Dog.objects.filter(additional_owners=user):
+        dog.additional_owners.remove(user)
+
+    # Delete the user — cascades to profile, tokens, reactions, comments, etc.
+    # Dogs are preserved because owner FK uses on_delete=SET_NULL.
+    user.delete()
+
+    return Response(
+        {'detail': 'Account deleted successfully.'},
         status=drf_status.HTTP_200_OK,
     )

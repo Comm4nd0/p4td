@@ -72,6 +72,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               final updatedProfile = UserProfile(
                 username: profile.username,
                 email: profile.email,
+                firstName: profile.firstName,
                 phoneNumber: _phoneController.text.trim(),
                 address: _addressController.text.trim(),
                 pickupInstructions: profile.pickupInstructions,

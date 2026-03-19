@@ -11,7 +11,6 @@ class ChangePasswordScreen extends StatefulWidget {
 
 class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _authService = AuthService();
-  final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
@@ -24,11 +23,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   Future<void> _changePassword() async {
-    final currentPassword = _currentPasswordController.text;
     final newPassword = _newPasswordController.text;
     final confirmPassword = _confirmPasswordController.text;
 
-    if (currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
+    if (newPassword.isEmpty || confirmPassword.isEmpty) {
       setState(() => _errorMessage = 'Please fill in all fields.');
       return;
     }
@@ -40,17 +38,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       setState(() => _errorMessage = 'New passwords do not match.');
       return;
     }
-    if (currentPassword == newPassword) {
-      setState(() => _errorMessage = 'New password must be different from current password.');
-      return;
-    }
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    final error = await _authService.changePassword(currentPassword, newPassword);
+    final error = await _authService.changePassword(newPassword);
 
     setState(() => _isLoading = false);
 
@@ -90,16 +84,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   textAlign: TextAlign.center,
                 ),
               ),
-            TextField(
-              controller: _currentPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Current Password',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock),
-              ),
-            ),
-            const SizedBox(height: 16),
             TextField(
               controller: _newPasswordController,
               obscureText: true,
