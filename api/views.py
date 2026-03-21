@@ -1197,9 +1197,17 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
             except User.DoesNotExist:
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError({'owner_id': 'User not found'})
-            serializer.save(owner=owner)
+            query = serializer.save(owner=owner)
         else:
-            serializer.save(owner=self.request.user)
+            query = serializer.save(owner=self.request.user)
+
+        # Create initial message if provided
+        initial_message = self.request.data.get('initial_message')
+        if initial_message:
+            from .models import SupportMessage
+            SupportMessage.objects.create(
+                query=query, sender=self.request.user, text=initial_message
+            )
 
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):
