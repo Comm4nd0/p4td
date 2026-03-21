@@ -54,7 +54,10 @@ class NotificationService {
     await _localNotifications.initialize(
       settings: initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Handle notification tap
+        if (kDebugMode) {
+          print('Notification tapped with payload: ${response.payload}');
+        }
+        _handleNotificationTap(response.payload);
       },
     );
 
@@ -66,10 +69,35 @@ class NotificationService {
       _showLocalNotification(message);
     });
 
-    // 4. Handle background messages (handled by top-level function in main.dart)
-    
+    // 4. Handle notification taps when app is in background
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      if (kDebugMode) {
+        print('Notification opened app from background: ${message.data}');
+      }
+      _handleNotificationTap(message.data.toString());
+    });
+
+    // 5. Handle notification tap that launched the app from terminated state
+    RemoteMessage? initialMessage = await _fcm.getInitialMessage();
+    if (initialMessage != null) {
+      if (kDebugMode) {
+        print('App launched from notification: ${initialMessage.data}');
+      }
+      _handleNotificationTap(initialMessage.data.toString());
+    }
+
+    // 6. Listen for token refresh and re-register with backend
+    _fcm.onTokenRefresh.listen((newToken) {
+      if (kDebugMode) {
+        print('FCM token refreshed: $newToken');
+      }
+      updateToken();
+    });
+
+    // 7. Handle background messages (handled by top-level function in main.dart)
+
     _isInitialized = true;
-    
+
     // Refresh token and send to backend
     await updateToken();
   }
@@ -103,14 +131,23 @@ class NotificationService {
 
 
 
+  void _handleNotificationTap(String? payload) {
+    if (kDebugMode) {
+      print('Handling notification tap with payload: $payload');
+    }
+    // TODO: Add navigation logic here based on payload
+    // e.g. navigate to a specific screen based on notification data
+  }
+
   Future<void> _showLocalNotification(RemoteMessage message) async {
     RemoteNotification? notification = message.notification;
 
-    if (notification != null) {
+    if (notification != null && (notification.title != null || notification.body != null)) {
       await _localNotifications.show(
-        id: notification.hashCode,
-        title: notification.title,
-        body: notification.body,
+        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        title: notification.title ?? '',
+        body: notification.body ?? '',
+        payload: message.data.toString(),
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'p4td_main_channel',

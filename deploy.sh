@@ -13,6 +13,9 @@ echo "=================================================="
 # 1. Pull latest code
 if [[ "$*" != *"--skip-pull"* ]]; then
     echo ""
+    echo ">>> Pulling latest code from development..."
+    git pull origin development
+    echo ""
     echo ">>> Pulling latest code from main..."
     git pull origin main
 else

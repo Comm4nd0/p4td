@@ -56,7 +56,7 @@ def contact(request):
                 pass
             messages.success(
                 request,
-                'Thank you! Your message has been sent. We will be in touch soon.'
+                'Thank you! Your message has been received. We will be in touch soon.'
             )
             return redirect('website:contact')
     else:
