@@ -55,35 +55,35 @@ def send_push_notification(user, title, body, data=None, category=None):
     if not initialize_firebase():
         return
 
-    tokens = DeviceToken.objects.filter(user=user).values_list('token', flat=True)
+    tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
     if not tokens:
         return
 
-    # Create message
-    message = messaging.MulticastMessage(
-        notification=messaging.Notification(
-            title=title,
-            body=body,
-        ),
-        data=data or {},
-        tokens=list(tokens),
-    )
+    # Send to each token individually using the current firebase-admin API
+    success_count = 0
+    failure_count = 0
+    for token in tokens:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            data=data or {},
+            token=token,
+        )
+        try:
+            messaging.send(message)
+            success_count += 1
+        except messaging.UnregisteredError:
+            # Token is invalid/expired - clean it up
+            DeviceToken.objects.filter(token=token).delete()
+            failure_count += 1
+            print(f"Removed invalid token {token[:10]}...")
+        except Exception as e:
+            failure_count += 1
+            print(f"Failed to send to token {token[:10]}...: {e}")
 
-    try:
-        response = messaging.send_multicast(message)
-        print(f"Successfully sent {response.success_count} messages; "
-              f"failed {response.failure_count} messages.")
-
-        # Optionally cleanup invalid tokens
-        if response.failure_count > 0:
-            for idx, resp in enumerate(response.responses):
-                if not resp.success:
-                    # Token might be invalid/expired
-                    token = tokens[idx]
-                    print(f"Failed to send to token {token[:10]}...: {resp.exception}")
-                    # DeviceToken.objects.filter(token=token).delete()
-    except Exception as e:
-        print(f"Error sending push notification: {e}")
+    print(f"Successfully sent {success_count} messages; failed {failure_count} messages.")
 
 def notify_new_post(post):
     """Notify all users (except uploader) about a new post."""

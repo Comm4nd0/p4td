@@ -288,7 +288,25 @@ class StaffDailyAssignmentsScreenState
                       }
                     });
                   },
-                  title: Text(dog.name),
+                  title: Row(
+                    children: [
+                      Flexible(child: Text(dog.name)),
+                      if (dog.scheduleType == ScheduleType.adHoc) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Ad Hoc',
+                            style: TextStyle(fontSize: 11, color: Colors.orange[800], fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,

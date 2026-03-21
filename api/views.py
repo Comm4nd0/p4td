@@ -788,6 +788,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # Dogs with this weekday in their daycare_days
         daycare_dogs = Dog.objects.filter(daycare_days__contains=[day_number])
 
+        # Ad hoc dogs can be assigned on any day
+        ad_hoc_dogs = Dog.objects.filter(schedule_type='ad_hoc')
+
         # Dogs with approved boarding that spans the target date
         boarding_dogs = Dog.objects.filter(
             boarding_requests__status='APPROVED',
@@ -802,8 +805,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             original_date=target_date,
         ).values_list('dog_id', flat=True)
 
-        # Combine daycare + boarding, exclude cancelled
-        scheduled_dogs = (daycare_dogs | boarding_dogs).exclude(
+        # Combine daycare + ad hoc + boarding, exclude cancelled
+        scheduled_dogs = (daycare_dogs | ad_hoc_dogs | boarding_dogs).exclude(
             id__in=cancelled_dog_ids
         ).distinct()
 
@@ -850,9 +853,15 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 created.append(assignment)
                 created_dog_ids.append(dog_id)
 
-        # Auto-repeat for future weeks on the same weekday
+        # Auto-repeat for future weeks on the same weekday (skip ad hoc dogs)
         if created_dog_ids:
-            self._create_recurring_assignments(created_dog_ids, request.user, target_date)
+            recurring_dog_ids = list(
+                Dog.objects.filter(id__in=created_dog_ids)
+                .exclude(schedule_type='ad_hoc')
+                .values_list('id', flat=True)
+            )
+            if recurring_dog_ids:
+                self._create_recurring_assignments(recurring_dog_ids, request.user, target_date)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -908,9 +917,15 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 created.append(assignment)
                 created_dog_ids.append(dog_id)
 
-        # Auto-repeat for future weeks on the same weekday
+        # Auto-repeat for future weeks on the same weekday (skip ad hoc dogs)
         if created_dog_ids:
-            self._create_recurring_assignments(created_dog_ids, target_staff, target_date)
+            recurring_dog_ids = list(
+                Dog.objects.filter(id__in=created_dog_ids)
+                .exclude(schedule_type='ad_hoc')
+                .values_list('id', flat=True)
+            )
+            if recurring_dog_ids:
+                self._create_recurring_assignments(recurring_dog_ids, target_staff, target_date)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -1197,14 +1212,22 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
             except User.DoesNotExist:
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError({'owner_id': 'User not found'})
-            serializer.save(owner=owner)
+            query = serializer.save(owner=owner)
         else:
-            serializer.save(owner=self.request.user)
+            query = serializer.save(owner=self.request.user)
+
+        # Create initial message if provided
+        initial_message = self.request.data.get('initial_message')
+        if initial_message:
+            from .models import SupportMessage
+            SupportMessage.objects.create(
+                query=query, sender=self.request.user, text=initial_message
+            )
 
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):
         """Add a message to a query thread."""
-        from .models import SupportMessage
+        from .models import SupportMessage, SupportQuery
         from .serializers import SupportQuerySerializer
 
         query = self.get_object()

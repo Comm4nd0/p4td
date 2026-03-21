@@ -1082,6 +1082,7 @@ class ApiDataService implements DataService {
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
           preferredDropoffTime: DropoffTimeExtension.fromApiValue(j['preferred_dropoff_time']),
+          scheduleType: ScheduleTypeExtension.fromApiValue(j['schedule_type']),
         );
       }).toList();
     } else {
@@ -1305,13 +1306,12 @@ class ApiDataService implements DataService {
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
       headers: headers,
-      body: json.encode({'subject': subject}),
+      body: json.encode({'subject': subject, 'initial_message': initialMessage}),
     );
     if (response.statusCode != 201) {
       throw Exception('Failed to create query');
     }
-    final query = SupportQuery.fromJson(json.decode(response.body));
-    return addQueryMessage(query.id, initialMessage);
+    return SupportQuery.fromJson(json.decode(response.body));
   }
 
   @override
@@ -1320,13 +1320,12 @@ class ApiDataService implements DataService {
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
       headers: headers,
-      body: json.encode({'subject': subject, 'owner_id': ownerId}),
+      body: json.encode({'subject': subject, 'owner_id': ownerId, 'initial_message': initialMessage}),
     );
     if (response.statusCode != 201) {
       throw Exception('Failed to create query');
     }
-    final query = SupportQuery.fromJson(json.decode(response.body));
-    return addQueryMessage(query.id, initialMessage);
+    return SupportQuery.fromJson(json.decode(response.body));
   }
 
   @override
