@@ -1082,6 +1082,7 @@ class ApiDataService implements DataService {
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
           preferredDropoffTime: DropoffTimeExtension.fromApiValue(j['preferred_dropoff_time']),
+          scheduleType: ScheduleTypeExtension.fromApiValue(j['schedule_type']),
         );
       }).toList();
     } else {
