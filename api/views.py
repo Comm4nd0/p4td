@@ -1212,7 +1212,7 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):
         """Add a message to a query thread."""
-        from .models import SupportMessage
+        from .models import SupportMessage, SupportQuery
         from .serializers import SupportQuerySerializer
 
         query = self.get_object()
