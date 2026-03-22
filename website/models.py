@@ -41,6 +41,32 @@ class BlogPost(models.Model):
         super().save(*args, **kwargs)
 
 
+class SiteSettings(models.Model):
+    hero_video = models.FileField(
+        upload_to='website/',
+        blank=True,
+        null=True,
+        help_text='Background video for the homepage hero section (MP4 recommended).',
+    )
+
+    class Meta:
+        verbose_name = 'Site settings'
+        verbose_name_plural = 'Site settings'
+
+    def __str__(self):
+        return 'Site Settings'
+
+    def save(self, *args, **kwargs):
+        # Ensure only one instance exists
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class ContactInquiry(models.Model):
     SERVICE_CHOICES = [
         ('daycare', 'Daycare'),

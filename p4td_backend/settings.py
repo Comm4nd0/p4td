@@ -125,10 +125,11 @@ if os.environ.get('DATABASE_URL') or os.environ.get('RDS_HOSTNAME'):
     }
 else:
     # Development SQLite
+    _db_path = os.environ.get('DJANGO_DB_PATH')
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': _db_path if _db_path else BASE_DIR / 'db.sqlite3',
         }
     }
 
