@@ -42,7 +42,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates']
+        fields = ['username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates']
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
@@ -449,3 +449,13 @@ class DayOffRequestSerializer(serializers.ModelSerializer):
         if obj.reviewed_by:
             return obj.reviewed_by.first_name or obj.reviewed_by.username
         return None
+
+
+class ContactInquirySerializer(serializers.ModelSerializer):
+    service_display = serializers.CharField(source='get_service_display', read_only=True)
+
+    class Meta:
+        from website.models import ContactInquiry
+        model = ContactInquiry
+        fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'is_read', 'created_at']
+        read_only_fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'created_at']

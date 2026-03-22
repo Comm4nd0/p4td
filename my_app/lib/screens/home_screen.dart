@@ -19,6 +19,7 @@ import 'staff_daily_assignments_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'staff_availability_screen.dart';
+import 'inquiry_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,9 +45,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canManageRequests = false;
   bool _canReplyQueries = false;
   bool _canApproveTimeoff = false;
+  bool _canViewInquiries = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
+  int _unreadInquiryCount = 0;
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
 
   @override
@@ -144,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canManageRequests = profile.canManageRequests;
           _canReplyQueries = profile.canReplyQueries;
           _canApproveTimeoff = profile.canApproveTimeoff;
+          _canViewInquiries = profile.canViewInquiries;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -153,6 +157,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
         await _loadUnresolvedQueryCount();
+        if (profile.isStaff && profile.canViewInquiries) {
+          await _loadUnreadInquiryCount();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -193,10 +200,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  Future<void> _loadUnreadInquiryCount() async {
+    try {
+      final count = await _dataService.getUnreadInquiryCount();
+      if (mounted) {
+        setState(() => _unreadInquiryCount = count);
+      }
+    } catch (_) {}
+  }
+
   void _refresh() {
     _loadDogs();
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
+    if (_canViewInquiries) _loadUnreadInquiryCount();
   }
 
 
@@ -445,6 +462,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _loadUnresolvedQueryCount();
             },
           ),
+          if (_isStaff && _canViewInquiries)
+            ListTile(
+              leading: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.mail_outline),
+                  if (_unreadInquiryCount > 0)
+                    Positioned(
+                      right: -6,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                        child: Text(
+                          '$_unreadInquiryCount',
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              title: const Text('Website Inquiries'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const InquiryListScreen(),
+                  ),
+                );
+                _loadUnreadInquiryCount();
+              },
+            ),
           if (_isStaff)
             ListTile(
               leading: const Icon(Icons.traffic),

@@ -16,6 +16,7 @@ import '../models/closure_day.dart';
 import '../models/dog_note.dart';
 import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
+import '../models/contact_inquiry.dart';
 import 'auth_service.dart';
 
 abstract class DataService {
@@ -85,6 +86,12 @@ abstract class DataService {
   Future<SupportQuery> reopenQuery(int queryId);
   Future<void> markQueryRead(int queryId);
   Future<int> getUnresolvedQueryCount();
+
+  // Contact Inquiries
+  Future<List<ContactInquiry>> getContactInquiries();
+  Future<ContactInquiry> markInquiryRead(int inquiryId);
+  Future<ContactInquiry> markInquiryUnread(int inquiryId);
+  Future<int> getUnreadInquiryCount();
 
   // Closure Days
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate});
@@ -1402,6 +1409,66 @@ class ApiDataService implements DataService {
     }
   }
 
+  // ---- Contact Inquiries ----
+
+  @override
+  Future<List<ContactInquiry>> getContactInquiries() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => ContactInquiry.fromJson(j)).toList();
+    } else {
+      throw Exception('Failed to load contact inquiries');
+    }
+  }
+
+  @override
+  Future<ContactInquiry> markInquiryRead(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/mark_read/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return ContactInquiry.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to mark inquiry as read');
+    }
+  }
+
+  @override
+  Future<ContactInquiry> markInquiryUnread(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/mark_unread/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return ContactInquiry.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to mark inquiry as unread');
+    }
+  }
+
+  @override
+  Future<int> getUnreadInquiryCount() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/unread_count/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['count'] ?? 0;
+    } else {
+      return 0;
+    }
+  }
+
   // ---- Closure Days ----
 
   @override
@@ -1945,6 +2012,16 @@ class MockDataService implements DataService {
   Future<void> markQueryRead(int queryId) async {}
   @override
   Future<int> getUnresolvedQueryCount() async => 0;
+
+  // Contact Inquiries
+  @override
+  Future<List<ContactInquiry>> getContactInquiries() async => [];
+  @override
+  Future<ContactInquiry> markInquiryRead(int inquiryId) async => throw UnimplementedError();
+  @override
+  Future<ContactInquiry> markInquiryUnread(int inquiryId) async => throw UnimplementedError();
+  @override
+  Future<int> getUnreadInquiryCount() async => 0;
 
   // Closure Days
   @override

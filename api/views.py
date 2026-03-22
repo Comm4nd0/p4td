@@ -6,7 +6,8 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, PasswordResetOTP
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer
+from website.models import ContactInquiry
 
 class DeviceTokenViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceTokenSerializer
@@ -1774,3 +1775,37 @@ def delete_account(request):
         {'detail': 'Account deleted successfully.'},
         status=drf_status.HTTP_200_OK,
     )
+
+
+class ContactInquiryViewSet(viewsets.ReadOnlyModelViewSet):
+    """Staff-only access to website contact inquiries."""
+    serializer_class = ContactInquirySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_staff or not user.profile.can_view_inquiries:
+            return ContactInquiry.objects.none()
+        return ContactInquiry.objects.all().order_by('-created_at')
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        inquiry = self.get_object()
+        inquiry.is_read = True
+        inquiry.save()
+        return Response(ContactInquirySerializer(inquiry).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_unread(self, request, pk=None):
+        inquiry = self.get_object()
+        inquiry.is_read = False
+        inquiry.save()
+        return Response(ContactInquirySerializer(inquiry).data)
+
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        user = request.user
+        if not user.is_staff or not user.profile.can_view_inquiries:
+            return Response({'count': 0})
+        count = ContactInquiry.objects.filter(is_read=False).count()
+        return Response({'count': count})
