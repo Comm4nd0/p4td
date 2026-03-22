@@ -1,7 +1,15 @@
 from django.contrib import admin
+from django.contrib.sitemaps.views import sitemap
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+
+from website.sitemaps import BlogPostSitemap, StaticPagesSitemap
+
+sitemaps = {
+    'blog': BlogPostSitemap,
+    'static': StaticPagesSitemap,
+}
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -9,6 +17,8 @@ urlpatterns = [
     path('api/', include('api.urls')),
     path('auth/', include('djoser.urls')),
     path('auth/', include('djoser.urls.authtoken')),
+    path('sitemap.xml', sitemap, {'sitemaps': sitemaps},
+         name='django.contrib.sitemaps.views.sitemap'),
     path('', include('website.urls')),
 ]
 

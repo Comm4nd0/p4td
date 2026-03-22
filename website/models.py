@@ -188,6 +188,36 @@ class SiteSettings(models.Model):
         return obj
 
 
+class Testimonial(models.Model):
+    name = models.CharField(
+        max_length=100,
+        help_text='Name of the person giving the testimonial.',
+    )
+    dog_name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Name of the person's dog (optional).",
+    )
+    quote = models.TextField(
+        help_text='The testimonial text.',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Only active testimonials are shown on the homepage.',
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text='Lower numbers appear first.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', '-created_at']
+
+    def __str__(self):
+        return f'{self.name} — {self.dog_name}' if self.dog_name else self.name
+
+
 class ContactInquiry(models.Model):
     SERVICE_CHOICES = [
         ('daycare', 'Daycare'),

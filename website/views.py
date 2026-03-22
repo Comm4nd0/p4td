@@ -1,9 +1,11 @@
+from django.core.paginator import Paginator
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib import messages
+from django.views.decorators.cache import cache_control
 
-from .models import BlogPost, SiteSettings
+from .models import BlogPost, SiteSettings, Testimonial
 from .forms import ContactForm
 
 
@@ -12,14 +14,19 @@ def home(request):
         status='published'
     ).order_by('-published_at')[:2]
     site_settings = SiteSettings.load()
+    testimonials = Testimonial.objects.filter(is_active=True)[:6]
     return render(request, 'website/home.html', {
         'featured_posts': featured_posts,
         'site_settings': site_settings,
+        'testimonials': testimonials,
     })
 
 
 def blog_list(request):
-    posts = BlogPost.objects.filter(status='published')
+    all_posts = BlogPost.objects.filter(status='published')
+    paginator = Paginator(all_posts, 6)
+    page_number = request.GET.get('page')
+    posts = paginator.get_page(page_number)
     return render(request, 'website/blog_list.html', {
         'posts': posts,
     })
@@ -27,8 +34,12 @@ def blog_list(request):
 
 def blog_detail(request, slug):
     post = get_object_or_404(BlogPost, slug=slug, status='published')
+    related_posts = BlogPost.objects.filter(
+        status='published'
+    ).exclude(pk=post.pk).order_by('-published_at')[:3]
     return render(request, 'website/blog_detail.html', {
         'post': post,
+        'related_posts': related_posts,
     })
 
 
@@ -70,3 +81,8 @@ def contact(request):
 
 def privacy_policy(request):
     return render(request, 'website/privacy_policy.html')
+
+
+@cache_control(max_age=86400)
+def robots_txt(request):
+    return render(request, 'website/robots.txt', content_type='text/plain')

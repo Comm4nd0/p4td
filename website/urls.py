@@ -10,4 +10,5 @@ urlpatterns = [
     path('field-hire/', views.field_hire, name='field_hire'),
     path('contact/', views.contact, name='contact'),
     path('privacy-policy/', views.privacy_policy, name='privacy_policy'),
+    path('robots.txt', views.robots_txt, name='robots_txt'),
 ]
