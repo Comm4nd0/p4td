@@ -5,7 +5,12 @@
 
 {% block content %}
 <!-- Hero -->
-<div class="hero" style="background-image: url('{% static 'website/images/hero-bg.jpg' %}');">
+<div class="hero"{% if not site_settings.hero_video %} style="background-image: url('{% static 'website/images/hero-bg.jpg' %}'); background-size: cover; background-position: center;"{% endif %}>
+    {% if site_settings.hero_video %}
+    <video class="hero-video" autoplay muted loop playsinline poster="{% static 'website/images/hero-bg.jpg' %}">
+        <source src="{{ site_settings.hero_video.url }}" type="video/mp4">
+    </video>
+    {% endif %}
     <div class="hero-content">
         <h1>Dog Day Care in Berkshire & Buckinghamshire</h1>
         <div class="hero-buttons">

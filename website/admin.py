@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import BlogPost, ContactInquiry
+from .models import BlogPost, ContactInquiry, SiteSettings
 
 
 @admin.register(BlogPost)
@@ -49,6 +49,22 @@ class BlogPostAdmin(admin.ModelAdmin):
         queryset.update(status='draft')
         self.message_user(request, 'Selected posts set to draft.')
     unpublish_posts.short_description = 'Unpublish selected posts'
+
+
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(admin.ModelAdmin):
+    fieldsets = (
+        ('Hero Section', {
+            'fields': ('hero_video',),
+        }),
+    )
+
+    def has_add_permission(self, request):
+        # Only allow one instance
+        return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(ContactInquiry)

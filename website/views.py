@@ -3,7 +3,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib import messages
 
-from .models import BlogPost
+from .models import BlogPost, SiteSettings
 from .forms import ContactForm
 
 
@@ -11,8 +11,10 @@ def home(request):
     featured_posts = BlogPost.objects.filter(
         status='published'
     ).order_by('-published_at')[:2]
+    site_settings = SiteSettings.load()
     return render(request, 'website/home.html', {
         'featured_posts': featured_posts,
+        'site_settings': site_settings,
     })
 
 
