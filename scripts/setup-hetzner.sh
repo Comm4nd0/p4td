@@ -74,13 +74,14 @@ if [ ! -f "$APP_DIR/.env" ]; then
 DOMAIN_NAME=9hj3.your-vhost.de
 DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=9hj3.your-vhost.de,localhost,127.0.0.1
+DJANGO_ALLOWED_HOSTS=9hj3.your-vhost.de,paws4thoughtdogs.com,www.paws4thoughtdogs.com,localhost,127.0.0.1
 RDS_DB_NAME=p4td
 RDS_USERNAME=postgres
 RDS_PASSWORD=$DB_PASSWORD
 RDS_PORT=5432
-CORS_ALLOWED_ORIGINS=https://9hj3.your-vhost.de
+CORS_ALLOWED_ORIGINS=https://9hj3.your-vhost.de,https://paws4thoughtdogs.com,https://www.paws4thoughtdogs.com
 CORS_ALLOW_ALL_ORIGINS=False
+CSRF_TRUSTED_ORIGINS=https://9hj3.your-vhost.de,https://paws4thoughtdogs.com,https://www.paws4thoughtdogs.com
 EOF
     echo "   .env created with generated secrets."
     echo "   IMPORTANT: Review and edit $APP_DIR/.env if needed."
