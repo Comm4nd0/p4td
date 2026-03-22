@@ -7,3 +7,4 @@ django-storages
 boto3
 Pillow
 firebase-admin
+django-summernote
