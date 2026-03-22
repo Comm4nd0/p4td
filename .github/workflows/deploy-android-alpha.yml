@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - development
+    paths:
+      - 'my_app/**'
 
 jobs:
   build-and-deploy:
