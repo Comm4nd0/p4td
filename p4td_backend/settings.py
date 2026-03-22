@@ -294,12 +294,17 @@ LOGGING = {
 SUMMERNOTE_CONFIG = {
     'summernote': {
         'width': '100%',
-        'height': '400',
+        'height': '500',
+        'minHeight': '300',
+        'maxHeight': None,
         'toolbar': [
             ['style', ['style']],
             ['font', ['bold', 'italic', 'underline', 'clear']],
+            ['fontsize', ['fontsize']],
+            ['color', ['color']],
             ['para', ['ul', 'ol', 'paragraph']],
-            ['insert', ['link', 'picture']],
+            ['insert', ['link', 'picture', 'hr']],
+            ['misc', ['undo', 'redo']],
             ['view', ['fullscreen', 'codeview']],
         ],
     },

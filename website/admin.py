@@ -8,7 +8,7 @@ from .models import BlogPost, ContactInquiry, SiteSettings
 
 @admin.register(BlogPost)
 class BlogPostAdmin(SummernoteModelAdmin):
-    summernote_fields = ('body',)
+    summernote_fields = ('body', 'excerpt')
     list_display = ('title', 'status_display', 'published_at', 'updated_at')
     list_filter = ('status', 'published_at')
     search_fields = ('title', 'body')
