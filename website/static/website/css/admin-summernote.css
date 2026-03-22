@@ -1,0 +1,6 @@
+/* Make Summernote editor resizable in Django admin */
+.note-editor.note-frame {
+    resize: vertical;
+    overflow: auto;
+    min-height: 350px;
+}
