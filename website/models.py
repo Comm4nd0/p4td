@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -241,3 +243,18 @@ class ContactInquiry(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.get_service_display()} ({self.created_at:%Y-%m-%d})"
+
+
+@receiver(post_save, sender=ContactInquiry)
+def notify_staff_new_inquiry(sender, instance, created, **kwargs):
+    if not created:
+        return
+    try:
+        from api.notifications import send_staff_notification
+        send_staff_notification(
+            title='New Website Inquiry',
+            body=f'{instance.name} — {instance.get_service_display()}',
+            data={'type': 'contact_inquiry', 'id': str(instance.id)},
+        )
+    except Exception:
+        pass
