@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'djoser',
     'corsheaders',
+    'django_summernote',
     'api',
     'website',
 ]
@@ -237,7 +238,7 @@ else:
 if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    X_FRAME_OPTIONS = 'DENY'
+    X_FRAME_OPTIONS = 'SAMEORIGIN'  # Required for Summernote editor iframes
     # Enable these when you have HTTPS set up:
     # SECURE_SSL_REDIRECT = True
     # SESSION_COOKIE_SECURE = True
@@ -284,4 +285,23 @@ LOGGING = {
             'propagate': False,
         },
     },
+}
+
+# =============================================================================
+# SUMMERNOTE (WYSIWYG Editor)
+# =============================================================================
+
+SUMMERNOTE_CONFIG = {
+    'summernote': {
+        'width': '100%',
+        'height': '400',
+        'toolbar': [
+            ['style', ['style']],
+            ['font', ['bold', 'italic', 'underline', 'clear']],
+            ['para', ['ul', 'ol', 'paragraph']],
+            ['insert', ['link', 'picture']],
+            ['view', ['fullscreen', 'codeview']],
+        ],
+    },
+    'attachment_require_authentication': True,
 }
