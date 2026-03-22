@@ -55,7 +55,27 @@ class BlogPostAdmin(admin.ModelAdmin):
 class SiteSettingsAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Hero Section', {
-            'fields': ('hero_video',),
+            'fields': ('hero_video', 'hero_title'),
+        }),
+        ('Welcome Section', {
+            'fields': ('welcome_title', 'welcome_text'),
+            'classes': ('collapse',),
+        }),
+        ('Day Care Section', {
+            'fields': ('daycare_title', 'daycare_text'),
+            'classes': ('collapse',),
+        }),
+        ('Puppy Classes Section', {
+            'fields': ('puppy_classes_title', 'puppy_classes_text'),
+            'classes': ('collapse',),
+        }),
+        ('One 2 One Training Section', {
+            'fields': ('training_title', 'training_text'),
+            'classes': ('collapse',),
+        }),
+        ('Contact Call-to-Action', {
+            'fields': ('cta_title', 'cta_subtitle'),
+            'classes': ('collapse',),
         }),
     )
 

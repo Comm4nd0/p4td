@@ -12,7 +12,7 @@
     </video>
     {% endif %}
     <div class="hero-content">
-        <h1>Dog Day Care in Berkshire & Buckinghamshire</h1>
+        <h1>{{ site_settings.hero_title|default:"Dog Day Care in Berkshire & Buckinghamshire" }}</h1>
         <div class="hero-buttons">
             <a href="{% url 'website:blog_list' %}" class="btn btn-primary">blog &rarr;</a>
             <a href="{% url 'website:contact' %}" class="btn btn-outline">contact us &rarr;</a>
@@ -26,9 +26,9 @@
         <div class="welcome">
             <img src="{% static 'website/images/welcome-dog.jpg' %}" alt="Happy dog running" class="welcome-image" onerror="this.style.background='#ddd'">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">Welcome</a></h2>
+                <h2 class="section-title"><a href="#">{{ site_settings.welcome_title|default:"Welcome" }}</a></h2>
                 <p>
-                    Welcome to our dog day care website, serving the Berkshire and Buckinghamshire area! As a pet owner, you know that your dog deserves the best care and attention possible, and that's exactly what we provide. Our dog day care services offer a safe and fun environment for your dog to play, exercise and socialize with other dogs, all under the watchful eye of our experienced and caring staff. Whether you're at work, running errands or simply need a break, we're here to give your pup the attention and care they need, so you can have peace of mind knowing that your dog is happy and well taken care of.
+                    {{ site_settings.welcome_text|default:"Welcome to our dog day care." }}
                 </p>
             </div>
         </div>
@@ -74,16 +74,8 @@
     <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
         <div class="welcome">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">Day Care</a></h2>
-                <p>
-                    At our dog day care centre, we understand that every dog is unique and has different needs. That's why we offer specialized areas for play, learning, exercise and agility, all designed to cater to your dog's individual requirements. Our outdoor facilities cover 10 acres of land, providing ample space for dogs of all sizes to run and play in a secure environment.
-                </p>
-                <p style="margin-top: 1rem;">
-                    We also have multiple fields that are divided into groups, so your dog can play and socialize with dogs of similar size and temperament.
-                </p>
-                <p style="margin-top: 1rem;">
-                    Our staff are highly trained and experienced in handling dogs of all breeds and personalities, and are committed to providing the highest standard of care to your dog. And to make things even more convenient for you, we offer pick up and drop off services, so you don't have to worry about transportation. With our dog day care services, your dog will receive the love, attention, and care they deserve, all while having a blast with their dog.
-                </p>
+                <h2 class="section-title"><a href="#">{{ site_settings.daycare_title|default:"Day Care" }}</a></h2>
+                {{ site_settings.daycare_text|safe }}
             </div>
             <img src="{% static 'website/images/daycare.jpg' %}" alt="Day care" class="welcome-image" onerror="this.style.background='#ddd'">
         </div>
@@ -96,13 +88,8 @@
         <div class="welcome">
             <img src="{% static 'website/images/puppy-classes.jpg' %}" alt="Puppy classes" class="welcome-image" onerror="this.style.background='#ddd'">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">Puppy Classes</a></h2>
-                <p>
-                    Our puppy classes are a great way to give your dog a head start in life. Our classes run on-site for a duration of four weeks, providing a comprehensive training program that covers all the essential skills your puppy needs to learn. We use positive reinforcement techniques to teach your pup basic commands like sit, stay, come, and lose lead walking, as well as important socialization skills such as proper behaviour around other dogs and humans.
-                </p>
-                <p style="margin-top: 1rem;">
-                    Puppy classes are ideal because they provide a structured and safe environment for your pup to learn and develop, and it also provides the opportunity for you to bond with your dog. By attending our puppy classes, you'll not only be helping your puppy to become a well-behaved and obedient companion but also ensuring that they have the necessary socialization skills to interact positively with other dogs and people throughout their life.
-                </p>
+                <h2 class="section-title"><a href="#">{{ site_settings.puppy_classes_title|default:"Puppy Classes" }}</a></h2>
+                {{ site_settings.puppy_classes_text|safe }}
             </div>
         </div>
     </div>
@@ -113,13 +100,8 @@
     <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
         <div class="welcome">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">One 2 One Training</a></h2>
-                <p>
-                    At Paws 4 Thought Dogs, we understand that every dog has unique needs and personality traits, which is why we offer personalized one-to-one training sessions. We will work with you and your dog to identify any areas of concern or behaviour issues that need to be addressed. We use positive reinforcement techniques to teach your dog new commands and behaviours, as well as provide solutions to any problem behaviours your dog may be exhibiting.
-                </p>
-                <p style="margin-top: 1rem;">
-                    Our one-to-one training sessions are tailored to your specific needs, and can cover anything from basic obedience to advanced skills such as agility training. With our one-to-one training, you'll receive personalised attention and support throughout the entire training process, ensuring that you and your dog achieve your goals together. We are passionate about working with dogs and are committed to helping you develop a strong and positive relationship with your dog. Whether you're a first-time dog owner or a seasoned pro, our one-to-one training sessions are the perfect way to help your dog reach their full potential.
-                </p>
+                <h2 class="section-title"><a href="#">{{ site_settings.training_title|default:"One 2 One Training" }}</a></h2>
+                {{ site_settings.training_text|safe }}
             </div>
             <img src="{% static 'website/images/training.jpg' %}" alt="One to one training" class="welcome-image" onerror="this.style.background='#ddd'">
         </div>
@@ -128,8 +110,8 @@
 
 <!-- Contact CTA -->
 <section class="section" style="text-align: center;">
-    <h2 class="section-title">Get in Touch</h2>
-    <p style="color: #666; margin-bottom: 1.5rem;">Interested in our services? We'd love to hear from you.</p>
+    <h2 class="section-title">{{ site_settings.cta_title|default:"Get in Touch" }}</h2>
+    <p style="color: #666; margin-bottom: 1.5rem;">{{ site_settings.cta_subtitle|default:"Interested in our services? We'd love to hear from you." }}</p>
     <a href="{% url 'website:contact' %}" class="btn btn-primary">Contact Us &rarr;</a>
 </section>
 
