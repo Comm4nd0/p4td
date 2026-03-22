@@ -1,6 +1,7 @@
-/* Make Summernote editor resizable in Django admin */
-.note-editor.note-frame {
+/* Make Summernote editor wrapper resizable in Django admin */
+.django-summernote-widget,
+.django-summernote-widget iframe {
     resize: vertical;
     overflow: auto;
-    min-height: 350px;
+    min-height: 400px;
 }
