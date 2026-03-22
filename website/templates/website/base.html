@@ -6,11 +6,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Paws 4 Thought Dogs - Dog Day Care in Berkshire & Buckinghamshire{% endblock %}</title>
     <meta name="description" content="{% block meta_description %}Dog day care in Berkshire & Buckinghamshire. Daycare, puppy classes, 1-to-1 training, and field hire. Call {{ business_phone }}.{% endblock %}">
+
+    <!-- OpenGraph -->
+    <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+    <meta property="og:title" content="{% block og_title %}Paws 4 Thought Dogs - Dog Day Care{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Dog day care in Berkshire & Buckinghamshire. Daycare, puppy classes, 1-to-1 training, and field hire.{% endblock %}">
+    <meta property="og:image" content="{% block og_image %}{% static 'website/images/hero-bg.jpg' %}{% endblock %}">
+    <meta property="og:url" content="{{ request.build_absolute_uri }}">
+    <meta property="og:site_name" content="Paws 4 Thought Dogs">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}Paws 4 Thought Dogs{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}Dog day care in Berkshire & Buckinghamshire.{% endblock %}">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'website/css/style.css' %}">
     <link rel="icon" type="image/png" href="{% static 'website/images/logo.png' %}">
+    <link rel="canonical" href="{{ request.build_absolute_uri }}">
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
     <header class="site-header">
         <div class="header-inner">
             <a href="{% url 'website:home' %}" class="logo-link">
@@ -42,7 +62,7 @@
     </div>
     {% endif %}
 
-    <main>
+    <main id="main-content">
         {% block content %}{% endblock %}
     </main>
 
@@ -66,13 +86,76 @@
         </div>
     </footer>
 
+    <!-- Scroll to Top Button -->
+    <button class="scroll-to-top" aria-label="Scroll to top" id="scroll-to-top">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </button>
+
+    <!-- Cookie Consent Banner -->
+    <div class="cookie-banner" id="cookie-banner" role="dialog" aria-label="Cookie consent">
+        <p>We use cookies to improve your experience. By continuing to use this site, you agree to our <a href="{% url 'website:privacy_policy' %}">privacy policy</a>.</p>
+        <div class="cookie-buttons">
+            <button class="btn btn-primary btn-sm" id="cookie-accept">Accept</button>
+            <button class="btn btn-outline-dark btn-sm" id="cookie-decline">Decline</button>
+        </div>
+    </div>
+
+    {% block structured_data %}{% endblock %}
+
     <script>
+        /* Mobile menu toggle */
         document.querySelector('.mobile-menu-toggle').addEventListener('click', function() {
             const nav = document.getElementById('main-nav');
             const expanded = this.getAttribute('aria-expanded') === 'true';
             this.setAttribute('aria-expanded', !expanded);
             nav.classList.toggle('open');
         });
+
+        /* Scroll to top button */
+        (function() {
+            var btn = document.getElementById('scroll-to-top');
+            window.addEventListener('scroll', function() {
+                btn.classList.toggle('visible', window.scrollY > 400);
+            });
+            btn.addEventListener('click', function() {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        })();
+
+        /* Cookie consent */
+        (function() {
+            if (localStorage.getItem('cookie-consent')) return;
+            var banner = document.getElementById('cookie-banner');
+            banner.classList.add('visible');
+            document.getElementById('cookie-accept').addEventListener('click', function() {
+                localStorage.setItem('cookie-consent', 'accepted');
+                banner.classList.remove('visible');
+            });
+            document.getElementById('cookie-decline').addEventListener('click', function() {
+                localStorage.setItem('cookie-consent', 'declined');
+                banner.classList.remove('visible');
+            });
+        })();
+
+        /* Fade-in on scroll animation */
+        (function() {
+            var prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (prefersReduced) return;
+
+            var targets = document.querySelectorAll('.section, .section-light, .card, .contact-grid, .field-details');
+            targets.forEach(function(el) { el.classList.add('fade-in'); });
+
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('fade-in-visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            targets.forEach(function(el) { observer.observe(el); });
+        })();
     </script>
 </body>
 </html>

@@ -24,7 +24,7 @@
 <section class="section-light section-full">
     <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
         <div class="welcome">
-            <img src="{% static 'website/images/welcome-dog.jpg' %}" alt="Happy dog running" class="welcome-image" onerror="this.style.background='#ddd'">
+            <img src="{% static 'website/images/welcome-dog.jpg' %}" alt="Happy dog running through a green field" class="welcome-image" loading="lazy">
             <div class="welcome-text">
                 <h2 class="section-title"><a href="#">{{ site_settings.welcome_title|default:"Welcome" }}</a></h2>
                 <p>
@@ -43,7 +43,7 @@
         <div class="card">
             {% if post.featured_image %}
             <a href="{% url 'website:blog_detail' post.slug %}">
-                <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="card-image">
+                <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="card-image" loading="lazy">
             </a>
             {% endif %}
             <div class="card-body">
@@ -77,7 +77,7 @@
                 <h2 class="section-title"><a href="#">{{ site_settings.daycare_title|default:"Day Care" }}</a></h2>
                 {{ site_settings.daycare_text|safe }}
             </div>
-            <img src="{% static 'website/images/daycare.jpg' %}" alt="Day care" class="welcome-image" onerror="this.style.background='#ddd'">
+            <img src="{% static 'website/images/daycare.jpg' %}" alt="Dogs playing together at our 10-acre daycare facility" class="welcome-image" loading="lazy">
         </div>
     </div>
 </section>
@@ -86,7 +86,7 @@
 <section class="section-light section-full" style="background-color: #fff;">
     <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
         <div class="welcome">
-            <img src="{% static 'website/images/puppy-classes.jpg' %}" alt="Puppy classes" class="welcome-image" onerror="this.style.background='#ddd'">
+            <img src="{% static 'website/images/puppy-classes.jpg' %}" alt="Puppy training class with positive reinforcement techniques" class="welcome-image" loading="lazy">
             <div class="welcome-text">
                 <h2 class="section-title"><a href="#">{{ site_settings.puppy_classes_title|default:"Puppy Classes" }}</a></h2>
                 {{ site_settings.puppy_classes_text|safe }}
@@ -103,10 +103,28 @@
                 <h2 class="section-title"><a href="#">{{ site_settings.training_title|default:"One 2 One Training" }}</a></h2>
                 {{ site_settings.training_text|safe }}
             </div>
-            <img src="{% static 'website/images/training.jpg' %}" alt="One to one training" class="welcome-image" onerror="this.style.background='#ddd'">
+            <img src="{% static 'website/images/training.jpg' %}" alt="One-to-one personalised dog training session" class="welcome-image" loading="lazy">
         </div>
     </div>
 </section>
+
+<!-- Testimonials -->
+{% if testimonials %}
+<section class="section testimonials-section">
+    <h2 class="section-title">What Our Customers Say</h2>
+    <div class="testimonials-grid">
+        {% for testimonial in testimonials %}
+        <div class="testimonial-card">
+            <p class="testimonial-quote">{{ testimonial.quote }}</p>
+            <p class="testimonial-author">{{ testimonial.name }}</p>
+            {% if testimonial.dog_name %}
+            <p class="testimonial-dog">Owner of {{ testimonial.dog_name }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 
 <!-- Contact CTA -->
 <section class="section" style="text-align: center;">
@@ -119,4 +137,28 @@
 <div class="license-notice">
     <p>Buckinghamshire Council License Number: {{ license_number }}</p>
 </div>
+{% endblock %}
+
+{% block structured_data %}
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    "name": "Paws 4 Thought Dogs",
+    "description": "Dog day care in Berkshire & Buckinghamshire. Daycare, puppy classes, 1-to-1 training, and field hire.",
+    "telephone": "{{ business_phone }}",
+    "url": "{{ request.build_absolute_uri }}",
+    "image": "{% static 'website/images/hero-bg.jpg' %}",
+    "address": {
+        "@type": "PostalAddress",
+        "addressRegion": "Berkshire & Buckinghamshire",
+        "addressCountry": "GB"
+    },
+    "openingHours": "Mo-Fr 08:00-17:00",
+    "sameAs": [
+        "{{ facebook_url }}"
+    ],
+    "priceRange": "££"
+}
+</script>
 {% endblock %}

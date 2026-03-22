@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django_summernote.admin import SummernoteModelAdmin
 
-from .models import BlogPost, ContactInquiry, SiteSettings
+from .models import BlogPost, ContactInquiry, SiteSettings, Testimonial
 
 
 class ResizableSummernoteAdmin(SummernoteModelAdmin):
@@ -125,3 +125,12 @@ class ContactInquiryAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(Testimonial)
+class TestimonialAdmin(admin.ModelAdmin):
+    list_display = ('name', 'dog_name', 'is_active', 'order', 'created_at')
+    list_filter = ('is_active',)
+    list_editable = ('is_active', 'order')
+    search_fields = ('name', 'dog_name', 'quote')
+    ordering = ['order', '-created_at']
