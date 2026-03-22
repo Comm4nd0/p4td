@@ -1,13 +1,18 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django_summernote.admin import SummernoteModelAdmin
-from django_summernote.widgets import SummernoteWidget
 
 from .models import BlogPost, ContactInquiry, SiteSettings
 
 
+class ResizableSummernoteAdmin(SummernoteModelAdmin):
+    """SummernoteModelAdmin with a resizable editor frame."""
+    class Media:
+        css = {'all': ('website/css/admin-summernote.css',)}
+
+
 @admin.register(BlogPost)
-class BlogPostAdmin(SummernoteModelAdmin):
+class BlogPostAdmin(ResizableSummernoteAdmin):
     summernote_fields = ('body', 'excerpt')
     list_display = ('title', 'status_display', 'published_at', 'updated_at')
     list_filter = ('status', 'published_at')
@@ -55,7 +60,7 @@ class BlogPostAdmin(SummernoteModelAdmin):
 
 
 @admin.register(SiteSettings)
-class SiteSettingsAdmin(SummernoteModelAdmin):
+class SiteSettingsAdmin(ResizableSummernoteAdmin):
     summernote_fields = ('welcome_text', 'daycare_text', 'puppy_classes_text', 'training_text')
     fieldsets = (
         ('Hero Section', {

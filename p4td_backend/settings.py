@@ -292,11 +292,10 @@ LOGGING = {
 # =============================================================================
 
 SUMMERNOTE_CONFIG = {
+    'iframe': False,
     'summernote': {
         'width': '100%',
         'height': '500',
-        'minHeight': '300',
-        'maxHeight': None,
         'toolbar': [
             ['style', ['style']],
             ['font', ['bold', 'italic', 'underline', 'clear']],
