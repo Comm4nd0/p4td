@@ -23,11 +23,11 @@ class AuthService {
       return 'http://127.0.0.1:8000';
     } else {
       try {
-        if (Platform.isAndroid) return 'http://178.104.29.66';
+        if (Platform.isAndroid) return 'https://paws4thoughtdogs.com';
       } catch (e) {
         // Platform check might fail on some platforms
       }
-      return 'http://178.104.29.66';
+      return 'https://paws4thoughtdogs.com';
     }
   }
 

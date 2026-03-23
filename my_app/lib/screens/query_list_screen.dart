@@ -362,6 +362,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
 
   Widget _buildQueryCard(SupportQuery query) {
     final isOpen = query.status == QueryStatus.open;
+    final hasUnread = query.hasUnreadReply && !widget.isStaff;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: InkWell(
@@ -395,9 +396,22 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                   Expanded(
                     child: Text(
                       query.subject,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: hasUnread ? FontWeight.w800 : FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
+                  if (hasUnread)
+                    Container(
+                      width: 10,
+                      height: 10,
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: const BoxDecoration(
+                        color: Colors.blue,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(

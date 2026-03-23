@@ -16,6 +16,7 @@ class SupportQuery {
   final List<SupportMessage> messages;
   final int messageCount;
   final DateTime? lastMessageAt;
+  final bool hasUnreadReply;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -30,6 +31,7 @@ class SupportQuery {
     this.messages = const [],
     this.messageCount = 0,
     this.lastMessageAt,
+    this.hasUnreadReply = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -53,6 +55,7 @@ class SupportQuery {
               .toList()
           : [],
       messageCount: json['message_count'] ?? 0,
+      hasUnreadReply: json['has_unread_reply'] ?? false,
       lastMessageAt: json['last_message_at'] != null
           ? DateTime.parse(json['last_message_at'])
           : null,
