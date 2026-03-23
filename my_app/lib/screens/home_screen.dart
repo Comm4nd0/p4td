@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
@@ -50,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
+  String _appVersion = '';
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
 
   @override
@@ -58,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadDogs();
     _checkStaffStatus();
+    _loadAppVersion();
   }
 
   @override
@@ -71,6 +74,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isOffline) {
       _refresh();
+    }
+  }
+
+  Future<void> _loadAppVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = 'v${info.version} (${info.buildNumber})';
+      });
     }
   }
 
@@ -571,6 +583,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               );
             },
           ),
+          if (_appVersion.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                _appVersion,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ),
         ],
       ),
     );
