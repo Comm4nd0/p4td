@@ -20,6 +20,7 @@ import 'feed_screen.dart';
 import 'request_boarding_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'staff_daily_assignments_screen.dart';
+import 'staff_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'staff_availability_screen.dart';
@@ -65,6 +66,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _unreadInquiryCount = 0;
   String _appVersion = '';
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
+  final GlobalKey<StaffDashboardScreenState> _dashboardKey = GlobalKey();
   bool _initialRouteHandled = false;
 
   @override
@@ -549,6 +551,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
+        type: BottomNavigationBarType.fixed,
         onTap: (index) async {
           // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
           if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
@@ -563,6 +566,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
           setState(() => _currentIndex = index);
           if (_isOffline) _refresh();
+          // Refresh dashboard stats when switching to dashboard tab
+          if (_isStaff && index == 3) {
+            _dashboardKey.currentState?.refresh();
+          }
         },
         items: [
           BottomNavigationBarItem(
@@ -578,6 +585,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: Icon(Icons.today),
               label: "Dog Groups",
             ),
+          if (_isStaff)
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard),
+              label: 'Dashboard',
+            ),
         ],
       ),
       body: _isOffline
@@ -586,7 +598,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDogsView()
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
+                  : _currentIndex == 2
+                      ? StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs)
+                      : StaffDashboardScreen(
+                          key: _dashboardKey,
+                          canManageRequests: _canManageRequests,
+                          canReplyQueries: _canReplyQueries,
+                          canViewInquiries: _canViewInquiries,
+                          onNavigateToFeed: () => setState(() => _currentIndex = 1),
+                        ),
     ),
     );
   }
@@ -765,97 +785,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildStaffDashboard() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Dashboard', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _DashboardCard(
-                  icon: Icons.pending_actions,
-                  label: 'Pending\nRequests',
-                  count: _pendingRequestCount,
-                  color: _pendingRequestCount > 0 ? AppColors.warning : null,
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
-                      ),
-                    );
-                    _loadPendingRequestCount();
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _DashboardCard(
-                  icon: Icons.question_answer,
-                  label: 'Unresolved\nQueries',
-                  count: _unresolvedQueryCount,
-                  color: _unresolvedQueryCount > 0 ? AppColors.info : null,
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => QueryListScreen(
-                          isStaff: _isStaff,
-                          canReplyQueries: _canReplyQueries,
-                        ),
-                      ),
-                    );
-                    _loadUnresolvedQueryCount();
-                  },
-                ),
-              ),
-              if (_canViewInquiries) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _DashboardCard(
-                    icon: Icons.mail_outline,
-                    label: 'Unread\nInquiries',
-                    count: _unreadInquiryCount,
-                    color: _unreadInquiryCount > 0 ? AppColors.error : null,
-                    onTap: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const InquiryListScreen()),
-                      );
-                      _loadUnreadInquiryCount();
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Quick action buttons
-          Wrap(
-            spacing: 8,
-            children: [
-              ActionChip(
-                avatar: const Icon(Icons.traffic, size: 18),
-                label: const Text('Traffic Alert'),
-                onPressed: _showTrafficAlertDialog,
-              ),
-              ActionChip(
-                avatar: const Icon(Icons.upload, size: 18),
-                label: const Text('Upload to Feed'),
-                onPressed: () => setState(() => _currentIndex = 1),
-              ),
-            ],
-          ),
-          const Divider(height: 16),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDogsView() {
     if (_loadingDogs) {
       return const DogSkeletonList();
@@ -904,7 +833,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Column(
       children: [
-        if (_isStaff) _buildStaffDashboard(),
         if (_allDogs.length > 1)
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -998,57 +926,4 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
-/// Compact card for the staff dashboard showing a metric count.
-class _DashboardCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int count;
-  final Color? color;
-  final VoidCallback onTap;
-
-  const _DashboardCard({
-    required this.icon,
-    required this.label,
-    required this.count,
-    this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cardColor = color ?? theme.colorScheme.outline;
-
-    return Card(
-      elevation: 1,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          child: Column(
-            children: [
-              Icon(icon, color: cardColor, size: 24),
-              const SizedBox(height: 4),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: count > 0 ? cardColor : theme.colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.7)),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
