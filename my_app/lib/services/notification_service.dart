@@ -2,7 +2,10 @@ import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'data_service.dart';
+import '../screens/home_screen.dart';
+import '../main.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -28,7 +31,7 @@ class NotificationService {
     // 1b. Set foreground presentation options (iOS 10+)
     // This allows heads-up notifications even when the app is open!
     await _fcm.setForegroundNotificationPresentationOptions(
-      alert: true, 
+      alert: true,
       badge: true,
       sound: true,
     );
@@ -42,7 +45,7 @@ class NotificationService {
     // 2. Initialize local notifications for foreground display
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
-    
+
     const DarwinInitializationSettings initializationSettingsDarwin =
         DarwinInitializationSettings();
 
@@ -74,7 +77,7 @@ class NotificationService {
       if (kDebugMode) {
         print('Notification opened app from background: ${message.data}');
       }
-      _handleNotificationTap(message.data.toString());
+      _handleNotificationTapFromData(message.data);
     });
 
     // 5. Handle notification tap that launched the app from terminated state
@@ -83,7 +86,10 @@ class NotificationService {
       if (kDebugMode) {
         print('App launched from notification: ${initialMessage.data}');
       }
-      _handleNotificationTap(initialMessage.data.toString());
+      // Delay slightly to let the widget tree build
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _handleNotificationTapFromData(initialMessage.data);
+      });
     }
 
     // 6. Listen for token refresh and re-register with backend
@@ -111,7 +117,7 @@ class NotificationService {
         }
       } else {
         if (kDebugMode) {
-          print('APNs Token is NULL ❌ (This is the problem)');
+          print('APNs Token is NULL');
         }
       }
       String? token = await _fcm.getToken();
@@ -129,14 +135,76 @@ class NotificationService {
     }
   }
 
-
-
+  /// Handle tap from local notification payload (stringified map)
   void _handleNotificationTap(String? payload) {
+    if (payload == null || payload.isEmpty) return;
     if (kDebugMode) {
       print('Handling notification tap with payload: $payload');
     }
-    // TODO: Add navigation logic here based on payload
-    // e.g. navigate to a specific screen based on notification data
+
+    // Parse the stringified map payload: {type: post_comment, post_id: 123}
+    final data = _parsePayload(payload);
+    if (data != null) {
+      _handleNotificationTapFromData(data);
+    }
+  }
+
+  /// Handle tap from FCM message data (already a Map)
+  void _handleNotificationTapFromData(Map<String, dynamic> data) {
+    if (kDebugMode) {
+      print('Navigating for notification data: $data');
+    }
+
+    final type = data['type'] as String?;
+    final postId = data['post_id'] as String?;
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    switch (type) {
+      case 'post_comment':
+        if (postId != null) {
+          _navigateToPost(context, postId);
+        }
+        break;
+      default:
+        // For other types, just open the app (already done by tapping)
+        break;
+    }
+  }
+
+  void _navigateToPost(BuildContext context, String postId) {
+    // Push a new HomeScreen with scrollToPostId so the feed navigates to that post
+    navigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => HomeScreen(scrollToPostId: postId),
+      ),
+      (route) => false,
+    );
+  }
+
+  /// Parse a Dart Map.toString() payload back into a Map.
+  /// e.g. "{type: post_comment, post_id: 42}" → {type: post_comment, post_id: 42}
+  Map<String, dynamic>? _parsePayload(String payload) {
+    try {
+      // Remove outer braces
+      var inner = payload.trim();
+      if (inner.startsWith('{') && inner.endsWith('}')) {
+        inner = inner.substring(1, inner.length - 1);
+      }
+      final map = <String, dynamic>{};
+      for (final pair in inner.split(', ')) {
+        final idx = pair.indexOf(': ');
+        if (idx != -1) {
+          map[pair.substring(0, idx).trim()] = pair.substring(idx + 2).trim();
+        }
+      }
+      return map.isNotEmpty ? map : null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to parse notification payload: $e');
+      }
+      return null;
+    }
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
+import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
@@ -23,7 +25,9 @@ import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String? scrollToPostId;
+
+  const HomeScreen({super.key, this.scrollToPostId});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -241,66 +245,151 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showTrafficAlertDialog() async {
+    // Fetch staff's assignments for today to show dog selection
+    List<DailyDogAssignment> myAssignments = [];
+    try {
+      myAssignments = await _dataService.getMyAssignments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load your assignments: $e'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    if (myAssignments.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You have no dogs assigned today.')),
+        );
+      }
+      return;
+    }
+
+    // De-duplicate by dogId (a dog might appear once but just in case)
+    final uniqueDogs = <int, DailyDogAssignment>{};
+    for (final a in myAssignments) {
+      uniqueDogs.putIfAbsent(a.dogId, () => a);
+    }
+    final dogList = uniqueDogs.values.toList();
+
+    // All selected by default
+    final selectedDogIds = <int>{...dogList.map((d) => d.dogId)};
     final detailController = TextEditingController();
+
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.traffic, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Traffic Alert'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.traffic, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Traffic Alert'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Select which dogs\' owners to notify:',
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => setDialogState(() {
+                        selectedDogIds.addAll(dogList.map((d) => d.dogId));
+                      }),
+                      child: const Text('Select All'),
+                    ),
+                    TextButton(
+                      onPressed: () => setDialogState(() => selectedDogIds.clear()),
+                      child: const Text('Clear'),
+                    ),
+                  ],
+                ),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.3,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: dogList.length,
+                    itemBuilder: (context, index) {
+                      final assignment = dogList[index];
+                      final isSelected = selectedDogIds.contains(assignment.dogId);
+                      return CheckboxListTile(
+                        value: isSelected,
+                        onChanged: (checked) {
+                          setDialogState(() {
+                            if (checked == true) {
+                              selectedDogIds.add(assignment.dogId);
+                            } else {
+                              selectedDogIds.remove(assignment.dogId);
+                            }
+                          });
+                        },
+                        title: Text(assignment.dogName),
+                        subtitle: Text(assignment.ownerName),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.leading,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: detailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Additional detail (optional)',
+                    hintText: 'e.g. Accident on M1, expect 20 min delay',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                  textCapitalization: TextCapitalization.sentences,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: selectedDogIds.isEmpty ? null : () => Navigator.pop(context, 'pickup'),
+              icon: const Icon(Icons.arrow_upward, size: 18),
+              label: const Text('Pickup'),
+            ),
+            FilledButton.icon(
+              onPressed: selectedDogIds.isEmpty ? null : () => Navigator.pop(context, 'dropoff'),
+              icon: const Icon(Icons.arrow_downward, size: 18),
+              label: const Text('Drop-off'),
+            ),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Send a traffic delay notification to all owners with dogs on your route today. '
-              'Which service is affected?',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: detailController,
-              decoration: const InputDecoration(
-                labelText: 'Additional detail (optional)',
-                hintText: 'e.g. Accident on M1, expect 20 min delay',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
-              textCapitalization: TextCapitalization.sentences,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, 'pickup'),
-            icon: const Icon(Icons.arrow_upward, size: 18),
-            label: const Text('Pickup'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, 'dropoff'),
-            icon: const Icon(Icons.arrow_downward, size: 18),
-            label: const Text('Drop-off'),
-          ),
-        ],
       ),
     );
 
-    if (result != null) {
+    if (result != null && selectedDogIds.isNotEmpty) {
       try {
         final detail = detailController.text.trim();
-        await _dataService.sendTrafficAlert(result, detail: detail.isNotEmpty ? detail : null);
+        await _dataService.sendTrafficAlert(
+          result,
+          detail: detail.isNotEmpty ? detail : null,
+          dogIds: selectedDogIds.toList(),
+        );
         if (mounted) {
+          final count = selectedDogIds.length;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Traffic alert sent to all owners for ${result == 'pickup' ? 'pickup' : 'drop-off'}',
+                'Traffic alert sent to $count owner${count == 1 ? '' : 's'} for ${result == 'pickup' ? 'pickup' : 'drop-off'}',
               ),
               backgroundColor: Colors.green,
             ),
@@ -318,7 +407,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return UpgradeAlert(
+      shouldPopScope: () => true,
+      child: Scaffold(
       appBar: AppBar(
         title: GestureDetector(
           onTap: () => setState(() => _currentIndex = 1),
@@ -418,8 +509,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : _currentIndex == 0
               ? _buildDogsView()
               : _currentIndex == 1
-                  ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia)
+                  ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
                   : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
+    ),
     );
   }
 

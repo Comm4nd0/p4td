@@ -85,29 +85,13 @@ def send_push_notification(user, title, body, data=None, category=None):
 
     print(f"Successfully sent {success_count} messages; failed {failure_count} messages.")
 
-def notify_new_post(post):
-    """Notify all users (except uploader) about a new post."""
-    from django.contrib.auth.models import User
-
-    title = "New Post"
-    uploader_name = post.uploaded_by.first_name if post.uploaded_by.first_name else post.uploaded_by.username
-    body = f"{uploader_name} shared a new {post.media_type.lower()}."
-
-    data = {
-        'type': 'new_post',
-        'post_id': str(post.id),
-    }
-
-    users = User.objects.exclude(id=post.uploaded_by.id)
-    for user in users:
-        send_push_notification(user, title, body, data, category='feed')
-
-def send_traffic_alert(alert_type, date, staff_member, detail=''):
+def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     """
     Send a traffic delay notification to owners whose dogs are assigned
     to the given staff member on the given date (i.e. on their route).
     alert_type: 'pickup' or 'dropoff'
     detail: optional extra context from the staff member
+    dog_ids: optional list of dog IDs to limit notifications to
     """
     from .models import DailyDogAssignment
     from django.contrib.auth.models import User
@@ -122,6 +106,10 @@ def send_traffic_alert(alert_type, date, staff_member, detail=''):
     assignments = DailyDogAssignment.objects.filter(
         date=date, staff_member=staff_member, status__in=relevant_statuses
     ).select_related('dog__owner').prefetch_related('dog__additional_owners')
+
+    # If specific dogs were selected, filter to only those
+    if dog_ids:
+        assignments = assignments.filter(dog_id__in=dog_ids)
     owner_ids = set()
     for assignment in assignments:
         owner_ids.add(assignment.dog.owner_id)
@@ -164,9 +152,10 @@ def notify_post_comment(comment, post):
     - The staff member who uploaded the post gets notified of every new comment.
     - Any user who has previously commented on the same post gets notified
       of new replies (thread subscription).
+    - Any user who has reacted to the post gets notified.
     The commenter themselves is excluded from all notifications.
     """
-    from .models import Comment
+    from .models import Comment, MediaReaction
     from django.contrib.auth.models import User
 
     commenter = comment.user
@@ -188,6 +177,15 @@ def notify_post_comment(comment, post):
         .distinct()
     )
     users_to_notify.update(previous_commenter_ids)
+
+    # 3. Notify users who have reacted to this post
+    reactor_ids = (
+        MediaReaction.objects.filter(media=post)
+        .exclude(user=commenter)
+        .values_list('user_id', flat=True)
+        .distinct()
+    )
+    users_to_notify.update(reactor_ids)
 
     if not users_to_notify:
         return
