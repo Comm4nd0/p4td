@@ -9,8 +9,9 @@ import '../main.dart';
 class FeedScreen extends StatefulWidget {
   final bool isStaff;
   final bool canAddFeedMedia;
+  final String? scrollToPostId;
 
-  const FeedScreen({super.key, required this.isStaff, this.canAddFeedMedia = false});
+  const FeedScreen({super.key, required this.isStaff, this.canAddFeedMedia = false, this.scrollToPostId});
 
   @override
   State<FeedScreen> createState() => _FeedScreenState();
@@ -18,8 +19,10 @@ class FeedScreen extends StatefulWidget {
 
 class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBindingObserver {
   final _dataService = ApiDataService();
+  final ScrollController _scrollController = ScrollController();
   List<GroupMedia> _feed = [];
   bool _loading = true;
+  bool _hasScrolledToPost = false;
 
   @override
   void initState() {
@@ -38,6 +41,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -67,6 +71,11 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           _feed = feed;
           _loading = false;
         });
+        // Scroll to specific post if requested (e.g. from notification tap)
+        if (!_hasScrolledToPost && widget.scrollToPostId != null) {
+          _hasScrolledToPost = true;
+          _scrollToPost(widget.scrollToPostId!);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -375,6 +384,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                       ),
                     )
                   : ListView.builder(
+                      controller: _scrollController,
                       itemCount: _feed.length,
                       itemBuilder: (context, index) {
                         final media = _feed[index];
@@ -383,6 +393,23 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                     ),
             ),
     );
+  }
+
+  void _scrollToPost(String postId) {
+    // Wait for the list to render, then scroll to the post
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final index = _feed.indexWhere((m) => m.id == postId);
+      if (index != -1 && _scrollController.hasClients) {
+        // Estimate position: each card is roughly 450px tall.
+        // Use animateTo to scroll close to the target post.
+        final estimatedOffset = index * 450.0;
+        _scrollController.animateTo(
+          estimatedOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
   }
 
   Widget _buildMediaCard(GroupMedia media) {

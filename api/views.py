@@ -551,13 +551,6 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
 
             instance = serializer.save(uploaded_by=self.request.user)
 
-            # Send push notification to other users
-            try:
-                from .notifications import notify_new_post
-                notify_new_post(instance)
-            except Exception as e:
-                print(f"Failed to send notification: {e}")
-
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -1183,8 +1176,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return error
 
         detail_text = request.data.get('detail', '')
+        dog_ids = request.data.get('dog_ids')
         from .notifications import send_traffic_alert
-        send_traffic_alert(alert_type, target_date, staff_member=request.user, detail=detail_text)
+        send_traffic_alert(alert_type, target_date, staff_member=request.user, detail=detail_text, dog_ids=dog_ids)
         return Response({'detail': 'Traffic alert sent successfully.'})
 
 
