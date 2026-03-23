@@ -4,6 +4,8 @@ import '../constants/app_colors.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
+import '../widgets/request_timeline.dart';
+import '../widgets/skeleton_loaders.dart';
 
 class StaffNotificationsScreen extends StatefulWidget {
   final bool canManageRequests;
@@ -171,7 +173,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Content
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const ListTileSkeletonList()
                   : TabBarView(
                       children: [
                         _buildDateChangeList(),
@@ -241,10 +243,21 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Text(
-        _filter == 'PENDING' ? 'No pending requests' : 'No requests found',
-        style: TextStyle(color: Colors.grey[600]),
+    return RefreshIndicator(
+      onRefresh: _loadRequests,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.5,
+            child: Center(
+              child: Text(
+                _filter == 'PENDING' ? 'No pending requests' : 'No requests found',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -379,10 +392,11 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 8),
-            Text(
-              'Requested: ${DateFormat('d MMM yyyy, HH:mm').format(request.createdAt)}',
-              style: TextStyle(color: Colors.grey[500], fontSize: 11),
+            const SizedBox(height: 12),
+            RequestTimeline(
+              status: request.status.toString().split('.').last,
+              createdAt: request.createdAt,
+              resolvedBy: request.approvedByName,
             ),
             // Actions
             if (widget.canManageRequests) ...[
@@ -510,10 +524,12 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 8),
-            Text(
-               'Requested: ${DateFormat('d MMM, HH:mm').format(request.createdAt)}',
-               style: TextStyle(color: Colors.grey[500], fontSize: 11),
+            const SizedBox(height: 12),
+            RequestTimeline(
+              status: request.status.toString().split('.').last,
+              createdAt: request.createdAt,
+              resolvedAt: request.approvedAt,
+              resolvedBy: request.approvedByName,
             ),
             // Actions
             if (widget.canManageRequests) ...[

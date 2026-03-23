@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/dog_note.dart';
 import '../services/data_service.dart';
+import '../widgets/skeleton_loaders.dart';
 
 class DogNotesScreen extends StatefulWidget {
   final int dogId;
@@ -129,26 +130,34 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
         label: const Text('Add Note'),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _notes.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.note_add, size: 64, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('No notes yet', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Add compatibility, behavioral, or grouping notes',
-                        style: TextStyle(color: Colors.grey[500]),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(
+          ? const ListTileSkeletonList()
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _notes.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.5,
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.note_add, size: 64, color: Colors.grey[400]),
+                                const SizedBox(height: 16),
+                                Text('No notes yet', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Add compatibility, behavioral, or grouping notes',
+                                  style: TextStyle(color: Colors.grey[500]),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _notes.length,
                     itemBuilder: (context, index) {

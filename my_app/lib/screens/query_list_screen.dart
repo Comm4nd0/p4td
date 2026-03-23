@@ -4,6 +4,7 @@ import '../models/support_query.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import 'query_detail_screen.dart';
+import '../widgets/skeleton_loaders.dart';
 
 class QueryListScreen extends StatefulWidget {
   final bool isStaff;
@@ -318,34 +319,42 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredQueries.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.question_answer, size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              _filter == 'OPEN'
-                                  ? 'No open conversations'
-                                  : _filter == 'RESOLVED'
-                                      ? 'No resolved conversations'
-                                      : 'No conversations yet',
-                              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                ? const ListTileSkeletonList()
+                : RefreshIndicator(
+                    onRefresh: _loadQueries,
+                    child: _filteredQueries.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.5,
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.question_answer, size: 64, color: Colors.grey[400]),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    _filter == 'OPEN'
+                                        ? 'No open conversations'
+                                        : _filter == 'RESOLVED'
+                                            ? 'No resolved conversations'
+                                            : 'No conversations yet',
+                                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       )
-                    : RefreshIndicator(
-                        onRefresh: _loadQueries,
-                        child: ListView.builder(
+                    : ListView.builder(
                           padding: const EdgeInsets.only(bottom: 80),
                           itemCount: _filteredQueries.length,
                           itemBuilder: (context, index) =>
                               _buildQueryCard(_filteredQueries[index]),
                         ),
-                      ),
+                  ),
           ),
         ],
       ),

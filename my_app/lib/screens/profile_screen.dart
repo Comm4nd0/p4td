@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
+import '../services/theme_service.dart';
 
 import 'login_screen.dart';
 import 'change_password_screen.dart';
@@ -393,6 +394,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Widget _buildThemeSelector() {
+    final themeService = ThemeService();
+    return SegmentedButton<ThemeMode>(
+      segments: const [
+        ButtonSegment(
+          value: ThemeMode.light,
+          icon: Icon(Icons.light_mode),
+          label: Text('Light'),
+        ),
+        ButtonSegment(
+          value: ThemeMode.system,
+          icon: Icon(Icons.settings_brightness),
+          label: Text('System'),
+        ),
+        ButtonSegment(
+          value: ThemeMode.dark,
+          icon: Icon(Icons.dark_mode),
+          label: Text('Dark'),
+        ),
+      ],
+      selected: {themeService.themeMode},
+      onSelectionChanged: (selected) {
+        themeService.setThemeMode(selected.first);
+      },
+    );
+  }
+
   Widget _buildProfilePhoto() {
     final photoUrl = _profile?.profilePhotoUrl;
 
@@ -555,6 +583,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         contentPadding: EdgeInsets.zero,
                       ),
                     ],
+                    const Divider(height: 32),
+                    Text(
+                      'Appearance',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildThemeSelector(),
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,

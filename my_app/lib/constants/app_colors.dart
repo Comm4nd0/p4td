@@ -50,7 +50,12 @@ class AppColors {
   static const Color grey600 = Color(0xFF757575);
   static const Color grey700 = Color(0xFF616161);
 
-  // ── Material ColorScheme helper ────────────────────────────────────
+  // ── Dark-mode surface / background ─────────────────────────────────
+  static const Color darkBackground = Color(0xFF121212);
+  static const Color darkSurface = Color(0xFF1E1E1E);
+  static const Color darkSurfaceVariant = Color(0xFF2C2C2C);
+
+  // ── Material ColorScheme helpers ─────────────────────────────────
   static ColorScheme get lightScheme => ColorScheme.fromSeed(
         seedColor: primary,
         primary: primary,
@@ -62,5 +67,61 @@ class AppColors {
         error: error,
         onError: Colors.white,
         brightness: Brightness.light,
+      );
+
+  static ColorScheme get darkScheme => ColorScheme.fromSeed(
+        seedColor: primary,
+        primary: primaryLight,
+        onPrimary: Colors.white,
+        secondary: primary,
+        onSecondary: cream,
+        surface: darkSurface,
+        onSurface: const Color(0xFFE0E0E0),
+        error: const Color(0xFFCF6679),
+        onError: Colors.black,
+        brightness: Brightness.dark,
+      );
+
+  /// Build a complete [ThemeData] for light or dark mode.
+  static ThemeData lightTheme() => ThemeData(
+        colorScheme: lightScheme,
+        useMaterial3: true,
+        scaffoldBackgroundColor: background,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: primary,
+          foregroundColor: cream,
+        ),
+      );
+
+  static ThemeData darkTheme() => ThemeData(
+        colorScheme: darkScheme,
+        useMaterial3: true,
+        scaffoldBackgroundColor: darkBackground,
+        appBarTheme: AppBarTheme(
+          backgroundColor: darkSurface,
+          foregroundColor: cream,
+        ),
+        cardTheme: CardThemeData(
+          color: darkSurface,
+          elevation: 2,
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: darkSurface,
+        ),
+        bottomNavigationBarTheme: BottomNavigationBarThemeData(
+          backgroundColor: darkSurface,
+          selectedItemColor: primaryLight,
+          unselectedItemColor: grey500,
+        ),
+        drawerTheme: DrawerThemeData(
+          backgroundColor: darkSurface,
+        ),
+        dividerTheme: DividerThemeData(
+          color: darkSurfaceVariant,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: darkSurfaceVariant,
+        ),
       );
 }

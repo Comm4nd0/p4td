@@ -11,6 +11,7 @@ import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../widgets/no_connection_widget.dart';
+import '../widgets/skeleton_loaders.dart';
 import 'dog_home_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
@@ -19,6 +20,7 @@ import 'feed_screen.dart';
 import 'request_boarding_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'staff_daily_assignments_screen.dart';
+import 'staff_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'staff_availability_screen.dart';
@@ -27,7 +29,14 @@ import 'inquiry_list_screen.dart';
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
 
-  const HomeScreen({super.key, this.scrollToPostId});
+  /// Deep-link target set by notification taps.
+  /// Values: 'requests', 'boarding_requests', 'queries', 'inquiries', 'dogs', 'feed'
+  final String? initialRoute;
+
+  /// Optional payload for the deep link (e.g. a dog ID or request ID).
+  final String? routePayload;
+
+  const HomeScreen({super.key, this.scrollToPostId, this.initialRoute, this.routePayload});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -57,6 +66,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _unreadInquiryCount = 0;
   String _appVersion = '';
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
+  final GlobalKey<StaffDashboardScreenState> _dashboardKey = GlobalKey();
+  bool _initialRouteHandled = false;
 
   @override
   void initState() {
@@ -176,6 +187,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (profile.isStaff && profile.canViewInquiries) {
           await _loadUnreadInquiryCount();
         }
+        // Handle deep-link navigation after permissions are known
+        _handleInitialRoute();
       }
     } catch (e) {
       if (mounted) {
@@ -230,6 +243,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
     if (_canViewInquiries) _loadUnreadInquiryCount();
+  }
+
+  /// Navigate to the deep-link target screen after profile/permissions are loaded.
+  void _handleInitialRoute() {
+    if (_initialRouteHandled || widget.initialRoute == null) return;
+    _initialRouteHandled = true;
+
+    // Delay slightly to let the widget tree settle
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      switch (widget.initialRoute) {
+        case 'requests':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+            ),
+          );
+          break;
+        case 'boarding_requests':
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+          );
+          break;
+        case 'queries':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => QueryListScreen(
+                isStaff: _isStaff,
+                canReplyQueries: _canReplyQueries,
+              ),
+            ),
+          );
+          break;
+        case 'inquiries':
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const InquiryListScreen()),
+          );
+          break;
+        case 'dogs':
+          // If a specific dog ID was provided and we have the dog data, navigate to it
+          final dogId = widget.routePayload;
+          if (dogId != null && _allDogs.isNotEmpty) {
+            final dog = _allDogs.where((d) => d.id.toString() == dogId).firstOrNull;
+            if (dog != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
+                ),
+              );
+              break;
+            }
+          }
+          // Otherwise just switch to dogs tab
+          setState(() => _currentIndex = 0);
+          break;
+        case 'feed':
+          setState(() => _currentIndex = 1);
+          break;
+      }
+    });
   }
 
 
@@ -473,6 +551,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
+        type: BottomNavigationBarType.fixed,
         onTap: (index) async {
           // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
           if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
@@ -487,6 +566,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
           setState(() => _currentIndex = index);
           if (_isOffline) _refresh();
+          // Refresh dashboard stats when switching to dashboard tab
+          if (_isStaff && index == 3) {
+            _dashboardKey.currentState?.refresh();
+          }
         },
         items: [
           BottomNavigationBarItem(
@@ -502,6 +585,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: Icon(Icons.today),
               label: "Dog Groups",
             ),
+          if (_isStaff)
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard),
+              label: 'Dashboard',
+            ),
         ],
       ),
       body: _isOffline
@@ -510,7 +598,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDogsView()
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
+                  : _currentIndex == 2
+                      ? StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs)
+                      : StaffDashboardScreen(
+                          key: _dashboardKey,
+                          canManageRequests: _canManageRequests,
+                          canReplyQueries: _canReplyQueries,
+                          canViewInquiries: _canViewInquiries,
+                          onNavigateToFeed: () => setState(() => _currentIndex = 1),
+                        ),
     ),
     );
   }
@@ -691,7 +787,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildDogsView() {
     if (_loadingDogs) {
-      return const Center(child: CircularProgressIndicator());
+      return const DogSkeletonList();
     }
 
     if (_allDogs.isEmpty) {
@@ -829,4 +925,5 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 }
+
 

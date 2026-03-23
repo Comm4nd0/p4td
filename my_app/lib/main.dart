@@ -3,6 +3,8 @@ import 'constants/app_colors.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/theme_service.dart';
+import 'services/cache_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -22,6 +24,12 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Initialize local cache
+  await CacheService().init();
+
+  // Load persisted theme preference
+  await ThemeService().init();
+
   // Try initializing Firebase, but catch errors if config files are missing
   try {
     await Firebase.initializeApp();
@@ -30,7 +38,7 @@ void main() async {
   } catch (e) {
     debugPrint("Firebase initialization failed: $e. Config files might be missing.");
   }
-  
+
   runApp(const MyApp());
 }
 
@@ -43,6 +51,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final _authService = AuthService();
+  final _themeService = ThemeService();
   Future<String?>? _tokenFuture;
 
   @override
@@ -53,33 +62,30 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: navigatorKey,
-      debugShowCheckedModeBanner: false,
-      title: 'Paws 4 Thought Dogs',
-      theme: ThemeData(
-        colorScheme: AppColors.lightScheme,
-        useMaterial3: true,
-        scaffoldBackgroundColor: AppColors.background,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.cream,
+    return ListenableBuilder(
+      listenable: _themeService,
+      builder: (context, _) => MaterialApp(
+        navigatorKey: navigatorKey,
+        debugShowCheckedModeBanner: false,
+        title: 'Paws 4 Thought Dogs',
+        theme: AppColors.lightTheme(),
+        darkTheme: AppColors.darkTheme(),
+        themeMode: _themeService.themeMode,
+        navigatorObservers: [routeObserver],
+        home: FutureBuilder<String?>(
+          future: _tokenFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            }
+
+            if (snapshot.hasData && snapshot.data != null) {
+              return const HomeScreen();
+            } else {
+              return const LoginScreen();
+            }
+          },
         ),
-      ),
-      navigatorObservers: [routeObserver],
-      home: FutureBuilder<String?>(
-        future: _tokenFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
-          }
-          
-          if (snapshot.hasData && snapshot.data != null) {
-            return const HomeScreen();
-          } else {
-            return const LoginScreen();
-          }
-        },
       ),
     );
   }

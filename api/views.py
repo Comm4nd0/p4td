@@ -1803,3 +1803,61 @@ class ContactInquiryViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'count': 0})
         count = ContactInquiry.objects.filter(is_read=False).count()
         return Response({'count': count})
+
+
+@api_view(['GET'])
+@perm_classes([IsAdminUser])
+def staff_dashboard_stats(request):
+    """Return aggregate stats for the staff dashboard tab."""
+    from datetime import date
+    from django.db.models import Q
+    from .models import (
+        DailyDogAssignment, Photo, GroupMedia,
+        DateChangeRequest, BoardingRequest,
+    )
+
+    today = date.today()
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Dogs checked in today
+    dogs_today = DailyDogAssignment.objects.filter(date=today).values('dog_id').distinct().count()
+
+    # Dog photos/videos uploaded today
+    dog_photos_today = Photo.objects.filter(created_at__gte=today_start, media_type='PHOTO').count()
+    dog_videos_today = Photo.objects.filter(created_at__gte=today_start, media_type='VIDEO').count()
+
+    # Feed photos/videos uploaded today
+    feed_photos_today = GroupMedia.objects.filter(created_at__gte=today_start, media_type='PHOTO').count()
+    feed_videos_today = GroupMedia.objects.filter(created_at__gte=today_start, media_type='VIDEO').count()
+
+    # Pending requests
+    pending_date_requests = DateChangeRequest.objects.filter(status='PENDING').count()
+    pending_boarding_requests = BoardingRequest.objects.filter(status='PENDING').count()
+
+    # Unresolved queries
+    from .models import SupportQuery
+    unresolved_queries = SupportQuery.objects.filter(status='OPEN').count()
+
+    # Unread inquiries
+    unread_inquiries = 0
+    profile = getattr(request.user, 'profile', None)
+    if profile and profile.can_view_inquiries:
+        unread_inquiries = ContactInquiry.objects.filter(is_read=False).count()
+
+    # Total dogs registered
+    total_dogs = Dog.objects.count()
+
+    return Response({
+        'dogs_today': dogs_today,
+        'dog_photos_today': dog_photos_today,
+        'dog_videos_today': dog_videos_today,
+        'feed_photos_today': feed_photos_today,
+        'feed_videos_today': feed_videos_today,
+        'total_media_today': dog_photos_today + dog_videos_today + feed_photos_today + feed_videos_today,
+        'pending_requests': pending_date_requests + pending_boarding_requests,
+        'pending_date_requests': pending_date_requests,
+        'pending_boarding_requests': pending_boarding_requests,
+        'unresolved_queries': unresolved_queries,
+        'unread_inquiries': unread_inquiries,
+        'total_dogs': total_dogs,
+    })
