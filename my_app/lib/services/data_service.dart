@@ -18,6 +18,7 @@ import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
 import '../models/contact_inquiry.dart';
 import 'auth_service.dart';
+import 'cache_service.dart';
 
 abstract class DataService {
   Future<List<Dog>> getDogs();
@@ -130,57 +131,84 @@ class ApiDataService implements DataService {
     };
   }
 
+  List<Dog> _parseDogsList(List<dynamic> data) {
+    return data.map((json) {
+      final daysInDaycare = (json['daycare_days'] as List<dynamic>?)
+          ?.map((day) => Weekday.values.firstWhere(
+            (w) => w.dayNumber == day,
+            orElse: () => Weekday.monday,
+          ))
+          .toList() ?? [];
+
+      OwnerDetails? ownerDetails;
+      if (json['owner_details'] != null) {
+        ownerDetails = OwnerDetails.fromJson(json['owner_details']);
+      }
+      final additionalOwners = (json['additional_owners_details'] as List<dynamic>?)
+          ?.map((o) => OwnerDetails.fromJson(o))
+          .toList() ?? [];
+
+      return Dog(
+        id: json['id'].toString(),
+        name: json['name'],
+        ownerId: (json['owner'] ?? '').toString(),
+        profileImageUrl: json['profile_image'],
+        foodInstructions: json['food_instructions'],
+        medicalNotes: json['medical_notes'],
+        daysInDaycare: daysInDaycare,
+        ownerDetails: ownerDetails,
+        additionalOwners: additionalOwners,
+        preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
+        scheduleType: ScheduleTypeExtension.fromApiValue(json['schedule_type']),
+      );
+    }).toList();
+  }
+
   @override
   Future<List<Dog>> getDogs() async {
-    final headers = await _getHeaders();
-    final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/dogs/'), headers: headers);
+    final cache = CacheService();
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/dogs/'), headers: headers);
 
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((json) {
-        final daysInDaycare = (json['daycare_days'] as List<dynamic>?)
-            ?.map((day) => Weekday.values.firstWhere(
-              (w) => w.dayNumber == day,
-              orElse: () => Weekday.monday,
-            ))
-            .toList() ?? [];
-        
-        OwnerDetails? ownerDetails;
-        if (json['owner_details'] != null) {
-          ownerDetails = OwnerDetails.fromJson(json['owner_details']);
-        }
-        final additionalOwners = (json['additional_owners_details'] as List<dynamic>?)
-            ?.map((o) => OwnerDetails.fromJson(o))
-            .toList() ?? [];
-
-        return Dog(
-          id: json['id'].toString(),
-          name: json['name'],
-          ownerId: (json['owner'] ?? '').toString(),
-          profileImageUrl: json['profile_image'],
-          foodInstructions: json['food_instructions'],
-          medicalNotes: json['medical_notes'],
-          daysInDaycare: daysInDaycare,
-          ownerDetails: ownerDetails,
-          additionalOwners: additionalOwners,
-          preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
-          scheduleType: ScheduleTypeExtension.fromApiValue(json['schedule_type']),
-        );
-      }).toList();
-    } else {
-      throw Exception('Failed to load dogs');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        // Cache the raw JSON for offline use
+        cache.cacheDogs(data.cast<Map<String, dynamic>>());
+        return _parseDogsList(data);
+      } else {
+        throw Exception('Failed to load dogs');
+      }
+    } catch (e) {
+      // On network error, try to return cached data
+      final cached = cache.getCachedDogs();
+      if (cached != null && cached.isNotEmpty) {
+        return _parseDogsList(cached);
+      }
+      rethrow;
     }
   }
 
   @override
   Future<UserProfile> getProfile() async {
-    final headers = await _getHeaders();
-    final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/profile/'), headers: headers);
+    final cache = CacheService();
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/profile/'), headers: headers);
 
-    if (response.statusCode == 200) {
-      return UserProfile.fromJson(json.decode(response.body));
-    } else {
-      throw Exception('Failed to load profile');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        cache.cacheProfile(Map<String, dynamic>.from(data));
+        return UserProfile.fromJson(data);
+      } else {
+        throw Exception('Failed to load profile');
+      }
+    } catch (e) {
+      final cached = cache.getCachedProfile();
+      if (cached != null) {
+        return UserProfile.fromJson(cached);
+      }
+      rethrow;
     }
   }
 
@@ -748,17 +776,27 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<gm.GroupMedia>> getFeed() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/feed/'),
-      headers: headers,
-    );
+    final cache = CacheService();
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse('${AuthService.baseUrl}/api/feed/'),
+        headers: headers,
+      );
 
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((json) => gm.GroupMedia.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to load feed');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        cache.cacheFeed(data.cast<Map<String, dynamic>>());
+        return data.map((json) => gm.GroupMedia.fromJson(json)).toList();
+      } else {
+        throw Exception('Failed to load feed');
+      }
+    } catch (e) {
+      final cached = cache.getCachedFeed();
+      if (cached != null && cached.isNotEmpty) {
+        return cached.map((json) => gm.GroupMedia.fromJson(json)).toList();
+      }
+      rethrow;
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
 import 'inquiry_detail_screen.dart';
+import '../widgets/skeleton_loaders.dart';
 
 class InquiryListScreen extends StatefulWidget {
   const InquiryListScreen({super.key});
@@ -74,32 +75,40 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredInquiries.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.mail_outline, size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              _filter == 'UNREAD'
-                                  ? 'No unread inquiries'
-                                  : 'No website inquiries yet',
-                              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                            ),
-                          ],
-                        ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _loadInquiries,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          itemCount: _filteredInquiries.length,
-                          itemBuilder: (context, index) =>
-                              _buildInquiryCard(_filteredInquiries[index]),
-                        ),
-                      ),
+                ? const ListTileSkeletonList()
+                : RefreshIndicator(
+                    onRefresh: _loadInquiries,
+                    child: _filteredInquiries.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(
+                                height: MediaQuery.of(context).size.height * 0.5,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.mail_outline, size: 64, color: Colors.grey[400]),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        _filter == 'UNREAD'
+                                            ? 'No unread inquiries'
+                                            : 'No website inquiries yet',
+                                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            itemCount: _filteredInquiries.length,
+                            itemBuilder: (context, index) =>
+                                _buildInquiryCard(_filteredInquiries[index]),
+                          ),
+                  ),
           ),
         ],
       ),

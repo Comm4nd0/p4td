@@ -4,6 +4,8 @@ import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import '../widgets/skeleton_loaders.dart';
+import '../widgets/request_timeline.dart';
 
 class BoardingRequestListScreen extends StatefulWidget {
   const BoardingRequestListScreen({super.key});
@@ -28,13 +30,14 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
     _loadRequests();
   }
 
-  void _loadRequests() {
+  Future<void> _loadRequests() async {
     setState(() {
       _requestsFuture = _dataService.getBoardingRequests().then((requests) {
         _processEvents(requests);
         return requests;
       });
     });
+    await _requestsFuture;
   }
 
   void _processEvents(List<BoardingRequest> requests) {
@@ -93,11 +96,22 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
           future: _requestsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return const ListTileSkeletonList();
             } else if (snapshot.hasError) {
               return Center(child: Text('Error: ${snapshot.error}'));
             } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return const Center(child: Text('No boarding requests found'));
+              return RefreshIndicator(
+                onRefresh: _loadRequests,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.5,
+                      child: const Center(child: Text('No boarding requests found')),
+                    ),
+                  ],
+                ),
+              );
             }
 
             final requests = snapshot.data!;
@@ -123,32 +137,28 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
           final request = requests[index];
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: ListTile(
-              title: Text(
-                request.dogNames.join(', '),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Column(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    request.dogNames.join(', '),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
                     '${DateFormat('MMM d').format(request.startDate)} - ${DateFormat('MMM d, yyyy').format(request.endDate)}',
                   ),
-                  if (request.status != BoardingRequestStatus.pending && request.approvedByName != null)
-                    Text(
-                      '${request.status == BoardingRequestStatus.approved ? 'Approved' : 'Denied'} by ${request.approvedByName}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
+                  const SizedBox(height: 8),
+                  RequestTimeline(
+                    status: request.status.toString().split('.').last,
+                    createdAt: request.createdAt,
+                    resolvedAt: request.approvedAt,
+                    resolvedBy: request.approvedByName,
+                  ),
                 ],
               ),
-              trailing: Chip(
-                label: Text(
-                  request.status.toString().split('.').last.toUpperCase(),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-                backgroundColor: _getStatusColor(request.status),
-              ),
-              isThreeLine: true,
             ),
           );
         },

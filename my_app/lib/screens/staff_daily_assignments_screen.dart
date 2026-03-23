@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../widgets/skeleton_loaders.dart';
 
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
@@ -959,24 +960,35 @@ class StaffDailyAssignmentsScreenState
               final filtered = _getFilteredAssignments(date);
 
               if (isLoading && !_assignmentCache.containsKey(key)) {
-                return const Center(child: CircularProgressIndicator());
+                return const ListTileSkeletonList();
               }
 
               if (filtered.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                return RefreshIndicator(
+                  onRefresh: () => _loadAssignmentsForDate(date, forceReload: true),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: [
-                      Icon(Icons.pets, size: 64, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text(
-                        _selectedStaffId != null
-                            ? 'No dogs assigned to this staff member'
-                            : 'No dogs assigned for this date',
-                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                _selectedStaffId != null
+                                    ? 'No dogs assigned to this staff member'
+                                    : 'No dogs assigned for this date',
+                                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text('Tap the + button to assign dogs.'),
+                            ],
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      const Text('Tap the + button to assign dogs.'),
                     ],
                   ),
                 );

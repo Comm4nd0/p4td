@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
 import '../services/data_service.dart';
+import '../widgets/skeleton_loaders.dart';
 
 class ClosureDaysScreen extends StatefulWidget {
   final bool isStaff;
@@ -101,21 +102,29 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
             )
           : null,
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _closureDays.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.event_available, size: 64, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('No upcoming closures', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(
+          ? const ListTileSkeletonList()
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _closureDays.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.5,
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.event_available, size: 64, color: Colors.grey[400]),
+                                const SizedBox(height: 16),
+                                Text('No upcoming closures', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _closureDays.length,
                     itemBuilder: (context, index) {

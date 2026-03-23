@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'cache_service.dart';
 import 'no_connection_exception.dart';
 
 class AuthService {
@@ -71,6 +72,11 @@ class AuthService {
 
   Future<void> logout() async {
     await _storage.delete(key: 'auth_token');
+    // Clear local cache to prevent stale data for a different user
+    try {
+      final cacheService = CacheService();
+      await cacheService.clearAll();
+    } catch (_) {}
   }
 
   Future<String?> getToken() async {

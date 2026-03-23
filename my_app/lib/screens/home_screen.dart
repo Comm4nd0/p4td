@@ -11,6 +11,7 @@ import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../widgets/no_connection_widget.dart';
+import '../widgets/skeleton_loaders.dart';
 import 'dog_home_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
@@ -27,7 +28,14 @@ import 'inquiry_list_screen.dart';
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
 
-  const HomeScreen({super.key, this.scrollToPostId});
+  /// Deep-link target set by notification taps.
+  /// Values: 'requests', 'boarding_requests', 'queries', 'inquiries', 'dogs', 'feed'
+  final String? initialRoute;
+
+  /// Optional payload for the deep link (e.g. a dog ID or request ID).
+  final String? routePayload;
+
+  const HomeScreen({super.key, this.scrollToPostId, this.initialRoute, this.routePayload});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -57,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _unreadInquiryCount = 0;
   String _appVersion = '';
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
+  bool _initialRouteHandled = false;
 
   @override
   void initState() {
@@ -176,6 +185,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (profile.isStaff && profile.canViewInquiries) {
           await _loadUnreadInquiryCount();
         }
+        // Handle deep-link navigation after permissions are known
+        _handleInitialRoute();
       }
     } catch (e) {
       if (mounted) {
@@ -230,6 +241,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
     if (_canViewInquiries) _loadUnreadInquiryCount();
+  }
+
+  /// Navigate to the deep-link target screen after profile/permissions are loaded.
+  void _handleInitialRoute() {
+    if (_initialRouteHandled || widget.initialRoute == null) return;
+    _initialRouteHandled = true;
+
+    // Delay slightly to let the widget tree settle
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      switch (widget.initialRoute) {
+        case 'requests':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+            ),
+          );
+          break;
+        case 'boarding_requests':
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+          );
+          break;
+        case 'queries':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => QueryListScreen(
+                isStaff: _isStaff,
+                canReplyQueries: _canReplyQueries,
+              ),
+            ),
+          );
+          break;
+        case 'inquiries':
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const InquiryListScreen()),
+          );
+          break;
+        case 'dogs':
+          // If a specific dog ID was provided and we have the dog data, navigate to it
+          final dogId = widget.routePayload;
+          if (dogId != null && _allDogs.isNotEmpty) {
+            final dog = _allDogs.where((d) => d.id.toString() == dogId).firstOrNull;
+            if (dog != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
+                ),
+              );
+              break;
+            }
+          }
+          // Otherwise just switch to dogs tab
+          setState(() => _currentIndex = 0);
+          break;
+        case 'feed':
+          setState(() => _currentIndex = 1);
+          break;
+      }
+    });
   }
 
 
@@ -689,9 +765,100 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildStaffDashboard() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Dashboard', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _DashboardCard(
+                  icon: Icons.pending_actions,
+                  label: 'Pending\nRequests',
+                  count: _pendingRequestCount,
+                  color: _pendingRequestCount > 0 ? AppColors.warning : null,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+                      ),
+                    );
+                    _loadPendingRequestCount();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _DashboardCard(
+                  icon: Icons.question_answer,
+                  label: 'Unresolved\nQueries',
+                  count: _unresolvedQueryCount,
+                  color: _unresolvedQueryCount > 0 ? AppColors.info : null,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => QueryListScreen(
+                          isStaff: _isStaff,
+                          canReplyQueries: _canReplyQueries,
+                        ),
+                      ),
+                    );
+                    _loadUnresolvedQueryCount();
+                  },
+                ),
+              ),
+              if (_canViewInquiries) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _DashboardCard(
+                    icon: Icons.mail_outline,
+                    label: 'Unread\nInquiries',
+                    count: _unreadInquiryCount,
+                    color: _unreadInquiryCount > 0 ? AppColors.error : null,
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const InquiryListScreen()),
+                      );
+                      _loadUnreadInquiryCount();
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Quick action buttons
+          Wrap(
+            spacing: 8,
+            children: [
+              ActionChip(
+                avatar: const Icon(Icons.traffic, size: 18),
+                label: const Text('Traffic Alert'),
+                onPressed: _showTrafficAlertDialog,
+              ),
+              ActionChip(
+                avatar: const Icon(Icons.upload, size: 18),
+                label: const Text('Upload to Feed'),
+                onPressed: () => setState(() => _currentIndex = 1),
+              ),
+            ],
+          ),
+          const Divider(height: 16),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDogsView() {
     if (_loadingDogs) {
-      return const Center(child: CircularProgressIndicator());
+      return const DogSkeletonList();
     }
 
     if (_allDogs.isEmpty) {
@@ -737,6 +904,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Column(
       children: [
+        if (_isStaff) _buildStaffDashboard(),
         if (_allDogs.length > 1)
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -826,6 +994,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// Compact card for the staff dashboard showing a metric count.
+class _DashboardCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final int count;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _DashboardCard({
+    required this.icon,
+    required this.label,
+    required this.count,
+    this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cardColor = color ?? theme.colorScheme.outline;
+
+    return Card(
+      elevation: 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(icon, color: cardColor, size: 24),
+              const SizedBox(height: 4),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: count > 0 ? cardColor : theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.7)),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 import '../widgets/feed_item_card.dart';
+import '../widgets/skeleton_loaders.dart';
 import '../main.dart';
 
 class FeedScreen extends StatefulWidget {
@@ -20,9 +22,36 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBindingObserver {
   final _dataService = ApiDataService();
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
   List<GroupMedia> _feed = [];
   bool _loading = true;
   bool _hasScrolledToPost = false;
+  bool _showFilters = false;
+  DateTimeRange? _dateRange;
+
+  /// Filtered feed based on search query and date range.
+  List<GroupMedia> get _filteredFeed {
+    final query = _searchController.text.toLowerCase();
+    return _feed.where((post) {
+      // Caption text search
+      if (query.isNotEmpty) {
+        final caption = post.caption?.toLowerCase() ?? '';
+        final uploader = post.uploadedByName.toLowerCase();
+        if (!caption.contains(query) && !uploader.contains(query)) {
+          return false;
+        }
+      }
+      // Date range filter
+      if (_dateRange != null) {
+        final postDate = post.createdAt;
+        if (postDate.isBefore(_dateRange!.start) ||
+            postDate.isAfter(_dateRange!.end.add(const Duration(days: 1)))) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -42,6 +71,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -345,8 +375,93 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     }
   }
 
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: now.subtract(const Duration(days: 365)),
+      lastDate: now,
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+    }
+  }
+
+  Widget _buildFilterBar() {
+    final dateFormat = DateFormat('d MMM');
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      child: _showFilters
+          ? Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Column(
+                children: [
+                  // Search field
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search captions...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 20),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {});
+                              },
+                            )
+                          : null,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  // Date range chip
+                  Row(
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.calendar_today, size: 16),
+                        label: Text(
+                          _dateRange != null
+                              ? '${dateFormat.format(_dateRange!.start)} – ${dateFormat.format(_dateRange!.end)}'
+                              : 'Date range',
+                        ),
+                        onPressed: _pickDateRange,
+                      ),
+                      if (_dateRange != null) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () => setState(() => _dateRange = null),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                      const Spacer(),
+                      if (_searchController.text.isNotEmpty || _dateRange != null)
+                        TextButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _dateRange = null);
+                          },
+                          child: const Text('Clear all'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final filtered = _filteredFeed;
+    final hasActiveFilters = _searchController.text.isNotEmpty || _dateRange != null;
+
     return Scaffold(
       floatingActionButton: widget.canAddFeedMedia
           ? FloatingActionButton.extended(
@@ -356,41 +471,88 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
             )
           : null,
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadFeed,
-              child: _feed.isEmpty
-                  ? SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      child: SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.7,
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey[400]),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No posts yet',
-                                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                              ),
-                              if (widget.canAddFeedMedia) ...[
-                                const SizedBox(height: 8),
-                                const Text('Tap the button below to upload photos or videos'),
-                              ],
-                            ],
+          ? const FeedSkeletonList()
+          : Column(
+              children: [
+                // Filter toggle button
+                if (_feed.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: Row(
+                      children: [
+                        FilterChip(
+                          avatar: Icon(
+                            _showFilters ? Icons.filter_list_off : Icons.filter_list,
+                            size: 18,
                           ),
+                          label: Text(hasActiveFilters
+                              ? 'Filters (${filtered.length}/${_feed.length})'
+                              : 'Filters'),
+                          selected: _showFilters,
+                          onSelected: (val) => setState(() => _showFilters = val),
                         ),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: _feed.length,
-                      itemBuilder: (context, index) {
-                        final media = _feed[index];
-                        return _buildMediaCard(media);
-                      },
+                      ],
                     ),
+                  ),
+                _buildFilterBar(),
+                // Feed list
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadFeed,
+                    child: _feed.isEmpty
+                        ? SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.6,
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey[400]),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No posts yet',
+                                      style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                                    ),
+                                    if (widget.canAddFeedMedia) ...[
+                                      const SizedBox(height: 8),
+                                      const Text('Tap the button below to upload photos or videos'),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                        : filtered.isEmpty
+                            ? SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                child: SizedBox(
+                                  height: MediaQuery.of(context).size.height * 0.5,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          'No posts match your filters',
+                                          style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                controller: _scrollController,
+                                itemCount: filtered.length,
+                                itemBuilder: (context, index) {
+                                  return _buildMediaCard(filtered[index]);
+                                },
+                              ),
+                  ),
+                ),
+              ],
             ),
     );
   }

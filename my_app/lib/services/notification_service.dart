@@ -156,27 +156,67 @@ class NotificationService {
     }
 
     final type = data['type'] as String?;
-    final postId = data['post_id'] as String?;
     final context = navigatorKey.currentContext;
     if (context == null) return;
 
     switch (type) {
+      // Feed comments — scroll to the specific post
       case 'post_comment':
+        final postId = data['post_id'] as String?;
         if (postId != null) {
-          _navigateToPost(context, postId);
+          _navigateToHome(scrollToPostId: postId);
         }
         break;
+
+      // Date change & boarding requests — open the requests screen (staff)
+      case 'date_change_request':
+      case 'boarding_request':
+      case 'date_change_request_update':   // owner gets status update
+        _navigateToHome(initialRoute: 'requests');
+        break;
+
+      // Boarding request status (for owners) — open their boarding list
+      case 'boarding_request_update':
+        _navigateToHome(initialRoute: 'boarding_requests');
+        break;
+
+      // Support queries — open the queries screen
+      case 'support_query':            // staff: new query from owner
+      case 'support_query_update':     // staff: owner replied
+      case 'support_query_reply':      // owner: staff replied
+        _navigateToHome(initialRoute: 'queries');
+        break;
+
+      // Dog status changes — navigate to the specific dog or dogs tab
+      case 'dog_status_update':
+      case 'care_instructions_update':
+        _navigateToHome(initialRoute: 'dogs', routePayload: data['dog_id'] as String?);
+        break;
+
+      // Traffic alerts — open dogs tab
+      case 'traffic_alert':
+        _navigateToHome(initialRoute: 'dogs');
+        break;
+
+      // Contact form inquiries — open inquiries screen
+      case 'contact_inquiry':
+        _navigateToHome(initialRoute: 'inquiries');
+        break;
+
       default:
-        // For other types, just open the app (already done by tapping)
+        // For unknown types, just open the app (already done by tapping)
         break;
     }
   }
 
-  void _navigateToPost(BuildContext context, String postId) {
-    // Push a new HomeScreen with scrollToPostId so the feed navigates to that post
+  void _navigateToHome({String? scrollToPostId, String? initialRoute, String? routePayload}) {
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => HomeScreen(scrollToPostId: postId),
+        builder: (_) => HomeScreen(
+          scrollToPostId: scrollToPostId,
+          initialRoute: initialRoute,
+          routePayload: routePayload,
+        ),
       ),
       (route) => false,
     );
