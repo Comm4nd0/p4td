@@ -1867,11 +1867,30 @@ def staff_dashboard_stats(request):
     )
     staff_working_today = [
         {
+            'id': a['staff_member__id'],
             'name': a['staff_member__first_name'] or a['staff_member__username'],
             'dog_count': a['dog_count'],
         }
         for a in staff_assignments
     ]
+
+    # Boarding happening today (approved requests where today falls within range)
+    boarding_today_qs = BoardingRequest.objects.filter(
+        start_date__lte=today,
+        end_date__gte=today,
+    ).exclude(status='DENIED').prefetch_related('dogs')
+    boarding_today = []
+    for br in boarding_today_qs:
+        dog_names = list(br.dogs.values_list('name', flat=True))
+        boarding_today.append({
+            'id': br.id,
+            'owner_name': br.owner.get_full_name() or br.owner.username,
+            'dog_names': dog_names,
+            'start_date': br.start_date.isoformat(),
+            'end_date': br.end_date.isoformat(),
+            'status': br.status,
+            'special_instructions': br.special_instructions or '',
+        })
 
     return Response({
         'my_staff_id': request.user.id,
@@ -1890,4 +1909,5 @@ def staff_dashboard_stats(request):
         'my_dogs_today': my_dogs_today,
         'total_assigned_today': total_assigned_today,
         'staff_working_today': staff_working_today,
+        'boarding_today': boarding_today,
     })

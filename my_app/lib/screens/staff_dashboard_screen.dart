@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
@@ -237,21 +238,134 @@ class StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     ),
                   ),
                   title: Text(staff['name'] as String),
-                  trailing: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      '${staff['dog_count']} ${(staff['dog_count'] as int) == 1 ? 'dog' : 'dogs'}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: AppColors.primary,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          '${staff['dog_count']} ${(staff['dog_count'] as int) == 1 ? 'dog' : 'dogs'}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: AppColors.primary,
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.chevron_right, color: Colors.grey[400]),
+                    ],
+                  ),
+                  onTap: () => widget.onNavigateToDogGroups?.call(staff['id'] as int?),
+                ),
+              );
+            })),
+
+          const SizedBox(height: 24),
+
+          // Boarding today
+          Text(
+            'Boarding Today',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 12),
+          if ((stats['boarding_today'] as List?)?.isEmpty ?? true)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: Text(
+                    'No boarding today',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ),
+              ),
+            )
+          else
+            ...((stats['boarding_today'] as List).map<Widget>((boarding) {
+              final dogNames = (boarding['dog_names'] as List).join(', ');
+              final ownerName = boarding['owner_name'] as String;
+              final startDate = DateTime.parse(boarding['start_date'] as String);
+              final endDate = DateTime.parse(boarding['end_date'] as String);
+              final status = boarding['status'] as String;
+              final specialInstructions = boarding['special_instructions'] as String? ?? '';
+              final isApproved = status == 'APPROVED';
+
+              return Card(
+                elevation: 1,
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: isApproved
+                        ? Colors.green.withValues(alpha: 0.15)
+                        : Colors.orange.withValues(alpha: 0.15),
+                    child: Icon(
+                      Icons.night_shelter,
+                      color: isApproved ? Colors.green : Colors.orange,
                     ),
                   ),
+                  title: Text(dogNames, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Owner: $ownerName'),
+                      Text(
+                        '${DateFormat('MMM d').format(startDate)} - ${DateFormat('MMM d').format(endDate)}',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      ),
+                      if (specialInstructions.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            specialInstructions,
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isApproved
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.orange.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          status,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isApproved ? Colors.green : Colors.orange,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.chevron_right, color: Colors.grey[400]),
+                    ],
+                  ),
+                  isThreeLine: true,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+                    );
+                    _loadStats();
+                  },
                 ),
               );
             })),
