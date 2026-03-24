@@ -93,6 +93,7 @@ abstract class DataService {
   Future<ContactInquiry> markInquiryRead(int inquiryId);
   Future<ContactInquiry> markInquiryUnread(int inquiryId);
   Future<int> getUnreadInquiryCount();
+  Future<void> deleteContactInquiry(int inquiryId);
 
   // Closure Days
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate});
@@ -1511,6 +1512,18 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
+  Future<void> deleteContactInquiry(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete inquiry: ${response.statusCode}');
+    }
+  }
+
   // ---- Closure Days ----
 
   @override
@@ -2077,6 +2090,8 @@ class MockDataService implements DataService {
   Future<ContactInquiry> markInquiryUnread(int inquiryId) async => throw UnimplementedError();
   @override
   Future<int> getUnreadInquiryCount() async => 0;
+  @override
+  Future<void> deleteContactInquiry(int inquiryId) async {}
 
   // Closure Days
   @override
