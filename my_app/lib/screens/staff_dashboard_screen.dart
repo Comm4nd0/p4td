@@ -130,6 +130,30 @@ class StaffDashboardScreenState extends State<StaffDashboardScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+
+          // Assignment stats row
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.assignment_ind,
+                  label: 'My Dogs Today',
+                  value: '${stats['my_dogs_today'] ?? 0}',
+                  color: Colors.teal,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.assignment_turned_in,
+                  label: 'Total Assigned',
+                  value: '${stats['total_assigned_today'] ?? 0}',
+                  color: Colors.indigo,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
 
           // Media stats header
@@ -142,28 +166,6 @@ class StaffDashboardScreenState extends State<StaffDashboardScreen> {
           const SizedBox(height: 12),
 
           // Media stats grid
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.photo_camera,
-                  label: 'Dog Photos',
-                  value: '${stats['dog_photos_today'] ?? 0}',
-                  color: Colors.blue,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.videocam,
-                  label: 'Dog Videos',
-                  value: '${stats['dog_videos_today'] ?? 0}',
-                  color: Colors.purple,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -193,6 +195,62 @@ class StaffDashboardScreenState extends State<StaffDashboardScreen> {
             color: AppColors.primaryDark,
             fullWidth: true,
           ),
+
+          const SizedBox(height: 24),
+
+          // Staff working today
+          Text(
+            'Staff Working Today',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 12),
+          if ((stats['staff_working_today'] as List?)?.isEmpty ?? true)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: Text(
+                    'No staff assigned today',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ),
+              ),
+            )
+          else
+            ...((stats['staff_working_today'] as List).map<Widget>((staff) {
+              return Card(
+                elevation: 1,
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.primaryLight,
+                    child: Text(
+                      (staff['name'] as String).isNotEmpty
+                          ? (staff['name'] as String)[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  title: Text(staff['name'] as String),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      '${staff['dog_count']} ${(staff['dog_count'] as int) == 1 ? 'dog' : 'dogs'}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            })),
 
           const SizedBox(height: 24),
 
