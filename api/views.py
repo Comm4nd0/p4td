@@ -1813,7 +1813,7 @@ class ContactInquiryViewSet(mixins.RetrieveModelMixin,
 def staff_dashboard_stats(request):
     """Return aggregate stats for the staff dashboard tab."""
     from datetime import date
-    from django.db.models import Q
+    from django.db.models import Q, Count
     from .models import (
         DailyDogAssignment, Photo, GroupMedia,
         DateChangeRequest, BoardingRequest,
@@ -1850,7 +1850,31 @@ def staff_dashboard_stats(request):
     # Total dogs registered
     total_dogs = Dog.objects.count()
 
+    # Dogs assigned to logged-in user today
+    my_dogs_today = DailyDogAssignment.objects.filter(
+        date=today, staff_member=request.user
+    ).count()
+
+    # Total assigned dogs today
+    total_assigned_today = DailyDogAssignment.objects.filter(date=today).count()
+
+    # Staff working today with their dog counts
+    staff_assignments = (
+        DailyDogAssignment.objects.filter(date=today)
+        .values('staff_member__id', 'staff_member__first_name', 'staff_member__username')
+        .annotate(dog_count=Count('id'))
+        .order_by('-dog_count')
+    )
+    staff_working_today = [
+        {
+            'name': a['staff_member__first_name'] or a['staff_member__username'],
+            'dog_count': a['dog_count'],
+        }
+        for a in staff_assignments
+    ]
+
     return Response({
+        'my_staff_id': request.user.id,
         'dogs_today': dogs_today,
         'dog_photos_today': dog_photos_today,
         'dog_videos_today': dog_videos_today,
@@ -1863,4 +1887,7 @@ def staff_dashboard_stats(request):
         'unresolved_queries': unresolved_queries,
         'unread_inquiries': unread_inquiries,
         'total_dogs': total_dogs,
+        'my_dogs_today': my_dogs_today,
+        'total_assigned_today': total_assigned_today,
+        'staff_working_today': staff_working_today,
     })

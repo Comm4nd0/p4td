@@ -690,6 +690,11 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
+  /// Set the staff filter and jump to today's page.
+  void setStaffFilter(int? staffId) {
+    setState(() => _selectedStaffId = staffId);
+  }
+
   /// Expose the assign dogs action so the parent can use it in a FAB.
   void assignDogs() => _showAssignDogsDialog();
 
