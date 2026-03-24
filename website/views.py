@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.mail import send_mail
@@ -47,11 +48,28 @@ def field_hire(request):
     return render(request, 'website/field_hire.html')
 
 
+def _get_client_ip(request):
+    x_forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+    return x_forwarded.split(',')[0].strip() if x_forwarded else request.META.get('REMOTE_ADDR')
+
+
 def contact(request):
     if request.method == 'POST':
+        # Rate limit: max 3 submissions per IP per hour
+        ip = _get_client_ip(request)
+        cache_key = f'contact_rate_{ip}'
+        submissions = cache.get(cache_key, 0)
+        if submissions >= 3:
+            messages.error(
+                request,
+                'Too many submissions. Please try again later.'
+            )
+            return redirect('website:contact')
+
         form = ContactForm(request.POST)
         if form.is_valid():
             inquiry = form.save()
+            cache.set(cache_key, submissions + 1, 3600)  # 1 hour TTL
             try:
                 send_mail(
                     subject=f'New Contact Inquiry: {inquiry.get_service_display()}',
