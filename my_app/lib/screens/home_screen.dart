@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
@@ -68,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
   final GlobalKey<StaffDashboardScreenState> _dashboardKey = GlobalKey();
   bool _initialRouteHandled = false;
+  StreamSubscription<RemoteMessage>? _fcmSubscription;
 
   @override
   void initState() {
@@ -76,10 +79,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadDogs();
     _checkStaffStatus();
     _loadAppVersion();
+    // Refresh counts when a foreground push notification arrives
+    _fcmSubscription = FirebaseMessaging.onMessage.listen((_) {
+      _loadPendingRequestCount();
+      _dashboardKey.currentState?.refresh();
+    });
   }
 
   @override
   void dispose() {
+    _fcmSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
@@ -87,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _isOffline) {
+    if (state == AppLifecycleState.resumed) {
       _refresh();
     }
   }
@@ -247,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
     if (_canViewInquiries) _loadUnreadInquiryCount();
+    _dashboardKey.currentState?.refresh();
   }
 
   /// Navigate to the deep-link target screen after profile/permissions are loaded.
