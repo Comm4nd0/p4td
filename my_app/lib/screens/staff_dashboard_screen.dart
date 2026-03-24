@@ -13,6 +13,7 @@ class StaffDashboardScreen extends StatefulWidget {
   final bool canReplyQueries;
   final bool canViewInquiries;
   final VoidCallback? onNavigateToFeed;
+  final void Function(int? staffId)? onNavigateToDogGroups;
 
   const StaffDashboardScreen({
     super.key,
@@ -20,6 +21,7 @@ class StaffDashboardScreen extends StatefulWidget {
     required this.canReplyQueries,
     required this.canViewInquiries,
     this.onNavigateToFeed,
+    this.onNavigateToDogGroups,
   });
 
   @override
@@ -141,6 +143,7 @@ class StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   label: 'My Dogs Today',
                   value: '${stats['my_dogs_today'] ?? 0}',
                   color: Colors.teal,
+                  onTap: () => widget.onNavigateToDogGroups?.call(stats['my_staff_id'] as int?),
                 ),
               ),
               const SizedBox(width: 12),
@@ -150,6 +153,7 @@ class StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   label: 'Total Assigned',
                   value: '${stats['total_assigned_today'] ?? 0}',
                   color: Colors.indigo,
+                  onTap: () => widget.onNavigateToDogGroups?.call(null),
                 ),
               ),
             ],
@@ -371,6 +375,7 @@ class _StatCard extends StatelessWidget {
   final String value;
   final Color color;
   final bool fullWidth;
+  final VoidCallback? onTap;
 
   const _StatCard({
     required this.icon,
@@ -378,6 +383,7 @@ class _StatCard extends StatelessWidget {
     required this.value,
     required this.color,
     this.fullWidth = false,
+    this.onTap,
   });
 
   @override
@@ -386,34 +392,38 @@ class _StatCard extends StatelessWidget {
 
     return Card(
       elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        child: Row(
-          mainAxisAlignment: fullWidth ? MainAxisAlignment.center : MainAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurface,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: fullWidth ? MainAxisAlignment.center : MainAxisAlignment.start,
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
-                ),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

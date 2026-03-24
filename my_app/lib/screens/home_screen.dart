@@ -175,6 +175,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canReplyQueries = profile.canReplyQueries;
           _canApproveTimeoff = profile.canApproveTimeoff;
           _canViewInquiries = profile.canViewInquiries;
+          // Default to dashboard tab for staff on first load
+          if (profile.isStaff && !_initialRouteHandled) {
+            _currentIndex = 3;
+          }
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -606,6 +610,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           canReplyQueries: _canReplyQueries,
                           canViewInquiries: _canViewInquiries,
                           onNavigateToFeed: () => setState(() => _currentIndex = 1),
+                          onNavigateToDogGroups: (staffId) {
+                            setState(() => _currentIndex = 2);
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _assignmentsKey.currentState?.setStaffFilter(staffId);
+                            });
+                          },
                         ),
     ),
     );

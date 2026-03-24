@@ -1874,6 +1874,7 @@ def staff_dashboard_stats(request):
     ]
 
     return Response({
+        'my_staff_id': request.user.id,
         'dogs_today': dogs_today,
         'dog_photos_today': dog_photos_today,
         'dog_videos_today': dog_videos_today,
