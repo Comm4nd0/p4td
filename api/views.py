@@ -1771,7 +1771,10 @@ def delete_account(request):
     )
 
 
-class ContactInquiryViewSet(viewsets.ReadOnlyModelViewSet):
+class ContactInquiryViewSet(mixins.RetrieveModelMixin,
+                             mixins.ListModelMixin,
+                             mixins.DestroyModelMixin,
+                             viewsets.GenericViewSet):
     """Staff-only access to website contact inquiries."""
     serializer_class = ContactInquirySerializer
     permission_classes = [IsAuthenticated]
