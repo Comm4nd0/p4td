@@ -67,6 +67,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
   bool _initialRouteHandled = false;
 
+  // Staff Working Today data
+  List<DailyDogAssignment> _todayAssignments = [];
+  // Boarding Tonight data
+  List<BoardingRequest> _boardingTonight = [];
+  // Staff filter for Dog Groups tab navigation
+  int? _dogGroupsStaffFilter;
+
   @override
   void initState() {
     super.initState();
@@ -178,6 +185,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (profile.isStaff) {
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
+          _loadStaffWorkingToday();
+          _loadBoardingTonight();
         } else {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
@@ -236,11 +245,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  Future<void> _loadStaffWorkingToday() async {
+    if (!_canAssignDogs) return;
+    try {
+      final assignments = await _dataService.getTodayAssignments();
+      if (mounted) {
+        setState(() => _todayAssignments = assignments);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadBoardingTonight() async {
+    try {
+      final requests = await _dataService.getBoardingRequests();
+      final today = DateTime.now();
+      final tonight = DateTime(today.year, today.month, today.day);
+      if (mounted) {
+        setState(() {
+          _boardingTonight = requests.where((r) =>
+            r.status == BoardingRequestStatus.approved &&
+            !r.startDate.isAfter(tonight) &&
+            r.endDate.isAfter(tonight)
+          ).toList();
+        });
+      }
+    } catch (_) {}
+  }
+
   void _refresh() {
     _loadDogs();
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
     if (_canViewInquiries) _loadUnreadInquiryCount();
+    _loadStaffWorkingToday();
+    _loadBoardingTonight();
+  }
+
+  void _navigateToDogGroups({int? staffId}) {
+    setState(() {
+      _dogGroupsStaffFilter = staffId;
+      _currentIndex = 2;
+    });
   }
 
   /// Navigate to the deep-link target screen after profile/permissions are loaded.
@@ -561,7 +606,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (result == 'deleted') _refresh();
             return;
           }
-          setState(() => _currentIndex = index);
+          setState(() {
+            _currentIndex = index;
+            if (index != 2) _dogGroupsStaffFilter = null;
+          });
           if (_isOffline) _refresh();
         },
         items: [
@@ -586,7 +634,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDogsView()
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs),
+                  : StaffDailyAssignmentsScreen(key: ValueKey('assignments_${_dogGroupsStaffFilter}'), canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter),
     ),
     );
   }
@@ -851,8 +899,75 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
           const Divider(height: 16),
+          // Staff Working Today
+          if (_canAssignDogs && _todayAssignments.isNotEmpty) ...[
+            Text('Staff Working Today', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            _buildStaffWorkingToday(),
+            const Divider(height: 16),
+          ],
+          // Boarding Tonight
+          if (_boardingTonight.isNotEmpty) ...[
+            Text('Boarding Tonight', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            _buildBoardingTonight(),
+            const Divider(height: 16),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildStaffWorkingToday() {
+    // Group assignments by staff member
+    final Map<int, _StaffSummary> staffMap = {};
+    for (final a in _todayAssignments) {
+      staffMap.putIfAbsent(a.staffMemberId, () => _StaffSummary(a.staffMemberId, a.staffMemberName));
+      staffMap[a.staffMemberId]!.dogCount++;
+    }
+    final staffList = staffMap.values.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: staffList.map((staff) {
+        return ActionChip(
+          avatar: CircleAvatar(
+            radius: 12,
+            backgroundColor: AppColors.primary,
+            child: Text(
+              '${staff.dogCount}',
+              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+          label: Text(staff.name),
+          onPressed: () => _navigateToDogGroups(staffId: staff.id),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildBoardingTonight() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _boardingTonight.map((request) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            children: [
+              const Icon(Icons.night_shelter, size: 18, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${request.dogNames.join(", ")} (${request.ownerName})',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -996,6 +1111,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ],
     );
   }
+}
+
+/// Simple data holder for staff summary on the dashboard.
+class _StaffSummary {
+  final int id;
+  final String name;
+  int dogCount;
+  _StaffSummary(this.id, this.name) : dogCount = 0;
 }
 
 /// Compact card for the staff dashboard showing a metric count.
