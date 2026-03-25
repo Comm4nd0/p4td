@@ -183,6 +183,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
+          // Default to Dashboard tab for staff (unless deep-link overrides)
+          if (widget.initialRoute == null && _currentIndex == 1) {
+            setState(() => _currentIndex = 3);
+          }
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
           _loadStaffWorkingToday();
@@ -626,6 +630,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: Icon(Icons.today),
               label: "Dog Groups",
             ),
+          if (_isStaff)
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard),
+              label: "Dashboard",
+            ),
         ],
       ),
       body: _isOffline
@@ -634,7 +643,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDogsView()
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : StaffDailyAssignmentsScreen(key: ValueKey('assignments_${_dogGroupsStaffFilter}'), canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter),
+                  : _currentIndex == 2
+                      ? StaffDailyAssignmentsScreen(key: ValueKey('assignments_${_dogGroupsStaffFilter}'), canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter)
+                      : _buildDashboardView(),
     ),
     );
   }
@@ -971,6 +982,163 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildDashboardView() {
+    return RefreshIndicator(
+      onRefresh: () async => _refresh(),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Today's Overview
+          Text("Today's Overview", style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _OverviewCard(icon: Icons.pets, value: '${_filteredDogs.length}', label: 'Dogs Today', color: AppColors.primary)),
+              const SizedBox(width: 8),
+              Expanded(child: _OverviewCard(icon: Icons.list_alt, value: '${_allDogs.length}', label: 'Total Dogs', color: AppColors.primary)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _OverviewCard(
+                icon: Icons.person,
+                value: '${_todayAssignments.where((a) => a.staffMemberId == -1).length}', // placeholder
+                label: 'My Dogs Today',
+                color: AppColors.primary,
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _OverviewCard(icon: Icons.assignment_turned_in, value: '${_todayAssignments.length}', label: 'Total Assigned', color: AppColors.info)),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Staff Working Today
+          if (_canAssignDogs && _todayAssignments.isNotEmpty) ...[
+            Text('Staff Working Today', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            ..._buildStaffWorkingTodayCards(),
+            const SizedBox(height: 24),
+          ],
+
+          // Boarding Today
+          Text('Boarding Today', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          if (_boardingTonight.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: Text('No boarding today', style: TextStyle(color: Colors.grey[500])),
+                ),
+              ),
+            )
+          else
+            _buildBoardingTonight(),
+          const SizedBox(height: 24),
+
+          // Action Items
+          Text('Action Items', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _ActionItemTile(
+            icon: Icons.pending_actions,
+            label: 'Pending Requests',
+            count: _pendingRequestCount,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(
+                builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+              ));
+              _loadPendingRequestCount();
+            },
+          ),
+          const SizedBox(height: 8),
+          _ActionItemTile(
+            icon: Icons.question_answer,
+            label: 'Unresolved Queries',
+            count: _unresolvedQueryCount,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(
+                builder: (_) => QueryListScreen(isStaff: _isStaff, canReplyQueries: _canReplyQueries),
+              ));
+              _loadUnresolvedQueryCount();
+            },
+          ),
+          if (_canViewInquiries) ...[
+            const SizedBox(height: 8),
+            _ActionItemTile(
+              icon: Icons.mail_outline,
+              label: 'Unread Inquiries',
+              count: _unreadInquiryCount,
+              onTap: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
+                _loadUnreadInquiryCount();
+              },
+            ),
+          ],
+          const SizedBox(height: 8),
+          _ActionItemTile(
+            icon: Icons.night_shelter,
+            label: 'Boarding Requests',
+            count: _boardingTonight.length,
+            onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => BoardingRequestListScreen(isStaff: _isStaff),
+            )),
+          ),
+          const SizedBox(height: 24),
+
+          // Quick Actions
+          Text('Quick Actions', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: [
+              ActionChip(
+                avatar: const Icon(Icons.upload, size: 18),
+                label: const Text('Upload to Feed'),
+                onPressed: () => setState(() => _currentIndex = 1),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildStaffWorkingTodayCards() {
+    final Map<int, _StaffSummary> staffMap = {};
+    for (final a in _todayAssignments) {
+      staffMap.putIfAbsent(a.staffMemberId, () => _StaffSummary(a.staffMemberId, a.staffMemberName));
+      staffMap[a.staffMemberId]!.dogCount++;
+    }
+    final staffList = staffMap.values.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return staffList.map((staff) {
+      return Card(
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: AppColors.primary,
+            child: Text(staff.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+          title: Text(staff.name),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Chip(
+                label: Text('${staff.dogCount} dog${staff.dogCount == 1 ? '' : 's'}',
+                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+                backgroundColor: AppColors.primary,
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+          onTap: () => _navigateToDogGroups(staffId: staff.id),
+        ),
+      );
+    }).toList();
+  }
+
   Widget _buildDogsView() {
     if (_loadingDogs) {
       return const DogSkeletonList();
@@ -1019,7 +1187,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Column(
       children: [
-        if (_isStaff) _buildStaffDashboard(),
         if (_allDogs.length > 1)
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -1109,6 +1276,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// Overview stat card for the dashboard.
+class _OverviewCard extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+
+  const _OverviewCard({required this.icon, required this.value, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 8),
+            Text(value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Action item row tile for the dashboard.
+class _ActionItemTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final int count;
+  final VoidCallback onTap;
+
+  const _ActionItemTile({required this.icon, required this.label, required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(label),
+        trailing: CircleAvatar(
+          radius: 14,
+          backgroundColor: Colors.grey[700],
+          child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 12)),
+        ),
+        onTap: onTap,
+      ),
     );
   }
 }
