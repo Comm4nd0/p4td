@@ -1081,7 +1081,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             label: 'Boarding Requests',
             count: _boardingTonight.length,
             onTap: () => Navigator.push(context, MaterialPageRoute(
-              builder: (_) => BoardingRequestListScreen(isStaff: _isStaff),
+              builder: (_) => const BoardingRequestListScreen(),
             )),
           ),
           const SizedBox(height: 24),
