@@ -19,6 +19,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _dataService = ApiDataService();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -213,23 +215,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _passwordController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Password',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                  ),
                 ),
-                obscureText: true,
+                obscureText: _obscurePassword,
                 validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _confirmPasswordController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Confirm Password',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_outline),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureConfirmPassword = !_obscureConfirmPassword;
+                      });
+                    },
+                  ),
                 ),
-                obscureText: true,
+                obscureText: _obscureConfirmPassword,
                 validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
               ),
               const SizedBox(height: 24),
