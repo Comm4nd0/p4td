@@ -76,6 +76,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<BoardingRequest> _boardingTonight = [];
   // Staff filter for Dog Groups tab navigation
   int? _dogGroupsStaffFilter;
+  // Track upload progress for large batches
+  int _uploadedCount = 0;
 
   @override
   void initState() {
@@ -1012,20 +1014,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (files.isEmpty) return;
       final caption = await _showDashboardCaptionDialog();
       if (caption == null) return;
-      final fileData = <(Uint8List, String)>[];
-      for (final file in files) { fileData.add((await file.readAsBytes(), file.name)); }
-      final progress = ValueNotifier<int>(0);
+      final progress = ValueNotifier<String>('Preparing 0/${files.length}...');
       final total = files.length;
-      showDialog(context: context, barrierDismissible: false, builder: (_) => PopScope(canPop: false, child: ValueListenableBuilder<int>(
+      showDialog(context: context, barrierDismissible: false, builder: (_) => PopScope(canPop: false, child: ValueListenableBuilder<String>(
         valueListenable: progress,
-        builder: (context, completed, _) => AlertDialog(content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(), const SizedBox(height: 16), Text('Uploading $completed/$total...'),
-          const SizedBox(height: 8), LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+        builder: (context, status, _) => AlertDialog(content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const CircularProgressIndicator(), const SizedBox(height: 16), Text(status),
+          const SizedBox(height: 8), LinearProgressIndicator(value: total > 0 ? (_uploadedCount / total) : 0),
         ])),
       )));
+      _uploadedCount = 0;
+      int failedCount = 0;
       try {
-        await _dataService.uploadMultipleGroupMedia(files: fileData, caption: caption.isEmpty ? null : caption, onProgress: (done, _) => progress.value = done);
-        if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green)); }
+        for (int i = 0; i < files.length; i++) {
+          final file = files[i];
+          progress.value = 'Processing ${i + 1}/$total...';
+          try {
+            final bytes = await file.readAsBytes();
+            final ext = file.name.toLowerCase();
+            final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
+            progress.value = 'Uploading ${i + 1}/$total...';
+            await _dataService.uploadGroupMedia(
+              fileBytes: bytes,
+              fileName: file.name,
+              isVideo: isVideo,
+              caption: caption.isEmpty ? null : caption,
+            );
+            _uploadedCount = i + 1;
+          } catch (e) {
+            failedCount++;
+            // Continue with remaining files
+          }
+        }
+        if (mounted) {
+          Navigator.pop(context);
+          final successCount = total - failedCount;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(failedCount > 0
+              ? 'Uploaded $successCount/$total files ($failedCount failed)'
+              : 'Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
+            backgroundColor: failedCount > 0 ? Colors.orange : Colors.green,
+          ));
+        }
       } catch (e) {
         if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
       }
@@ -1077,7 +1107,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               Expanded(child: _OverviewCard(
                 icon: Icons.pets,
-                value: '${_filteredDogs.length}',
+                value: '${_todayAssignments.map((a) => a.dogId).toSet().length}',
                 label: 'Dogs Today',
                 color: AppColors.primary,
                 onTap: () => _navigateToDogGroups(),
@@ -1196,7 +1226,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ActionChip(
                 avatar: const Icon(Icons.upload, size: 18),
                 label: const Text('Upload to Feed'),
-                onPressed: () => setState(() => _currentIndex = 1),
+                onPressed: _uploadMediaFromDashboard,
               ),
             ],
           ),
@@ -1398,16 +1428,25 @@ class _OverviewCard extends StatefulWidget {
 class _OverviewCardState extends State<_OverviewCard> {
   bool _pressed = false;
 
+  void _handleTap() async {
+    if (widget.onTap == null) return;
+    setState(() => _pressed = true);
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (mounted) setState(() => _pressed = false);
+    await Future.delayed(const Duration(milliseconds: 60));
+    widget.onTap?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTapDown: widget.onTap != null ? (_) => setState(() => _pressed = true) : null,
-      onTapUp: widget.onTap != null ? (_) => setState(() => _pressed = false) : null,
+      onTapUp: widget.onTap != null ? (_) {} : null,
       onTapCancel: widget.onTap != null ? () => setState(() => _pressed = false) : null,
-      onTap: widget.onTap,
+      onTap: _handleTap,
       child: AnimatedScale(
         scale: _pressed ? 0.95 : 1.0,
-        duration: const Duration(milliseconds: 100),
+        duration: const Duration(milliseconds: 120),
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
