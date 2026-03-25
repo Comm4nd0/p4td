@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
@@ -53,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
 
   bool _isStaff = false;
+  int? _myUserId;
   bool _canAssignDogs = false;
   bool _canAddFeedMedia = false;
   bool _canManageRequests = false;
@@ -174,6 +177,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isStaff = profile.isStaff;
+          _myUserId = profile.userId;
           _canAssignDogs = profile.canAssignDogs;
           _canAddFeedMedia = profile.canAddFeedMedia;
           _canManageRequests = profile.canManageRequests;
@@ -905,7 +909,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ActionChip(
                 avatar: const Icon(Icons.upload, size: 18),
                 label: const Text('Upload to Feed'),
-                onPressed: () => setState(() => _currentIndex = 1),
+                onPressed: _uploadMediaFromDashboard,
               ),
             ],
           ),
@@ -982,6 +986,84 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _uploadMediaFromDashboard() async {
+    final picker = ImagePicker();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Take Photo'), onTap: () => Navigator.pop(context, 'camera_photo')),
+            ListTile(leading: const Icon(Icons.photo_library), title: const Text('Choose Photo'), onTap: () => Navigator.pop(context, 'gallery_photo')),
+            const Divider(),
+            ListTile(leading: const Icon(Icons.videocam), title: const Text('Record Video'), onTap: () => Navigator.pop(context, 'camera_video')),
+            ListTile(leading: const Icon(Icons.video_library), title: const Text('Choose Video'), onTap: () => Navigator.pop(context, 'gallery_video')),
+            const Divider(),
+            ListTile(leading: const Icon(Icons.library_add), title: const Text('Upload Multiple'), onTap: () => Navigator.pop(context, 'multiple')),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+
+    if (choice == 'multiple') {
+      final files = await picker.pickMultipleMedia();
+      if (files.isEmpty) return;
+      final caption = await _showDashboardCaptionDialog();
+      if (caption == null) return;
+      final fileData = <(Uint8List, String)>[];
+      for (final file in files) { fileData.add((await file.readAsBytes(), file.name)); }
+      final progress = ValueNotifier<int>(0);
+      final total = files.length;
+      showDialog(context: context, barrierDismissible: false, builder: (_) => PopScope(canPop: false, child: ValueListenableBuilder<int>(
+        valueListenable: progress,
+        builder: (context, completed, _) => AlertDialog(content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const CircularProgressIndicator(), const SizedBox(height: 16), Text('Uploading $completed/$total...'),
+          const SizedBox(height: 8), LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+        ])),
+      )));
+      try {
+        await _dataService.uploadMultipleGroupMedia(files: fileData, caption: caption.isEmpty ? null : caption, onProgress: (done, _) => progress.value = done);
+        if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green)); }
+      } catch (e) {
+        if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
+      }
+      return;
+    }
+
+    XFile? file;
+    final isVideo = choice.contains('video');
+    final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
+    if (isVideo) { file = await picker.pickVideo(source: source); } else { file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85); }
+    if (file == null) return;
+    final caption = await _showDashboardCaptionDialog();
+    if (caption == null) return;
+    try {
+      showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
+      final bytes = await file.readAsBytes();
+      await _dataService.uploadGroupMedia(fileBytes: bytes, fileName: file.name, isVideo: isVideo, caption: caption.isEmpty ? null : caption);
+      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green)); }
+    } catch (e) {
+      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
+    }
+  }
+
+  Future<String?> _showDashboardCaptionDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Caption'),
+        content: TextField(controller: controller, decoration: const InputDecoration(hintText: 'Write a caption (optional)', border: OutlineInputBorder()), maxLines: 3),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Upload')),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDashboardView() {
     return RefreshIndicator(
       onRefresh: () async => _refresh(),
@@ -993,9 +1075,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _OverviewCard(icon: Icons.pets, value: '${_filteredDogs.length}', label: 'Dogs Today', color: AppColors.primary)),
+              Expanded(child: _OverviewCard(
+                icon: Icons.pets,
+                value: '${_filteredDogs.length}',
+                label: 'Dogs Today',
+                color: AppColors.primary,
+                onTap: () => _navigateToDogGroups(),
+              )),
               const SizedBox(width: 8),
-              Expanded(child: _OverviewCard(icon: Icons.list_alt, value: '${_allDogs.length}', label: 'Total Dogs', color: AppColors.primary)),
+              Expanded(child: _OverviewCard(
+                icon: Icons.list_alt,
+                value: '${_allDogs.length}',
+                label: 'Total Dogs',
+                color: AppColors.primary,
+                onTap: () => setState(() => _currentIndex = 0),
+              )),
             ],
           ),
           const SizedBox(height: 8),
@@ -1003,12 +1097,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               Expanded(child: _OverviewCard(
                 icon: Icons.person,
-                value: '${_todayAssignments.where((a) => a.staffMemberId == -1).length}', // placeholder
+                value: '${_myUserId != null ? _todayAssignments.where((a) => a.staffMemberId == _myUserId).length : 0}',
                 label: 'My Dogs Today',
                 color: AppColors.primary,
+                onTap: _myUserId != null ? () => _navigateToDogGroups(staffId: _myUserId) : null,
               )),
               const SizedBox(width: 8),
-              Expanded(child: _OverviewCard(icon: Icons.assignment_turned_in, value: '${_todayAssignments.length}', label: 'Total Assigned', color: AppColors.info)),
+              Expanded(child: _OverviewCard(
+                icon: Icons.assignment_turned_in,
+                value: '${_todayAssignments.length}',
+                label: 'Total Assigned',
+                color: AppColors.info,
+                onTap: () => _navigateToDogGroups(),
+              )),
             ],
           ),
           const SizedBox(height: 24),
@@ -1281,27 +1382,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 }
 
 /// Overview stat card for the dashboard.
-class _OverviewCard extends StatelessWidget {
+class _OverviewCard extends StatefulWidget {
   final IconData icon;
   final String value;
   final String label;
   final Color color;
+  final VoidCallback? onTap;
 
-  const _OverviewCard({required this.icon, required this.value, required this.label, required this.color});
+  const _OverviewCard({required this.icon, required this.value, required this.label, required this.color, this.onTap});
+
+  @override
+  State<_OverviewCard> createState() => _OverviewCardState();
+}
+
+class _OverviewCardState extends State<_OverviewCard> {
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-          ],
+    return GestureDetector(
+      onTapDown: widget.onTap != null ? (_) => setState(() => _pressed = true) : null,
+      onTapUp: widget.onTap != null ? (_) => setState(() => _pressed = false) : null,
+      onTapCancel: widget.onTap != null ? () => setState(() => _pressed = false) : null,
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.95 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(widget.icon, color: widget.color, size: 20),
+                const SizedBox(height: 8),
+                Text(widget.value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                Text(widget.label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ],
+            ),
+          ),
         ),
       ),
     );
