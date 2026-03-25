@@ -6,7 +6,7 @@ from .views import (
     DailyDogAssignmentViewSet, SupportQueryViewSet, ContactInquiryViewSet,
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
-    delete_account, staff_dashboard_stats,
+    delete_account,
 )
 
 router = DefaultRouter()
@@ -33,5 +33,4 @@ urlpatterns = [
     path('password/reset/confirm/', reset_password, name='password-reset-confirm'),
     path('password/change/', change_password, name='password-change'),
     path('account/delete/', delete_account, name='account-delete'),
-    path('staff-dashboard-stats/', staff_dashboard_stats, name='staff-dashboard-stats'),
 ]

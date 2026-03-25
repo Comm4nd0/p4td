@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../constants/app_colors.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
 
@@ -52,38 +51,6 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
     }
   }
 
-  Future<void> _deleteInquiry() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Inquiry'),
-        content: const Text('Are you sure you want to delete this inquiry?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-
-    try {
-      await _dataService.deleteContactInquiry(widget.inquiry.id);
-      if (mounted) {
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete inquiry: $e')),
-        );
-      }
-    }
-  }
-
   Future<void> _replyViaEmail() async {
     final inquiry = widget.inquiry;
     final subject = Uri.encodeComponent(
@@ -123,11 +90,6 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
             icon: Icon(_isRead ? Icons.mark_email_unread : Icons.mark_email_read),
             tooltip: _isRead ? 'Mark as unread' : 'Mark as read',
             onPressed: _toggleReadStatus,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Delete inquiry',
-            onPressed: _deleteInquiry,
           ),
         ],
       ),

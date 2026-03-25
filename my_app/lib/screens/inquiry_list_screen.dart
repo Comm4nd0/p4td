@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../constants/app_colors.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
 import 'inquiry_detail_screen.dart';
@@ -125,61 +124,17 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
   }
 
   Widget _buildInquiryCard(ContactInquiry inquiry) {
-    return Dismissible(
-      key: ValueKey(inquiry.id),
-      direction: DismissDirection.endToStart,
-      background: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        color: AppColors.error,
-        child: const Align(
-          alignment: Alignment.centerRight,
-          child: Padding(
-            padding: EdgeInsets.only(right: 24),
-            child: Icon(Icons.delete, color: Colors.white),
-          ),
-        ),
-      ),
-      confirmDismiss: (_) async {
-        final confirm = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Delete Inquiry'),
-            content: Text('Are you sure you want to delete the inquiry from ${inquiry.name}?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Delete'),
-              ),
-            ],
-          ),
-        );
-        if (confirm != true) return false;
-        try {
-          await _dataService.deleteContactInquiry(inquiry.id);
-          return true;
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to delete inquiry: $e')),
-            );
-          }
-          return false;
-        }
-      },
-      onDismissed: (_) => _loadInquiries(),
-      child: Card(
+    return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: InkWell(
         onTap: () async {
-          final deleted = await Navigator.push<bool>(
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => InquiryDetailScreen(inquiry: inquiry),
             ),
           );
-          if (deleted == true || deleted == null) _loadInquiries();
+          _loadInquiries();
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -245,7 +200,6 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
             ],
           ),
         ),
-      ),
       ),
     );
   }

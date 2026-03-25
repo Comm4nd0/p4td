@@ -19,8 +19,9 @@ enum DogSortOption {
 
 class StaffDailyAssignmentsScreen extends StatefulWidget {
   final bool canAssignDogs;
+  final int? initialStaffId;
 
-  const StaffDailyAssignmentsScreen({super.key, this.canAssignDogs = false});
+  const StaffDailyAssignmentsScreen({super.key, this.canAssignDogs = false, this.initialStaffId});
 
   @override
   State<StaffDailyAssignmentsScreen> createState() =>
@@ -49,6 +50,7 @@ class StaffDailyAssignmentsScreenState
   @override
   void initState() {
     super.initState();
+    _selectedStaffId = widget.initialStaffId;
     // Start on today if it's a weekday, otherwise the first available weekday
     final today = DateTime.now();
     final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
@@ -688,11 +690,6 @@ class StaffDailyAssignmentsScreenState
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
-  }
-
-  /// Set the staff filter and jump to today's page.
-  void setStaffFilter(int? staffId) {
-    setState(() => _selectedStaffId = staffId);
   }
 
   /// Expose the assign dogs action so the parent can use it in a FAB.

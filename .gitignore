@@ -139,3 +139,7 @@ migration-data/
 # Large Binaries / Installers
 get-pip.py
 
+# Windows/WSL metadata artifacts
+*:Zone.Identifier
+*:mshield
+

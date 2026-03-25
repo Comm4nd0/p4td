@@ -93,7 +93,6 @@ abstract class DataService {
   Future<ContactInquiry> markInquiryRead(int inquiryId);
   Future<ContactInquiry> markInquiryUnread(int inquiryId);
   Future<int> getUnreadInquiryCount();
-  Future<void> deleteContactInquiry(int inquiryId);
 
   // Closure Days
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate});
@@ -119,9 +118,6 @@ abstract class DataService {
   Future<List<DayOffRequest>> getAllDayOffRequests();
   Future<DayOffRequest> approveDayOffRequest(int requestId);
   Future<DayOffRequest> denyDayOffRequest(int requestId);
-
-  // Staff Dashboard Stats
-  Future<Map<String, dynamic>> getDashboardStats();
 }
 
 class ApiDataService implements DataService {
@@ -1512,18 +1508,6 @@ class ApiDataService implements DataService {
     }
   }
 
-  @override
-  Future<void> deleteContactInquiry(int inquiryId) async {
-    final headers = await _getHeaders();
-    final response = await http.delete(
-      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/'),
-      headers: headers,
-    );
-    if (response.statusCode != 204) {
-      throw Exception('Failed to delete inquiry: ${response.statusCode}');
-    }
-  }
-
   // ---- Closure Days ----
 
   @override
@@ -1778,19 +1762,6 @@ class ApiDataService implements DataService {
       return DayOffRequest.fromJson(json.decode(response.body));
     }
     throw Exception('Failed to deny day off request: ${response.statusCode}');
-  }
-
-  @override
-  Future<Map<String, dynamic>> getDashboardStats() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/staff-dashboard-stats/'),
-      headers: headers,
-    );
-    if (response.statusCode == 200) {
-      return json.decode(response.body) as Map<String, dynamic>;
-    }
-    throw Exception('Failed to load dashboard stats: ${response.statusCode}');
   }
 }
 
@@ -2090,8 +2061,6 @@ class MockDataService implements DataService {
   Future<ContactInquiry> markInquiryUnread(int inquiryId) async => throw UnimplementedError();
   @override
   Future<int> getUnreadInquiryCount() async => 0;
-  @override
-  Future<void> deleteContactInquiry(int inquiryId) async {}
 
   // Closure Days
   @override
@@ -2135,19 +2104,4 @@ class MockDataService implements DataService {
   @override
   Future<DayOffRequest> denyDayOffRequest(int requestId) async =>
       DayOffRequest(id: requestId, staffMemberId: 1, staffMemberName: 'Test', date: DateTime.now(), status: DayOffStatus.denied, createdAt: DateTime.now());
-  @override
-  Future<Map<String, dynamic>> getDashboardStats() async => {
-    'dogs_today': 5,
-    'dog_photos_today': 12,
-    'dog_videos_today': 3,
-    'feed_photos_today': 8,
-    'feed_videos_today': 2,
-    'total_media_today': 25,
-    'pending_requests': 2,
-    'pending_date_requests': 1,
-    'pending_boarding_requests': 1,
-    'unresolved_queries': 3,
-    'unread_inquiries': 1,
-    'total_dogs': 20,
-  };
 }

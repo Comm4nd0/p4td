@@ -24,9 +24,6 @@
         <div>
             <form method="post" novalidate>
                 {% csrf_token %}
-                <div style="position:absolute;left:-9999px;" aria-hidden="true">
-                    {{ form.website }}
-                </div>
 
                 <div class="form-group">
                     <label for="id_name">Name <span class="required">*</span></label>

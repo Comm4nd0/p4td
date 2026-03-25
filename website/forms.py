@@ -3,12 +3,6 @@ from .models import ContactInquiry
 
 
 class ContactForm(forms.ModelForm):
-    # Honeypot field — hidden from real users, filled by bots
-    website = forms.CharField(
-        required=False,
-        widget=forms.HiddenInput(attrs={'autocomplete': 'off', 'tabindex': '-1'}),
-    )
-
     class Meta:
         model = ContactInquiry
         fields = ['name', 'email', 'service', 'message']
@@ -34,9 +28,3 @@ class ContactForm(forms.ModelForm):
                 'class': 'form-input',
             }),
         }
-
-    def clean(self):
-        cleaned_data = super().clean()
-        if cleaned_data.get('website'):
-            raise forms.ValidationError('Spam detected.')
-        return cleaned_data
