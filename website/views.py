@@ -55,11 +55,11 @@ def _get_client_ip(request):
 
 def contact(request):
     if request.method == 'POST':
-        # Rate limit: max 3 submissions per IP per hour
+        # Rate limit: max 2 submissions per IP per hour
         ip = _get_client_ip(request)
         cache_key = f'contact_rate_{ip}'
         submissions = cache.get(cache_key, 0)
-        if submissions >= 3:
+        if submissions >= 2:
             messages.error(
                 request,
                 'Too many submissions. Please try again later.'
@@ -91,7 +91,7 @@ def contact(request):
             )
             return redirect('website:contact')
     else:
-        form = ContactForm()
+        form = ContactForm(initial={'form_token': ContactForm.generate_token()})
     return render(request, 'website/contact.html', {
         'form': form,
     })
