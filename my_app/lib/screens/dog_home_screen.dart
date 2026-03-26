@@ -829,10 +829,16 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               ),
             )),
             const SizedBox(height: 8),
-            Text(
-              'Each day will need to be approved by staff.',
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-            ),
+            if (!widget.isStaff)
+              Text(
+                'Each day will need to be approved by staff.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+            if (widget.isStaff)
+              Text(
+                'These days will be added immediately.',
+                style: TextStyle(color: Colors.green[700], fontSize: 13),
+              ),
           ],
         ),
         actions: [
@@ -1225,6 +1231,19 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   ],
                   if (widget.isStaff) ...[
                     const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _showRequestAdditionalDays,
+                        icon: const Icon(Icons.add_circle_outline),
+                        label: const Text('Add Additional Days'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green[700],
+                          side: BorderSide(color: Colors.green[300]!),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(

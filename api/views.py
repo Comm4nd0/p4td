@@ -462,7 +462,35 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
-        serializer.save()
+        instance = serializer.save()
+
+        # Auto-approve ADD_DAY requests created by staff
+        if self.request.user.is_staff and instance.request_type == 'ADD_DAY':
+            instance.status = 'APPROVED'
+            instance.approved_by = self.request.user
+            instance.approved_at = timezone.now()
+            instance.save()
+
+            # Record history
+            DateChangeRequestHistory.objects.create(
+                request=instance,
+                changed_by=self.request.user,
+                from_status='PENDING',
+                to_status='APPROVED',
+            )
+
+            # Notify dog owners
+            try:
+                from .notifications import send_push_notification
+                title = "Additional Day Added"
+                body = f"An additional day for {instance.dog.name} on {instance.new_date} has been added by staff."
+                data = {'type': 'date_change_status', 'id': str(instance.id)}
+                if instance.dog.owner:
+                    send_push_notification(instance.dog.owner, title, body, data)
+                for additional_owner in instance.dog.additional_owners.all():
+                    send_push_notification(additional_owner, title, body, data)
+            except Exception as e:
+                print(f"Failed to send push notification: {e}")
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
