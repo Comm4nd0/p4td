@@ -1,6 +1,7 @@
 name: Deploy Android to Play Store (Alpha)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
