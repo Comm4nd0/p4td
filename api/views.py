@@ -488,6 +488,13 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         instance.status = new_status
         instance.save()
 
+        # When a cancellation is approved, unassign the dog for that date
+        if new_status == 'APPROVED' and instance.request_type == 'CANCEL' and instance.original_date:
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog,
+                date=instance.original_date,
+            ).delete()
+
         # Send push notification to all owners
         try:
             from .notifications import send_push_notification
