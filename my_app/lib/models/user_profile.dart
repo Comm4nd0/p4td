@@ -1,4 +1,5 @@
 class UserProfile {
+  final int? userId;
   final String username;
   final String email;
   final String? address;
@@ -21,6 +22,7 @@ class UserProfile {
   final bool notifyDogUpdates;
 
   UserProfile({
+    this.userId,
     required this.username,
     required this.email,
     this.address,
@@ -43,6 +45,7 @@ class UserProfile {
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
+      userId: json['user_id'],
       username: json['username'],
       email: json['email'],
       address: json['address'],

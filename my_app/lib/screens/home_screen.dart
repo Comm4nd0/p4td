@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
@@ -53,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
 
   bool _isStaff = false;
+  int? _myUserId;
   bool _canAssignDogs = false;
   bool _canAddFeedMedia = false;
   bool _canManageRequests = false;
@@ -73,6 +76,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<BoardingRequest> _boardingTonight = [];
   // Staff filter for Dog Groups tab navigation
   int? _dogGroupsStaffFilter;
+  // Track upload progress for large batches
+  int _uploadedCount = 0;
 
   @override
   void initState() {
@@ -174,6 +179,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isStaff = profile.isStaff;
+          _myUserId = profile.userId;
           _canAssignDogs = profile.canAssignDogs;
           _canAddFeedMedia = profile.canAddFeedMedia;
           _canManageRequests = profile.canManageRequests;
@@ -183,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
+          // Default to Dashboard tab for staff (unless deep-link overrides)
+          if (widget.initialRoute == null && _currentIndex == 1) {
+            setState(() => _currentIndex = 3);
+          }
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
           _loadStaffWorkingToday();
@@ -626,6 +636,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: Icon(Icons.today),
               label: "Dog Groups",
             ),
+          if (_isStaff)
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard),
+              label: "Dashboard",
+            ),
         ],
       ),
       body: _isOffline
@@ -634,7 +649,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDogsView()
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : StaffDailyAssignmentsScreen(key: ValueKey('assignments_${_dogGroupsStaffFilter}'), canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter),
+                  : _currentIndex == 2
+                      ? StaffDailyAssignmentsScreen(key: ValueKey('assignments_${_dogGroupsStaffFilter}'), canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter)
+                      : _buildDashboardView(),
     ),
     );
   }
@@ -894,7 +911,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ActionChip(
                 avatar: const Icon(Icons.upload, size: 18),
                 label: const Text('Upload to Feed'),
-                onPressed: () => setState(() => _currentIndex = 1),
+                onPressed: _uploadMediaFromDashboard,
               ),
             ],
           ),
@@ -971,6 +988,288 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _uploadMediaFromDashboard() async {
+    final picker = ImagePicker();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Take Photo'), onTap: () => Navigator.pop(context, 'camera_photo')),
+            ListTile(leading: const Icon(Icons.photo_library), title: const Text('Choose Photo'), onTap: () => Navigator.pop(context, 'gallery_photo')),
+            const Divider(),
+            ListTile(leading: const Icon(Icons.videocam), title: const Text('Record Video'), onTap: () => Navigator.pop(context, 'camera_video')),
+            ListTile(leading: const Icon(Icons.video_library), title: const Text('Choose Video'), onTap: () => Navigator.pop(context, 'gallery_video')),
+            const Divider(),
+            ListTile(leading: const Icon(Icons.library_add), title: const Text('Upload Multiple'), onTap: () => Navigator.pop(context, 'multiple')),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+
+    if (choice == 'multiple') {
+      final files = await picker.pickMultipleMedia();
+      if (files.isEmpty) return;
+      final caption = await _showDashboardCaptionDialog();
+      if (caption == null) return;
+      final progress = ValueNotifier<String>('Preparing 0/${files.length}...');
+      final total = files.length;
+      showDialog(context: context, barrierDismissible: false, builder: (_) => PopScope(canPop: false, child: ValueListenableBuilder<String>(
+        valueListenable: progress,
+        builder: (context, status, _) => AlertDialog(content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const CircularProgressIndicator(), const SizedBox(height: 16), Text(status),
+          const SizedBox(height: 8), LinearProgressIndicator(value: total > 0 ? (_uploadedCount / total) : 0),
+        ])),
+      )));
+      _uploadedCount = 0;
+      int failedCount = 0;
+      try {
+        for (int i = 0; i < files.length; i++) {
+          final file = files[i];
+          progress.value = 'Processing ${i + 1}/$total...';
+          try {
+            final bytes = await file.readAsBytes();
+            final ext = file.name.toLowerCase();
+            final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
+            progress.value = 'Uploading ${i + 1}/$total...';
+            await _dataService.uploadGroupMedia(
+              fileBytes: bytes,
+              fileName: file.name,
+              isVideo: isVideo,
+              caption: caption.isEmpty ? null : caption,
+            );
+            _uploadedCount = i + 1;
+          } catch (e) {
+            failedCount++;
+            // Continue with remaining files
+          }
+        }
+        if (mounted) {
+          Navigator.pop(context);
+          final successCount = total - failedCount;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(failedCount > 0
+              ? 'Uploaded $successCount/$total files ($failedCount failed)'
+              : 'Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
+            backgroundColor: failedCount > 0 ? Colors.orange : Colors.green,
+          ));
+        }
+      } catch (e) {
+        if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
+      }
+      return;
+    }
+
+    XFile? file;
+    final isVideo = choice.contains('video');
+    final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
+    if (isVideo) { file = await picker.pickVideo(source: source); } else { file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85); }
+    if (file == null) return;
+    final caption = await _showDashboardCaptionDialog();
+    if (caption == null) return;
+    try {
+      showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
+      final bytes = await file.readAsBytes();
+      await _dataService.uploadGroupMedia(fileBytes: bytes, fileName: file.name, isVideo: isVideo, caption: caption.isEmpty ? null : caption);
+      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green)); }
+    } catch (e) {
+      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
+    }
+  }
+
+  Future<String?> _showDashboardCaptionDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Caption'),
+        content: TextField(controller: controller, decoration: const InputDecoration(hintText: 'Write a caption (optional)', border: OutlineInputBorder()), maxLines: 3),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Upload')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDashboardView() {
+    return RefreshIndicator(
+      onRefresh: () async => _refresh(),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Today's Overview
+          Text("Today's Overview", style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _OverviewCard(
+                icon: Icons.pets,
+                value: '${_todayAssignments.map((a) => a.dogId).toSet().length}',
+                label: 'Dogs Today',
+                color: AppColors.primary,
+                onTap: () => _navigateToDogGroups(),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _OverviewCard(
+                icon: Icons.list_alt,
+                value: '${_allDogs.length}',
+                label: 'Total Dogs',
+                color: AppColors.primary,
+                onTap: () => setState(() => _currentIndex = 0),
+              )),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _OverviewCard(
+                icon: Icons.person,
+                value: '${_myUserId != null ? _todayAssignments.where((a) => a.staffMemberId == _myUserId).length : 0}',
+                label: 'My Dogs Today',
+                color: AppColors.primary,
+                onTap: _myUserId != null ? () => _navigateToDogGroups(staffId: _myUserId) : null,
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _OverviewCard(
+                icon: Icons.assignment_turned_in,
+                value: '${_todayAssignments.length}',
+                label: 'Total Assigned',
+                color: AppColors.info,
+                onTap: () => _navigateToDogGroups(),
+              )),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Staff Working Today
+          if (_canAssignDogs && _todayAssignments.isNotEmpty) ...[
+            Text('Staff Working Today', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            ..._buildStaffWorkingTodayCards(),
+            const SizedBox(height: 24),
+          ],
+
+          // Boarding Today
+          Text('Boarding Today', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          if (_boardingTonight.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: Text('No boarding today', style: TextStyle(color: Colors.grey[500])),
+                ),
+              ),
+            )
+          else
+            _buildBoardingTonight(),
+          const SizedBox(height: 24),
+
+          // Action Items
+          Text('Action Items', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _ActionItemTile(
+            icon: Icons.pending_actions,
+            label: 'Pending Requests',
+            count: _pendingRequestCount,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(
+                builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+              ));
+              _loadPendingRequestCount();
+            },
+          ),
+          const SizedBox(height: 8),
+          _ActionItemTile(
+            icon: Icons.question_answer,
+            label: 'Unresolved Queries',
+            count: _unresolvedQueryCount,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(
+                builder: (_) => QueryListScreen(isStaff: _isStaff, canReplyQueries: _canReplyQueries),
+              ));
+              _loadUnresolvedQueryCount();
+            },
+          ),
+          if (_canViewInquiries) ...[
+            const SizedBox(height: 8),
+            _ActionItemTile(
+              icon: Icons.mail_outline,
+              label: 'Unread Inquiries',
+              count: _unreadInquiryCount,
+              onTap: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
+                _loadUnreadInquiryCount();
+              },
+            ),
+          ],
+          const SizedBox(height: 8),
+          _ActionItemTile(
+            icon: Icons.night_shelter,
+            label: 'Boarding Requests',
+            count: _boardingTonight.length,
+            onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => const BoardingRequestListScreen(),
+            )),
+          ),
+          const SizedBox(height: 24),
+
+          // Quick Actions
+          Text('Quick Actions', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: [
+              ActionChip(
+                avatar: const Icon(Icons.upload, size: 18),
+                label: const Text('Upload to Feed'),
+                onPressed: _uploadMediaFromDashboard,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildStaffWorkingTodayCards() {
+    final Map<int, _StaffSummary> staffMap = {};
+    for (final a in _todayAssignments) {
+      staffMap.putIfAbsent(a.staffMemberId, () => _StaffSummary(a.staffMemberId, a.staffMemberName));
+      staffMap[a.staffMemberId]!.dogCount++;
+    }
+    final staffList = staffMap.values.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return staffList.map((staff) {
+      return Card(
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: AppColors.primary,
+            child: Text(staff.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+          title: Text(staff.name),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Chip(
+                label: Text('${staff.dogCount} dog${staff.dogCount == 1 ? '' : 's'}',
+                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+                backgroundColor: AppColors.primary,
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+          onTap: () => _navigateToDogGroups(staffId: staff.id),
+        ),
+      );
+    }).toList();
+  }
+
   Widget _buildDogsView() {
     if (_loadingDogs) {
       return const DogSkeletonList();
@@ -1019,7 +1318,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Column(
       children: [
-        if (_isStaff) _buildStaffDashboard(),
         if (_allDogs.length > 1)
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -1109,6 +1407,87 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// Overview stat card for the dashboard.
+class _OverviewCard extends StatefulWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _OverviewCard({required this.icon, required this.value, required this.label, required this.color, this.onTap});
+
+  @override
+  State<_OverviewCard> createState() => _OverviewCardState();
+}
+
+class _OverviewCardState extends State<_OverviewCard> {
+  bool _pressed = false;
+
+  void _handleTap() async {
+    if (widget.onTap == null) return;
+    setState(() => _pressed = true);
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (mounted) setState(() => _pressed = false);
+    await Future.delayed(const Duration(milliseconds: 60));
+    widget.onTap?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap != null ? (_) => setState(() => _pressed = true) : null,
+      onTapUp: widget.onTap != null ? (_) {} : null,
+      onTapCancel: widget.onTap != null ? () => setState(() => _pressed = false) : null,
+      onTap: _handleTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.95 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(widget.icon, color: widget.color, size: 20),
+                const SizedBox(height: 8),
+                Text(widget.value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                Text(widget.label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Action item row tile for the dashboard.
+class _ActionItemTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final int count;
+  final VoidCallback onTap;
+
+  const _ActionItemTile({required this.icon, required this.label, required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(label),
+        trailing: CircleAvatar(
+          radius: 14,
+          backgroundColor: Colors.grey[700],
+          child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 12)),
+        ),
+        onTap: onTap,
+      ),
     );
   }
 }
