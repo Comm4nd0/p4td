@@ -1982,7 +1982,9 @@ class MockDataService implements DataService {
 
   @override
   Future<List<gm.GroupMedia>> getFeed() async => [];
-  
+  @override
+  Future<Map<String, int>> getFeedTodayStats() async => {};
+
   @override
   Future<void> uploadGroupMedia({
     required Uint8List fileBytes,
@@ -2110,6 +2112,10 @@ class MockDataService implements DataService {
   Future<ContactInquiry> markInquiryUnread(int inquiryId) async => throw UnimplementedError();
   @override
   Future<int> getUnreadInquiryCount() async => 0;
+  @override
+  Future<ContactInquiry> markInquiryReplied(int inquiryId) async => throw UnimplementedError();
+  @override
+  Future<void> deleteInquiry(int inquiryId) async {}
 
   // Closure Days
   @override
