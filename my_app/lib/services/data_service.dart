@@ -92,7 +92,12 @@ abstract class DataService {
   Future<List<ContactInquiry>> getContactInquiries();
   Future<ContactInquiry> markInquiryRead(int inquiryId);
   Future<ContactInquiry> markInquiryUnread(int inquiryId);
+  Future<ContactInquiry> markInquiryReplied(int inquiryId);
+  Future<void> deleteInquiry(int inquiryId);
   Future<int> getUnreadInquiryCount();
+
+  // Feed Stats
+  Future<Map<String, int>> getFeedTodayStats();
 
   // Closure Days
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate});
@@ -1494,6 +1499,32 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<ContactInquiry> markInquiryReplied(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/mark_replied/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return ContactInquiry.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to mark inquiry as replied');
+    }
+  }
+
+  @override
+  Future<void> deleteInquiry(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete inquiry');
+    }
+  }
+
+  @override
   Future<int> getUnreadInquiryCount() async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -1505,6 +1536,24 @@ class ApiDataService implements DataService {
       return data['count'] ?? 0;
     } else {
       return 0;
+    }
+  }
+
+  @override
+  Future<Map<String, int>> getFeedTodayStats() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/group-media/today_stats/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return {
+        'photos': data['photos'] ?? 0,
+        'videos': data['videos'] ?? 0,
+      };
+    } else {
+      return {'photos': 0, 'videos': 0};
     }
   }
 

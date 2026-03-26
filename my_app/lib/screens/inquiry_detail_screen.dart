@@ -16,11 +16,13 @@ class InquiryDetailScreen extends StatefulWidget {
 class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
   final DataService _dataService = ApiDataService();
   late bool _isRead;
+  late bool _isReplied;
 
   @override
   void initState() {
     super.initState();
     _isRead = widget.inquiry.isRead;
+    _isReplied = widget.inquiry.isReplied;
     if (!_isRead) {
       _markAsRead();
     }
@@ -68,10 +70,53 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
+      // Mark as replied after opening email client
+      if (!_isReplied) {
+        try {
+          await _dataService.markInquiryReplied(widget.inquiry.id);
+          if (mounted) setState(() => _isReplied = true);
+        } catch (_) {}
+      }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not open email app')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteInquiry() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Inquiry'),
+        content: Text('Delete the inquiry from ${widget.inquiry.name}? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _dataService.deleteInquiry(widget.inquiry.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Inquiry deleted')),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete inquiry: $e')),
         );
       }
     }
@@ -90,6 +135,11 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
             icon: Icon(_isRead ? Icons.mark_email_unread : Icons.mark_email_read),
             tooltip: _isRead ? 'Mark as unread' : 'Mark as read',
             onPressed: _toggleReadStatus,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Delete inquiry',
+            onPressed: _deleteInquiry,
           ),
         ],
       ),
@@ -159,6 +209,31 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
                             ),
                           ),
                         ),
+                        if (_isReplied) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.reply, size: 14, color: Colors.green.shade800),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Replied',
+                                  style: TextStyle(
+                                    color: Colors.green.shade800,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const Spacer(),
                         Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
                         const SizedBox(width: 4),
@@ -199,7 +274,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
               child: FilledButton.icon(
                 onPressed: _replyViaEmail,
                 icon: const Icon(Icons.email),
-                label: const Text('Reply via Email'),
+                label: Text(_isReplied ? 'Reply Again via Email' : 'Reply via Email'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),

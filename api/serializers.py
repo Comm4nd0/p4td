@@ -458,5 +458,5 @@ class ContactInquirySerializer(serializers.ModelSerializer):
     class Meta:
         from website.models import ContactInquiry
         model = ContactInquiry
-        fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'is_read', 'created_at']
+        fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'is_read', 'is_replied', 'created_at']
         read_only_fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'created_at']
