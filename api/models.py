@@ -425,7 +425,9 @@ def notify_staff_date_change(sender, instance, created, **kwargs):
             'id': str(instance.id),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
-        send_staff_notification(title, body, data)
+        from django.contrib.auth.models import User
+        for user in User.objects.filter(is_staff=True, profile__can_manage_requests=True):
+            send_push_notification(user, title, body, data)
 
 @receiver(post_save, sender=BoardingRequest)
 def notify_staff_boarding_request(sender, instance, created, **kwargs):
@@ -438,7 +440,9 @@ def notify_staff_boarding_request(sender, instance, created, **kwargs):
             'id': str(instance.id),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
-        send_staff_notification(title, body, data)
+        from django.contrib.auth.models import User
+        for user in User.objects.filter(is_staff=True, profile__can_manage_requests=True):
+            send_push_notification(user, title, body, data)
 
 # --- User Notifications (Status Changes) ---
 
@@ -492,7 +496,9 @@ def notify_staff_new_query(sender, instance, created, **kwargs):
             'id': str(instance.id),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
-        send_staff_notification(title, body, data)
+        from django.contrib.auth.models import User
+        for user in User.objects.filter(is_staff=True, profile__can_reply_queries=True):
+            send_push_notification(user, title, body, data)
 
 @receiver(post_save, sender=SupportMessage)
 def notify_query_message(sender, instance, created, **kwargs):
@@ -521,7 +527,9 @@ def notify_query_message(sender, instance, created, **kwargs):
             'id': str(query.id),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
-        send_staff_notification(title, body, data)
+        from django.contrib.auth.models import User
+        for user in User.objects.filter(is_staff=True, profile__can_reply_queries=True):
+            send_push_notification(user, title, body, data)
 
 @receiver(pre_save, sender=BoardingRequest)
 def store_old_boarding_request_status(sender, instance, **kwargs):

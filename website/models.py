@@ -251,11 +251,17 @@ def notify_staff_new_inquiry(sender, instance, created, **kwargs):
     if not created:
         return
     try:
-        from api.notifications import send_staff_notification
-        send_staff_notification(
-            title='New Website Inquiry',
-            body=f'{instance.name} — {instance.get_service_display()}',
-            data={'type': 'contact_inquiry', 'id': str(instance.id)},
+        from django.contrib.auth.models import User
+        from api.notifications import send_push_notification
+
+        staff_with_permission = User.objects.filter(
+            is_staff=True,
+            profile__can_view_inquiries=True,
         )
+        title = 'New Website Inquiry'
+        body = f'{instance.name} — {instance.get_service_display()}'
+        data = {'type': 'contact_inquiry', 'id': str(instance.id)}
+        for user in staff_with_permission:
+            send_push_notification(user, title, body, data)
     except Exception:
         pass
