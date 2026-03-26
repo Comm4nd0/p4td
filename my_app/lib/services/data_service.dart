@@ -61,6 +61,7 @@ abstract class DataService {
     required DateTime startDate,
     required DateTime endDate,
     String? specialInstructions,
+    int? ownerId,
   });
   Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId);
   Future<void> registerDeviceToken(String token, String deviceType);
@@ -990,6 +991,7 @@ class ApiDataService implements DataService {
     required DateTime startDate,
     required DateTime endDate,
     String? specialInstructions,
+    int? ownerId,
   }) async {
     final headers = await _getHeaders();
     final response = await http.post(
@@ -1000,6 +1002,7 @@ class ApiDataService implements DataService {
         'start_date': startDate.toIso8601String().split('T').first,
         'end_date': endDate.toIso8601String().split('T').first,
         if (specialInstructions != null) 'special_instructions': specialInstructions,
+        if (ownerId != null) 'owner': ownerId,
       }),
     );
 

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
+import '../models/boarding_request.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import 'gallery_screen.dart';
@@ -28,12 +29,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   final _dataService = ApiDataService();
   List<DateChangeRequest> _requests = [];
   bool _loadingRequests = false;
+  List<BoardingRequest> _boardingRequests = [];
+  bool _loadingBoardingRequests = false;
 
   @override
   void initState() {
     super.initState();
     _dog = widget.dog;
     _loadRequests();
+    if (widget.isStaff) {
+      _loadBoardingRequests();
+    }
   }
 
   Future<void> _loadRequests() async {
@@ -896,6 +902,244 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
   }
 
+  Future<void> _loadBoardingRequests() async {
+    setState(() => _loadingBoardingRequests = true);
+    try {
+      final allRequests = await _dataService.getBoardingRequests();
+      if (mounted) {
+        final dogId = int.parse(_dog.id);
+        setState(() {
+          _boardingRequests = allRequests
+              .where((r) => r.dogIds.contains(dogId))
+              .toList();
+          _loadingBoardingRequests = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingBoardingRequests = false);
+      }
+    }
+  }
+
+  void _showRequestBoarding() {
+    DateTimeRange? selectedRange;
+    final instructionsController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text('Request Boarding for ${_dog.name}'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Select Dates',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final picked = await showDateRangePicker(
+                        context: context,
+                        firstDate: now,
+                        lastDate: now.add(const Duration(days: 365)),
+                        initialDateRange: selectedRange,
+                      );
+                      if (picked != null) {
+                        setDialogState(() {
+                          selectedRange = picked;
+                        });
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.date_range),
+                        labelText: 'Boarding Dates',
+                        isDense: true,
+                      ),
+                      child: Text(
+                        selectedRange != null
+                            ? '${DateFormat('d MMM').format(selectedRange!.start)} - ${DateFormat('d MMM yyyy').format(selectedRange!.end)}'
+                            : 'Tap to select dates',
+                        style: TextStyle(
+                          color: selectedRange != null ? Colors.black : Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (selectedRange != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${selectedRange!.end.difference(selectedRange!.start).inDays} night${selectedRange!.end.difference(selectedRange!.start).inDays == 1 ? '' : 's'}',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Special Instructions',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: instructionsController,
+                    decoration: const InputDecoration(
+                      hintText: 'Feeding, meds, special care...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    maxLines: 3,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: selectedRange == null
+                    ? null
+                    : () async {
+                        Navigator.pop(context);
+                        await _submitBoardingRequest(
+                          selectedRange!,
+                          instructionsController.text.trim().isEmpty
+                              ? null
+                              : instructionsController.text.trim(),
+                        );
+                      },
+                child: const Text('Submit'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _submitBoardingRequest(DateTimeRange dateRange, String? instructions) async {
+    try {
+      await _dataService.createBoardingRequest(
+        dogIds: [int.parse(_dog.id)],
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+        specialInstructions: instructions,
+        ownerId: _dog.ownerDetails?.userId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Boarding request submitted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadBoardingRequests();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildBoardingRequestsSection() {
+    if (_loadingBoardingRequests) {
+      return const Padding(
+        padding: EdgeInsets.all(8.0),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
+    if (_boardingRequests.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      elevation: 0,
+      color: Colors.white.withOpacity(0.5),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ExpansionTile(
+        title: Text(
+          'Boarding Requests (${_boardingRequests.length})',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).primaryColor,
+            fontSize: 14,
+          ),
+        ),
+        initiallyExpanded: false,
+        childrenPadding: const EdgeInsets.all(8),
+        children: _boardingRequests.map((request) {
+          final nights = request.endDate.difference(request.startDate).inDays;
+          return Card(
+            elevation: 1,
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              dense: true,
+              leading: Icon(
+                Icons.hotel,
+                color: _getBoardingStatusColor(request.status),
+              ),
+              title: Text(
+                '${DateFormat('d MMM').format(request.startDate)} - ${DateFormat('d MMM yyyy').format(request.endDate)} ($nights night${nights == 1 ? '' : 's'})',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+              subtitle: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _getBoardingStatusColor(request.status).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      request.status.toString().split('.').last.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: _getBoardingStatusColor(request.status),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  if (request.specialInstructions != null && request.specialInstructions!.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.notes, size: 14, color: Colors.grey[500]),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Color _getBoardingStatusColor(BoardingRequestStatus status) {
+    switch (status) {
+      case BoardingRequestStatus.pending:
+        return Colors.orange;
+      case BoardingRequestStatus.approved:
+        return Colors.green;
+      case BoardingRequestStatus.denied:
+        return Colors.red;
+    }
+  }
+
   Widget _buildRequestsSection() {
     if (_loadingRequests) {
       return const Padding(
@@ -1266,8 +1510,22 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _showRequestBoarding,
+                        icon: const Icon(Icons.hotel),
+                        label: const Text('Request Boarding'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.deepPurple,
+                          side: BorderSide(color: Colors.deepPurple[200]!),
+                        ),
+                      ),
+                    ),
                   ],
                   _buildRequestsSection(),
+                  if (widget.isStaff) _buildBoardingRequestsSection(),
                 ],
               ),
             ),

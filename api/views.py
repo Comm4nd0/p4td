@@ -681,11 +681,14 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         return BoardingRequest.objects.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
-        # Ensure owner is set to current user (unless staff)
+        # Ensure owner is set to current user (unless staff specifying owner)
         if self.request.user.is_staff and 'owner' in self.request.data:
-             serializer.save()
+            owner_id = self.request.data['owner']
+            from django.contrib.auth.models import User
+            owner = User.objects.get(pk=owner_id)
+            serializer.save(owner=owner)
         else:
-             serializer.save(owner=self.request.user)
+            serializer.save(owner=self.request.user)
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
