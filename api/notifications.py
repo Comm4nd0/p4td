@@ -1,10 +1,15 @@
 import firebase_admin
 from firebase_admin import credentials, messaging
 import os
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from django.conf import settings
+
 from .models import DeviceToken
 
 _firebase_app = None
+
 
 def initialize_firebase():
     global _firebase_app
@@ -24,6 +29,72 @@ def initialize_firebase():
     except Exception as e:
         print(f"Error initializing Firebase Admin: {e}")
         return False
+
+
+def _get_notification_tz():
+    return ZoneInfo(getattr(settings, 'NOTIFICATION_TIMEZONE', 'Europe/London'))
+
+
+def _is_work_hours():
+    """Return True if the current time is within the configured work-hours window."""
+    tz = _get_notification_tz()
+    local_now = datetime.now(tz)
+    start = getattr(settings, 'NOTIFICATION_START_HOUR', 8)
+    end = getattr(settings, 'NOTIFICATION_END_HOUR', 18)
+    return start <= local_now.hour < end
+
+
+def _next_work_hours_start():
+    """Return the next work-hours start as a timezone-aware datetime (UTC)."""
+    tz = _get_notification_tz()
+    local_now = datetime.now(tz)
+    start = getattr(settings, 'NOTIFICATION_START_HOUR', 8)
+
+    # If we haven't passed the start hour yet today, schedule for today
+    if local_now.hour < start:
+        next_start = local_now.replace(hour=start, minute=0, second=0, microsecond=0)
+    else:
+        # Schedule for tomorrow
+        next_start = (local_now + timedelta(days=1)).replace(hour=start, minute=0, second=0, microsecond=0)
+
+    return next_start.astimezone(timezone.utc)
+
+
+def _is_staff_working_today(user):
+    """Check if a staff member is working today based on availability and day-off requests."""
+    from .models import StaffAvailability, DayOffRequest
+
+    tz = _get_notification_tz()
+    today = datetime.now(tz).date()
+    dow = today.isoweekday()  # 1=Monday ... 7=Sunday
+
+    # Check weekly availability (default to available if no record exists)
+    try:
+        avail = StaffAvailability.objects.get(staff_member=user, day_of_week=dow)
+        if not avail.is_available:
+            return False
+    except StaffAvailability.DoesNotExist:
+        pass
+
+    # Check approved day-off requests
+    if DayOffRequest.objects.filter(staff_member=user, date=today, status='APPROVED').exists():
+        return False
+
+    return True
+
+
+def _queue_notification(user, title, body, data=None, category=''):
+    """Queue a notification for delivery at the next work-hours window."""
+    from .models import QueuedNotification
+
+    QueuedNotification.objects.create(
+        user=user,
+        title=title,
+        body=body,
+        data=data or {},
+        category=category,
+        scheduled_for=_next_work_hours_start(),
+    )
 
 
 def _user_has_preference(user, category):
@@ -48,9 +119,21 @@ def send_push_notification(user, title, body, data=None, category=None):
     If *category* is supplied the user's notification preferences are checked
     first.  When the preference is disabled the notification is silently
     skipped.
+
+    For staff users, notifications are only sent during work hours to staff
+    members who are working that day.  Out-of-hours notifications are queued
+    for the next work-hours window.
     """
     if not _user_has_preference(user, category):
         return
+
+    # Staff-specific filtering
+    if user.is_staff:
+        if not _is_staff_working_today(user):
+            return
+        if not _is_work_hours():
+            _queue_notification(user, title, body, data, category or '')
+            return
 
     if not initialize_firebase():
         return
@@ -210,21 +293,12 @@ def notify_post_comment(comment, post):
 
 
 def send_staff_notification(title, body, data=None):
-    """Sends a push notification to the staff_notifications topic."""
-    if not initialize_firebase():
-        return
+    """Sends a push notification to all working staff members individually.
 
-    message = messaging.Message(
-        notification=messaging.Notification(
-            title=title,
-            body=body,
-        ),
-        data=data or {},
-        topic='staff_notifications',
-    )
+    Unlike the previous topic-based approach, this sends to each staff member
+    separately so that work-hours and working-day filters can be applied.
+    """
+    from django.contrib.auth.models import User
 
-    try:
-        response = messaging.send(message)
-        print(f"Successfully sent staff notification: {response}")
-    except Exception as e:
-        print(f"Error sending staff notification: {e}")
+    for user in User.objects.filter(is_staff=True):
+        send_push_notification(user, title, body, data)
