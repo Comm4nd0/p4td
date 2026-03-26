@@ -263,6 +263,17 @@ if not DEBUG:
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # =============================================================================
+# NOTIFICATION SETTINGS
+# =============================================================================
+
+# Staff push notifications are only sent during work hours in this timezone.
+# Notifications generated outside the window are queued and delivered at the
+# next NOTIFICATION_START_HOUR.
+NOTIFICATION_TIMEZONE = 'Europe/London'
+NOTIFICATION_START_HOUR = 8
+NOTIFICATION_END_HOUR = 18
+
+# =============================================================================
 # LOGGING
 # =============================================================================
 
