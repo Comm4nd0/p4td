@@ -91,6 +91,11 @@ class AppColors {
           backgroundColor: primary,
           foregroundColor: cream,
         ),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: surface,
+          selectedItemColor: primary,
+          unselectedItemColor: grey600,
+        ),
       );
 
   static ThemeData darkTheme() => ThemeData(

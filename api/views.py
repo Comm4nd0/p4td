@@ -613,6 +613,16 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(media).data)
 
+    @action(detail=False, methods=['get'])
+    def today_stats(self, request):
+        from django.utils import timezone
+        today = timezone.localdate()
+        qs = GroupMedia.objects.filter(created_at__date=today)
+        return Response({
+            'photos': qs.filter(media_type='PHOTO').count(),
+            'videos': qs.filter(media_type='VIDEO').count(),
+        })
+
 class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
@@ -1771,10 +1781,11 @@ def delete_account(request):
     )
 
 
-class ContactInquiryViewSet(viewsets.ReadOnlyModelViewSet):
+class ContactInquiryViewSet(viewsets.ModelViewSet):
     """Staff-only access to website contact inquiries."""
     serializer_class = ContactInquirySerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'delete', 'post']
 
     def get_queryset(self):
         user = self.request.user
@@ -1793,6 +1804,14 @@ class ContactInquiryViewSet(viewsets.ReadOnlyModelViewSet):
     def mark_unread(self, request, pk=None):
         inquiry = self.get_object()
         inquiry.is_read = False
+        inquiry.save()
+        return Response(ContactInquirySerializer(inquiry).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_replied(self, request, pk=None):
+        inquiry = self.get_object()
+        inquiry.is_replied = True
+        inquiry.is_read = True
         inquiry.save()
         return Response(ContactInquirySerializer(inquiry).data)
 

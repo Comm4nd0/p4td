@@ -78,6 +78,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _dogGroupsStaffFilter;
   // Track upload progress for large batches
   int _uploadedCount = 0;
+  // Feed stats for today
+  int _todayPhotos = 0;
+  int _todayVideos = 0;
 
   @override
   void initState() {
@@ -197,6 +200,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await _notificationService.subscribeToTopic('staff_notifications');
           _loadStaffWorkingToday();
           _loadBoardingTonight();
+          _loadFeedTodayStats();
         } else {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
@@ -265,6 +269,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  Future<void> _loadFeedTodayStats() async {
+    try {
+      final stats = await _dataService.getFeedTodayStats();
+      if (mounted) {
+        setState(() {
+          _todayPhotos = stats['photos'] ?? 0;
+          _todayVideos = stats['videos'] ?? 0;
+        });
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadBoardingTonight() async {
     try {
       final requests = await _dataService.getBoardingRequests();
@@ -289,6 +305,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_canViewInquiries) _loadUnreadInquiryCount();
     _loadStaffWorkingToday();
     _loadBoardingTonight();
+    _loadFeedTodayStats();
   }
 
   void _navigateToDogGroups({int? staffId}) {
@@ -899,6 +916,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
           const SizedBox(height: 8),
+          // Today's Feed Uploads
+          Row(
+            children: [
+              Expanded(
+                child: _DashboardCard(
+                  icon: Icons.photo_camera,
+                  label: 'Photos\nToday',
+                  count: _todayPhotos,
+                  onTap: () {
+                    setState(() => _currentIndex = 1);
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _DashboardCard(
+                  icon: Icons.videocam,
+                  label: 'Videos\nToday',
+                  count: _todayVideos,
+                  onTap: () {
+                    setState(() => _currentIndex = 1);
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           // Quick action buttons
           Wrap(
             spacing: 8,
@@ -1055,6 +1099,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               : 'Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
             backgroundColor: failedCount > 0 ? Colors.orange : Colors.green,
           ));
+          _loadFeedTodayStats();
         }
       } catch (e) {
         if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
@@ -1073,7 +1118,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
       final bytes = await file.readAsBytes();
       await _dataService.uploadGroupMedia(fileBytes: bytes, fileName: file.name, isVideo: isVideo, caption: caption.isEmpty ? null : caption);
-      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green)); }
+      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green)); _loadFeedTodayStats(); }
     } catch (e) {
       if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
     }

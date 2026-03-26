@@ -6,6 +6,7 @@ class ContactInquiry {
   final String serviceDisplay;
   final String message;
   final bool isRead;
+  final bool isReplied;
   final DateTime createdAt;
 
   ContactInquiry({
@@ -16,6 +17,7 @@ class ContactInquiry {
     required this.serviceDisplay,
     required this.message,
     required this.isRead,
+    required this.isReplied,
     required this.createdAt,
   });
 
@@ -28,6 +30,7 @@ class ContactInquiry {
       serviceDisplay: json['service_display'] ?? '',
       message: json['message'] ?? '',
       isRead: json['is_read'] ?? false,
+      isReplied: json['is_replied'] ?? false,
       createdAt: DateTime.parse(json['created_at']),
     );
   }

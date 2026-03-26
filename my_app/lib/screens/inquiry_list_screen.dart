@@ -123,81 +123,150 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
     );
   }
 
+  Future<void> _deleteInquiry(ContactInquiry inquiry) async {
+    try {
+      await _dataService.deleteInquiry(inquiry.id);
+      if (mounted) {
+        setState(() => _inquiries.removeWhere((i) => i.id == inquiry.id));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Inquiry deleted')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete inquiry: $e')),
+        );
+      }
+    }
+  }
+
   Widget _buildInquiryCard(ContactInquiry inquiry) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: InkWell(
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InquiryDetailScreen(inquiry: inquiry),
-            ),
-          );
-          _loadInquiries();
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    inquiry.isRead ? Icons.mail_outline : Icons.mark_email_unread,
-                    size: 20,
-                    color: inquiry.isRead ? Colors.grey : Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      inquiry.name,
-                      style: TextStyle(
-                        fontWeight: inquiry.isRead ? FontWeight.normal : FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      inquiry.serviceDisplay,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                inquiry.message,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.grey[600], fontSize: 13),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    inquiry.email,
-                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                  ),
-                  Text(
-                    DateFormat('d MMM, HH:mm').format(inquiry.createdAt.toLocal()),
-                    style: TextStyle(color: Colors.grey[500], fontSize: 11),
-                  ),
-                ],
+    return Dismissible(
+      key: ValueKey(inquiry.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Inquiry'),
+            content: Text('Delete the inquiry from ${inquiry.name}?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Delete'),
               ),
             ],
+          ),
+        ) ?? false;
+      },
+      onDismissed: (_) => _deleteInquiry(inquiry),
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: InkWell(
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => InquiryDetailScreen(inquiry: inquiry),
+              ),
+            );
+            _loadInquiries();
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      inquiry.isReplied
+                          ? Icons.reply
+                          : inquiry.isRead
+                              ? Icons.mail_outline
+                              : Icons.mark_email_unread,
+                      size: 20,
+                      color: inquiry.isReplied
+                          ? Colors.green
+                          : inquiry.isRead
+                              ? Colors.grey
+                              : Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        inquiry.name,
+                        style: TextStyle(
+                          fontWeight: inquiry.isRead ? FontWeight.normal : FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        inquiry.serviceDisplay,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  inquiry.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        inquiry.email,
+                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (inquiry.isReplied) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        'Replied',
+                        style: TextStyle(color: Colors.green[600], fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(
+                      DateFormat('d MMM, HH:mm').format(inquiry.createdAt.toLocal()),
+                      style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
