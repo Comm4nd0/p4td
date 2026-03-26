@@ -3,7 +3,7 @@ name: Deploy Android to Play Store (Alpha)
 on:
   push:
     branches:
-      - development
+      - main
     paths:
       - 'my_app/**'
 
