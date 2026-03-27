@@ -66,7 +66,7 @@ class Command(BaseCommand):
                 try:
                     messaging.send(message)
                     sent += 1
-                except messaging.UnregisteredError:
+                except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                     DeviceToken.objects.filter(token=token).delete()
                     failed += 1
                 except Exception as e:

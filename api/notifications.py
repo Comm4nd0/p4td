@@ -153,7 +153,7 @@ def _flush_queued_notifications():
             )
             try:
                 messaging.send(message)
-            except messaging.UnregisteredError:
+            except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 DeviceToken.objects.filter(token=token).delete()
             except Exception as e:
                 print(f"Failed to flush queued notification to {token[:10]}...: {e}")
@@ -188,34 +188,23 @@ def send_push_notification(user, title, body, data=None, category=None):
     members who are working that day.  Out-of-hours notifications are queued
     for the next work-hours window.
     """
-    print(f"[NOTIFY] send_push_notification called: user={user.username}, is_staff={user.is_staff}, title={title!r}")
-
     if not _user_has_preference(user, category):
-        print(f"[NOTIFY] Skipped {user.username}: notification preference disabled for category={category!r}")
         return
 
     # Staff-specific filtering
     if user.is_staff:
-        in_hours = _is_work_hours()
-        print(f"[NOTIFY] Staff user {user.username}: in_work_hours={in_hours}")
-        if not in_hours:
+        if not _is_work_hours():
             _queue_notification(user, title, body, data, category or '')
-            print(f"[NOTIFY] Queued notification for {user.username} (outside work hours)")
             return
         # During work hours, opportunistically flush any queued notifications
         _flush_queued_notifications()
-        working_today = _is_staff_working_today(user)
-        print(f"[NOTIFY] Staff user {user.username}: working_today={working_today}")
-        if not working_today:
-            print(f"[NOTIFY] Skipped {user.username}: not working today")
+        if not _is_staff_working_today(user):
             return
 
     if not initialize_firebase():
-        print(f"[NOTIFY] Skipped {user.username}: Firebase not initialised")
         return
 
     tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
-    print(f"[NOTIFY] {user.username}: found {len(tokens)} device token(s)")
     if not tokens:
         return
 
@@ -234,11 +223,11 @@ def send_push_notification(user, title, body, data=None, category=None):
         try:
             messaging.send(message)
             success_count += 1
-        except messaging.UnregisteredError:
-            # Token is invalid/expired - clean it up
+        except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
+            # Token is invalid or registered to a different sender - clean it up
             DeviceToken.objects.filter(token=token).delete()
             failure_count += 1
-            print(f"Removed invalid token {token[:10]}...")
+            print(f"Removed stale token {token[:10]}...")
         except Exception as e:
             failure_count += 1
             print(f"Failed to send to token {token[:10]}...: {e}")
