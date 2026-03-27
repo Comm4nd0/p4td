@@ -62,6 +62,14 @@ class StaffDailyAssignmentsScreenState
   }
 
   @override
+  void didUpdateWidget(covariant StaffDailyAssignmentsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialStaffId != oldWidget.initialStaffId) {
+      setState(() => _selectedStaffId = widget.initialStaffId);
+    }
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
     _dateScrollController.dispose();
@@ -89,7 +97,6 @@ class StaffDailyAssignmentsScreenState
   }
 
   Future<void> _loadStaffMembers() async {
-    if (!widget.canAssignDogs) return;
     try {
       final staff = await _dataService.getStaffMembers();
       if (mounted) {
@@ -100,7 +107,6 @@ class StaffDailyAssignmentsScreenState
   }
 
   Future<void> _loadAvailableStaff(DateTime date) async {
-    if (!widget.canAssignDogs) return;
     try {
       final available = await _dataService.getAvailableStaffForDate(date);
       if (mounted) {
@@ -126,9 +132,7 @@ class StaffDailyAssignmentsScreenState
     if (!forceReload && _assignmentCache.containsKey(key)) return;
     setState(() => _loadingDates.add(key));
     try {
-      final assignments = widget.canAssignDogs
-          ? await _dataService.getTodayAssignments(date: date)
-          : await _dataService.getMyAssignments(date: date);
+      final assignments = await _dataService.getTodayAssignments(date: date);
       if (mounted) {
         setState(() {
           _assignmentCache[key] = assignments;
@@ -932,7 +936,7 @@ class StaffDailyAssignmentsScreenState
     return Column(
       children: [
         _buildDateSelector(),
-        if (widget.canAssignDogs && _staffMembers.isNotEmpty) ...[
+        if (_staffMembers.isNotEmpty) ...[
           _buildStaffFilter(),
           const SizedBox(height: 8),
         ] else ...[

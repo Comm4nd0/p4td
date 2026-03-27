@@ -74,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<DailyDogAssignment> _todayAssignments = [];
   // Boarding Tonight data
   List<BoardingRequest> _boardingTonight = [];
-  // Staff filter for Dog Groups tab navigation
+  // Staff filter for Pickups tab navigation
   int? _dogGroupsStaffFilter;
   // Track upload progress for large batches
   int _uploadedCount = 0;
@@ -260,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadStaffWorkingToday() async {
-    if (!_canAssignDogs) return;
+    if (!_isStaff) return;
     try {
       final assignments = await _dataService.getTodayAssignments();
       if (mounted) {
@@ -612,24 +612,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: const Icon(Icons.add),
               label: const Text('Add Dog'),
             )
-          : _currentIndex == 2 && _isStaff
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FloatingActionButton.small(
-                      heroTag: 'addDogFab',
-                      onPressed: _addDog,
-                      tooltip: 'Add Dog',
-                      child: const Icon(Icons.pets),
-                    ),
-                    const SizedBox(height: 8),
-                    FloatingActionButton.extended(
-                      heroTag: 'assignDogsFab',
-                      onPressed: () => _assignmentsKey.currentState?.assignDogs(),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Assign Dogs'),
-                    ),
-                  ],
+          : _currentIndex == 2 && _canAssignDogs
+              ? FloatingActionButton.extended(
+                  heroTag: 'assignDogsFab',
+                  onPressed: () => _assignmentsKey.currentState?.assignDogs(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Assign Dogs'),
                 )
               : null,
       bottomNavigationBar: BottomNavigationBar(
@@ -664,7 +652,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (_isStaff)
             const BottomNavigationBarItem(
               icon: Icon(Icons.today),
-              label: "Dog Groups",
+              label: "Pickups",
             ),
           if (_isStaff)
             const BottomNavigationBarItem(
@@ -680,7 +668,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
                   : _currentIndex == 2
-                      ? StaffDailyAssignmentsScreen(key: ValueKey('assignments_${_dogGroupsStaffFilter}'), canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter)
+                      ? StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter)
                       : _buildDashboardView(),
     ),
     );
@@ -808,29 +796,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 MaterialPageRoute(
                   builder: (_) => ClosureDaysScreen(isStaff: _isStaff),
                 ),
-              );
-            },
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.night_shelter),
-            title: const Text('Request Boarding'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RequestBoardingScreen()),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.list),
-            title: const Text('My Boarding Requests'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
               );
             },
           ),
@@ -969,6 +934,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 avatar: const Icon(Icons.upload, size: 18),
                 label: const Text('Upload to Feed'),
                 onPressed: _uploadMediaFromDashboard,
+              ),
+              ActionChip(
+                avatar: const Icon(Icons.calendar_month, size: 18),
+                label: const Text('Boarding Calendar'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+                ),
               ),
             ],
           ),

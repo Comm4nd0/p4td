@@ -1510,20 +1510,20 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _showRequestBoarding,
-                        icon: const Icon(Icons.hotel),
-                        label: const Text('Request Boarding'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.deepPurple,
-                          side: BorderSide(color: Colors.deepPurple[200]!),
-                        ),
+                  ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showRequestBoarding,
+                      icon: const Icon(Icons.hotel),
+                      label: const Text('Request Boarding'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.deepPurple,
+                        side: BorderSide(color: Colors.deepPurple[200]!),
                       ),
                     ),
-                  ],
+                  ),
                   _buildRequestsSection(),
                   if (widget.isStaff) _buildBoardingRequestsSection(),
                 ],
