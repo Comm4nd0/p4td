@@ -188,23 +188,34 @@ def send_push_notification(user, title, body, data=None, category=None):
     members who are working that day.  Out-of-hours notifications are queued
     for the next work-hours window.
     """
+    print(f"[NOTIFY] send_push_notification called: user={user.username}, is_staff={user.is_staff}, title={title!r}")
+
     if not _user_has_preference(user, category):
+        print(f"[NOTIFY] Skipped {user.username}: notification preference disabled for category={category!r}")
         return
 
     # Staff-specific filtering
     if user.is_staff:
-        if not _is_work_hours():
+        in_hours = _is_work_hours()
+        print(f"[NOTIFY] Staff user {user.username}: in_work_hours={in_hours}")
+        if not in_hours:
             _queue_notification(user, title, body, data, category or '')
+            print(f"[NOTIFY] Queued notification for {user.username} (outside work hours)")
             return
         # During work hours, opportunistically flush any queued notifications
         _flush_queued_notifications()
-        if not _is_staff_working_today(user):
+        working_today = _is_staff_working_today(user)
+        print(f"[NOTIFY] Staff user {user.username}: working_today={working_today}")
+        if not working_today:
+            print(f"[NOTIFY] Skipped {user.username}: not working today")
             return
 
     if not initialize_firebase():
+        print(f"[NOTIFY] Skipped {user.username}: Firebase not initialised")
         return
 
     tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
+    print(f"[NOTIFY] {user.username}: found {len(tokens)} device token(s)")
     if not tokens:
         return
 
