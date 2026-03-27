@@ -613,10 +613,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               label: const Text('Add Dog'),
             )
           : _currentIndex == 2 && _isStaff
-              ? FloatingActionButton.extended(
-                  onPressed: () => _assignmentsKey.currentState?.assignDogs(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Assign Dogs'),
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'addDogFab',
+                      onPressed: _addDog,
+                      tooltip: 'Add Dog',
+                      child: const Icon(Icons.pets),
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton.extended(
+                      heroTag: 'assignDogsFab',
+                      onPressed: () => _assignmentsKey.currentState?.assignDogs(),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Assign Dogs'),
+                    ),
+                  ],
                 )
               : null,
       bottomNavigationBar: BottomNavigationBar(
