@@ -153,7 +153,7 @@ def _flush_queued_notifications():
             )
             try:
                 messaging.send(message)
-            except messaging.UnregisteredError:
+            except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 DeviceToken.objects.filter(token=token).delete()
             except Exception as e:
                 print(f"Failed to flush queued notification to {token[:10]}...: {e}")
@@ -223,11 +223,11 @@ def send_push_notification(user, title, body, data=None, category=None):
         try:
             messaging.send(message)
             success_count += 1
-        except messaging.UnregisteredError:
-            # Token is invalid/expired - clean it up
+        except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
+            # Token is invalid or registered to a different sender - clean it up
             DeviceToken.objects.filter(token=token).delete()
             failure_count += 1
-            print(f"Removed invalid token {token[:10]}...")
+            print(f"Removed stale token {token[:10]}...")
         except Exception as e:
             failure_count += 1
             print(f"Failed to send to token {token[:10]}...: {e}")
