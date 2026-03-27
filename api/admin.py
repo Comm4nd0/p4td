@@ -256,7 +256,17 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
             self.message_user(request, "You do not have permission to approve requests.", level='ERROR')
             return
         
-        updated = queryset.filter(status='PENDING').update(status='APPROVED', approved_by=request.user, approved_at=timezone.now())
+        pending = queryset.filter(status='PENDING')
+
+        # Unassign dogs for approved cancellations before bulk update
+        cancel_requests = pending.filter(request_type='CANCEL', original_date__isnull=False)
+        for req in cancel_requests:
+            DailyDogAssignment.objects.filter(
+                dog=req.dog,
+                date=req.original_date,
+            ).delete()
+
+        updated = pending.update(status='APPROVED', approved_by=request.user, approved_at=timezone.now())
         self.message_user(request, f'{updated} request(s) approved.')
     approve_requests.short_description = 'Approve selected requests'
 
