@@ -462,7 +462,35 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
-        serializer.save()
+        instance = serializer.save()
+
+        # Auto-approve ADD_DAY requests created by staff
+        if self.request.user.is_staff and instance.request_type == 'ADD_DAY':
+            instance.status = 'APPROVED'
+            instance.approved_by = self.request.user
+            instance.approved_at = timezone.now()
+            instance.save()
+
+            # Record history
+            DateChangeRequestHistory.objects.create(
+                request=instance,
+                changed_by=self.request.user,
+                from_status='PENDING',
+                to_status='APPROVED',
+            )
+
+            # Notify dog owners
+            try:
+                from .notifications import send_push_notification
+                title = "Additional Day Added"
+                body = f"An additional day for {instance.dog.name} on {instance.new_date} has been added by staff."
+                data = {'type': 'date_change_status', 'id': str(instance.id)}
+                if instance.dog.owner:
+                    send_push_notification(instance.dog.owner, title, body, data)
+                for additional_owner in instance.dog.additional_owners.all():
+                    send_push_notification(additional_owner, title, body, data)
+            except Exception as e:
+                print(f"Failed to send push notification: {e}")
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
@@ -487,6 +515,13 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             instance.approved_at = timezone.now()
         instance.status = new_status
         instance.save()
+
+        # When a cancellation is approved, unassign the dog for that date
+        if new_status == 'APPROVED' and instance.request_type == 'CANCEL' and instance.original_date:
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog,
+                date=instance.original_date,
+            ).delete()
 
         # Send push notification to all owners
         try:
@@ -646,11 +681,14 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         return BoardingRequest.objects.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
-        # Ensure owner is set to current user (unless staff)
+        # Ensure owner is set to current user (unless staff specifying owner)
         if self.request.user.is_staff and 'owner' in self.request.data:
-             serializer.save()
+            owner_id = self.request.data['owner']
+            from django.contrib.auth.models import User
+            owner = User.objects.get(pk=owner_id)
+            serializer.save(owner=owner)
         else:
-             serializer.save(owner=self.request.user)
+            serializer.save(owner=self.request.user)
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
@@ -802,6 +840,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             boarding_requests__end_date__gte=target_date,
         )
 
+        # Dogs with approved additional day requests for the target date
+        add_day_dogs = Dog.objects.filter(
+            date_change_requests__request_type='ADD_DAY',
+            date_change_requests__status='APPROVED',
+            date_change_requests__new_date=target_date,
+        )
+
         # Dogs with approved cancellations for the target date
         cancelled_dog_ids = DateChangeRequest.objects.filter(
             request_type='CANCEL',
@@ -809,8 +854,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             original_date=target_date,
         ).values_list('dog_id', flat=True)
 
-        # Combine daycare + ad hoc + boarding, exclude cancelled
-        scheduled_dogs = (daycare_dogs | ad_hoc_dogs | boarding_dogs).exclude(
+        # Combine daycare + ad hoc + boarding + additional days, exclude cancelled
+        scheduled_dogs = (daycare_dogs | ad_hoc_dogs | boarding_dogs | add_day_dogs).exclude(
             id__in=cancelled_dog_ids
         ).distinct()
 
