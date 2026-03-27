@@ -97,6 +97,70 @@ def _queue_notification(user, title, body, data=None, category=''):
     )
 
 
+_last_flush_time = None
+
+
+def _flush_queued_notifications():
+    """Opportunistically send any queued notifications whose scheduled time has passed.
+
+    Called during work hours from send_push_notification so that queued
+    messages are delivered without needing an external cron job.  A simple
+    time guard prevents flushing more than once per minute.
+    """
+    global _last_flush_time
+
+    now = datetime.now(timezone.utc)
+    if _last_flush_time and (now - _last_flush_time).total_seconds() < 60:
+        return
+    _last_flush_time = now
+
+    from .models import QueuedNotification
+    from django.utils.timezone import now as tz_now
+
+    pending = QueuedNotification.objects.filter(scheduled_for__lte=tz_now()).select_related('user')
+    if not pending.exists():
+        return
+
+    if not initialize_firebase():
+        return
+
+    for queued in pending:
+        user = queued.user
+
+        # Re-check working day
+        if user.is_staff and not _is_staff_working_today(user):
+            queued.delete()
+            continue
+
+        # Re-check preference
+        if queued.category and not _user_has_preference(user, queued.category):
+            queued.delete()
+            continue
+
+        tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
+        if not tokens:
+            queued.delete()
+            continue
+
+        for token in tokens:
+            message = messaging.Message(
+                notification=messaging.Notification(
+                    title=queued.title,
+                    body=queued.body,
+                ),
+                data=queued.data or {},
+                token=token,
+            )
+            try:
+                messaging.send(message)
+            except messaging.UnregisteredError:
+                DeviceToken.objects.filter(token=token).delete()
+            except Exception as e:
+                print(f"Failed to flush queued notification to {token[:10]}...: {e}")
+
+        queued.delete()
+
+
 def _user_has_preference(user, category):
     """Check whether the user has the given notification category enabled.
 
@@ -129,10 +193,12 @@ def send_push_notification(user, title, body, data=None, category=None):
 
     # Staff-specific filtering
     if user.is_staff:
-        if not _is_staff_working_today(user):
-            return
         if not _is_work_hours():
             _queue_notification(user, title, body, data, category or '')
+            return
+        # During work hours, opportunistically flush any queued notifications
+        _flush_queued_notifications()
+        if not _is_staff_working_today(user):
             return
 
     if not initialize_firebase():
