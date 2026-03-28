@@ -261,7 +261,8 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
   final _textController = TextEditingController();
 
   List<Dog> get _otherDogs =>
-      widget.allDogs.where((d) => d.id != widget.dogId.toString()).toList();
+      widget.allDogs.where((d) => d.id != widget.dogId.toString()).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
   @override
   void dispose() {

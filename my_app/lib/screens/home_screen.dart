@@ -14,6 +14,7 @@ import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../widgets/no_connection_widget.dart';
+import '../widgets/media_tag_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'dog_home_screen.dart';
 import 'profile_screen.dart';
@@ -78,7 +79,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Staff filter for Pickups tab navigation
   int? _dogGroupsStaffFilter;
   // Track upload progress for large batches
-  int _uploadedCount = 0;
   // Feed stats for today
   int _todayPhotos = 0;
   int _todayVideos = 0;
@@ -1043,53 +1043,72 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (choice == 'multiple') {
       final files = await picker.pickMultipleMedia();
       if (files.isEmpty) return;
-      final caption = await _showDashboardCaptionDialog();
-      if (caption == null) return;
-      final progress = ValueNotifier<String>('Preparing 0/${files.length}...');
+
+      // Prepare files for tagging dialog
+      final tagDialogFiles = <(Uint8List, String, bool)>[];
+      final fileData = <(Uint8List, String)>[];
+      for (final file in files) {
+        final bytes = await file.readAsBytes();
+        final ext = file.name.toLowerCase();
+        final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
+        tagDialogFiles.add((bytes, file.name, isVideo));
+        fileData.add((bytes, file.name));
+      }
+
+      // Show tagging dialog
+      final tagResult = await Navigator.push<MediaTagResult>(
+        context,
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => MediaTagDialog(files: tagDialogFiles),
+        ),
+      );
+      if (tagResult == null) return;
+
+      // Upload with progress
+      final progress = ValueNotifier<int>(0);
       final total = files.length;
-      showDialog(context: context, barrierDismissible: false, builder: (_) => PopScope(canPop: false, child: ValueListenableBuilder<String>(
-        valueListenable: progress,
-        builder: (context, status, _) => AlertDialog(content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(), const SizedBox(height: 16), Text(status),
-          const SizedBox(height: 8), LinearProgressIndicator(value: total > 0 ? (_uploadedCount / total) : 0),
-        ])),
-      )));
-      _uploadedCount = 0;
-      int failedCount = 0;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (context, completed, _) => AlertDialog(
+              content: Column(mainAxisSize: MainAxisSize.min, children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text('Uploading $completed/$total...'),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+              ]),
+            ),
+          ),
+        ),
+      );
+
       try {
-        for (int i = 0; i < files.length; i++) {
-          final file = files[i];
-          progress.value = 'Processing ${i + 1}/$total...';
-          try {
-            final bytes = await file.readAsBytes();
-            final ext = file.name.toLowerCase();
-            final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
-            progress.value = 'Uploading ${i + 1}/$total...';
-            await _dataService.uploadGroupMedia(
-              fileBytes: bytes,
-              fileName: file.name,
-              isVideo: isVideo,
-              caption: caption.isEmpty ? null : caption,
-            );
-            _uploadedCount = i + 1;
-          } catch (e) {
-            failedCount++;
-            // Continue with remaining files
-          }
-        }
+        await _dataService.uploadMultipleGroupMedia(
+          files: fileData,
+          caption: tagResult.caption,
+          taggedDogIdsByFile: tagResult.taggedDogIdsByFile,
+          onProgress: (done, count) => progress.value = done,
+        );
         if (mounted) {
           Navigator.pop(context);
-          final successCount = total - failedCount;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(failedCount > 0
-              ? 'Uploaded $successCount/$total files ($failedCount failed)'
-              : 'Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
-            backgroundColor: failedCount > 0 ? Colors.orange : Colors.green,
+            content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
+            backgroundColor: Colors.green,
           ));
           _loadFeedTodayStats();
         }
       } catch (e) {
-        if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
+          if (progress.value > 0) _loadFeedTodayStats();
+        }
       }
       return;
     }
@@ -1097,33 +1116,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     XFile? file;
     final isVideo = choice.contains('video');
     final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
-    if (isVideo) { file = await picker.pickVideo(source: source); } else { file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85); }
-    if (file == null) return;
-    final caption = await _showDashboardCaptionDialog();
-    if (caption == null) return;
-    try {
-      showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
-      final bytes = await file.readAsBytes();
-      await _dataService.uploadGroupMedia(fileBytes: bytes, fileName: file.name, isVideo: isVideo, caption: caption.isEmpty ? null : caption);
-      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green)); _loadFeedTodayStats(); }
-    } catch (e) {
-      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red)); }
+    if (isVideo) {
+      file = await picker.pickVideo(source: source);
+    } else {
+      file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85);
     }
-  }
+    if (file == null) return;
 
-  Future<String?> _showDashboardCaptionDialog() async {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Caption'),
-        content: TextField(controller: controller, decoration: const InputDecoration(hintText: 'Write a caption (optional)', border: OutlineInputBorder()), maxLines: 3),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Upload')),
-        ],
+    // Show tagging dialog for single file
+    final bytes = await file.readAsBytes();
+    final tagResult = await Navigator.push<MediaTagResult>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MediaTagDialog(files: [(bytes, file!.name, isVideo)]),
       ),
     );
+    if (tagResult == null) return;
+
+    try {
+      showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
+      await _dataService.uploadGroupMedia(
+        fileBytes: bytes,
+        fileName: file.name,
+        isVideo: isVideo,
+        caption: tagResult.caption,
+        taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty ? tagResult.taggedDogIdsByFile[0] : null,
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green));
+        _loadFeedTodayStats();
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
+      }
+    }
   }
 
   Widget _buildDashboardView() {
