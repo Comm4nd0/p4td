@@ -54,6 +54,7 @@ abstract class DataService {
     void Function(int completed, int total)? onProgress,
   });
   Future<void> deleteGroupMedia(String mediaId);
+  Future<gm.GroupMedia> updateGroupMedia(String mediaId, {String? caption, List<String>? taggedDogIds});
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji);
   Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false});
   Future<void> deleteComment(String commentId);
@@ -903,6 +904,26 @@ class ApiDataService implements DataService {
 
     if (response.statusCode != 204) {
       throw Exception('Failed to delete media');
+    }
+  }
+
+  @override
+  Future<gm.GroupMedia> updateGroupMedia(String mediaId, {String? caption, List<String>? taggedDogIds}) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{};
+    if (caption != null) body['caption'] = caption;
+    if (taggedDogIds != null) body['tagged_dog_ids'] = taggedDogIds.map((id) => int.parse(id)).toList();
+
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return gm.GroupMedia.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to update media');
     }
   }
 
@@ -2022,6 +2043,11 @@ class MockDataService implements DataService {
 
   @override
   Future<void> deleteGroupMedia(String mediaId) async {}
+
+  @override
+  Future<gm.GroupMedia> updateGroupMedia(String mediaId, {String? caption, List<String>? taggedDogIds}) async {
+    throw UnimplementedError();
+  }
 
   @override
   Future<gm.GroupMedia> toggleReaction(String mediaId, String emoji) async {
