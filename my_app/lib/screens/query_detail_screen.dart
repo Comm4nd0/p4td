@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../models/support_query.dart';
 import '../models/support_message.dart';
@@ -167,13 +168,13 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
         actions: [
           if (_query != null && widget.isStaff && _query!.status == QueryStatus.open)
             IconButton(
-              icon: const Icon(Icons.check_circle_outline),
+              icon: PhosphorIcon(PhosphorIconsRegular.checkCircle),
               tooltip: 'Resolve',
               onPressed: _resolveQuery,
             ),
           if (_query != null && _query!.status == QueryStatus.resolved)
             IconButton(
-              icon: const Icon(Icons.refresh),
+              icon: PhosphorIcon(PhosphorIconsDuotone.arrowClockwise),
               tooltip: 'Reopen',
               onPressed: _reopenQuery,
             ),
@@ -270,7 +271,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                                         height: 24,
                                         child: CircularProgressIndicator(strokeWidth: 2),
                                       )
-                                    : const Icon(Icons.send),
+                                    : PhosphorIcon(PhosphorIconsDuotone.paperPlaneTilt),
                                 onPressed: _sending ? null : _sendMessage,
                               ),
                             ],
@@ -324,7 +325,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
               if (message.isStaff)
                 Padding(
                   padding: const EdgeInsets.only(right: 4),
-                  child: Icon(Icons.support_agent, size: 14, color: Theme.of(context).colorScheme.primary),
+                  child: PhosphorIcon(PhosphorIconsDuotone.headset, size: 14, color: Theme.of(context).colorScheme.primary),
                 ),
               Text(
                 message.senderName,

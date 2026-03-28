@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 
@@ -128,7 +129,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+                        PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
                         const SizedBox(height: 16),
                         Text(
                           'No dogs on your account',
@@ -169,7 +170,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                       },
                       secondary: dog.profileImageUrl != null
                           ? CircleAvatar(backgroundImage: NetworkImage(dog.profileImageUrl!))
-                          : const CircleAvatar(child: Icon(Icons.pets)),
+                          : CircleAvatar(child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
                     );
                   }).toList(),
                   const SizedBox(height: 24),
@@ -183,7 +184,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                     child: InputDecorator(
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.date_range),
+                        prefixIcon: PhosphorIcon(PhosphorIconsDuotone.calendarDots),
                         labelText: 'Boarding Dates',
                       ),
                       child: Text(

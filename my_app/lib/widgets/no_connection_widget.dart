@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../constants/app_colors.dart';
 
 /// A friendly full-screen widget shown when the device has no internet connection.
@@ -26,8 +27,8 @@ class NoConnectionWidget extends StatelessWidget {
                 color: AppColors.grey100,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                Icons.wifi_off_rounded,
+              child: PhosphorIcon(
+                PhosphorIconsDuotone.wifiSlash,
                 size: 64,
                 color: AppColors.grey500,
               ),
@@ -56,7 +57,7 @@ class NoConnectionWidget extends StatelessWidget {
               const SizedBox(height: 28),
               ElevatedButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
+                icon: PhosphorIcon(PhosphorIconsDuotone.arrowClockwise),
                 label: const Text('Try Again'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(

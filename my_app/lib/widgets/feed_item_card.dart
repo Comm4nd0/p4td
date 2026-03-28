@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
@@ -99,7 +100,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                         value: 'delete',
                         child: Row(
                           children: [
-                            Icon(Icons.delete, color: Colors.red),
+                            PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red),
                             SizedBox(width: 8),
                             Text('Delete'),
                           ],
@@ -126,7 +127,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                 errorWidget: (context, url, error) => Container(
                   height: 200,
                   color: Colors.grey[300],
-                  child: const Center(child: Icon(Icons.error)),
+                  child: const Center(child: PhosphorIcon(PhosphorIconsDuotone.warningCircle)),
                 ),
               ),
             )
@@ -228,7 +229,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     setState(() => _showAllComments = true); // Auto expand on new comment
                   }
                 },
-                icon: const Icon(Icons.send, color: AppColors.primary),
+                icon: PhosphorIcon(PhosphorIconsDuotone.paperPlaneTilt, color: AppColors.primary),
               ),
             ],
           ),
@@ -252,7 +253,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
             child: CachedNetworkImage(
               imageUrl: imageUrl,
               placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-              errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
+              errorWidget: (context, url, error) => const PhosphorIcon(PhosphorIconsDuotone.warningCircle, color: Colors.white),
             ),
           ),
         ),
@@ -290,7 +291,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                       color: Colors.grey[300],
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.person, size: 100, color: Colors.grey[600]),
+                    child: PhosphorIcon(PhosphorIconsDuotone.user, size: 100, color: Colors.grey[600]),
                   ),
                 ),
               )
@@ -390,7 +391,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     Text(emoji, style: const TextStyle(fontSize: 24)),
                     if (isSelected) ...[
                        const SizedBox(width: 8),
-                       const Icon(Icons.check, color: AppColors.primary, size: 16),
+                       PhosphorIcon(PhosphorIconsDuotone.check, color: AppColors.primary, size: 16),
                     ],
                   ],
                 ),
@@ -398,8 +399,8 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
             }).toList(),
             tooltip: 'Add Reaction',
              // Use transparent icon button for cleaner look
-            child: Icon(
-              widget.media.userReaction != null ? Icons.thumb_up : Icons.thumb_up_outlined,
+            child: PhosphorIcon(
+              widget.media.userReaction != null ? PhosphorIconsFill.thumbsUp : PhosphorIconsDuotone.thumbsUp,
               color: widget.media.userReaction != null ? AppColors.primary : Colors.grey[600],
               size: 20,
             ),
@@ -537,7 +538,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                 errorWidget: (context, url, error) => Container(
                   height: 250,
                   color: Colors.grey[300],
-                  child: const Center(child: Icon(Icons.error)),
+                  child: const Center(child: PhosphorIcon(PhosphorIconsDuotone.warningCircle)),
                 ),
               )
             else
@@ -552,7 +553,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(50),
               ),
-              child: const Icon(Icons.play_arrow, color: Colors.white, size: 48),
+              child: const PhosphorIcon(PhosphorIconsDuotone.play, color: Colors.white, size: 48),
             ),
           ],
         ),
@@ -582,8 +583,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(50),
                 ),
-                child: Icon(
-                  _isPlaying ? Icons.pause : Icons.play_arrow,
+                child: PhosphorIcon(
+                  _isPlaying ? PhosphorIconsDuotone.pause : PhosphorIconsDuotone.play,
                   color: Colors.white,
                   size: 36,
                 ),

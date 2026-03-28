@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../models/group_media.dart';
@@ -132,29 +133,29 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt),
+              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
               title: const Text('Take Photo'),
               onTap: () => Navigator.pop(context, 'camera_photo'),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library),
+              leading: PhosphorIcon(PhosphorIconsDuotone.images),
               title: const Text('Choose Photo'),
               onTap: () => Navigator.pop(context, 'gallery_photo'),
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.videocam),
+              leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera),
               title: const Text('Record Video'),
               onTap: () => Navigator.pop(context, 'camera_video'),
             ),
             ListTile(
-              leading: const Icon(Icons.video_library),
+              leading: PhosphorIcon(PhosphorIconsDuotone.filmStrip),
               title: const Text('Choose Video'),
               onTap: () => Navigator.pop(context, 'gallery_video'),
             ),
              const Divider(),
             ListTile(
-              leading: const Icon(Icons.library_add),
+              leading: PhosphorIcon(PhosphorIconsDuotone.plusSquare),
               title: const Text('Upload Multiple'),
               onTap: () => Navigator.pop(context, 'multiple'),
             ),
@@ -402,10 +403,10 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                     controller: _searchController,
                     decoration: InputDecoration(
                       hintText: 'Search captions...',
-                      prefixIcon: const Icon(Icons.search, size: 20),
+                      prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass, size: 20),
                       suffixIcon: _searchController.text.isNotEmpty
                           ? IconButton(
-                              icon: const Icon(Icons.clear, size: 20),
+                              icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 20),
                               onPressed: () {
                                 _searchController.clear();
                                 setState(() {});
@@ -423,7 +424,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                   Row(
                     children: [
                       ActionChip(
-                        avatar: const Icon(Icons.calendar_today, size: 16),
+                        avatar: PhosphorIcon(PhosphorIconsDuotone.calendar, size: 16),
                         label: Text(
                           _dateRange != null
                               ? '${dateFormat.format(_dateRange!.start)} – ${dateFormat.format(_dateRange!.end)}'
@@ -434,7 +435,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                       if (_dateRange != null) ...[
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
+                          icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
                           onPressed: () => setState(() => _dateRange = null),
                           visualDensity: VisualDensity.compact,
                         ),
@@ -466,7 +467,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       floatingActionButton: widget.canAddFeedMedia
           ? FloatingActionButton.extended(
               onPressed: _uploadMedia,
-              icon: const Icon(Icons.add),
+              icon: PhosphorIcon(PhosphorIconsDuotone.plus),
               label: const Text('Upload'),
             )
           : null,
@@ -481,8 +482,8 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                     child: Row(
                       children: [
                         FilterChip(
-                          avatar: Icon(
-                            _showFilters ? Icons.filter_list_off : Icons.filter_list,
+                          avatar: PhosphorIcon(
+                            _showFilters ? PhosphorIconsDuotone.funnelSimple : PhosphorIconsDuotone.funnel,
                             size: 18,
                           ),
                           label: Text(hasActiveFilters
@@ -508,7 +509,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey[400]),
+                                    PhosphorIcon(PhosphorIconsDuotone.images, size: 64, color: Colors.grey[400]),
                                     const SizedBox(height: 16),
                                     Text(
                                       'No posts yet',
@@ -532,7 +533,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
-                                        Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                                        PhosphorIcon(PhosphorIconsDuotone.magnifyingGlassMinus, size: 64, color: Colors.grey[400]),
                                         const SizedBox(height: 16),
                                         Text(
                                           'No posts match your filters',

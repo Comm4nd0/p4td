@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
@@ -177,7 +178,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 onPressed: _uploading ? null : _showUploadOptions,
                 icon: _uploading 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
-                  : const Icon(Icons.add_photo_alternate),
+                  : PhosphorIcon(PhosphorIconsDuotone.images),
                 label: Text(_uploading ? 'Uploading...' : 'Add Photo/Video'),
               ),
             ),
@@ -190,7 +191,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       floatingActionButton: widget.isStaff && !_uploading
           ? FloatingActionButton(
               onPressed: _showUploadOptions,
-              child: const Icon(Icons.add_photo_alternate),
+              child: PhosphorIcon(PhosphorIconsDuotone.images),
             )
           : null,
       body: _buildGalleryContent(),
@@ -206,7 +207,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.image),
+              leading: PhosphorIcon(PhosphorIconsDuotone.images),
               title: const Text('Upload Single Photo'),
               onTap: () {
                 Navigator.pop(context);
@@ -214,7 +215,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.collections),
+              leading: PhosphorIcon(PhosphorIconsDuotone.images),
               title: const Text('Upload Multiple Photos'),
               onTap: () {
                 Navigator.pop(context);
@@ -222,7 +223,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.videocam),
+              leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera),
               title: const Text('Upload Video'),
               onTap: () {
                 Navigator.pop(context);
@@ -283,12 +284,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           ? photo.thumbnailUrl!
                           : photo.url,
                         fit: BoxFit.cover,
-                        errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: const Icon(Icons.error)),
+                        errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: PhosphorIcon(PhosphorIconsDuotone.warningCircle)),
                       ),
                     if (photo.isVideo)
                       Container(
                         color: Colors.black26,
-                        child: const Icon(Icons.play_circle_filled, color: Colors.white),
+                        child: PhosphorIcon(PhosphorIconsFill.playCircle, color: Colors.white),
                       ),
                   ],
                 ),
@@ -389,7 +390,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                           child: CachedNetworkImage(
                             imageUrl: photo.url,
                             placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                            errorWidget: (context, url, error) => const Icon(Icons.error),
+                            errorWidget: (context, url, error) => PhosphorIcon(PhosphorIconsDuotone.warningCircle),
                           ),
                         ),
                       );
@@ -521,7 +522,7 @@ class _VideoViewerState extends State<VideoViewer> {
                 ),
                 errorWidget: (context, url, error) => Container(
                   color: Colors.grey[300],
-                  child: const Center(child: Icon(Icons.error)),
+                  child: Center(child: PhosphorIcon(PhosphorIconsDuotone.warningCircle)),
                 ),
               )
             else
@@ -536,7 +537,7 @@ class _VideoViewerState extends State<VideoViewer> {
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(50),
               ),
-              child: const Icon(Icons.play_arrow, color: Colors.white, size: 48),
+              child: PhosphorIcon(PhosphorIconsDuotone.play, color: Colors.white, size: 48),
             ),
           ],
         ),
@@ -566,8 +567,8 @@ class _VideoViewerState extends State<VideoViewer> {
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(50),
                 ),
-                child: Icon(
-                  _isPlaying ? Icons.pause : Icons.play_arrow,
+                child: PhosphorIcon(
+                  _isPlaying ? PhosphorIconsDuotone.pause : PhosphorIconsDuotone.play,
                   color: Colors.white,
                   size: 48,
                 ),

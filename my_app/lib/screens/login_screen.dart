@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../services/auth_service.dart';
 import '../services/no_connection_exception.dart';
 import '../widgets/no_connection_widget.dart';
@@ -129,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.envelope),
                 ),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -140,7 +141,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 decoration: const InputDecoration(
                   labelText: 'Password',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
                 ),
               ),
               Align(

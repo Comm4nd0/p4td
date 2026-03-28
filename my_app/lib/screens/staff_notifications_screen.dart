@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/date_change_request.dart';
@@ -147,7 +148,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.refresh),
+              icon: PhosphorIcon(PhosphorIconsDuotone.arrowClockwise),
               onPressed: _loadRequests,
             ),
           ],
@@ -273,7 +274,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Header
             Row(
               children: [
-                const Icon(Icons.pets, size: 20),
+                PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -310,12 +311,12 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Details
             Row(
               children: [
-                Icon(
+                PhosphorIcon(
                   request.requestType == RequestType.cancel
-                      ? Icons.cancel_outlined
+                      ? PhosphorIconsDuotone.xCircle
                       : request.requestType == RequestType.addDay
-                          ? Icons.add_circle_outline
-                          : Icons.swap_horiz,
+                          ? PhosphorIconsDuotone.plusCircle
+                          : PhosphorIconsDuotone.arrowsLeftRight,
                   color: request.requestType == RequestType.cancel
                       ? Colors.red
                       : request.requestType == RequestType.addDay
@@ -360,7 +361,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                       ],
                     ),
                   ),
-                  const Icon(Icons.arrow_forward, size: 16),
+                  PhosphorIcon(PhosphorIconsDuotone.arrowRight, size: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -382,7 +383,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.attach_money, color: Colors.orange[800], size: 16),
+                    PhosphorIcon(PhosphorIconsDuotone.currencyDollar, color: Colors.orange[800], size: 16),
                     const SizedBox(width: 4),
                     Text(
                       'Customer will be charged',
@@ -450,7 +451,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Header
             Row(
               children: [
-                Icon(Icons.night_shelter, size: 20, color: AppColors.primaryDark),
+                PhosphorIcon(PhosphorIconsDuotone.bed, size: 20, color: AppColors.primaryDark),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -487,7 +488,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Dates
             Row(
               children: [
-                const Icon(Icons.date_range, size: 18, color: Colors.grey),
+                PhosphorIcon(PhosphorIconsDuotone.calendarDots, size: 18, color: Colors.grey),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(

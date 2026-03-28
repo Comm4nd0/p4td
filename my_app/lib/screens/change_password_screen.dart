@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../services/auth_service.dart';
 import '../widgets/password_requirements.dart';
 
@@ -90,7 +91,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: const InputDecoration(
                 labelText: 'New Password',
                 border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock_outline),
+                prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
               ),
             ),
             const SizedBox(height: 12),
@@ -102,7 +103,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: const InputDecoration(
                 labelText: 'Confirm New Password',
                 border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock_outline),
+                prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
               ),
             ),
             const SizedBox(height: 24),
