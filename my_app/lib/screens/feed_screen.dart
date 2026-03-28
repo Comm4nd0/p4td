@@ -203,14 +203,15 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     }
 
     if (file == null) return;
+    final pickedFile = file;
 
     // Show tagging dialog
-    final bytes = await file.readAsBytes();
+    final bytes = await pickedFile.readAsBytes();
     final tagResult = await Navigator.push<MediaTagResult>(
       context,
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => MediaTagDialog(files: [(bytes, file.name, isVideo)]),
+        builder: (_) => MediaTagDialog(files: [(bytes, pickedFile.name, isVideo)]),
       ),
     );
     if (tagResult == null) return; // User cancelled
@@ -220,7 +221,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       _showUploadingDialog();
       await _dataService.uploadGroupMedia(
         fileBytes: bytes,
-        fileName: file.name,
+        fileName: pickedFile.name,
         isVideo: isVideo,
         caption: tagResult.caption,
         taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty
