@@ -11,17 +11,21 @@ import '../services/data_service.dart';
 class FeedItemCard extends StatefulWidget {
   final GroupMedia media;
   final bool isStaff;
+  final bool canAddFeedMedia;
   final Function(GroupMedia) onDelete;
   final Function(String, String) onReaction;
   final Function(String, String) onComment;
+  final Function(GroupMedia)? onEdit;
 
   const FeedItemCard({
     super.key,
     required this.media,
     required this.isStaff,
+    this.canAddFeedMedia = false,
     required this.onDelete,
     required this.onReaction,
     required this.onComment,
+    this.onEdit,
   });
 
   @override
@@ -88,24 +92,38 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     ),
                   ),
                 ),
-                if (widget.isStaff)
+                if (widget.canAddFeedMedia || widget.isStaff)
                   PopupMenuButton<String>(
                     onSelected: (value) {
                       if (value == 'delete') {
                         widget.onDelete(widget.media);
+                      } else if (value == 'edit') {
+                        widget.onEdit?.call(widget.media);
                       }
                     },
                     itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Delete'),
-                          ],
+                      if (widget.canAddFeedMedia || widget.isStaff)
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
+                              SizedBox(width: 8),
+                              Text('Edit'),
+                            ],
+                          ),
                         ),
-                      ),
+                      if (widget.canAddFeedMedia || widget.isStaff)
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red),
+                              SizedBox(width: 8),
+                              Text('Delete'),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
               ],

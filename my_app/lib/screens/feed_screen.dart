@@ -604,10 +604,49 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     return FeedItemCard(
       media: media,
       isStaff: widget.isStaff,
+      canAddFeedMedia: widget.canAddFeedMedia,
       onDelete: _deleteMedia,
+      onEdit: _editMedia,
       onReaction: (mediaId, emoji) => _toggleReaction(mediaId, emoji),
       onComment: (mediaId, text) => _addComment(mediaId, text),
     );
+  }
+
+  Future<void> _editMedia(GroupMedia media) async {
+    final result = await showModalBottomSheet<_EditMediaResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _EditMediaSheet(
+        media: media,
+        allDogs: _allDogs,
+      ),
+    );
+    if (result == null) return;
+
+    try {
+      final updated = await _dataService.updateGroupMedia(
+        media.id,
+        caption: result.caption,
+        taggedDogIds: result.taggedDogIds,
+      );
+      setState(() {
+        final index = _feed.indexWhere((m) => m.id == media.id);
+        if (index != -1) {
+          _feed[index] = updated;
+        }
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Updated successfully'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<void> _addComment(String mediaId, String text) async {
@@ -639,5 +678,137 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         );
       }
     }
+  }
+}
+
+class _EditMediaResult {
+  final String caption;
+  final List<String> taggedDogIds;
+
+  _EditMediaResult({required this.caption, required this.taggedDogIds});
+}
+
+class _EditMediaSheet extends StatefulWidget {
+  final GroupMedia media;
+  final List<Dog> allDogs;
+
+  const _EditMediaSheet({required this.media, required this.allDogs});
+
+  @override
+  State<_EditMediaSheet> createState() => _EditMediaSheetState();
+}
+
+class _EditMediaSheetState extends State<_EditMediaSheet> {
+  late TextEditingController _captionController;
+  late Set<String> _selectedDogIds;
+
+  @override
+  void initState() {
+    super.initState();
+    _captionController = TextEditingController(text: widget.media.caption ?? '');
+    _selectedDogIds = widget.media.taggedDogs.map((d) => d.id).toSet();
+  }
+
+  @override
+  void dispose() {
+    _captionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.65,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            // Handle bar
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            // Title
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text(
+                    'Edit Post',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () {
+                      Navigator.pop(
+                        context,
+                        _EditMediaResult(
+                          caption: _captionController.text.trim(),
+                          taggedDogIds: _selectedDogIds.toList(),
+                        ),
+                      );
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            // Content
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Caption
+                  const Text(
+                    'Caption',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _captionController,
+                    decoration: const InputDecoration(
+                      hintText: 'Write a caption (optional)',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    maxLines: 3,
+                    textCapitalization: TextCapitalization.sentences,
+                  ),
+                  const SizedBox(height: 20),
+                  // Tagged dogs
+                  const Text(
+                    'Tagged Dogs',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  if (widget.allDogs.isNotEmpty)
+                    DogMultiSelectTypeahead(
+                      dogs: widget.allDogs,
+                      selectedDogIds: _selectedDogIds,
+                      onChanged: (updated) {
+                        setState(() => _selectedDogIds = updated);
+                      },
+                    )
+                  else
+                    Text('No dogs available', style: TextStyle(color: Colors.grey[500])),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
