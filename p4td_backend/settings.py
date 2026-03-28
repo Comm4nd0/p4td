@@ -75,6 +75,9 @@ INSTALLED_APPS = [
     'website',
 ]
 
+MIGRATION_MODULES = {
+    'django_summernote': 'django_summernote_migrations',
+}
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
