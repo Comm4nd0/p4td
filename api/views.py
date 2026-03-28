@@ -556,7 +556,11 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return GroupMedia.objects.all()
+        qs = GroupMedia.objects.prefetch_related('tagged_dogs').all()
+        dog_id = self.request.query_params.get('dog_id')
+        if dog_id:
+            qs = qs.filter(tagged_dogs__id=dog_id).distinct()
+        return qs
 
     def get_permissions(self):
         # Only staff can create, update, or delete

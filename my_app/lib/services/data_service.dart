@@ -38,17 +38,19 @@ abstract class DataService {
   Future<List<OwnerProfile>> getOwners();
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
-  Future<List<gm.GroupMedia>> getFeed();
+  Future<List<gm.GroupMedia>> getFeed({String? dogId});
   Future<void> uploadGroupMedia({
     required Uint8List fileBytes,
     required String fileName,
     required bool isVideo,
     String? caption,
     Uint8List? thumbnailBytes,
+    List<String>? taggedDogIds,
   });
   Future<void> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
+    List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   });
   Future<void> deleteGroupMedia(String mediaId);
@@ -781,12 +783,14 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<gm.GroupMedia>> getFeed() async {
+  Future<List<gm.GroupMedia>> getFeed({String? dogId}) async {
     final cache = CacheService();
     try {
       final headers = await _getHeaders();
+      var url = '${AuthService.baseUrl}/api/feed/';
+      if (dogId != null) url += '?dog_id=$dogId';
       final response = await http.get(
-        Uri.parse('${AuthService.baseUrl}/api/feed/'),
+        Uri.parse(url),
         headers: headers,
       );
 
@@ -812,6 +816,7 @@ class ApiDataService implements DataService {
     required bool isVideo,
     String? caption,
     Uint8List? thumbnailBytes,
+    List<String>? taggedDogIds,
   }) async {
     final token = await _authService.getToken();
     var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/feed/'));
@@ -820,6 +825,11 @@ class ApiDataService implements DataService {
     request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
     if (caption != null && caption.isNotEmpty) {
       request.fields['caption'] = caption;
+    }
+    if (taggedDogIds != null && taggedDogIds.isNotEmpty) {
+      for (final dogId in taggedDogIds) {
+        request.files.add(http.MultipartFile.fromString('tagged_dog_ids', dogId));
+      }
     }
 
     request.files.add(http.MultipartFile.fromBytes(
@@ -863,6 +873,7 @@ class ApiDataService implements DataService {
   Future<void> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
+    List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   }) async {
     for (int i = 0; i < files.length; i++) {
@@ -874,6 +885,9 @@ class ApiDataService implements DataService {
         fileName: fileName,
         isVideo: isVideo,
         caption: caption,
+        taggedDogIds: taggedDogIdsByFile != null && i < taggedDogIdsByFile.length
+            ? taggedDogIdsByFile[i]
+            : null,
       );
       onProgress?.call(i + 1, files.length);
     }
@@ -1984,7 +1998,7 @@ class MockDataService implements DataService {
 
 
   @override
-  Future<List<gm.GroupMedia>> getFeed() async => [];
+  Future<List<gm.GroupMedia>> getFeed({String? dogId}) async => [];
   @override
   Future<Map<String, int>> getFeedTodayStats() async => {};
 
@@ -1995,12 +2009,14 @@ class MockDataService implements DataService {
     required bool isVideo,
     String? caption,
     Uint8List? thumbnailBytes,
+    List<String>? taggedDogIds,
   }) async {}
 
   @override
   Future<void> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
+    List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   }) async {}
 
