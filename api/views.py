@@ -1399,8 +1399,7 @@ class DogNoteViewSet(viewsets.ModelViewSet):
         queryset = DogNote.objects.select_related('dog', 'related_dog', 'created_by')
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
-            from django.db.models import Q
-            queryset = queryset.filter(Q(dog_id=dog_id) | Q(related_dog_id=dog_id))
+            queryset = queryset.filter(dog_id=dog_id)
         note_type = self.request.query_params.get('note_type')
         if note_type:
             queryset = queryset.filter(note_type=note_type)
