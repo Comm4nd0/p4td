@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../models/support_query.dart';
 import '../models/owner_profile.dart';
@@ -299,7 +300,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: widget.isStaff ? _showStaffNewQueryDialog : _showNewQueryDialog,
-        icon: const Icon(Icons.add),
+        icon: PhosphorIcon(PhosphorIconsDuotone.plus),
         label: Text(widget.isStaff ? 'Message Owner' : 'New Message'),
       ),
       body: Column(
@@ -332,7 +333,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.question_answer, size: 64, color: Colors.grey[400]),
+                                  PhosphorIcon(PhosphorIconsDuotone.chats, size: 64, color: Colors.grey[400]),
                                   const SizedBox(height: 16),
                                   Text(
                                     _filter == 'OPEN'
@@ -396,8 +397,8 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
             children: [
               Row(
                 children: [
-                  Icon(
-                    isOpen ? Icons.help_outline : Icons.check_circle_outline,
+                  PhosphorIcon(
+                    isOpen ? PhosphorIconsDuotone.question : PhosphorIconsRegular.checkCircle,
                     size: 20,
                     color: isOpen ? Colors.orange : Colors.green,
                   ),

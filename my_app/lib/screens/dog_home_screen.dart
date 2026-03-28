@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -77,7 +78,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           children: allOwners.map((owner) => SimpleDialogOption(
             onPressed: () => Navigator.pop(context, owner.userId),
             child: ListTile(
-              leading: const Icon(Icons.person),
+              leading: PhosphorIcon(PhosphorIconsDuotone.user),
               title: Text(owner.username),
               subtitle: Text(owner.email),
               dense: true,
@@ -131,7 +132,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           children: allOwners.map((owner) => SimpleDialogOption(
             onPressed: () => Navigator.pop(context, owner),
             child: ListTile(
-              leading: const Icon(Icons.person),
+              leading: PhosphorIcon(PhosphorIconsDuotone.user),
               title: Text(owner.username),
               subtitle: Text(owner.email),
               dense: true,
@@ -449,7 +450,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.orange[800]),
+                    PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.orange[800]),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -513,7 +514,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.warning, color: Colors.red[800]),
+                    PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.red[800]),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -583,7 +584,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     ],
                   ),
                 ),
-                const Icon(Icons.arrow_forward),
+                PhosphorIcon(PhosphorIconsDuotone.arrowRight),
                 Expanded(
                   child: Column(
                     children: [
@@ -606,7 +607,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.orange[800]),
+                    PhosphorIcon(PhosphorIconsDuotone.info, color: Colors.orange[800]),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -821,7 +822,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.add_circle_outline, color: Colors.green[800], size: 18),
+                    PhosphorIcon(PhosphorIconsDuotone.plusCircle, color: Colors.green[800], size: 18),
                     const SizedBox(width: 8),
                     Text(
                       DateFormat('EEE, d MMMM yyyy').format(date),
@@ -961,7 +962,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     child: InputDecorator(
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.date_range),
+                        prefixIcon: PhosphorIcon(PhosphorIconsDuotone.calendarDots),
                         labelText: 'Boarding Dates',
                         isDense: true,
                       ),
@@ -1091,8 +1092,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               dense: true,
-              leading: Icon(
-                Icons.hotel,
+              leading: PhosphorIcon(
+                PhosphorIconsDuotone.bed,
                 color: _getBoardingStatusColor(request.status),
               ),
               title: Text(
@@ -1118,7 +1119,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   ),
                   if (request.specialInstructions != null && request.specialInstructions!.isNotEmpty) ...[
                     const SizedBox(width: 8),
-                    Icon(Icons.notes, size: 14, color: Colors.grey[500]),
+                    PhosphorIcon(PhosphorIconsDuotone.notepad, size: 14, color: Colors.grey[500]),
                   ],
                 ],
               ),
@@ -1173,12 +1174,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             dense: true,
-            leading: Icon(
+            leading: PhosphorIcon(
               request.requestType == RequestType.cancel
-                  ? Icons.cancel_outlined
+                  ? PhosphorIconsDuotone.xCircle
                   : request.requestType == RequestType.addDay
-                      ? Icons.add_circle_outline
-                      : Icons.swap_horiz,
+                      ? PhosphorIconsDuotone.plusCircle
+                      : PhosphorIconsDuotone.arrowsLeftRight,
               color: request.requestType == RequestType.cancel
                   ? Colors.red
                   : request.requestType == RequestType.addDay
@@ -1246,12 +1247,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         actions: [
           if (widget.isStaff && _dog.ownerDetails != null)
             IconButton(
-              icon: const Icon(Icons.message),
+              icon: PhosphorIcon(PhosphorIconsDuotone.chatCircle),
               tooltip: 'Contact Owner',
               onPressed: _contactOwner,
             ),
           IconButton(
-            icon: const Icon(Icons.edit),
+            icon: PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
             onPressed: () async {
               final updatedDog = await Navigator.push<Dog>(
                 context,
@@ -1280,7 +1281,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   value: 'assign_owner',
                   child: Row(
                     children: [
-                      Icon(Icons.person_add, color: Colors.black54),
+                      PhosphorIcon(PhosphorIconsDuotone.userPlus, color: Colors.black54),
                       SizedBox(width: 8),
                       Text('Assign Owner'),
                     ],
@@ -1290,7 +1291,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete, color: Colors.red),
+                      PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red),
                       SizedBox(width: 8),
                       Text('Delete Dog', style: TextStyle(color: Colors.red)),
                     ],
@@ -1318,7 +1319,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                               ? CachedNetworkImageProvider(_dog.profileImageUrl!) 
                               : null,
                           child: _dog.profileImageUrl == null 
-                              ? const Icon(Icons.pets, size: 40) 
+                              ? PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 40)
                               : null,
                         ),
                       ),
@@ -1334,7 +1335,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                             if (widget.isStaff && _dog.ownerDetails != null)
                               TextButton.icon(
                                 onPressed: _showOwnerDetails,
-                                icon: const Icon(Icons.person, size: 18),
+                                icon: PhosphorIcon(PhosphorIconsDuotone.user, size: 18),
                                 label: Text(_dog.additionalOwners.isEmpty
                                   ? 'Owner Info'
                                   : 'Owners (${1 + _dog.additionalOwners.length})'),
@@ -1362,7 +1363,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.access_time, color: AppColors.primary, size: 18),
+                              PhosphorIcon(PhosphorIconsDuotone.clock, color: AppColors.primary, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 'Pickup: 08:00 - 09:30',
@@ -1373,7 +1374,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           const SizedBox(height: 4),
                           Row(
                             children: [
-                              Icon(Icons.access_time, color: AppColors.primary, size: 18),
+                              PhosphorIcon(PhosphorIconsDuotone.clock, color: AppColors.primary, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 'Drop-off: 15:30 - 16:45',
@@ -1464,7 +1465,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       width: double.infinity,
                       child: OutlinedButton.icon(
                         onPressed: _showRequestAdditionalDays,
-                        icon: const Icon(Icons.add_circle_outline),
+                        icon: PhosphorIcon(PhosphorIconsDuotone.plusCircle),
                         label: const Text('Request Additional Days'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.green[700],
@@ -1479,7 +1480,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       width: double.infinity,
                       child: OutlinedButton.icon(
                         onPressed: _showRequestAdditionalDays,
-                        icon: const Icon(Icons.add_circle_outline),
+                        icon: PhosphorIcon(PhosphorIconsDuotone.plusCircle),
                         label: const Text('Add Additional Days'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.green[700],
@@ -1502,7 +1503,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                             ),
                           );
                         },
-                        icon: const Icon(Icons.note_alt_outlined),
+                        icon: PhosphorIcon(PhosphorIconsDuotone.notepad),
                         label: const Text('Compatibility & Notes'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.primary,
@@ -1510,20 +1511,20 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _showRequestBoarding,
-                        icon: const Icon(Icons.hotel),
-                        label: const Text('Request Boarding'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.deepPurple,
-                          side: BorderSide(color: Colors.deepPurple[200]!),
-                        ),
+                  ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showRequestBoarding,
+                      icon: PhosphorIcon(PhosphorIconsDuotone.bed),
+                      label: const Text('Request Boarding'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.deepPurple,
+                        side: BorderSide(color: Colors.deepPurple[200]!),
                       ),
                     ),
-                  ],
+                  ),
                   _buildRequestsSection(),
                   if (widget.isStaff) _buildBoardingRequestsSection(),
                 ],

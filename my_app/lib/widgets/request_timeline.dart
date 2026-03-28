@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 
@@ -54,7 +55,7 @@ class RequestTimeline extends StatelessWidget {
           // Step 1: Submitted (always active)
           _buildStep(
             color: activeColor,
-            icon: Icons.send,
+            icon: PhosphorIconsDuotone.paperPlaneTilt,
             label: 'Submitted',
             detail: dateFmt.format(createdAt),
             labelColor: activeTextColor,
@@ -65,7 +66,7 @@ class RequestTimeline extends StatelessWidget {
           // Step 2: Under Review
           _buildStep(
             color: _isPending ? activeColor : inactiveColor,
-            icon: Icons.hourglass_top,
+            icon: PhosphorIconsDuotone.hourglass,
             label: _isPending ? 'Under Review' : 'Reviewed',
             detail: _isPending ? 'Awaiting review' : '',
             labelColor: _isPending ? activeTextColor : inactiveTextColor,
@@ -82,8 +83,8 @@ class RequestTimeline extends StatelessWidget {
           _buildStep(
             color: step3Color,
             icon: _isDenied
-                ? Icons.cancel
-                : (_isApproved ? Icons.check_circle : Icons.circle_outlined),
+                ? PhosphorIconsFill.xCircle
+                : (_isApproved ? PhosphorIconsFill.checkCircle : PhosphorIconsDuotone.circle),
             label: _isDenied
                 ? 'Denied'
                 : (_isApproved ? 'Approved' : 'Pending'),
@@ -117,7 +118,7 @@ class RequestTimeline extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: color, width: 2),
           ),
-          child: Icon(icon, size: 16, color: color),
+          child: PhosphorIcon(icon, size: 16, color: color),
         ),
         const SizedBox(height: 4),
         Text(

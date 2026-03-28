@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
@@ -109,14 +110,14 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
     }
   }
 
-  IconData _iconForType(DogNoteType type) {
+  PhosphorIconData _iconForType(DogNoteType type) {
     switch (type) {
       case DogNoteType.compatibility:
-        return Icons.people;
+        return PhosphorIconsDuotone.users;
       case DogNoteType.behavioral:
-        return Icons.psychology;
+        return PhosphorIconsDuotone.brain;
       case DogNoteType.grouping:
-        return Icons.groups;
+        return PhosphorIconsDuotone.usersThree;
     }
   }
 
@@ -126,7 +127,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
       appBar: AppBar(title: Text('${widget.dogName} - Notes')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addNote,
-        icon: const Icon(Icons.add),
+        icon: PhosphorIcon(PhosphorIconsDuotone.plus),
         label: const Text('Add Note'),
       ),
       body: _loading
@@ -143,7 +144,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.note_add, size: 64, color: Colors.grey[400]),
+                                PhosphorIcon(PhosphorIconsDuotone.notePencil, size: 64, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
                                 Text('No notes yet', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
                                 const SizedBox(height: 8),
@@ -171,7 +172,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(
+                                  PhosphorIcon(
                                     _iconForType(note.noteType),
                                     size: 20,
                                     color: AppColors.primary,
@@ -189,14 +190,14 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Icon(
-                                    note.isPositive ? Icons.thumb_up : Icons.thumb_down,
+                                  PhosphorIcon(
+                                    note.isPositive ? PhosphorIconsDuotone.thumbsUp : PhosphorIconsDuotone.thumbsDown,
                                     size: 16,
                                     color: note.isPositive ? AppColors.success : AppColors.error,
                                   ),
                                   const Spacer(),
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, size: 20),
+                                    icon: PhosphorIcon(PhosphorIconsDuotone.trash, size: 20),
                                     onPressed: () => _deleteNote(note),
                                     color: AppColors.error,
                                     padding: EdgeInsets.zero,
@@ -208,7 +209,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    const Icon(Icons.pets, size: 16, color: AppColors.grey600),
+                                    PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 16, color: AppColors.grey600),
                                     const SizedBox(width: 4),
                                     Text(
                                       'With ${note.relatedDogName}',
@@ -292,9 +293,9 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
             const Text('Sentiment', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: true, label: Text('Positive'), icon: Icon(Icons.thumb_up, size: 16)),
-                ButtonSegment(value: false, label: Text('Negative'), icon: Icon(Icons.thumb_down, size: 16)),
+              segments: [
+                ButtonSegment(value: true, label: const Text('Positive'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsUp, size: 16)),
+                ButtonSegment(value: false, label: const Text('Negative'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsDown, size: 16)),
               ],
               selected: {_isPositive},
               onSelectionChanged: (set) => setState(() => _isPositive = set.first),

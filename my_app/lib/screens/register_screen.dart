@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
@@ -200,7 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.envelope),
                   helperText: 'This will be your login',
                 ),
                 keyboardType: TextInputType.emailAddress,
@@ -216,7 +217,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Password',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
                 ),
                 obscureText: true,
                 validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
@@ -227,7 +228,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Confirm Password',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_outline),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
                 ),
                 obscureText: true,
                 validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
@@ -243,7 +244,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Phone Number',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.phone),
                 ),
                 keyboardType: TextInputType.phone,
               ),
@@ -253,7 +254,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Address',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.home),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.house),
                 ),
                 maxLines: 2,
               ),

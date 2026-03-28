@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/contact_inquiry.dart';
@@ -132,12 +133,12 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
         title: const Text('Inquiry Details'),
         actions: [
           IconButton(
-            icon: Icon(_isRead ? Icons.mark_email_unread : Icons.mark_email_read),
+            icon: PhosphorIcon(_isRead ? PhosphorIconsDuotone.envelope : PhosphorIconsDuotone.envelopeOpen),
             tooltip: _isRead ? 'Mark as unread' : 'Mark as read',
             onPressed: _toggleReadStatus,
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline),
+            icon: PhosphorIcon(PhosphorIconsDuotone.trash),
             tooltip: 'Delete inquiry',
             onPressed: _deleteInquiry,
           ),
@@ -220,7 +221,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.reply, size: 14, color: Colors.green.shade800),
+                                PhosphorIcon(PhosphorIconsDuotone.arrowUUpLeft, size: 14, color: Colors.green.shade800),
                                 const SizedBox(width: 4),
                                 Text(
                                   'Replied',
@@ -235,7 +236,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
                           ),
                         ],
                         const Spacer(),
-                        Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
+                        PhosphorIcon(PhosphorIconsDuotone.clock, size: 14, color: Colors.grey[500]),
                         const SizedBox(width: 4),
                         Text(
                           DateFormat('d MMM yyyy, HH:mm').format(inquiry.createdAt.toLocal()),
@@ -273,7 +274,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: _replyViaEmail,
-                icon: const Icon(Icons.email),
+                icon: PhosphorIcon(PhosphorIconsDuotone.envelope),
                 label: Text(_isReplied ? 'Reply Again via Email' : 'Reply via Email'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),

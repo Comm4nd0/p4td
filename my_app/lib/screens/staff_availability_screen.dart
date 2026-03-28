@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/staff_availability.dart';
@@ -217,8 +218,8 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                           backgroundColor: isAvailable
                               ? AppColors.success.withAlpha(30)
                               : AppColors.grey200,
-                          child: Icon(
-                            isAvailable ? Icons.check : Icons.close,
+                          child: PhosphorIcon(
+                            isAvailable ? PhosphorIconsFill.check : PhosphorIconsDuotone.x,
                             color: isAvailable ? AppColors.success : AppColors.grey500,
                           ),
                         ),
@@ -233,7 +234,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              icon: Icon(Icons.edit_note, color: AppColors.grey500),
+                              icon: PhosphorIcon(PhosphorIconsDuotone.pencilSimple, color: AppColors.grey500),
                               onPressed: () => _editNote(day),
                               tooltip: 'Edit note',
                             ),
@@ -264,7 +265,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
               onPressed: _saving ? null : _saveMyAvailability,
               icon: _saving
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.save),
+                  : PhosphorIcon(PhosphorIconsDuotone.floppyDisk),
               label: const Text('Save Availability'),
             ),
           ),
@@ -311,7 +312,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           // Request a day off button
           FilledButton.icon(
             onPressed: _showRequestDayOffDialog,
-            icon: const Icon(Icons.add),
+            icon: PhosphorIcon(PhosphorIconsDuotone.plus),
             label: const Text('Request Day Off'),
           ),
           const SizedBox(height: 16),
@@ -332,7 +333,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
               padding: const EdgeInsets.symmetric(vertical: 32),
               child: Column(
                 children: [
-                  Icon(Icons.event_available, size: 48, color: AppColors.grey400),
+                  PhosphorIcon(PhosphorIconsDuotone.calendarCheck, size: 48, color: AppColors.grey400),
                   const SizedBox(height: 8),
                   Text(
                     'No day off requests',
@@ -356,17 +357,17 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     final isPast = request.date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
 
     Color statusColor;
-    IconData statusIcon;
+    PhosphorIconData statusIcon;
     switch (request.status) {
       case DayOffStatus.pending:
         statusColor = AppColors.warning;
-        statusIcon = Icons.hourglass_top;
+        statusIcon = PhosphorIconsDuotone.hourglass;
       case DayOffStatus.approved:
         statusColor = AppColors.success;
-        statusIcon = Icons.check_circle;
+        statusIcon = PhosphorIconsFill.checkCircle;
       case DayOffStatus.denied:
         statusColor = AppColors.error;
-        statusIcon = Icons.cancel;
+        statusIcon = PhosphorIconsFill.xCircle;
     }
 
     return Card(
@@ -374,7 +375,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: statusColor.withAlpha(30),
-          child: Icon(statusIcon, color: statusColor),
+          child: PhosphorIcon(statusIcon, color: statusColor),
         ),
         title: Text(dateStr),
         subtitle: Column(
@@ -392,7 +393,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         ),
         trailing: (request.status == DayOffStatus.pending && !isPast)
             ? IconButton(
-                icon: const Icon(Icons.close, size: 20),
+                icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 20),
                 onPressed: () => _cancelDayOffRequest(request),
                 tooltip: 'Cancel request',
               )
@@ -460,7 +461,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                 CircleAvatar(
                   backgroundColor: AppColors.warning.withAlpha(30),
                   radius: 18,
-                  child: const Icon(Icons.person, color: AppColors.warning, size: 20),
+                  child: PhosphorIcon(PhosphorIconsDuotone.user, color: AppColors.warning, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -487,7 +488,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
               children: [
                 OutlinedButton.icon(
                   onPressed: () => _denyDayOffRequest(request),
-                  icon: const Icon(Icons.close, size: 18),
+                  icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
                   label: const Text('Deny'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.error,
@@ -497,7 +498,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                 const SizedBox(width: 8),
                 FilledButton.icon(
                   onPressed: () => _approveDayOffRequest(request),
-                  icon: const Icon(Icons.check, size: 18),
+                  icon: PhosphorIcon(PhosphorIconsDuotone.check, size: 18),
                   label: const Text('Approve'),
                   style: FilledButton.styleFrom(backgroundColor: AppColors.success),
                 ),
@@ -705,7 +706,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                       spacing: 6,
                       runSpacing: 4,
                       children: available.map((s) => Chip(
-                        avatar: const Icon(Icons.check_circle, size: 16, color: AppColors.success),
+                        avatar: PhosphorIcon(PhosphorIconsFill.checkCircle, size: 16, color: AppColors.success),
                         label: Text(s['name'] as String, style: const TextStyle(fontSize: 13)),
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -718,7 +719,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                       spacing: 6,
                       runSpacing: 4,
                       children: unavailable.map((s) => Chip(
-                        avatar: const Icon(Icons.cancel, size: 16, color: AppColors.error),
+                        avatar: PhosphorIcon(PhosphorIconsFill.xCircle, size: 16, color: AppColors.error),
                         label: Text(s['name'] as String, style: TextStyle(fontSize: 13, color: AppColors.grey600)),
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,

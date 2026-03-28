@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
@@ -88,7 +89,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.mail_outline, size: 64, color: Colors.grey[400]),
+                                      PhosphorIcon(PhosphorIconsDuotone.envelope, size: 64, color: Colors.grey[400]),
                                       const SizedBox(height: 16),
                                       Text(
                                         _filter == 'UNREAD'
@@ -153,7 +154,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
           color: Colors.red,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Icon(Icons.delete, color: Colors.white),
+        child: PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.white),
       ),
       confirmDismiss: (_) async {
         return await showDialog<bool>(
@@ -193,12 +194,12 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(
+                    PhosphorIcon(
                       inquiry.isReplied
-                          ? Icons.reply
+                          ? PhosphorIconsDuotone.arrowUUpLeft
                           : inquiry.isRead
-                              ? Icons.mail_outline
-                              : Icons.mark_email_unread,
+                              ? PhosphorIconsDuotone.envelope
+                              : PhosphorIconsDuotone.envelope,
                       size: 20,
                       color: inquiry.isReplied
                           ? Colors.green

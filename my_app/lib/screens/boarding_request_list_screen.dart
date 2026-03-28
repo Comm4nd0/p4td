@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../constants/app_colors.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
@@ -87,8 +88,8 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
             unselectedLabelColor: AppColors.cream,
             indicatorColor: AppColors.cream,
             tabs: [
-              Tab(icon: Icon(Icons.list), text: 'List'),
-              Tab(icon: Icon(Icons.calendar_month), text: 'Calendar'),
+              Tab(icon: PhosphorIcon(PhosphorIconsDuotone.listDashes), text: 'List'),
+              Tab(icon: PhosphorIcon(PhosphorIconsDuotone.calendar), text: 'Calendar'),
             ],
           ),
         ),
@@ -232,10 +233,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                       child: ListTile(
-                        leading: Icon(Icons.pets, color: _getStatusColor(request.status)),
+                        leading: PhosphorIcon(PhosphorIconsDuotone.pawPrint, color: _getStatusColor(request.status)),
                         title: Text(request.dogNames.join(', ')),
                         subtitle: Text(request.status.toString().split('.').last.toUpperCase()),
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: PhosphorIcon(PhosphorIconsDuotone.caretRight),
                         onTap: () {
                            // Could navigate to detail view if needed
                         },

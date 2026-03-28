@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../services/auth_service.dart';
 import '../widgets/password_requirements.dart';
 
@@ -211,7 +212,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Email',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.email),
+                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.envelope),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   autofocus: true,
@@ -241,7 +242,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Reset Code',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock_clock),
+                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lockKey),
                     hintText: '000000',
                   ),
                   keyboardType: TextInputType.number,
@@ -281,7 +282,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: const InputDecoration(
                     labelText: 'New Password',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock),
+                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
                   ),
                   autofocus: true,
                 ),
@@ -294,7 +295,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Confirm Password',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock_outline),
+                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
                   ),
                 ),
                 const SizedBox(height: 24),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -62,6 +63,14 @@ class StaffDailyAssignmentsScreenState
   }
 
   @override
+  void didUpdateWidget(covariant StaffDailyAssignmentsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialStaffId != oldWidget.initialStaffId) {
+      setState(() => _selectedStaffId = widget.initialStaffId);
+    }
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
     _dateScrollController.dispose();
@@ -89,7 +98,6 @@ class StaffDailyAssignmentsScreenState
   }
 
   Future<void> _loadStaffMembers() async {
-    if (!widget.canAssignDogs) return;
     try {
       final staff = await _dataService.getStaffMembers();
       if (mounted) {
@@ -100,7 +108,6 @@ class StaffDailyAssignmentsScreenState
   }
 
   Future<void> _loadAvailableStaff(DateTime date) async {
-    if (!widget.canAssignDogs) return;
     try {
       final available = await _dataService.getAvailableStaffForDate(date);
       if (mounted) {
@@ -126,9 +133,7 @@ class StaffDailyAssignmentsScreenState
     if (!forceReload && _assignmentCache.containsKey(key)) return;
     setState(() => _loadingDates.add(key));
     try {
-      final assignments = widget.canAssignDogs
-          ? await _dataService.getTodayAssignments(date: date)
-          : await _dataService.getMyAssignments(date: date);
+      final assignments = await _dataService.getTodayAssignments(date: date);
       if (mounted) {
         setState(() {
           _assignmentCache[key] = assignments;
@@ -337,7 +342,7 @@ class StaffDailyAssignmentsScreenState
                             fit: BoxFit.cover,
                           ),
                         )
-                      : const CircleAvatar(child: Icon(Icons.pets)),
+                      : CircleAvatar(child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
                 );
               },
             ),
@@ -402,16 +407,16 @@ class StaffDailyAssignmentsScreenState
     }
   }
 
-  IconData _statusIcon(AssignmentStatus status) {
+  PhosphorIconData _statusIcon(AssignmentStatus status) {
     switch (status) {
       case AssignmentStatus.assigned:
-        return Icons.assignment;
+        return PhosphorIconsDuotone.clipboardText;
       case AssignmentStatus.pickedUp:
-        return Icons.directions_car;
+        return PhosphorIconsDuotone.car;
       case AssignmentStatus.atDaycare:
-        return Icons.home;
+        return PhosphorIconsDuotone.house;
       case AssignmentStatus.droppedOff:
-        return Icons.check_circle;
+        return PhosphorIconsFill.checkCircle;
     }
   }
 
@@ -436,7 +441,7 @@ class StaffDailyAssignmentsScreenState
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.swap_horiz),
+              leading: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight),
               title: const Text('Reassign'),
               subtitle: Text('Assign ${assignment.dogName} to a different staff member'),
               onTap: () {
@@ -445,7 +450,7 @@ class StaffDailyAssignmentsScreenState
               },
             ),
             ListTile(
-              leading: Icon(Icons.person_remove, color: Colors.red[700]),
+              leading: PhosphorIcon(PhosphorIconsDuotone.userMinus, color: Colors.red[700]),
               title: Text('Unassign', style: TextStyle(color: Colors.red[700])),
               subtitle: Text('Remove ${assignment.dogName} from ${assignment.staffMemberName}'),
               onTap: () {
@@ -580,7 +585,7 @@ class StaffDailyAssignmentsScreenState
                     child: Row(
                       children: [
                         Icon(
-                          isAvailable ? Icons.circle : Icons.circle_outlined,
+                          isAvailable ? PhosphorIconsDuotone.circle : PhosphorIconsDuotone.circle,
                           size: 10,
                           color: isAvailable ? AppColors.success : AppColors.grey400,
                         ),
@@ -651,7 +656,7 @@ class StaffDailyAssignmentsScreenState
             children: [
               Row(
                 children: [
-                  const Icon(Icons.info_outline),
+                  PhosphorIcon(PhosphorIconsDuotone.info),
                   const SizedBox(width: 8),
                   Text(
                     'Pickup Instructions - ${assignment.dogName}',
@@ -705,7 +710,7 @@ class StaffDailyAssignmentsScreenState
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.traffic, color: Colors.orange),
+            PhosphorIcon(PhosphorIconsDuotone.path, color: Colors.orange),
             SizedBox(width: 8),
             Text('Traffic Alert'),
           ],
@@ -738,12 +743,12 @@ class StaffDailyAssignmentsScreenState
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, 'pickup'),
-            icon: const Icon(Icons.arrow_upward, size: 18),
+            icon: PhosphorIcon(PhosphorIconsDuotone.arrowUp, size: 18),
             label: const Text('Pickup'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, 'dropoff'),
-            icon: const Icon(Icons.arrow_downward, size: 18),
+            icon: PhosphorIcon(PhosphorIconsDuotone.arrowDown, size: 18),
             label: const Text('Drop-off'),
           ),
         ],
@@ -845,7 +850,7 @@ class StaffDailyAssignmentsScreenState
 
   Widget _buildSortButton() {
     return PopupMenuButton<DogSortOption>(
-      icon: const Icon(Icons.sort),
+      icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
       onSelected: (option) => setState(() => _sortOption = option),
       itemBuilder: (context) => DogSortOption.values.map((option) {
@@ -854,7 +859,7 @@ class StaffDailyAssignmentsScreenState
           child: Row(
             children: [
               if (_sortOption == option)
-                const Icon(Icons.check, size: 18)
+                PhosphorIcon(PhosphorIconsDuotone.check, size: 18)
               else
                 const SizedBox(width: 18),
               const SizedBox(width: 8),
@@ -895,8 +900,8 @@ class StaffDailyAssignmentsScreenState
                     value: staffId,
                     child: Row(
                       children: [
-                        Icon(
-                          isAvailable ? Icons.circle : Icons.circle_outlined,
+                        PhosphorIcon(
+                          PhosphorIconsDuotone.circle,
                           size: 10,
                           color: isAvailable ? AppColors.success : AppColors.grey400,
                         ),
@@ -932,7 +937,7 @@ class StaffDailyAssignmentsScreenState
     return Column(
       children: [
         _buildDateSelector(),
-        if (widget.canAssignDogs && _staffMembers.isNotEmpty) ...[
+        if (_staffMembers.isNotEmpty) ...[
           _buildStaffFilter(),
           const SizedBox(height: 8),
         ] else ...[
@@ -977,7 +982,7 @@ class StaffDailyAssignmentsScreenState
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.pets, size: 64, color: Colors.grey[400]),
+                              PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
                               const SizedBox(height: 16),
                               Text(
                                 _selectedStaffId != null
@@ -1041,14 +1046,14 @@ class StaffDailyAssignmentsScreenState
                         width: 48,
                         height: 48,
                         color: Colors.grey[200],
-                        child: const Icon(Icons.pets),
+                        child: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
                       ),
                       errorWidget: (context, url, error) =>
-                          const CircleAvatar(radius: 24, child: Icon(Icons.pets)),
+                          CircleAvatar(radius: 24, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
                     ),
                   )
                 else
-                  const CircleAvatar(radius: 24, child: Icon(Icons.pets)),
+                  CircleAvatar(radius: 24, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -1093,7 +1098,7 @@ class StaffDailyAssignmentsScreenState
                         value: 'next',
                         child: Row(
                           children: [
-                            Icon(_statusIcon(next), size: 18),
+                            PhosphorIcon(_statusIcon(next), size: 18),
                             const SizedBox(width: 8),
                             Text('Mark ${next.displayName}'),
                           ],
@@ -1104,7 +1109,7 @@ class StaffDailyAssignmentsScreenState
                         value: 'previous',
                         child: Row(
                           children: [
-                            Icon(_statusIcon(previous), size: 18),
+                            PhosphorIcon(_statusIcon(previous), size: 18),
                             const SizedBox(width: 8),
                             Text('Revert to ${previous.displayName}'),
                           ],
@@ -1116,7 +1121,7 @@ class StaffDailyAssignmentsScreenState
                         value: 'reassign',
                         child: Row(
                           children: [
-                            const Icon(Icons.swap_horiz, size: 18),
+                            PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight, size: 18),
                             const SizedBox(width: 8),
                             const Text('Reassign'),
                           ],
@@ -1126,7 +1131,7 @@ class StaffDailyAssignmentsScreenState
                         value: 'unassign',
                         child: Row(
                           children: [
-                            Icon(Icons.person_remove, size: 18, color: Colors.red[700]),
+                            PhosphorIcon(PhosphorIconsDuotone.userMinus, size: 18, color: Colors.red[700]),
                             const SizedBox(width: 8),
                             Text('Unassign', style: TextStyle(color: Colors.red[700])),
                           ],
@@ -1135,7 +1140,7 @@ class StaffDailyAssignmentsScreenState
                     ],
                   ],
                   child: Chip(
-                    avatar: Icon(_statusIcon(assignment.status),
+                    avatar: PhosphorIcon(_statusIcon(assignment.status),
                         size: 18, color: statusColor),
                     label: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1144,7 +1149,7 @@ class StaffDailyAssignmentsScreenState
                           assignment.status.displayName,
                           style: TextStyle(color: statusColor, fontSize: 12),
                         ),
-                        Icon(Icons.arrow_drop_down, size: 16, color: statusColor),
+                        PhosphorIcon(PhosphorIconsDuotone.caretDown, size: 16, color: statusColor),
                       ],
                     ),
                     backgroundColor: statusColor.withValues(alpha: 0.1),
@@ -1165,7 +1170,7 @@ class StaffDailyAssignmentsScreenState
                   onTap: () => _openMaps(assignment.ownerAddress!),
                   child: Row(
                     children: [
-                      Icon(Icons.location_on,
+                      PhosphorIcon(PhosphorIconsDuotone.mapPin,
                           size: 16, color: Theme.of(context).colorScheme.primary),
                       const SizedBox(width: 4),
                       Expanded(
@@ -1190,7 +1195,7 @@ class StaffDailyAssignmentsScreenState
                   onTap: () => _callPhone(assignment.ownerPhone!),
                   child: Row(
                     children: [
-                      Icon(Icons.phone,
+                      PhosphorIcon(PhosphorIconsDuotone.phone,
                           size: 16, color: Theme.of(context).colorScheme.primary),
                       const SizedBox(width: 4),
                       Text(
@@ -1213,7 +1218,7 @@ class StaffDailyAssignmentsScreenState
                   onTap: () => _showPickupInstructions(assignment),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline,
+                      PhosphorIcon(PhosphorIconsDuotone.info,
                           size: 16, color: Theme.of(context).colorScheme.primary),
                       const SizedBox(width: 4),
                       Text(
