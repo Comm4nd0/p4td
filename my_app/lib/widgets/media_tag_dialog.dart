@@ -1,10 +1,9 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import 'dog_typeahead.dart';
 
 /// Result returned from the media tagging dialog.
 class MediaTagResult {
@@ -178,7 +177,17 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                 ),
               )
             else
-              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _submit,
+                    icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
+                    label: const Text('Upload'),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -236,38 +245,14 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
           else if (_allDogs.isEmpty)
             Text('No dogs found', style: TextStyle(color: Colors.grey[500]))
           else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _allDogs.map((dog) {
-                final isSelected = _selectedDogsByFile[fileIndex].contains(dog.id);
-                return FilterChip(
-                  avatar: dog.profileImageUrl != null
-                      ? CircleAvatar(
-                          backgroundImage: CachedNetworkImageProvider(dog.profileImageUrl!),
-                        )
-                      : CircleAvatar(
-                          backgroundColor: AppColors.primaryLight.withAlpha(40),
-                          child: Text(
-                            dog.name.isNotEmpty ? dog.name[0].toUpperCase() : '?',
-                            style: const TextStyle(fontSize: 12, color: AppColors.primary),
-                          ),
-                        ),
-                  label: Text(dog.name),
-                  selected: isSelected,
-                  onSelected: (val) {
-                    setState(() {
-                      if (val) {
-                        _selectedDogsByFile[fileIndex].add(dog.id);
-                      } else {
-                        _selectedDogsByFile[fileIndex].remove(dog.id);
-                      }
-                    });
-                  },
-                  selectedColor: AppColors.primaryLight.withAlpha(40),
-                  checkmarkColor: AppColors.primary,
-                );
-              }).toList(),
+            DogMultiSelectTypeahead(
+              dogs: _allDogs,
+              selectedDogIds: _selectedDogsByFile[fileIndex],
+              onChanged: (updated) {
+                setState(() {
+                  _selectedDogsByFile[fileIndex] = updated;
+                });
+              },
             ),
         ],
       ),

@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 import '../widgets/feed_item_card.dart';
+import '../widgets/dog_typeahead.dart';
 import '../widgets/media_tag_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../main.dart';
@@ -463,41 +463,17 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                         ),
                     ],
                   ),
-                  // Dog filter chips
+                  // Dog filter typeahead
                   if (_allDogs.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    SizedBox(
-                      height: 40,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _allDogs.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final dog = _allDogs[index];
-                          final isSelected = _selectedDogId == dog.id;
-                          return FilterChip(
-                            avatar: dog.profileImageUrl != null
-                                ? CircleAvatar(
-                                    backgroundImage: CachedNetworkImageProvider(dog.profileImageUrl!),
-                                  )
-                                : CircleAvatar(
-                                    backgroundColor: AppColors.primaryLight.withAlpha(40),
-                                    child: Text(
-                                      dog.name.isNotEmpty ? dog.name[0].toUpperCase() : '?',
-                                      style: const TextStyle(fontSize: 10, color: AppColors.primary),
-                                    ),
-                                  ),
-                            label: Text(dog.name),
-                            selected: isSelected,
-                            onSelected: (val) {
-                              setState(() => _selectedDogId = val ? dog.id : null);
-                              _loadFeed();
-                            },
-                            selectedColor: AppColors.primaryLight.withAlpha(40),
-                            visualDensity: VisualDensity.compact,
-                          );
-                        },
-                      ),
+                    DogTypeahead(
+                      dogs: _allDogs,
+                      selectedDogId: _selectedDogId,
+                      hintText: 'Filter by dog...',
+                      onSelected: (dogId) {
+                        setState(() => _selectedDogId = dogId);
+                        _loadFeed();
+                      },
                     ),
                   ],
                 ],
