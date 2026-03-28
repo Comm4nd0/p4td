@@ -182,6 +182,7 @@ class GroupMedia(models.Model):
     file = models.FileField(upload_to='group_media/', max_length=150)
     thumbnail = models.ImageField(upload_to='group_media/thumbnails/', max_length=150, null=True, blank=True)
     caption = models.TextField(blank=True, null=True)
+    tagged_dogs = models.ManyToManyField('Dog', related_name='media_appearances', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

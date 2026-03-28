@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../constants/app_colors.dart';
+import '../models/dog.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
 import '../widgets/feed_item_card.dart';
+import '../widgets/media_tag_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../main.dart';
 
@@ -25,10 +29,12 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   List<GroupMedia> _feed = [];
+  List<Dog> _allDogs = [];
   bool _loading = true;
   bool _hasScrolledToPost = false;
   bool _showFilters = false;
   DateTimeRange? _dateRange;
+  String? _selectedDogId;
 
   /// Filtered feed based on search query and date range.
   List<GroupMedia> get _filteredFeed {
@@ -59,6 +65,15 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadFeed();
+    _loadDogs();
+  }
+
+  Future<void> _loadDogs() async {
+    try {
+      final dogs = await _dataService.getDogs();
+      dogs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      if (mounted) setState(() => _allDogs = dogs);
+    } catch (_) {}
   }
 
   @override
@@ -96,7 +111,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     }
     
     try {
-      final feed = await _dataService.getFeed();
+      final feed = await _dataService.getFeed(dogId: _selectedDogId);
       if (mounted) {
         setState(() {
           _feed = feed;
@@ -189,19 +204,28 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
     if (file == null) return;
 
-    // Show caption dialog
-    final caption = await _showCaptionDialog();
-    if (caption == null) return; // User cancelled
+    // Show tagging dialog
+    final bytes = await file.readAsBytes();
+    final tagResult = await Navigator.push<MediaTagResult>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MediaTagDialog(files: [(bytes, file.name, isVideo)]),
+      ),
+    );
+    if (tagResult == null) return; // User cancelled
 
     // Upload
     try {
       _showUploadingDialog();
-      final bytes = await file.readAsBytes();
       await _dataService.uploadGroupMedia(
         fileBytes: bytes,
         fileName: file.name,
         isVideo: isVideo,
-        caption: caption.isEmpty ? null : caption,
+        caption: tagResult.caption,
+        taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty
+            ? tagResult.taggedDogIdsByFile[0]
+            : null,
       );
       if (mounted) {
         Navigator.pop(context); // Close uploading dialog
@@ -225,16 +249,26 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     final files = await picker.pickMultipleMedia();
     if (files.isEmpty) return;
 
-    // Show caption dialog
-    final caption = await _showCaptionDialog();
-    if (caption == null) return; // User cancelled
-
     // Prepare files
     final fileData = <(Uint8List, String)>[];
+    final tagDialogFiles = <(Uint8List, String, bool)>[];
     for (final file in files) {
       final bytes = await file.readAsBytes();
+      final ext = file.name.toLowerCase();
+      final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
       fileData.add((bytes, file.name));
+      tagDialogFiles.add((bytes, file.name, isVideo));
     }
+
+    // Show tagging dialog for each file
+    final tagResult = await Navigator.push<MediaTagResult>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MediaTagDialog(files: tagDialogFiles),
+      ),
+    );
+    if (tagResult == null) return; // User cancelled
 
     // Show progress dialog using a ValueNotifier so we can update it in place
     final progress = ValueNotifier<int>(0);
@@ -267,7 +301,8 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     try {
       await _dataService.uploadMultipleGroupMedia(
         files: fileData,
-        caption: caption.isEmpty ? null : caption,
+        caption: tagResult.caption,
+        taggedDogIdsByFile: tagResult.taggedDogIdsByFile,
         onProgress: (done, count) {
           completed = done;
           progress.value = done;
@@ -295,34 +330,6 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         if (completed > 0) _loadFeed(); // Refresh to show any that succeeded
       }
     }
-  }
-
-  Future<String?> _showCaptionDialog() async {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Caption'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Write a caption (optional)',
-            border: OutlineInputBorder(),
-          ),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Upload'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showUploadingDialog() {
@@ -441,16 +448,57 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                         ),
                       ],
                       const Spacer(),
-                      if (_searchController.text.isNotEmpty || _dateRange != null)
+                      if (_searchController.text.isNotEmpty || _dateRange != null || _selectedDogId != null)
                         TextButton(
                           onPressed: () {
                             _searchController.clear();
-                            setState(() => _dateRange = null);
+                            setState(() {
+                              _dateRange = null;
+                              _selectedDogId = null;
+                            });
+                            _loadFeed();
                           },
                           child: const Text('Clear all'),
                         ),
                     ],
                   ),
+                  // Dog filter chips
+                  if (_allDogs.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 40,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _allDogs.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final dog = _allDogs[index];
+                          final isSelected = _selectedDogId == dog.id;
+                          return FilterChip(
+                            avatar: dog.profileImageUrl != null
+                                ? CircleAvatar(
+                                    backgroundImage: CachedNetworkImageProvider(dog.profileImageUrl!),
+                                  )
+                                : CircleAvatar(
+                                    backgroundColor: AppColors.primaryLight.withAlpha(40),
+                                    child: Text(
+                                      dog.name.isNotEmpty ? dog.name[0].toUpperCase() : '?',
+                                      style: const TextStyle(fontSize: 10, color: AppColors.primary),
+                                    ),
+                                  ),
+                            label: Text(dog.name),
+                            selected: isSelected,
+                            onSelected: (val) {
+                              setState(() => _selectedDogId = val ? dog.id : null);
+                              _loadFeed();
+                            },
+                            selectedColor: AppColors.primaryLight.withAlpha(40),
+                            visualDensity: VisualDensity.compact,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ],
               ),
             )
@@ -461,7 +509,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredFeed;
-    final hasActiveFilters = _searchController.text.isNotEmpty || _dateRange != null;
+    final hasActiveFilters = _searchController.text.isNotEmpty || _dateRange != null || _selectedDogId != null;
 
     return Scaffold(
       floatingActionButton: widget.canAddFeedMedia

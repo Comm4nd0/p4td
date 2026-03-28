@@ -133,6 +133,31 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
             )
           else
             VideoPlayerWidget(url: widget.media.fileUrl, thumbnail: widget.media.thumbnailUrl),
+          // Tagged dogs
+          if (widget.media.taggedDogs.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: widget.media.taggedDogs.map((dog) => Chip(
+                  avatar: dog.profileImageUrl != null
+                      ? CircleAvatar(
+                          backgroundImage: CachedNetworkImageProvider(dog.profileImageUrl!),
+                        )
+                      : CircleAvatar(
+                          backgroundColor: AppColors.primaryLight.withAlpha(40),
+                          child: Text(
+                            dog.name.isNotEmpty ? dog.name[0].toUpperCase() : '?',
+                            style: const TextStyle(fontSize: 10, color: AppColors.primary),
+                          ),
+                        ),
+                  label: Text(dog.name, style: const TextStyle(fontSize: 12)),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                )).toList(),
+              ),
+            ),
           // Caption
           if (widget.media.caption != null && widget.media.caption!.isNotEmpty)
             Padding(

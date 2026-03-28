@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Paws 4 Thought Dogs brand colors, derived from the website palette.
 class AppColors {
@@ -83,50 +84,68 @@ class AppColors {
       );
 
   /// Build a complete [ThemeData] for light or dark mode.
-  static ThemeData lightTheme() => ThemeData(
-        colorScheme: lightScheme,
-        useMaterial3: true,
-        scaffoldBackgroundColor: background,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: primary,
-          foregroundColor: cream,
+  static ThemeData lightTheme() {
+    final textTheme = GoogleFonts.nunitoTextTheme(ThemeData.light().textTheme);
+    return ThemeData(
+      colorScheme: lightScheme,
+      useMaterial3: true,
+      textTheme: textTheme,
+      scaffoldBackgroundColor: background,
+      appBarTheme: AppBarTheme(
+        backgroundColor: primary,
+        foregroundColor: cream,
+        titleTextStyle: GoogleFonts.nunito(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: cream,
         ),
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: surface,
-          selectedItemColor: primary,
-          unselectedItemColor: grey600,
-        ),
-      );
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: surface,
+        selectedItemColor: primary,
+        unselectedItemColor: grey600,
+      ),
+    );
+  }
 
-  static ThemeData darkTheme() => ThemeData(
-        colorScheme: darkScheme,
-        useMaterial3: true,
-        scaffoldBackgroundColor: darkBackground,
-        appBarTheme: AppBarTheme(
-          backgroundColor: darkSurface,
-          foregroundColor: cream,
+  static ThemeData darkTheme() {
+    final textTheme = GoogleFonts.nunitoTextTheme(ThemeData.dark().textTheme);
+    return ThemeData(
+      colorScheme: darkScheme,
+      useMaterial3: true,
+      textTheme: textTheme,
+      scaffoldBackgroundColor: darkBackground,
+      appBarTheme: AppBarTheme(
+        backgroundColor: darkSurface,
+        foregroundColor: cream,
+        titleTextStyle: GoogleFonts.nunito(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: cream,
         ),
-        cardTheme: CardThemeData(
-          color: darkSurface,
-          elevation: 2,
-        ),
-        dialogTheme: DialogThemeData(
-          backgroundColor: darkSurface,
-        ),
-        bottomNavigationBarTheme: BottomNavigationBarThemeData(
-          backgroundColor: darkSurface,
-          selectedItemColor: primaryLight,
-          unselectedItemColor: grey500,
-        ),
-        drawerTheme: DrawerThemeData(
-          backgroundColor: darkSurface,
-        ),
-        dividerTheme: DividerThemeData(
-          color: darkSurfaceVariant,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: darkSurfaceVariant,
-        ),
-      );
+      ),
+      cardTheme: CardThemeData(
+        color: darkSurface,
+        elevation: 2,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: darkSurface,
+      ),
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: darkSurface,
+        selectedItemColor: primaryLight,
+        unselectedItemColor: grey500,
+      ),
+      drawerTheme: DrawerThemeData(
+        backgroundColor: darkSurface,
+      ),
+      dividerTheme: DividerThemeData(
+        color: darkSurfaceVariant,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: darkSurfaceVariant,
+      ),
+    );
+  }
 }

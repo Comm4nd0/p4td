@@ -2,6 +2,22 @@ import 'comment.dart';
 
 enum MediaType { photo, video }
 
+class TaggedDog {
+  final String id;
+  final String name;
+  final String? profileImageUrl;
+
+  TaggedDog({required this.id, required this.name, this.profileImageUrl});
+
+  factory TaggedDog.fromJson(Map<String, dynamic> json) {
+    return TaggedDog(
+      id: json['id'].toString(),
+      name: json['name'] ?? '',
+      profileImageUrl: json['profile_image'],
+    );
+  }
+}
+
 class GroupMedia {
   final String id;
   final String uploadedBy;
@@ -11,6 +27,7 @@ class GroupMedia {
   final String fileUrl;
   final String? thumbnailUrl;
   final String? caption;
+  final List<TaggedDog> taggedDogs;
   final Map<String, int> reactions;
   final String? userReaction;
   final List<Comment> comments;
@@ -25,6 +42,7 @@ class GroupMedia {
     required this.fileUrl,
     this.thumbnailUrl,
     this.caption,
+    this.taggedDogs = const [],
     required this.reactions,
     this.userReaction,
     required this.comments,
@@ -48,6 +66,9 @@ class GroupMedia {
       fileUrl: json['file'],
       thumbnailUrl: json['thumbnail'],
       caption: json['caption'],
+      taggedDogs: (json['tagged_dogs'] as List? ?? [])
+          .map((d) => TaggedDog.fromJson(d))
+          .toList(),
       reactions: reactionsMap,
       userReaction: json['user_reaction'],
       comments: (json['comments'] as List? ?? [])

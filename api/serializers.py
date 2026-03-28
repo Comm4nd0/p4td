@@ -170,10 +170,14 @@ class GroupMediaSerializer(serializers.ModelSerializer):
     reactions = serializers.SerializerMethodField()
     user_reaction = serializers.SerializerMethodField()
     comments = CommentSerializer(many=True, read_only=True)
+    tagged_dogs = serializers.SerializerMethodField()
+    tagged_dog_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Dog.objects.all(), many=True, required=False, source='tagged_dogs', write_only=True,
+    )
 
     class Meta:
         model = GroupMedia
-        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'uploaded_by_profile_photo', 'media_type', 'file', 'thumbnail', 'caption', 'reactions', 'user_reaction', 'comments', 'created_at']
+        fields = ['id', 'uploaded_by', 'uploaded_by_name', 'uploaded_by_profile_photo', 'media_type', 'file', 'thumbnail', 'caption', 'tagged_dogs', 'tagged_dog_ids', 'reactions', 'user_reaction', 'comments', 'created_at']
         read_only_fields = ['uploaded_by', 'created_at']
 
     def get_uploaded_by_name(self, obj):
@@ -204,6 +208,16 @@ class GroupMediaSerializer(serializers.ModelSerializer):
             if reaction:
                 return reaction.emoji
         return None
+
+    def get_tagged_dogs(self, obj):
+        request = self.context.get('request')
+        result = []
+        for dog in obj.tagged_dogs.all():
+            entry = {'id': dog.id, 'name': dog.name, 'profile_image': None}
+            if dog.profile_image and request:
+                entry['profile_image'] = request.build_absolute_uri(dog.profile_image.url)
+            result.append(entry)
+        return result
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
