@@ -1069,6 +1069,24 @@ class StaffDailyAssignmentsScreenState
                         'Owner: ${assignment.ownerName}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      if (assignment.isBoarding)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            children: [
+                              PhosphorIcon(PhosphorIconsDuotone.house,
+                                  size: 14, color: Colors.deepPurple),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Boarding – No pickup needed',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.deepPurple,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (widget.canAssignDogs)
                         Text(
                           'Staff: ${assignment.staffMemberName}',
