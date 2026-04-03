@@ -829,6 +829,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         target_date, error = self._parse_date(request)
         if error:
             return error
+
+        # Return empty list if the business is fully closed on this date
+        from .models import ClosureDay
+        if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
+            return Response([])
+
         day_number = target_date.isoweekday()  # Monday=1, Sunday=7
 
         # Dogs with this weekday in their daycare_days

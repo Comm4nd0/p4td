@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
@@ -38,9 +39,12 @@ class StaffDailyAssignmentsScreenState
   final Map<String, List<DailyDogAssignment>> _assignmentCache = {};
   final Set<String> _loadingDates = {};
 
-  late final List<DateTime> _dateOptions = _generateWeekdays();
+  List<DateTime> _dateOptions = [];
   late final PageController _pageController;
   final ScrollController _dateScrollController = ScrollController();
+
+  // Closure days: dates when the business is closed or at reduced capacity
+  Map<DateTime, ClosureDay> _closureDays = {};
 
   int? _selectedStaffId;
   List<Map<String, dynamic>> _staffMembers = [];
@@ -56,7 +60,7 @@ class StaffDailyAssignmentsScreenState
   void initState() {
     super.initState();
     _selectedStaffId = widget.initialStaffId;
-    // Start on today if it's a weekday, otherwise the first available weekday
+    _dateOptions = _generateWeekdays();
     final today = DateTime.now();
     final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
     final initialIndex = todayIndex >= 0 ? todayIndex : 0;
@@ -64,6 +68,7 @@ class StaffDailyAssignmentsScreenState
     _pageController = PageController(initialPage: initialIndex);
     _loadStaffMembers();
     _loadAssignmentsForDate(_selectedDate);
+    _loadClosureDays();
   }
 
   @override
@@ -108,6 +113,40 @@ class StaffDailyAssignmentsScreenState
         setState(() => _staffMembers = staff);
       }
       _loadAvailableStaff(_selectedDate);
+    } catch (_) {}
+  }
+
+  Future<void> _loadClosureDays() async {
+    try {
+      final firstDate = _dateOptions.first;
+      final lastDate = _dateOptions.last;
+      final closures = await _dataService.getClosureDays(
+        fromDate: firstDate,
+        toDate: lastDate,
+      );
+      if (mounted) {
+        final closureMap = <DateTime, ClosureDay>{};
+        for (final c in closures) {
+          closureMap[DateTime(c.date.year, c.date.month, c.date.day)] = c;
+        }
+        setState(() {
+          _closureDays = closureMap;
+          // Remove fully closed dates from date options
+          final closedDates = closureMap.entries
+              .where((e) => e.value.closureType == ClosureType.closed)
+              .map((e) => e.key)
+              .toSet();
+          _dateOptions = _dateOptions
+              .where((d) => !closedDates.contains(DateTime(d.year, d.month, d.day)))
+              .toList();
+          // If selected date was removed, jump to first available
+          if (!_dateOptions.any((d) => _isSameDay(d, _selectedDate)) && _dateOptions.isNotEmpty) {
+            _selectedDate = _dateOptions.first;
+            _pageController.jumpToPage(0);
+            _loadAssignmentsForDate(_selectedDate);
+          }
+        });
+      }
     } catch (_) {}
   }
 
@@ -824,6 +863,8 @@ class StaffDailyAssignmentsScreenState
           final date = _dateOptions[index];
           final isSelected = _isSameDay(date, _selectedDate);
           final isToday = _isSameDay(date, today);
+          final closure = _closureDays[DateTime(date.year, date.month, date.day)];
+          final isReduced = closure?.closureType == ClosureType.reduced;
 
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -847,6 +888,7 @@ class StaffDailyAssignmentsScreenState
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isReduced && !isSelected ? Colors.orange[700] : null,
                     ),
                   ),
                   Text(
@@ -854,8 +896,18 @@ class StaffDailyAssignmentsScreenState
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isReduced && !isSelected ? Colors.orange[700] : null,
                     ),
                   ),
+                  if (isReduced)
+                    Text(
+                      'Reduced',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: isSelected ? null : Colors.orange[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -968,6 +1020,29 @@ class StaffDailyAssignmentsScreenState
             ),
           ),
         ],
+        if (_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.closureType == ClosureType.reduced)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Row(
+              children: [
+                PhosphorIcon(PhosphorIconsDuotone.warning, size: 18, color: Colors.orange[700]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Reduced capacity${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.reason.isNotEmpty == true ? ' – ${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]!.reason}' : ''}',
+                    style: TextStyle(color: Colors.orange[800], fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: PageView.builder(
             controller: _pageController,
