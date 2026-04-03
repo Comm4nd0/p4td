@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   final _authService = AuthService();
   bool _isLoading = false;
   bool _isOffline = false;
+  bool _obscurePassword = true;
   String? _errorMessage;
 
   @override
@@ -137,11 +138,17 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
               const SizedBox(height: 16),
               TextField(
                 controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
                   labelText: 'Password',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                  suffixIcon: IconButton(
+                    icon: PhosphorIcon(
+                      _obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                    ),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
                 ),
               ),
               Align(

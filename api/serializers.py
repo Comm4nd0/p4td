@@ -278,6 +278,7 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     owner_address = serializers.SerializerMethodField()
     owner_phone = serializers.SerializerMethodField()
     pickup_instructions = serializers.SerializerMethodField()
+    is_boarding = serializers.SerializerMethodField()
 
     class Meta:
         model = DailyDogAssignment
@@ -285,7 +286,7 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             'id', 'dog', 'dog_name', 'dog_profile_image',
             'staff_member', 'staff_member_name',
             'owner_name', 'owner_address', 'owner_phone', 'pickup_instructions',
-            'date', 'status', 'created_at', 'updated_at',
+            'date', 'status', 'is_boarding', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -319,6 +320,14 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             return obj.dog.owner.profile.pickup_instructions
         except Exception:
             return None
+
+    def get_is_boarding(self, obj):
+        return BoardingRequest.objects.filter(
+            dogs=obj.dog,
+            status='APPROVED',
+            start_date__lte=obj.date,
+            end_date__gte=obj.date,
+        ).exists()
 
 class SupportMessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.SerializerMethodField()

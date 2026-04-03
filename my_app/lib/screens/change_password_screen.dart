@@ -15,6 +15,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscureNew = true;
+  bool _obscureConfirm = true;
   String? _errorMessage;
 
   @override
@@ -87,11 +89,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               ),
             TextField(
               controller: _newPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(
+              obscureText: _obscureNew,
+              decoration: InputDecoration(
                 labelText: 'New Password',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
                 prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                suffixIcon: IconButton(
+                  icon: PhosphorIcon(
+                    _obscureNew ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                  ),
+                  onPressed: () => setState(() => _obscureNew = !_obscureNew),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -99,11 +107,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _confirmPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(
+              obscureText: _obscureConfirm,
+              decoration: InputDecoration(
                 labelText: 'Confirm New Password',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
                 prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                suffixIcon: IconButton(
+                  icon: PhosphorIcon(
+                    _obscureConfirm ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                  ),
+                  onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                ),
               ),
             ),
             const SizedBox(height: 24),
