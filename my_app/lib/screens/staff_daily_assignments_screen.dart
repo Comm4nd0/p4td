@@ -12,7 +12,8 @@ import '../widgets/skeleton_loaders.dart';
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
   nameDesc('Name (Z-A)'),
-  pickupOrder('Pickup Order');
+  pickupOrder('Pickup Order'),
+  custom('Custom Order');
 
   final String label;
   const DogSortOption(this.label);
@@ -45,6 +46,9 @@ class StaffDailyAssignmentsScreenState
   List<Map<String, dynamic>> _staffMembers = [];
   Set<int> _availableStaffIds = {};
   DogSortOption _sortOption = DogSortOption.nameAsc;
+
+  // Custom drag-reorder: key = "dateKey-staffId", value = ordered dog IDs
+  final Map<String, List<int>> _customOrderCache = {};
 
   late DateTime _selectedDate;
 
@@ -179,6 +183,19 @@ class StaffDailyAssignmentsScreenState
           if (cmp != 0) return cmp;
           return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
         });
+      case DogSortOption.custom:
+        if (_selectedStaffId != null) {
+          final orderKey = '${_dateKey(date)}-$_selectedStaffId';
+          final order = _customOrderCache[orderKey];
+          if (order != null) {
+            list.sort((a, b) {
+              final idxA = order.indexOf(a.dogId);
+              final idxB = order.indexOf(b.dogId);
+              return (idxA == -1 ? order.length : idxA)
+                  .compareTo(idxB == -1 ? order.length : idxB);
+            });
+          }
+        }
     }
 
     return list;
@@ -853,7 +870,9 @@ class StaffDailyAssignmentsScreenState
       icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
       onSelected: (option) => setState(() => _sortOption = option),
-      itemBuilder: (context) => DogSortOption.values.map((option) {
+      itemBuilder: (context) => DogSortOption.values
+          .where((option) => option != DogSortOption.custom)
+          .map((option) {
         return PopupMenuItem(
           value: option,
           child: Row(
@@ -1001,6 +1020,36 @@ class StaffDailyAssignmentsScreenState
                 );
               }
 
+              if (_selectedStaffId != null) {
+                return RefreshIndicator(
+                  onRefresh: () => _loadAssignmentsForDate(date, forceReload: true),
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                    itemCount: filtered.length,
+                    onReorder: (oldIndex, newIndex) {
+                      if (newIndex > oldIndex) newIndex--;
+                      setState(() {
+                        final item = filtered.removeAt(oldIndex);
+                        filtered.insert(newIndex, item);
+                        final orderKey = '${_dateKey(date)}-$_selectedStaffId';
+                        _customOrderCache[orderKey] = filtered.map((a) => a.dogId).toList();
+                        _sortOption = DogSortOption.custom;
+                      });
+                    },
+                    proxyDecorator: (child, index, animation) {
+                      return Material(
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(12),
+                        child: child,
+                      );
+                    },
+                    itemBuilder: (context, i) {
+                      return _buildAssignmentCard(filtered[i], key: ValueKey(filtered[i].id));
+                    },
+                  ),
+                );
+              }
+
               return RefreshIndicator(
                 onRefresh: () => _loadAssignmentsForDate(date, forceReload: true),
                 child: ListView.builder(
@@ -1018,12 +1067,13 @@ class StaffDailyAssignmentsScreenState
     );
   }
 
-  Widget _buildAssignmentCard(DailyDogAssignment assignment) {
+  Widget _buildAssignmentCard(DailyDogAssignment assignment, {Key? key}) {
     final next = _nextStatus(assignment.status);
     final previous = _previousStatus(assignment.status);
     final statusColor = _statusColor(assignment.status);
 
     return Card(
+      key: key,
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
