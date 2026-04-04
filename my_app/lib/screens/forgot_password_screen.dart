@@ -16,6 +16,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   // Step tracking: 0 = enter email, 1 = enter OTP, 2 = set new password
   int _step = 0;
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
   String? _errorMessage;
   String? _successMessage;
 
@@ -278,11 +280,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 const SizedBox(height: 24),
                 TextField(
                   controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
                     labelText: 'New Password',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                     prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                    suffixIcon: IconButton(
+                      icon: PhosphorIcon(
+                        _obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                      ),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    ),
                   ),
                   autofocus: true,
                 ),
@@ -291,11 +299,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _confirmPasswordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
+                  obscureText: _obscureConfirm,
+                  decoration: InputDecoration(
                     labelText: 'Confirm Password',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                     prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                    suffixIcon: IconButton(
+                      icon: PhosphorIcon(
+                        _obscureConfirm ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                      ),
+                      onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),

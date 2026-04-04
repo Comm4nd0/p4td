@@ -57,6 +57,7 @@ class DailyDogAssignment {
   final String? pickupInstructions;
   final DateTime date;
   final AssignmentStatus status;
+  final bool isBoarding;
 
   DailyDogAssignment({
     required this.id,
@@ -71,6 +72,7 @@ class DailyDogAssignment {
     this.pickupInstructions,
     required this.date,
     required this.status,
+    this.isBoarding = false,
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -87,6 +89,7 @@ class DailyDogAssignment {
       pickupInstructions: json['pickup_instructions'],
       date: DateTime.parse(json['date']),
       status: AssignmentStatus.fromApi(json['status'] ?? 'ASSIGNED'),
+      isBoarding: json['is_boarding'] ?? false,
     );
   }
 
@@ -104,6 +107,7 @@ class DailyDogAssignment {
       pickupInstructions: pickupInstructions,
       date: date,
       status: status ?? this.status,
+      isBoarding: isBoarding,
     );
   }
 }
