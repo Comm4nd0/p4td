@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
@@ -12,7 +13,8 @@ import '../widgets/skeleton_loaders.dart';
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
   nameDesc('Name (Z-A)'),
-  pickupOrder('Pickup Order');
+  pickupOrder('Pickup Order'),
+  custom('Custom Order');
 
   final String label;
   const DogSortOption(this.label);
@@ -37,14 +39,20 @@ class StaffDailyAssignmentsScreenState
   final Map<String, List<DailyDogAssignment>> _assignmentCache = {};
   final Set<String> _loadingDates = {};
 
-  late final List<DateTime> _dateOptions = _generateWeekdays();
+  List<DateTime> _dateOptions = [];
   late final PageController _pageController;
   final ScrollController _dateScrollController = ScrollController();
+
+  // Closure days: dates when the business is closed or at reduced capacity
+  Map<DateTime, ClosureDay> _closureDays = {};
 
   int? _selectedStaffId;
   List<Map<String, dynamic>> _staffMembers = [];
   Set<int> _availableStaffIds = {};
   DogSortOption _sortOption = DogSortOption.nameAsc;
+
+  // Custom drag-reorder: key = "dateKey-staffId", value = ordered dog IDs
+  final Map<String, List<int>> _customOrderCache = {};
 
   late DateTime _selectedDate;
 
@@ -52,7 +60,7 @@ class StaffDailyAssignmentsScreenState
   void initState() {
     super.initState();
     _selectedStaffId = widget.initialStaffId;
-    // Start on today if it's a weekday, otherwise the first available weekday
+    _dateOptions = _generateWeekdays();
     final today = DateTime.now();
     final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
     final initialIndex = todayIndex >= 0 ? todayIndex : 0;
@@ -60,6 +68,7 @@ class StaffDailyAssignmentsScreenState
     _pageController = PageController(initialPage: initialIndex);
     _loadStaffMembers();
     _loadAssignmentsForDate(_selectedDate);
+    _loadClosureDays();
   }
 
   @override
@@ -104,6 +113,40 @@ class StaffDailyAssignmentsScreenState
         setState(() => _staffMembers = staff);
       }
       _loadAvailableStaff(_selectedDate);
+    } catch (_) {}
+  }
+
+  Future<void> _loadClosureDays() async {
+    try {
+      final firstDate = _dateOptions.first;
+      final lastDate = _dateOptions.last;
+      final closures = await _dataService.getClosureDays(
+        fromDate: firstDate,
+        toDate: lastDate,
+      );
+      if (mounted) {
+        final closureMap = <DateTime, ClosureDay>{};
+        for (final c in closures) {
+          closureMap[DateTime(c.date.year, c.date.month, c.date.day)] = c;
+        }
+        setState(() {
+          _closureDays = closureMap;
+          // Remove fully closed dates from date options
+          final closedDates = closureMap.entries
+              .where((e) => e.value.closureType == ClosureType.closed)
+              .map((e) => e.key)
+              .toSet();
+          _dateOptions = _dateOptions
+              .where((d) => !closedDates.contains(DateTime(d.year, d.month, d.day)))
+              .toList();
+          // If selected date was removed, jump to first available
+          if (!_dateOptions.any((d) => _isSameDay(d, _selectedDate)) && _dateOptions.isNotEmpty) {
+            _selectedDate = _dateOptions.first;
+            _pageController.jumpToPage(0);
+            _loadAssignmentsForDate(_selectedDate);
+          }
+        });
+      }
     } catch (_) {}
   }
 
@@ -179,6 +222,19 @@ class StaffDailyAssignmentsScreenState
           if (cmp != 0) return cmp;
           return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
         });
+      case DogSortOption.custom:
+        if (_selectedStaffId != null) {
+          final orderKey = '${_dateKey(date)}-$_selectedStaffId';
+          final order = _customOrderCache[orderKey];
+          if (order != null) {
+            list.sort((a, b) {
+              final idxA = order.indexOf(a.dogId);
+              final idxB = order.indexOf(b.dogId);
+              return (idxA == -1 ? order.length : idxA)
+                  .compareTo(idxB == -1 ? order.length : idxB);
+            });
+          }
+        }
     }
 
     return list;
@@ -807,6 +863,8 @@ class StaffDailyAssignmentsScreenState
           final date = _dateOptions[index];
           final isSelected = _isSameDay(date, _selectedDate);
           final isToday = _isSameDay(date, today);
+          final closure = _closureDays[DateTime(date.year, date.month, date.day)];
+          final isReduced = closure?.closureType == ClosureType.reduced;
 
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -830,6 +888,7 @@ class StaffDailyAssignmentsScreenState
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isReduced && !isSelected ? Colors.orange[700] : null,
                     ),
                   ),
                   Text(
@@ -837,8 +896,18 @@ class StaffDailyAssignmentsScreenState
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isReduced && !isSelected ? Colors.orange[700] : null,
                     ),
                   ),
+                  if (isReduced)
+                    Text(
+                      'Reduced',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: isSelected ? null : Colors.orange[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -853,7 +922,9 @@ class StaffDailyAssignmentsScreenState
       icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
       onSelected: (option) => setState(() => _sortOption = option),
-      itemBuilder: (context) => DogSortOption.values.map((option) {
+      itemBuilder: (context) => DogSortOption.values
+          .where((option) => option != DogSortOption.custom)
+          .map((option) {
         return PopupMenuItem(
           value: option,
           child: Row(
@@ -949,6 +1020,29 @@ class StaffDailyAssignmentsScreenState
             ),
           ),
         ],
+        if (_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.closureType == ClosureType.reduced)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Row(
+              children: [
+                PhosphorIcon(PhosphorIconsDuotone.warning, size: 18, color: Colors.orange[700]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Reduced capacity${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.reason.isNotEmpty == true ? ' – ${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]!.reason}' : ''}',
+                    style: TextStyle(color: Colors.orange[800], fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: PageView.builder(
             controller: _pageController,
@@ -1001,6 +1095,36 @@ class StaffDailyAssignmentsScreenState
                 );
               }
 
+              if (_selectedStaffId != null) {
+                return RefreshIndicator(
+                  onRefresh: () => _loadAssignmentsForDate(date, forceReload: true),
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                    itemCount: filtered.length,
+                    onReorder: (oldIndex, newIndex) {
+                      if (newIndex > oldIndex) newIndex--;
+                      setState(() {
+                        final item = filtered.removeAt(oldIndex);
+                        filtered.insert(newIndex, item);
+                        final orderKey = '${_dateKey(date)}-$_selectedStaffId';
+                        _customOrderCache[orderKey] = filtered.map((a) => a.dogId).toList();
+                        _sortOption = DogSortOption.custom;
+                      });
+                    },
+                    proxyDecorator: (child, index, animation) {
+                      return Material(
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(12),
+                        child: child,
+                      );
+                    },
+                    itemBuilder: (context, i) {
+                      return _buildAssignmentCard(filtered[i], key: ValueKey(filtered[i].id));
+                    },
+                  ),
+                );
+              }
+
               return RefreshIndicator(
                 onRefresh: () => _loadAssignmentsForDate(date, forceReload: true),
                 child: ListView.builder(
@@ -1018,12 +1142,13 @@ class StaffDailyAssignmentsScreenState
     );
   }
 
-  Widget _buildAssignmentCard(DailyDogAssignment assignment) {
+  Widget _buildAssignmentCard(DailyDogAssignment assignment, {Key? key}) {
     final next = _nextStatus(assignment.status);
     final previous = _previousStatus(assignment.status);
     final statusColor = _statusColor(assignment.status);
 
     return Card(
+      key: key,
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -1069,6 +1194,24 @@ class StaffDailyAssignmentsScreenState
                         'Owner: ${assignment.ownerName}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      if (assignment.isBoarding)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            children: [
+                              PhosphorIcon(PhosphorIconsDuotone.house,
+                                  size: 14, color: Colors.deepPurple),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Boarding – No pickup needed',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.deepPurple,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (widget.canAssignDogs)
                         Text(
                           'Staff: ${assignment.staffMemberName}',

@@ -321,6 +321,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Second step: ask for password confirmation
     final passwordController = TextEditingController();
     bool isDeleting = false;
+    bool obscurePassword = true;
 
     final passwordConfirmed = await showDialog<bool>(
       context: context,
@@ -335,12 +336,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: passwordController,
-                obscureText: true,
+                obscureText: obscurePassword,
                 enabled: !isDeleting,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Password',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                  suffixIcon: IconButton(
+                    icon: PhosphorIcon(
+                      obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                    ),
+                    onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
+                  ),
                 ),
               ),
             ],
