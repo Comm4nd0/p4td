@@ -62,7 +62,13 @@
       "Bash(wsl -e bash -lc \"ls /home/marco/flutter/bin/flutter 2>/dev/null || ls /home/marco/snap/flutter/common/flutter/bin/flutter 2>/dev/null || find /home/marco -name ''flutter'' -type f 2>/dev/null | head -3\")",
       "Bash(wsl -e bash -c \"export PATH=/home/marco/.flutter-sdk/bin:$PATH && cd /home/marco/code/p4td-android/my_app && flutter analyze 2>&1\")",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(DJANGO_DEBUG=true python manage.py makemigrations django_summernote)",
+      "Bash(wsl bash:*)",
+      "Bash(git push:*)",
+      "Bash(git:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)"
     ]
   }
 }
