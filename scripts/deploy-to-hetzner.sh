@@ -37,6 +37,10 @@ $SSH_CMD "$HETZNER_HOST" "
     echo '>>> Service status:'
     docker compose -f docker-compose.prod.yml ps
 
+    echo '>>> Setting up media pruning cron job...'
+    CRON_CMD='0 3 * * 0 cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py prune_feed_media --include-orphans >> /var/log/p4td-prune.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'prune_feed_media'; echo \"\$CRON_CMD\" ) | crontab -
+
     echo '=== Deployment complete ==='
 "
 
