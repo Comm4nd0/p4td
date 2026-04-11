@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -328,6 +328,26 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             start_date__lte=obj.date,
             end_date__gte=obj.date,
         ).exists()
+
+
+class DogWeekdayPickupSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    staff_member_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DogWeekdayPickup
+        fields = [
+            'id', 'dog', 'dog_name', 'weekday',
+            'staff_member', 'staff_member_name',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_staff_member_name(self, obj):
+        if obj.staff_member.first_name:
+            return obj.staff_member.first_name
+        return obj.staff_member.username
+
 
 class SupportMessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.SerializerMethodField()

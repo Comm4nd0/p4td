@@ -5,8 +5,8 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, PasswordResetOTP
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer
 from website.models import ContactInquiry
 
 class DeviceTokenViewSet(viewsets.ModelViewSet):
@@ -312,7 +312,33 @@ class DogViewSet(viewsets.ModelViewSet):
         # Attach the requesting user so the care-instructions signal can
         # include who made the change in the staff notification.
         serializer.instance._changed_by = self.request.user
+
+        # Capture prior values so we can clean up the persistent pickup roster
+        # when the dog's schedule changes.
+        dog = serializer.instance
+        old_daycare_days = list(dog.daycare_days or [])
+        old_schedule_type = dog.schedule_type
+
         serializer.save()
+
+        dog.refresh_from_db()
+        new_daycare_days = list(dog.daycare_days or [])
+        new_schedule_type = dog.schedule_type
+
+        # If the dog became ad-hoc, wipe its entire roster.
+        if old_schedule_type != 'ad_hoc' and new_schedule_type == 'ad_hoc':
+            DogWeekdayPickup.objects.filter(dog=dog).delete()
+            return
+
+        # Otherwise, drop roster entries for weekdays that are no longer part
+        # of the dog's schedule.
+        if set(old_daycare_days) != set(new_daycare_days):
+            dropped = set(old_daycare_days) - set(new_daycare_days)
+            if dropped:
+                DogWeekdayPickup.objects.filter(
+                    dog=dog,
+                    weekday__in=dropped,
+                ).delete()
 
     def destroy(self, request, *args, **kwargs):
         """Staff-only endpoint to delete a dog and clean up associated data."""
@@ -771,22 +797,67 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return target, None
         return date.today(), None
 
-    def _create_recurring_assignments(self, dog_ids, staff_member, start_date, num_weeks=3):
-        """Create assignments for the same weekday on future weeks.
+    def _materialize_roster_for_date(self, target_date):
+        """Create any missing DailyDogAssignment rows for ``target_date`` from
+        the persistent DogWeekdayPickup roster.
 
-        After a dog is assigned to a staff member on a given date, this
-        creates the same assignment for the next ``num_weeks`` occurrences
-        of that weekday so the roster automatically repeats.
+        Returns the number of newly created rows. Skips:
+          * CLOSED closure days
+          * ad-hoc dogs (defensive — they should never have roster entries)
+          * dogs whose current ``daycare_days`` no longer include this weekday
+          * dogs with an APPROVED CANCEL DateChangeRequest for this date
+          * dogs that already have a DailyDogAssignment for this date
         """
-        from datetime import timedelta
-        for week_offset in range(1, num_weeks + 1):
-            future_date = start_date + timedelta(weeks=week_offset)
-            for dog_id in dog_ids:
-                DailyDogAssignment.objects.get_or_create(
-                    dog_id=dog_id,
-                    date=future_date,
-                    defaults={'staff_member': staff_member},
-                )
+        from .models import ClosureDay
+
+        if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
+            return 0
+
+        weekday = target_date.isoweekday()
+
+        roster_entries = list(
+            DogWeekdayPickup.objects
+            .filter(weekday=weekday)
+            .select_related('dog', 'staff_member')
+        )
+        if not roster_entries:
+            return 0
+
+        existing_dog_ids = set(
+            DailyDogAssignment.objects
+            .filter(date=target_date, dog_id__in=[e.dog_id for e in roster_entries])
+            .values_list('dog_id', flat=True)
+        )
+        cancelled_dog_ids = set(
+            DateChangeRequest.objects.filter(
+                request_type='CANCEL',
+                status='APPROVED',
+                original_date=target_date,
+                dog_id__in=[e.dog_id for e in roster_entries],
+            ).values_list('dog_id', flat=True)
+        )
+
+        to_create = []
+        for entry in roster_entries:
+            dog = entry.dog
+            if dog.schedule_type == 'ad_hoc':
+                continue
+            if weekday not in (dog.daycare_days or []):
+                continue
+            if dog.id in existing_dog_ids or dog.id in cancelled_dog_ids:
+                continue
+            to_create.append(DailyDogAssignment(
+                dog=dog,
+                staff_member=entry.staff_member,
+                date=target_date,
+                status='ASSIGNED',
+            ))
+
+        if not to_create:
+            return 0
+
+        DailyDogAssignment.objects.bulk_create(to_create, ignore_conflicts=True)
+        return len(to_create)
 
     @action(detail=False, methods=['get'])
     def today(self, request):
@@ -794,6 +865,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         target_date, error = self._parse_date(request)
         if error:
             return error
+        self._materialize_roster_for_date(target_date)
         assignments = self.get_queryset().filter(date=target_date)
         serializer = self.get_serializer(assignments, many=True)
         return Response(serializer.data)
@@ -804,6 +876,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         target_date, error = self._parse_date(request)
         if error:
             return error
+        self._materialize_roster_for_date(target_date)
         assignments = self.get_queryset().filter(
             staff_member=request.user, date=target_date
         )
@@ -834,6 +907,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         from .models import ClosureDay
         if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
             return Response([])
+
+        # Lazily materialize the persistent weekday roster so rostered dogs
+        # do not show up as "unassigned".
+        self._materialize_roster_for_date(target_date)
 
         day_number = target_date.isoweekday()  # Monday=1, Sunday=7
 
@@ -882,7 +959,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def assign_to_me(self, request):
         """Assign one or more dogs to the current staff member.
         Accepts optional 'date' in body (YYYY-MM-DD), defaults to today.
-        Automatically repeats assignments for the same weekday on future weeks."""
+
+        Also writes a persistent DogWeekdayPickup entry for recurring dogs so
+        the assignment repeats forever until explicitly changed. If a roster
+        entry for (dog, weekday) already exists pointing at a different staff
+        member, only the single-day assignment is created and the roster is
+        left alone (use ``reassign`` with scope=from_now_on to change it).
+        """
         from datetime import date, timedelta
         date_str = request.data.get('date')
         if date_str:
@@ -900,27 +983,33 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if not dog_ids:
             return Response({'detail': 'dog_ids is required'}, status=400)
 
+        weekday = target_date.isoweekday()
         created = []
-        created_dog_ids = []
         for dog_id in dog_ids:
+            try:
+                dog = Dog.objects.get(id=dog_id)
+            except Dog.DoesNotExist:
+                continue
+
+            # Silently upsert the persistent roster for recurring dogs, but
+            # do not clobber an existing roster entry pointing elsewhere.
+            if dog.schedule_type != 'ad_hoc':
+                existing = DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).first()
+                if existing is None:
+                    DogWeekdayPickup.objects.create(
+                        dog=dog,
+                        weekday=weekday,
+                        staff_member=request.user,
+                        created_by=request.user,
+                    )
+
             assignment, was_created = DailyDogAssignment.objects.get_or_create(
-                dog_id=dog_id,
+                dog=dog,
                 date=target_date,
                 defaults={'staff_member': request.user},
             )
             if was_created:
                 created.append(assignment)
-                created_dog_ids.append(dog_id)
-
-        # Auto-repeat for future weeks on the same weekday (skip ad hoc dogs)
-        if created_dog_ids:
-            recurring_dog_ids = list(
-                Dog.objects.filter(id__in=created_dog_ids)
-                .exclude(schedule_type='ad_hoc')
-                .values_list('id', flat=True)
-            )
-            if recurring_dog_ids:
-                self._create_recurring_assignments(recurring_dog_ids, request.user, target_date)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -930,7 +1019,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         """Assign one or more dogs to a specified staff member.
         Accepts optional 'date' in body (YYYY-MM-DD), defaults to today.
         Requires can_assign_dogs permission.
-        Automatically repeats assignments for the same weekday on future weeks."""
+
+        Also writes a persistent DogWeekdayPickup entry for recurring dogs so
+        the assignment repeats forever until explicitly changed. If a roster
+        entry for (dog, weekday) already exists pointing at a different staff
+        member, only the single-day assignment is created and the roster is
+        left alone (use ``reassign`` with scope=from_now_on to change it).
+        """
         try:
             if not request.user.profile.can_assign_dogs:
                 return Response({'detail': 'You do not have permission to assign dogs to other staff members.'}, status=403)
@@ -964,27 +1059,31 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
+        weekday = target_date.isoweekday()
         created = []
-        created_dog_ids = []
         for dog_id in dog_ids:
+            try:
+                dog = Dog.objects.get(id=dog_id)
+            except Dog.DoesNotExist:
+                continue
+
+            if dog.schedule_type != 'ad_hoc':
+                existing = DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).first()
+                if existing is None:
+                    DogWeekdayPickup.objects.create(
+                        dog=dog,
+                        weekday=weekday,
+                        staff_member=target_staff,
+                        created_by=request.user,
+                    )
+
             assignment, was_created = DailyDogAssignment.objects.get_or_create(
-                dog_id=dog_id,
+                dog=dog,
                 date=target_date,
                 defaults={'staff_member': target_staff},
             )
             if was_created:
                 created.append(assignment)
-                created_dog_ids.append(dog_id)
-
-        # Auto-repeat for future weeks on the same weekday (skip ad hoc dogs)
-        if created_dog_ids:
-            recurring_dog_ids = list(
-                Dog.objects.filter(id__in=created_dog_ids)
-                .exclude(schedule_type='ad_hoc')
-                .values_list('id', flat=True)
-            )
-            if recurring_dog_ids:
-                self._create_recurring_assignments(recurring_dog_ids, target_staff, target_date)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -992,8 +1091,17 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reassign(self, request, pk=None):
         """Reassign a dog to a different staff member.
-        Also updates future same-weekday assignments that are still in ASSIGNED status.
-        Requires can_assign_dogs permission."""
+
+        Body:
+          staff_member_id: int (required)
+          scope: 'just_this_day' | 'from_now_on' (optional, default 'just_this_day')
+
+        ``just_this_day`` only touches the single assignment.
+        ``from_now_on`` also updates the persistent weekday roster and
+        cascades to future same-weekday assignments still in ASSIGNED status.
+
+        Requires can_assign_dogs permission.
+        """
         try:
             if not request.user.profile.can_assign_dogs:
                 return Response({'detail': 'You do not have permission to reassign dogs.'}, status=403)
@@ -1005,37 +1113,61 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if not staff_member_id:
             return Response({'detail': 'staff_member_id is required'}, status=400)
 
+        scope = request.data.get('scope', 'just_this_day')
+        if scope not in ('just_this_day', 'from_now_on'):
+            return Response({'detail': 'Invalid scope. Use just_this_day or from_now_on.'}, status=400)
+
         from django.contrib.auth.models import User
         try:
             new_staff = User.objects.get(id=staff_member_id, is_staff=True)
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
-        old_staff = assignment.staff_member
         assignment.staff_member = new_staff
         assignment.save()
 
-        # Also reassign future same-weekday assignments still in ASSIGNED status
-        DailyDogAssignment.objects.filter(
-            dog=assignment.dog,
-            staff_member=old_staff,
-            date__gt=assignment.date,
-            date__iso_week_day=assignment.date.isoweekday(),
-            status='ASSIGNED',
-        ).update(staff_member=new_staff)
+        if scope == 'from_now_on':
+            weekday = assignment.date.isoweekday()
+            dog = assignment.dog
+            if dog.schedule_type != 'ad_hoc':
+                DogWeekdayPickup.objects.update_or_create(
+                    dog=dog,
+                    weekday=weekday,
+                    defaults={'staff_member': new_staff, 'created_by': request.user},
+                )
+            DailyDogAssignment.objects.filter(
+                dog=dog,
+                date__gt=assignment.date,
+                date__iso_week_day=weekday,
+                status='ASSIGNED',
+            ).update(staff_member=new_staff)
 
         return Response(self.get_serializer(assignment).data)
 
     @action(detail=True, methods=['post'])
     def unassign(self, request, pk=None):
         """Unassign a dog (delete the assignment).
-        Also removes future same-weekday assignments that are still in ASSIGNED status.
-        Requires can_assign_dogs permission."""
+
+        Body:
+          scope: 'just_this_day' | 'from_now_on' (optional, default 'just_this_day')
+
+        ``just_this_day`` only deletes the single assignment — the persistent
+        weekday roster stays intact, so next week's materialization will
+        recreate the assignment.
+        ``from_now_on`` also deletes the DogWeekdayPickup roster entry and
+        purges future same-weekday assignments still in ASSIGNED status.
+
+        Requires can_assign_dogs permission.
+        """
         try:
             if not request.user.profile.can_assign_dogs:
                 return Response({'detail': 'You do not have permission to unassign dogs.'}, status=403)
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
+
+        scope = request.data.get('scope', 'just_this_day')
+        if scope not in ('just_this_day', 'from_now_on'):
+            return Response({'detail': 'Invalid scope. Use just_this_day or from_now_on.'}, status=400)
 
         assignment = self.get_object()
         dog = assignment.dog
@@ -1044,13 +1176,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         assignment.delete()
 
-        # Also delete future same-weekday assignments still in ASSIGNED status
-        DailyDogAssignment.objects.filter(
-            dog=dog,
-            date__gt=assignment_date,
-            date__iso_week_day=weekday,
-            status='ASSIGNED',
-        ).delete()
+        if scope == 'from_now_on':
+            DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).delete()
+            DailyDogAssignment.objects.filter(
+                dog=dog,
+                date__gt=assignment_date,
+                date__iso_week_day=weekday,
+                status='ASSIGNED',
+            ).delete()
 
         return Response(status=204)
 
@@ -1143,6 +1276,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         else:
             target_date = date.today()
 
+        # Materialize the persistent weekday roster first so auto_assign only
+        # needs to fill in dogs that don't already have a default staff member.
+        self._materialize_roster_for_date(target_date)
+
         day_number = target_date.isoweekday()
 
         # Get unassigned dogs for this date (same logic as unassigned_dogs)
@@ -1221,6 +1358,124 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             'assigned': serializer.data,
             'skipped_dog_ids': skipped,
         }, status=201)
+
+    @action(detail=False, methods=['post'])
+    def swap_staff(self, request):
+        """Bulk-swap one staff member's pickups to another.
+
+        Body:
+          from_staff_id: int (required)
+          to_staff_id:   int (required)
+          scope:         'just_this_day' | 'this_weekday_forever' | 'all_weekdays_forever'
+          date:          'YYYY-MM-DD' (required unless scope='all_weekdays_forever')
+
+        Swap moves ALL DailyDogAssignment rows owned by the source staff in
+        the target window — including rows that originated from boarding or
+        ADD_DAY requests — not just rows created from the roster. Rows
+        already in PICKED_UP/AT_DAYCARE/DROPPED_OFF status are untouched.
+
+        Requires can_assign_dogs permission.
+        """
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to swap staff.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        from datetime import date as date_cls
+
+        from_staff_id = request.data.get('from_staff_id')
+        to_staff_id = request.data.get('to_staff_id')
+        scope = request.data.get('scope')
+
+        if not from_staff_id or not to_staff_id:
+            return Response({'detail': 'from_staff_id and to_staff_id are required'}, status=400)
+        if from_staff_id == to_staff_id:
+            return Response({'detail': 'from_staff_id and to_staff_id must differ'}, status=400)
+        if scope not in ('just_this_day', 'this_weekday_forever', 'all_weekdays_forever'):
+            return Response({
+                'detail': 'scope must be one of just_this_day, this_weekday_forever, all_weekdays_forever',
+            }, status=400)
+
+        from django.contrib.auth.models import User
+        try:
+            from_staff = User.objects.get(id=from_staff_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'from_staff not found'}, status=404)
+        try:
+            to_staff = User.objects.get(id=to_staff_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'to_staff not found'}, status=404)
+
+        target_date = None
+        if scope != 'all_weekdays_forever':
+            date_str = request.data.get('date')
+            if not date_str:
+                return Response({'detail': 'date is required for this scope'}, status=400)
+            try:
+                target_date = date_cls.fromisoformat(date_str)
+            except ValueError:
+                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+
+        from django.db import transaction
+        roster_updated = 0
+        assignments_updated = 0
+        with transaction.atomic():
+            if scope == 'just_this_day':
+                assignments_updated = DailyDogAssignment.objects.filter(
+                    staff_member=from_staff,
+                    date=target_date,
+                    status='ASSIGNED',
+                ).update(staff_member=to_staff)
+            elif scope == 'this_weekday_forever':
+                weekday = target_date.isoweekday()
+                roster_updated = DogWeekdayPickup.objects.filter(
+                    staff_member=from_staff,
+                    weekday=weekday,
+                ).update(staff_member=to_staff)
+                assignments_updated = DailyDogAssignment.objects.filter(
+                    staff_member=from_staff,
+                    date__gte=target_date,
+                    date__iso_week_day=weekday,
+                    status='ASSIGNED',
+                ).update(staff_member=to_staff)
+            else:  # all_weekdays_forever
+                roster_updated = DogWeekdayPickup.objects.filter(
+                    staff_member=from_staff,
+                ).update(staff_member=to_staff)
+                assignments_updated = DailyDogAssignment.objects.filter(
+                    staff_member=from_staff,
+                    date__gte=date_cls.today(),
+                    status='ASSIGNED',
+                ).update(staff_member=to_staff)
+
+        return Response({
+            'roster_rows_updated': roster_updated,
+            'assignment_rows_updated': assignments_updated,
+        })
+
+    @action(detail=False, methods=['get'])
+    def weekday_roster(self, request):
+        """Return the persistent DogWeekdayPickup roster.
+
+        Optional filters: ?weekday=<1-7>, ?staff_member_id=<id>.
+        Used by the mobile swap-staff dialog to preview which dogs are affected.
+        """
+        qs = DogWeekdayPickup.objects.select_related('dog', 'staff_member').all()
+        weekday = request.query_params.get('weekday')
+        if weekday:
+            try:
+                qs = qs.filter(weekday=int(weekday))
+            except ValueError:
+                return Response({'detail': 'Invalid weekday'}, status=400)
+        staff_id = request.query_params.get('staff_member_id')
+        if staff_id:
+            try:
+                qs = qs.filter(staff_member_id=int(staff_id))
+            except ValueError:
+                return Response({'detail': 'Invalid staff_member_id'}, status=400)
+        serializer = DogWeekdayPickupSerializer(qs, many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def staff_members(self, request):

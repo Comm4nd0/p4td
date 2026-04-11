@@ -520,14 +520,43 @@ class StaffDailyAssignmentsScreenState
     );
   }
 
+  /// Prompts the admin to choose between "just this day" and "from now on"
+  /// when changing an assignment. Returns null if the user cancels.
+  Future<AssignmentScope?> _promptAssignmentScope({
+    required String title,
+    required String justThisDayLabel,
+    required String fromNowOnLabel,
+  }) {
+    return showDialog<AssignmentScope>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: const Text('Apply this change to only this day, or to every week going forward?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, AssignmentScope.justThisDay),
+            child: Text(justThisDayLabel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, AssignmentScope.fromNowOn),
+            child: Text(fromNowOnLabel),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _confirmUnassign(DailyDogAssignment assignment) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Unassign Dog'),
         content: Text(
-          'Are you sure you want to unassign ${assignment.dogName} from ${assignment.staffMemberName}? '
-          'The dog will appear in the unassigned list and can be reassigned later.',
+          'Are you sure you want to unassign ${assignment.dogName} from ${assignment.staffMemberName}?',
         ),
         actions: [
           TextButton(
@@ -543,24 +572,31 @@ class StaffDailyAssignmentsScreenState
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await _dataService.unassignDog(assignment.id);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${assignment.dogName} has been unassigned'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-        await _loadAssignments();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to unassign: $e')),
-          );
-        }
+    if (confirmed != true || !mounted) return;
+
+    final scope = await _promptAssignmentScope(
+      title: 'Unassign Scope',
+      justThisDayLabel: 'Just this day',
+      fromNowOnLabel: 'From now on',
+    );
+    if (scope == null) return;
+
+    try {
+      await _dataService.unassignDog(assignment.id, scope: scope);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${assignment.dogName} has been unassigned'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      await _loadAssignments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to unassign: $e')),
+        );
       }
     }
   }
@@ -679,8 +715,15 @@ class StaffDailyAssignmentsScreenState
     );
 
     if (result == true && selectedStaffId != null) {
+      if (!mounted) return;
+      final scope = await _promptAssignmentScope(
+        title: 'Reassign Scope',
+        justThisDayLabel: 'Just this day',
+        fromNowOnLabel: 'From now on',
+      );
+      if (scope == null) return;
       try {
-        await _dataService.reassignDog(assignment.id, selectedStaffId!);
+        await _dataService.reassignDog(assignment.id, selectedStaffId!, scope: scope);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -758,6 +801,212 @@ class StaffDailyAssignmentsScreenState
 
   /// Expose the traffic alert action so the parent can use it in the app bar.
   void showTrafficAlert() => _showTrafficAlertDialog();
+
+  /// Expose the swap-staff action so the parent can use it in the app bar.
+  /// Allows bulk-swapping all of one staff member's pickups to another
+  /// (for day-off coverage or staff departures).
+  void showSwapStaffDialog() => _showSwapStaffDialog();
+
+  Future<void> _showSwapStaffDialog() async {
+    if (!widget.canAssignDogs) return;
+
+    List<Map<String, dynamic>> staffMembers;
+    try {
+      staffMembers = await _dataService.getStaffMembers();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load staff: $e')),
+        );
+      }
+      return;
+    }
+    if (staffMembers.length < 2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Need at least two staff members to swap.')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    int? fromStaffId = _selectedStaffId;
+    int? toStaffId;
+    SwapScope scope = SwapScope.justThisDay;
+    int? previewCount;
+    bool loadingPreview = false;
+
+    String staffLabel(Map<String, dynamic> s) =>
+        (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
+            ? s['first_name'].toString()
+            : s['username'].toString();
+
+    Future<void> refreshPreview(void Function(void Function()) setDialogState) async {
+      if (fromStaffId == null) {
+        setDialogState(() => previewCount = null);
+        return;
+      }
+      if (scope == SwapScope.justThisDay) {
+        setDialogState(() => previewCount = null);
+        return;
+      }
+      setDialogState(() => loadingPreview = true);
+      try {
+        final roster = await _dataService.getWeekdayRoster(
+          weekday: scope == SwapScope.thisWeekdayForever ? _selectedDate.weekday : null,
+          staffMemberId: fromStaffId,
+        );
+        if (mounted) {
+          setDialogState(() {
+            previewCount = roster.length;
+            loadingPreview = false;
+          });
+        }
+      } catch (_) {
+        setDialogState(() {
+          previewCount = null;
+          loadingPreview = false;
+        });
+      }
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Swap Staff'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(
+                      labelText: 'From staff',
+                      border: OutlineInputBorder(),
+                    ),
+                    value: fromStaffId,
+                    items: staffMembers
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child: Text(staffLabel(s)),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      setDialogState(() => fromStaffId = v);
+                      refreshPreview(setDialogState);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(
+                      labelText: 'To staff',
+                      border: OutlineInputBorder(),
+                    ),
+                    value: toStaffId,
+                    items: staffMembers
+                        .where((s) => s['id'] != fromStaffId)
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child: Text(staffLabel(s)),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDialogState(() => toStaffId = v),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Scope', style: TextStyle(fontWeight: FontWeight.bold)),
+                  RadioListTile<SwapScope>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text('Just ${DateFormat('EEE d MMM').format(_selectedDate)}'),
+                    value: SwapScope.justThisDay,
+                    groupValue: scope,
+                    onChanged: (v) {
+                      setDialogState(() => scope = v!);
+                      refreshPreview(setDialogState);
+                    },
+                  ),
+                  RadioListTile<SwapScope>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text('Every ${DateFormat('EEEE').format(_selectedDate)} from now on'),
+                    value: SwapScope.thisWeekdayForever,
+                    groupValue: scope,
+                    onChanged: (v) {
+                      setDialogState(() => scope = v!);
+                      refreshPreview(setDialogState);
+                    },
+                  ),
+                  RadioListTile<SwapScope>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('All weekdays from now on'),
+                    value: SwapScope.allWeekdaysForever,
+                    groupValue: scope,
+                    onChanged: (v) {
+                      setDialogState(() => scope = v!);
+                      refreshPreview(setDialogState);
+                    },
+                  ),
+                  if (scope != SwapScope.justThisDay) ...[
+                    const SizedBox(height: 8),
+                    if (loadingPreview)
+                      const Text('Loading affected dog count…')
+                    else if (previewCount != null)
+                      Text(
+                        '$previewCount roster entr${previewCount == 1 ? 'y' : 'ies'} will be flipped.',
+                        style: const TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: (fromStaffId == null || toStaffId == null)
+                    ? null
+                    : () => Navigator.pop(context, true),
+                child: const Text('Swap'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (confirmed != true || fromStaffId == null || toStaffId == null) return;
+
+    try {
+      final result = await _dataService.swapStaff(
+        fromStaffId: fromStaffId!,
+        toStaffId: toStaffId!,
+        scope: scope,
+        date: scope == SwapScope.allWeekdaysForever ? null : _selectedDate,
+      );
+      if (mounted) {
+        final updated = result['assignment_rows_updated'] ?? 0;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Swapped $updated assignment(s).'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      await _loadAssignments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to swap staff: $e')),
+        );
+      }
+    }
+  }
 
   Future<void> _showTrafficAlertDialog() async {
     final detailController = TextEditingController();

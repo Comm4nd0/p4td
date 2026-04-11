@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from rest_framework.test import APIClient
 from .models import (
     Dog, DateChangeRequest, DateChangeRequestHistory,
-    BoardingRequest, DailyDogAssignment,
+    BoardingRequest, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability,
     GroupMedia,
@@ -171,6 +171,506 @@ class DailyAssignmentTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         dog_ids = [d['id'] for d in resp.data]
         self.assertIn(self.dog.id, dog_ids)
+
+
+class WeekdayRosterTests(TestCase):
+    """Tests for the persistent DogWeekdayPickup roster and related flows."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff_a = User.objects.create_user(username='staffa', password='pw', is_staff=True, first_name='Alice')
+        self.staff_a.profile.can_assign_dogs = True
+        self.staff_a.profile.save()
+        self.staff_b = User.objects.create_user(username='staffb', password='pw', is_staff=True, first_name='Bob')
+        self.staff_b.profile.can_assign_dogs = True
+        self.staff_b.profile.save()
+
+        self.today = date.today()
+        self.today_weekday = self.today.isoweekday()
+        self.dog = Dog.objects.create(
+            owner=self.owner,
+            name='Rex',
+            daycare_days=[self.today_weekday],
+            schedule_type='weekly',
+        )
+        self.client = APIClient()
+
+    # --- roster writes on assign ---
+
+    def test_assign_to_me_creates_roster(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id],
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(DogWeekdayPickup.objects.filter(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        ).exists())
+
+    def test_assign_dogs_creates_roster(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_dogs/', {
+            'dog_ids': [self.dog.id],
+            'staff_member_id': self.staff_b.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        entry = DogWeekdayPickup.objects.get(dog=self.dog, weekday=self.today_weekday)
+        self.assertEqual(entry.staff_member, self.staff_b)
+
+    def test_assign_to_me_skips_roster_for_ad_hoc(self):
+        self.dog.schedule_type = 'ad_hoc'
+        self.dog.save()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id],
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=self.dog).exists())
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        ).exists())
+
+    def test_assign_to_me_does_not_clobber_existing_roster(self):
+        # staff_a owns the roster
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.client.login(username='staffb', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id],
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        # Roster is unchanged
+        entry = DogWeekdayPickup.objects.get(dog=self.dog, weekday=self.today_weekday)
+        self.assertEqual(entry.staff_member, self.staff_a)
+        # But daily assignment was still created for staff_b
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            dog=self.dog, staff_member=self.staff_b, date=self.today
+        ).exists())
+
+    # --- lazy materialization ---
+
+    def test_today_lazy_materializes_from_roster(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.assertEqual(DailyDogAssignment.objects.count(), 0)
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['dog'], self.dog.id)
+        self.assertEqual(resp.data[0]['staff_member'], self.staff_a.id)
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            dog=self.dog, date=self.today
+        ).exists())
+
+    def test_my_assignments_lazy_materializes(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/my_assignments/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+
+    def test_today_skips_closed_days(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        ClosureDay.objects.create(date=self.today, closure_type='CLOSED')
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        # No rows materialized on a closed day.
+        self.assertFalse(DailyDogAssignment.objects.filter(date=self.today).exists())
+
+    def test_today_skips_dogs_with_cancel_request(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        DateChangeRequest.objects.create(
+            dog=self.dog,
+            request_type='CANCEL',
+            original_date=self.today,
+            status='APPROVED',
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DailyDogAssignment.objects.filter(
+            dog=self.dog, date=self.today
+        ).exists())
+
+    def test_today_skips_dropped_weekday(self):
+        # Roster entry exists but the dog no longer attends on that weekday.
+        other_weekday = (self.today_weekday % 7) + 1
+        self.dog.daycare_days = [other_weekday]
+        self.dog.save()
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DailyDogAssignment.objects.filter(
+            dog=self.dog, date=self.today
+        ).exists())
+
+    # --- reassign scope ---
+
+    def test_reassign_just_this_day_does_not_touch_roster(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        # Future row for the same weekday
+        future_date = self.today + timedelta(weeks=1)
+        future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=future_date
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/daily-assignments/{assignment.id}/reassign/', {
+            'staff_member_id': self.staff_b.id,
+            'scope': 'just_this_day',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        assignment.refresh_from_db()
+        future.refresh_from_db()
+        self.assertEqual(assignment.staff_member, self.staff_b)
+        self.assertEqual(future.staff_member, self.staff_a)  # unchanged
+        roster = DogWeekdayPickup.objects.get(dog=self.dog, weekday=self.today_weekday)
+        self.assertEqual(roster.staff_member, self.staff_a)  # unchanged
+
+    def test_reassign_from_now_on_updates_roster_and_future(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(weeks=1)
+        )
+        picked_up_future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a,
+            date=self.today + timedelta(weeks=2),
+            status='PICKED_UP',
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/daily-assignments/{assignment.id}/reassign/', {
+            'staff_member_id': self.staff_b.id,
+            'scope': 'from_now_on',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        assignment.refresh_from_db()
+        future.refresh_from_db()
+        picked_up_future.refresh_from_db()
+        self.assertEqual(assignment.staff_member, self.staff_b)
+        self.assertEqual(future.staff_member, self.staff_b)
+        self.assertEqual(picked_up_future.staff_member, self.staff_a)  # PICKED_UP untouched
+        roster = DogWeekdayPickup.objects.get(dog=self.dog, weekday=self.today_weekday)
+        self.assertEqual(roster.staff_member, self.staff_b)
+
+    def test_reassign_invalid_scope(self):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/daily-assignments/{assignment.id}/reassign/', {
+            'staff_member_id': self.staff_b.id,
+            'scope': 'forever',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    # --- unassign scope ---
+
+    def test_unassign_just_this_day_keeps_roster(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(weeks=1)
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/daily-assignments/{assignment.id}/unassign/', {
+            'scope': 'just_this_day',
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(DailyDogAssignment.objects.filter(pk=assignment.pk).exists())
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=future.pk).exists())
+        self.assertTrue(DogWeekdayPickup.objects.filter(
+            dog=self.dog, weekday=self.today_weekday
+        ).exists())
+
+    def test_unassign_from_now_on_clears_roster(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(weeks=1)
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/daily-assignments/{assignment.id}/unassign/', {
+            'scope': 'from_now_on',
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(DailyDogAssignment.objects.filter(pk=assignment.pk).exists())
+        self.assertFalse(DailyDogAssignment.objects.filter(pk=future.pk).exists())
+        self.assertFalse(DogWeekdayPickup.objects.filter(
+            dog=self.dog, weekday=self.today_weekday
+        ).exists())
+
+    # --- swap_staff ---
+
+    def _make_swap_scenario(self):
+        """Two dogs on today's weekday assigned to staff_a, plus a Wednesday
+        boarding-style row for a different weekday."""
+        other_weekday = (self.today_weekday % 7) + 1
+        other_date = self.today + timedelta(days=1)
+        # We want other_date.isoweekday() == other_weekday
+        while other_date.isoweekday() != other_weekday:
+            other_date += timedelta(days=1)
+        dog2 = Dog.objects.create(
+            owner=self.owner,
+            name='Buddy',
+            daycare_days=[self.today_weekday],
+            schedule_type='weekly',
+        )
+        dog3 = Dog.objects.create(
+            owner=self.owner,
+            name='Max',
+            daycare_days=[other_weekday],
+            schedule_type='weekly',
+        )
+        # Today rows
+        a_today_rex = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        a_today_buddy = DailyDogAssignment.objects.create(
+            dog=dog2, staff_member=self.staff_a, date=self.today
+        )
+        # Future same-weekday row
+        a_future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(weeks=1)
+        )
+        # Different weekday row (simulates boarding / add_day)
+        a_other_weekday = DailyDogAssignment.objects.create(
+            dog=dog3, staff_member=self.staff_a, date=other_date
+        )
+        # Roster entries
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        DogWeekdayPickup.objects.create(
+            dog=dog2, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        DogWeekdayPickup.objects.create(
+            dog=dog3, weekday=other_weekday, staff_member=self.staff_a
+        )
+        return {
+            'a_today_rex': a_today_rex,
+            'a_today_buddy': a_today_buddy,
+            'a_future': a_future,
+            'a_other_weekday': a_other_weekday,
+            'other_weekday': other_weekday,
+            'dog2': dog2,
+            'dog3': dog3,
+        }
+
+    def test_swap_staff_just_this_day(self):
+        s = self._make_swap_scenario()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'just_this_day',
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['assignment_rows_updated'], 2)
+        s['a_today_rex'].refresh_from_db()
+        s['a_today_buddy'].refresh_from_db()
+        s['a_future'].refresh_from_db()
+        s['a_other_weekday'].refresh_from_db()
+        self.assertEqual(s['a_today_rex'].staff_member, self.staff_b)
+        self.assertEqual(s['a_today_buddy'].staff_member, self.staff_b)
+        # Future same-weekday untouched for just_this_day
+        self.assertEqual(s['a_future'].staff_member, self.staff_a)
+        self.assertEqual(s['a_other_weekday'].staff_member, self.staff_a)
+        # Roster untouched
+        self.assertEqual(
+            DogWeekdayPickup.objects.filter(staff_member=self.staff_b).count(), 0
+        )
+
+    def test_swap_staff_this_weekday_forever(self):
+        s = self._make_swap_scenario()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'this_weekday_forever',
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        s['a_today_rex'].refresh_from_db()
+        s['a_future'].refresh_from_db()
+        s['a_other_weekday'].refresh_from_db()
+        self.assertEqual(s['a_today_rex'].staff_member, self.staff_b)
+        self.assertEqual(s['a_future'].staff_member, self.staff_b)
+        # Other weekday untouched
+        self.assertEqual(s['a_other_weekday'].staff_member, self.staff_a)
+        # Roster: only today's weekday flipped
+        self.assertEqual(
+            DogWeekdayPickup.objects.filter(
+                weekday=self.today_weekday, staff_member=self.staff_b
+            ).count(), 2
+        )
+        self.assertEqual(
+            DogWeekdayPickup.objects.filter(
+                weekday=s['other_weekday'], staff_member=self.staff_a
+            ).count(), 1
+        )
+
+    def test_swap_staff_all_weekdays_forever(self):
+        s = self._make_swap_scenario()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'all_weekdays_forever',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        s['a_today_rex'].refresh_from_db()
+        s['a_future'].refresh_from_db()
+        s['a_other_weekday'].refresh_from_db()
+        self.assertEqual(s['a_today_rex'].staff_member, self.staff_b)
+        self.assertEqual(s['a_future'].staff_member, self.staff_b)
+        self.assertEqual(s['a_other_weekday'].staff_member, self.staff_b)
+        # All roster entries flipped
+        self.assertEqual(
+            DogWeekdayPickup.objects.filter(staff_member=self.staff_a).count(), 0
+        )
+        self.assertEqual(
+            DogWeekdayPickup.objects.filter(staff_member=self.staff_b).count(), 3
+        )
+
+    def test_swap_staff_skips_picked_up_rows(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today, status='PICKED_UP'
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'just_this_day',
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['assignment_rows_updated'], 0)
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            staff_member=self.staff_a, date=self.today, status='PICKED_UP'
+        ).exists())
+
+    def test_swap_staff_requires_permission(self):
+        self.staff_a.profile.can_assign_dogs = False
+        self.staff_a.profile.save()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'all_weekdays_forever',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_swap_staff_validates_scope(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'bogus',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_swap_staff_rejects_same_staff(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_a.id,
+            'scope': 'all_weekdays_forever',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    # --- edge cases ---
+
+    def test_dog_delete_cascades_roster(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.dog.delete()
+        self.assertFalse(DogWeekdayPickup.objects.filter(weekday=self.today_weekday).exists())
+
+    def test_staff_delete_blocked_when_roster_exists(self):
+        from django.db.models.deletion import ProtectedError
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        with self.assertRaises(ProtectedError):
+            self.staff_a.delete()
+
+    def test_dog_schedule_type_change_to_ad_hoc_clears_roster(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'schedule_type': 'ad_hoc',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=self.dog).exists())
+
+    def test_dog_daycare_days_change_removes_roster_entry(self):
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            self.skipTest('JSON field updates can be noisy on SQLite')
+        # Dog attends Mon and Tue
+        self.dog.daycare_days = [1, 2]
+        self.dog.save()
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=1, staff_member=self.staff_a)
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=2, staff_member=self.staff_a)
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'daycare_days': [1],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(DogWeekdayPickup.objects.filter(dog=self.dog, weekday=1).exists())
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=self.dog, weekday=2).exists())
+
+    def test_weekday_roster_endpoint(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/weekday_roster/?weekday={self.today_weekday}'
+            f'&staff_member_id={self.staff_a.id}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['dog'], self.dog.id)
+        self.assertEqual(resp.data[0]['weekday'], self.today_weekday)
 
 
 class BoardingRequestTests(TestCase):
