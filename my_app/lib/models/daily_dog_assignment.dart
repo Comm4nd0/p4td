@@ -1,3 +1,38 @@
+/// Scope used when reassigning or unassigning a single dog on a specific date.
+/// Maps to the backend `scope` body param on /reassign/ and /unassign/.
+enum AssignmentScope {
+  justThisDay,
+  fromNowOn;
+
+  String get apiValue {
+    switch (this) {
+      case AssignmentScope.justThisDay:
+        return 'just_this_day';
+      case AssignmentScope.fromNowOn:
+        return 'from_now_on';
+    }
+  }
+}
+
+/// Scope used when bulk-swapping one staff member's pickups to another.
+/// Maps to the backend `scope` body param on /swap_staff/.
+enum SwapScope {
+  justThisDay,
+  thisWeekdayForever,
+  allWeekdaysForever;
+
+  String get apiValue {
+    switch (this) {
+      case SwapScope.justThisDay:
+        return 'just_this_day';
+      case SwapScope.thisWeekdayForever:
+        return 'this_weekday_forever';
+      case SwapScope.allWeekdaysForever:
+        return 'all_weekdays_forever';
+    }
+  }
+}
+
 enum AssignmentStatus {
   assigned,
   pickedUp,

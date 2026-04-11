@@ -272,6 +272,28 @@ class DailyDogAssignment(models.Model):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
 
 
+class DogWeekdayPickup(models.Model):
+    """Persistent default: who picks up <dog> every <weekday>.
+
+    Materialized into DailyDogAssignment rows on demand when an admin views
+    a day. Only applies to recurring dogs (not schedule_type='ad_hoc').
+    """
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='weekday_pickups')
+    weekday = models.IntegerField(help_text='1=Monday … 7=Sunday (matches isoweekday())')
+    staff_member = models.ForeignKey(User, on_delete=models.PROTECT, related_name='weekday_pickups')
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='created_weekday_pickups')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('dog', 'weekday')
+        ordering = ['dog__name', 'weekday']
+        indexes = [models.Index(fields=['weekday', 'staff_member'])]
+
+    def __str__(self):
+        return f"{self.dog.name} → {self.staff_member.username} on weekday {self.weekday}"
+
+
 class ClosureDay(models.Model):
     CLOSURE_TYPE_CHOICES = [
         ('CLOSED', 'Closed'),

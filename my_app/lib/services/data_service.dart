@@ -75,8 +75,22 @@ abstract class DataService {
   Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date});
   Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
-  Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId);
-  Future<void> unassignDog(int assignmentId);
+  Future<DailyDogAssignment> reassignDog(
+    int assignmentId,
+    int newStaffMemberId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  });
+  Future<void> unassignDog(
+    int assignmentId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  });
+  Future<Map<String, dynamic>> swapStaff({
+    required int fromStaffId,
+    required int toStaffId,
+    required SwapScope scope,
+    DateTime? date,
+  });
+  Future<List<Map<String, dynamic>>> getWeekdayRoster({int? weekday, int? staffMemberId});
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date});
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
   Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail, List<int>? dogIds});
@@ -1254,12 +1268,19 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId) async {
+  Future<DailyDogAssignment> reassignDog(
+    int assignmentId,
+    int newStaffMemberId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  }) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/reassign/'),
       headers: headers,
-      body: json.encode({'staff_member_id': newStaffMemberId}),
+      body: json.encode({
+        'staff_member_id': newStaffMemberId,
+        'scope': scope.apiValue,
+      }),
     );
     if (response.statusCode == 200) {
       return DailyDogAssignment.fromJson(json.decode(response.body));
@@ -1276,11 +1297,15 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<void> unassignDog(int assignmentId) async {
+  Future<void> unassignDog(
+    int assignmentId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  }) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/unassign/'),
       headers: headers,
+      body: json.encode({'scope': scope.apiValue}),
     );
     if (response.statusCode != 204) {
       String errorMessage = 'Failed to unassign dog';
@@ -1292,6 +1317,61 @@ class ApiDataService implements DataService {
       } catch (_) {}
       throw Exception(errorMessage);
     }
+  }
+
+  @override
+  Future<Map<String, dynamic>> swapStaff({
+    required int fromStaffId,
+    required int toStaffId,
+    required SwapScope scope,
+    DateTime? date,
+  }) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{
+      'from_staff_id': fromStaffId,
+      'to_staff_id': toStaffId,
+      'scope': scope.apiValue,
+    };
+    if (date != null) {
+      body['date'] =
+          '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    }
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/swap_staff/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(json.decode(response.body));
+    }
+    String errorMessage = 'Failed to swap staff';
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map && errorData['detail'] != null) {
+        errorMessage = errorData['detail'];
+      }
+    } catch (_) {}
+    throw Exception(errorMessage);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getWeekdayRoster({int? weekday, int? staffMemberId}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (weekday != null) params['weekday'] = weekday.toString();
+    if (staffMemberId != null) params['staff_member_id'] = staffMemberId.toString();
+    final qs = params.isEmpty
+        ? ''
+        : '?${params.entries.map((e) => '${e.key}=${e.value}').join('&')}';
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/weekday_roster/$qs'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as List;
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw Exception('Failed to load weekday roster');
   }
 
   @override
@@ -2114,12 +2194,31 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<DailyDogAssignment> reassignDog(int assignmentId, int newStaffMemberId) async {
+  Future<DailyDogAssignment> reassignDog(
+    int assignmentId,
+    int newStaffMemberId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  }) async {
     throw UnimplementedError();
   }
 
   @override
-  Future<void> unassignDog(int assignmentId) async {}
+  Future<void> unassignDog(
+    int assignmentId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  }) async {}
+
+  @override
+  Future<Map<String, dynamic>> swapStaff({
+    required int fromStaffId,
+    required int toStaffId,
+    required SwapScope scope,
+    DateTime? date,
+  }) async =>
+      {'roster_rows_updated': 0, 'assignment_rows_updated': 0};
+
+  @override
+  Future<List<Map<String, dynamic>>> getWeekdayRoster({int? weekday, int? staffMemberId}) async => [];
 
   @override
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date}) async => {};
