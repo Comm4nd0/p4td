@@ -1,29 +1,24 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
-import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../widgets/no_connection_widget.dart';
-import '../widgets/media_tag_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'dog_home_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'feed_screen.dart';
-import 'request_boarding_screen.dart';
 import 'boarding_request_list_screen.dart';
-import 'staff_daily_assignments_screen.dart';
+import 'unified_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'staff_availability_screen.dart';
@@ -69,19 +64,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
   String _appVersion = '';
-  final GlobalKey<StaffDailyAssignmentsScreenState> _assignmentsKey = GlobalKey();
+  final GlobalKey<UnifiedDashboardScreenState> _dashboardKey = GlobalKey();
   bool _initialRouteHandled = false;
 
-  // Staff Working Today data
-  List<DailyDogAssignment> _todayAssignments = [];
-  // Boarding Tonight data
-  List<BoardingRequest> _boardingTonight = [];
-  // Staff filter for Pickups tab navigation
+  // Staff filter for dashboard navigation
   int? _dogGroupsStaffFilter;
-  // Track upload progress for large batches
-  // Feed stats for today
-  int _todayPhotos = 0;
-  int _todayVideos = 0;
 
   @override
   void initState() {
@@ -195,13 +182,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (profile.isStaff) {
           // Default to Dashboard tab for staff (unless deep-link overrides)
           if (widget.initialRoute == null && _currentIndex == 1) {
-            setState(() => _currentIndex = 3);
+            setState(() => _currentIndex = 2);
           }
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
-          _loadStaffWorkingToday();
-          _loadBoardingTonight();
-          _loadFeedTodayStats();
         } else {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
@@ -260,60 +244,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  Future<void> _loadStaffWorkingToday() async {
-    if (!_isStaff) return;
-    try {
-      final assignments = await _dataService.getTodayAssignments();
-      if (mounted) {
-        setState(() => _todayAssignments = assignments);
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadFeedTodayStats() async {
-    try {
-      final stats = await _dataService.getFeedTodayStats();
-      if (mounted) {
-        setState(() {
-          _todayPhotos = stats['photos'] ?? 0;
-          _todayVideos = stats['videos'] ?? 0;
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadBoardingTonight() async {
-    try {
-      final requests = await _dataService.getBoardingRequests();
-      final today = DateTime.now();
-      final tonight = DateTime(today.year, today.month, today.day);
-      if (mounted) {
-        setState(() {
-          _boardingTonight = requests.where((r) =>
-            r.status == BoardingRequestStatus.approved &&
-            !r.startDate.isAfter(tonight) &&
-            r.endDate.isAfter(tonight)
-          ).toList();
-        });
-      }
-    } catch (_) {}
-  }
-
   void _refresh() {
     _loadDogs();
     _loadPendingRequestCount();
     _loadUnresolvedQueryCount();
     if (_canViewInquiries) _loadUnreadInquiryCount();
-    _loadStaffWorkingToday();
-    _loadBoardingTonight();
-    _loadFeedTodayStats();
-  }
-
-  void _navigateToDogGroups({int? staffId}) {
-    setState(() {
-      _dogGroupsStaffFilter = staffId;
-      _currentIndex = 2;
-    });
   }
 
   /// Navigate to the deep-link target screen after profile/permissions are loaded.
@@ -394,161 +329,66 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showTrafficAlertDialog() async {
-    // Fetch staff's assignments for today to show dog selection
-    List<DailyDogAssignment> myAssignments = [];
-    try {
-      myAssignments = await _dataService.getMyAssignments();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load your assignments: $e'), backgroundColor: Colors.red),
-        );
-      }
-      return;
-    }
-
-    if (myAssignments.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You have no dogs assigned today.')),
-        );
-      }
-      return;
-    }
-
-    // De-duplicate by dogId (a dog might appear once but just in case)
-    final uniqueDogs = <int, DailyDogAssignment>{};
-    for (final a in myAssignments) {
-      uniqueDogs.putIfAbsent(a.dogId, () => a);
-    }
-    final dogList = uniqueDogs.values.toList();
-
-    // All selected by default
-    final selectedDogIds = <int>{...dogList.map((d) => d.dogId)};
     final detailController = TextEditingController();
-
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              PhosphorIcon(PhosphorIconsDuotone.path, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Traffic Alert'),
-            ],
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Select which dogs\' owners to notify:',
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    TextButton(
-                      onPressed: () => setDialogState(() {
-                        selectedDogIds.addAll(dogList.map((d) => d.dogId));
-                      }),
-                      child: const Text('Select All'),
-                    ),
-                    TextButton(
-                      onPressed: () => setDialogState(() => selectedDogIds.clear()),
-                      child: const Text('Clear'),
-                    ),
-                  ],
-                ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.3,
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: dogList.length,
-                    itemBuilder: (context, index) {
-                      final assignment = dogList[index];
-                      final isSelected = selectedDogIds.contains(assignment.dogId);
-                      return CheckboxListTile(
-                        value: isSelected,
-                        onChanged: (checked) {
-                          setDialogState(() {
-                            if (checked == true) {
-                              selectedDogIds.add(assignment.dogId);
-                            } else {
-                              selectedDogIds.remove(assignment.dogId);
-                            }
-                          });
-                        },
-                        title: Text(assignment.dogName),
-                        subtitle: Text(assignment.ownerName),
-                        dense: true,
-                        controlAffinity: ListTileControlAffinity.leading,
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: detailController,
-                  decoration: const InputDecoration(
-                    labelText: 'Additional detail (optional)',
-                    hintText: 'e.g. Accident on M1, expect 20 min delay',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                  textCapitalization: TextCapitalization.sentences,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton.icon(
-              onPressed: selectedDogIds.isEmpty ? null : () => Navigator.pop(context, 'pickup'),
-              icon: PhosphorIcon(PhosphorIconsDuotone.arrowUp, size: 18),
-              label: const Text('Pickup'),
-            ),
-            FilledButton.icon(
-              onPressed: selectedDogIds.isEmpty ? null : () => Navigator.pop(context, 'dropoff'),
-              icon: PhosphorIcon(PhosphorIconsDuotone.arrowDown, size: 18),
-              label: const Text('Drop-off'),
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            PhosphorIcon(PhosphorIconsDuotone.path, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Traffic Alert'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Send a traffic delay notification to all owners with dogs scheduled today. Which service is affected?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: detailController,
+              decoration: const InputDecoration(
+                labelText: 'Additional detail (optional)',
+                hintText: 'e.g. Accident on M1, expect 20 min delay',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+              textCapitalization: TextCapitalization.sentences,
             ),
           ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, 'pickup'),
+            icon: PhosphorIcon(PhosphorIconsDuotone.arrowUp, size: 18),
+            label: const Text('Pickup'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, 'dropoff'),
+            icon: PhosphorIcon(PhosphorIconsDuotone.arrowDown, size: 18),
+            label: const Text('Drop-off'),
+          ),
+        ],
       ),
     );
 
-    if (result != null && selectedDogIds.isNotEmpty) {
+    if (result != null) {
       try {
         final detail = detailController.text.trim();
-        await _dataService.sendTrafficAlert(
-          result,
-          detail: detail.isNotEmpty ? detail : null,
-          dogIds: selectedDogIds.toList(),
-        );
+        await _dataService.sendTrafficAlert(result, detail: detail.isNotEmpty ? detail : null);
         if (mounted) {
-          final count = selectedDogIds.length;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                'Traffic alert sent to $count owner${count == 1 ? '' : 's'} for ${result == 'pickup' ? 'pickup' : 'drop-off'}',
-              ),
+              content: Text('Traffic alert sent to all owners for ${result == 'pickup' ? 'pickup' : 'drop-off'}'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to send traffic alert: $e')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send traffic alert: $e')));
         }
       }
     }
@@ -620,14 +460,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   children: [
                     FloatingActionButton.small(
                       heroTag: 'swapStaffFab',
-                      onPressed: () => _assignmentsKey.currentState?.showSwapStaffDialog(),
+                      onPressed: () => _dashboardKey.currentState?.showSwapStaffDialog(),
                       tooltip: 'Swap staff',
                       child: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight),
                     ),
                     const SizedBox(height: 12),
                     FloatingActionButton.extended(
                       heroTag: 'assignDogsFab',
-                      onPressed: () => _assignmentsKey.currentState?.assignDogs(),
+                      onPressed: () => _dashboardKey.currentState?.assignDogs(),
                       icon: PhosphorIcon(PhosphorIconsDuotone.plus),
                       label: const Text('Assign Dogs'),
                     ),
@@ -665,11 +505,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           if (_isStaff)
             BottomNavigationBarItem(
-              icon: PhosphorIcon(PhosphorIconsDuotone.calendarBlank),
-              label: "Pickups",
-            ),
-          if (_isStaff)
-            BottomNavigationBarItem(
               icon: PhosphorIcon(PhosphorIconsDuotone.squaresFour),
               label: "Dashboard",
             ),
@@ -681,9 +516,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDogsView()
               : _currentIndex == 1
                   ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : _currentIndex == 2
-                      ? StaffDailyAssignmentsScreen(key: _assignmentsKey, canAssignDogs: _canAssignDogs, initialStaffId: _dogGroupsStaffFilter)
-                      : _buildDashboardView(),
+                  : UnifiedDashboardScreen(
+                      key: _dashboardKey,
+                      canAssignDogs: _canAssignDogs,
+                      canManageRequests: _canManageRequests,
+                      canReplyQueries: _canReplyQueries,
+                      canViewInquiries: _canViewInquiries,
+                      canAddFeedMedia: _canAddFeedMedia,
+                      isStaff: _isStaff,
+                      myUserId: _myUserId,
+                      initialStaffId: _dogGroupsStaffFilter,
+                      onSwitchToFeed: () => setState(() => _currentIndex = 1),
+                    ),
     ),
     );
   }
@@ -839,511 +683,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildStaffDashboard() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Dashboard', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _DashboardCard(
-                  icon: PhosphorIconsDuotone.clockCountdown,
-                  label: 'Pending\nRequests',
-                  count: _pendingRequestCount,
-                  color: _pendingRequestCount > 0 ? AppColors.warning : null,
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
-                      ),
-                    );
-                    _loadPendingRequestCount();
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _DashboardCard(
-                  icon: PhosphorIconsDuotone.chats,
-                  label: 'Unresolved\nQueries',
-                  count: _unresolvedQueryCount,
-                  color: _unresolvedQueryCount > 0 ? AppColors.info : null,
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => QueryListScreen(
-                          isStaff: _isStaff,
-                          canReplyQueries: _canReplyQueries,
-                        ),
-                      ),
-                    );
-                    _loadUnresolvedQueryCount();
-                  },
-                ),
-              ),
-              if (_canViewInquiries) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _DashboardCard(
-                    icon: PhosphorIconsDuotone.envelope,
-                    label: 'Unread\nInquiries',
-                    count: _unreadInquiryCount,
-                    color: _unreadInquiryCount > 0 ? AppColors.error : null,
-                    onTap: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const InquiryListScreen()),
-                      );
-                      _loadUnreadInquiryCount();
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Today's Feed Uploads
-          Row(
-            children: [
-              Expanded(
-                child: _DashboardCard(
-                  icon: PhosphorIconsDuotone.camera,
-                  label: 'Photos\nToday',
-                  count: _todayPhotos,
-                  onTap: () {
-                    setState(() => _currentIndex = 1);
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _DashboardCard(
-                  icon: PhosphorIconsDuotone.videoCamera,
-                  label: 'Videos\nToday',
-                  count: _todayVideos,
-                  onTap: () {
-                    setState(() => _currentIndex = 1);
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Quick action buttons
-          Wrap(
-            spacing: 8,
-            children: [
-              ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.path, size: 18),
-                label: const Text('Traffic Alert'),
-                onPressed: _showTrafficAlertDialog,
-              ),
-              ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
-                label: const Text('Upload to Feed'),
-                onPressed: _uploadMediaFromDashboard,
-              ),
-              ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.calendar, size: 18),
-                label: const Text('Boarding Calendar'),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 16),
-          // Staff Working Today
-          if (_canAssignDogs && _todayAssignments.isNotEmpty) ...[
-            Text('Staff Working Today', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            _buildStaffWorkingToday(),
-            const Divider(height: 16),
-          ],
-          // Boarding Tonight
-          if (_boardingTonight.isNotEmpty) ...[
-            Text('Boarding Tonight', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            _buildBoardingTonight(),
-            const Divider(height: 16),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStaffWorkingToday() {
-    // Group assignments by staff member
-    final Map<int, _StaffSummary> staffMap = {};
-    for (final a in _todayAssignments) {
-      staffMap.putIfAbsent(a.staffMemberId, () => _StaffSummary(a.staffMemberId, a.staffMemberName));
-      staffMap[a.staffMemberId]!.dogCount++;
-    }
-    final staffList = staffMap.values.toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: staffList.map((staff) {
-        return ActionChip(
-          avatar: CircleAvatar(
-            radius: 12,
-            backgroundColor: AppColors.primary,
-            child: Text(
-              '${staff.dogCount}',
-              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ),
-          label: Text(staff.name),
-          onPressed: () => _navigateToDogGroups(staffId: staff.id),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildBoardingTonight() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: _boardingTonight.map((request) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Row(
-            children: [
-              PhosphorIcon(PhosphorIconsDuotone.bed, size: 18, color: AppColors.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${request.dogNames.join(", ")} (${request.ownerName})',
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Future<void> _uploadMediaFromDashboard() async {
-    final picker = ImagePicker();
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.camera), title: const Text('Take Photo'), onTap: () => Navigator.pop(context, 'camera_photo')),
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.images), title: const Text('Choose Photo'), onTap: () => Navigator.pop(context, 'gallery_photo')),
-            const Divider(),
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera), title: const Text('Record Video'), onTap: () => Navigator.pop(context, 'camera_video')),
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.filmStrip), title: const Text('Choose Video'), onTap: () => Navigator.pop(context, 'gallery_video')),
-            const Divider(),
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.plusSquare), title: const Text('Upload Multiple'), onTap: () => Navigator.pop(context, 'multiple')),
-          ],
-        ),
-      ),
-    );
-    if (choice == null) return;
-
-    if (choice == 'multiple') {
-      final files = await picker.pickMultipleMedia();
-      if (files.isEmpty) return;
-
-      // Prepare files for tagging dialog
-      final tagDialogFiles = <(Uint8List, String, bool)>[];
-      final fileData = <(Uint8List, String)>[];
-      for (final file in files) {
-        final bytes = await file.readAsBytes();
-        final ext = file.name.toLowerCase();
-        final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
-        tagDialogFiles.add((bytes, file.name, isVideo));
-        fileData.add((bytes, file.name));
-      }
-
-      // Show tagging dialog
-      final tagResult = await Navigator.push<MediaTagResult>(
-        context,
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (_) => MediaTagDialog(files: tagDialogFiles),
-        ),
-      );
-      if (tagResult == null) return;
-
-      // Upload with progress
-      final progress = ValueNotifier<int>(0);
-      final total = files.length;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => PopScope(
-          canPop: false,
-          child: ValueListenableBuilder<int>(
-            valueListenable: progress,
-            builder: (context, completed, _) => AlertDialog(
-              content: Column(mainAxisSize: MainAxisSize.min, children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text('Uploading $completed/$total...'),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
-              ]),
-            ),
-          ),
-        ),
-      );
-
-      try {
-        await _dataService.uploadMultipleGroupMedia(
-          files: fileData,
-          caption: tagResult.caption,
-          taggedDogIdsByFile: tagResult.taggedDogIdsByFile,
-          onProgress: (done, count) => progress.value = done,
-        );
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
-            backgroundColor: Colors.green,
-          ));
-          _loadFeedTodayStats();
-        }
-      } catch (e) {
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
-          if (progress.value > 0) _loadFeedTodayStats();
-        }
-      }
-      return;
-    }
-
-    XFile? file;
-    final isVideo = choice.contains('video');
-    final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
-    if (isVideo) {
-      file = await picker.pickVideo(source: source);
-    } else {
-      file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85);
-    }
-    if (file == null) return;
-
-    // Show tagging dialog for single file
-    final bytes = await file.readAsBytes();
-    final tagResult = await Navigator.push<MediaTagResult>(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => MediaTagDialog(files: [(bytes, file!.name, isVideo)]),
-      ),
-    );
-    if (tagResult == null) return;
-
-    try {
-      showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
-      await _dataService.uploadGroupMedia(
-        fileBytes: bytes,
-        fileName: file.name,
-        isVideo: isVideo,
-        caption: tagResult.caption,
-        taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty ? tagResult.taggedDogIdsByFile[0] : null,
-      );
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green));
-        _loadFeedTodayStats();
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
-      }
-    }
-  }
-
-  Widget _buildDashboardView() {
-    return RefreshIndicator(
-      onRefresh: () async => _refresh(),
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Today's Overview
-          Text("Today's Overview", style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(child: _OverviewCard(
-                icon: PhosphorIconsDuotone.pawPrint,
-                value: '${_todayAssignments.map((a) => a.dogId).toSet().length}',
-                label: 'Dogs Today',
-                color: AppColors.primary,
-                onTap: () => _navigateToDogGroups(),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _OverviewCard(
-                icon: PhosphorIconsDuotone.listChecks,
-                value: '${_allDogs.length}',
-                label: 'Total Dogs',
-                color: AppColors.primary,
-                onTap: () => setState(() => _currentIndex = 0),
-              )),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: _OverviewCard(
-                icon: PhosphorIconsDuotone.user,
-                value: '${_myUserId != null ? _todayAssignments.where((a) => a.staffMemberId == _myUserId).length : 0}',
-                label: 'My Dogs Today',
-                color: AppColors.primary,
-                onTap: _myUserId != null ? () => _navigateToDogGroups(staffId: _myUserId) : null,
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _OverviewCard(
-                icon: PhosphorIconsDuotone.clipboardText,
-                value: '${_todayAssignments.length}',
-                label: 'Total Assigned',
-                color: AppColors.info,
-                onTap: () => _navigateToDogGroups(),
-              )),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Staff Working Today
-          if (_canAssignDogs && _todayAssignments.isNotEmpty) ...[
-            Text('Staff Working Today', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            ..._buildStaffWorkingTodayCards(),
-            const SizedBox(height: 24),
-          ],
-
-          // Boarding Today
-          Text('Boarding Today', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          if (_boardingTonight.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Center(
-                  child: Text('No boarding today', style: TextStyle(color: Colors.grey[500])),
-                ),
-              ),
-            )
-          else
-            _buildBoardingTonight(),
-          const SizedBox(height: 24),
-
-          // Action Items
-          Text('Action Items', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          _ActionItemTile(
-            icon: PhosphorIconsDuotone.clockCountdown,
-            label: 'Pending Requests',
-            count: _pendingRequestCount,
-            onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(
-                builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
-              ));
-              _loadPendingRequestCount();
-            },
-          ),
-          const SizedBox(height: 8),
-          _ActionItemTile(
-            icon: PhosphorIconsDuotone.chats,
-            label: 'Unresolved Queries',
-            count: _unresolvedQueryCount,
-            onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(
-                builder: (_) => QueryListScreen(isStaff: _isStaff, canReplyQueries: _canReplyQueries),
-              ));
-              _loadUnresolvedQueryCount();
-            },
-          ),
-          if (_canViewInquiries) ...[
-            const SizedBox(height: 8),
-            _ActionItemTile(
-              icon: PhosphorIconsDuotone.envelope,
-              label: 'Unread Inquiries',
-              count: _unreadInquiryCount,
-              onTap: () async {
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
-                _loadUnreadInquiryCount();
-              },
-            ),
-          ],
-          const SizedBox(height: 8),
-          _ActionItemTile(
-            icon: PhosphorIconsDuotone.bed,
-            label: 'Boarding Requests',
-            count: _boardingTonight.length,
-            onTap: () => Navigator.push(context, MaterialPageRoute(
-              builder: (_) => const BoardingRequestListScreen(),
-            )),
-          ),
-          const SizedBox(height: 24),
-
-          // Quick Actions
-          Text('Quick Actions', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
-                label: const Text('Upload to Feed'),
-                onPressed: _uploadMediaFromDashboard,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildStaffWorkingTodayCards() {
-    final Map<int, _StaffSummary> staffMap = {};
-    for (final a in _todayAssignments) {
-      staffMap.putIfAbsent(a.staffMemberId, () => _StaffSummary(a.staffMemberId, a.staffMemberName));
-      staffMap[a.staffMemberId]!.dogCount++;
-    }
-    final staffList = staffMap.values.toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    return staffList.map((staff) {
-      return Card(
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: AppColors.primary,
-            child: Text(staff.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-          title: Text(staff.name),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Chip(
-                label: Text('${staff.dogCount} dog${staff.dogCount == 1 ? '' : 's'}',
-                  style: const TextStyle(color: Colors.white, fontSize: 12)),
-                backgroundColor: AppColors.primary,
-              ),
-              const SizedBox(width: 4),
-              PhosphorIcon(PhosphorIconsDuotone.caretRight),
-            ],
-          ),
-          onTap: () => _navigateToDogGroups(staffId: staff.id),
-        ),
-      );
-    }).toList();
-  }
 
   Widget _buildDogsView() {
     if (_loadingDogs) {
@@ -1482,149 +821,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
         ),
       ],
-    );
-  }
-}
-
-/// Overview stat card for the dashboard.
-class _OverviewCard extends StatefulWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _OverviewCard({required this.icon, required this.value, required this.label, required this.color, this.onTap});
-
-  @override
-  State<_OverviewCard> createState() => _OverviewCardState();
-}
-
-class _OverviewCardState extends State<_OverviewCard> {
-  bool _pressed = false;
-
-  void _handleTap() async {
-    if (widget.onTap == null) return;
-    setState(() => _pressed = true);
-    await Future.delayed(const Duration(milliseconds: 120));
-    if (mounted) setState(() => _pressed = false);
-    await Future.delayed(const Duration(milliseconds: 60));
-    widget.onTap?.call();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: widget.onTap != null ? (_) => setState(() => _pressed = true) : null,
-      onTapUp: widget.onTap != null ? (_) {} : null,
-      onTapCancel: widget.onTap != null ? () => setState(() => _pressed = false) : null,
-      onTap: _handleTap,
-      child: AnimatedScale(
-        scale: _pressed ? 0.95 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PhosphorIcon(widget.icon, color: widget.color, size: 20),
-                const SizedBox(height: 8),
-                Text(widget.value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-                Text(widget.label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Action item row tile for the dashboard.
-class _ActionItemTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int count;
-  final VoidCallback onTap;
-
-  const _ActionItemTile({required this.icon, required this.label, required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: PhosphorIcon(icon),
-        title: Text(label),
-        trailing: CircleAvatar(
-          radius: 14,
-          backgroundColor: Colors.grey[700],
-          child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 12)),
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-}
-
-/// Simple data holder for staff summary on the dashboard.
-class _StaffSummary {
-  final int id;
-  final String name;
-  int dogCount;
-  _StaffSummary(this.id, this.name) : dogCount = 0;
-}
-
-/// Compact card for the staff dashboard showing a metric count.
-class _DashboardCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int count;
-  final Color? color;
-  final VoidCallback onTap;
-
-  const _DashboardCard({
-    required this.icon,
-    required this.label,
-    required this.count,
-    this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cardColor = color ?? theme.colorScheme.outline;
-
-    return Card(
-      elevation: 1,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          child: Column(
-            children: [
-              PhosphorIcon(icon, color: cardColor, size: 24),
-              const SizedBox(height: 4),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: count > 0 ? cardColor : theme.colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.7)),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
