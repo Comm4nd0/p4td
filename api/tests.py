@@ -406,7 +406,10 @@ class WeekdayRosterTests(TestCase):
             'scope': 'just_this_day',
         }, format='json')
         self.assertEqual(resp.status_code, 204)
-        self.assertFalse(DailyDogAssignment.objects.filter(pk=assignment.pk).exists())
+        # Assignment is kept but marked as REMOVED (not deleted) so that
+        # _materialize_roster_for_date does not re-create it.
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'REMOVED')
         self.assertTrue(DailyDogAssignment.objects.filter(pk=future.pk).exists())
         self.assertTrue(DogWeekdayPickup.objects.filter(
             dog=self.dog, weekday=self.today_weekday

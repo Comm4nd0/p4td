@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}Field Hire - Paws 4 Thought Dogs{% endblock %}
-{% block meta_description %}Hire our 5-acre secure dog field in Berkshire. £15 per 1-hour slot. Fully enclosed, ample parking. Book now!{% endblock %}
+{% block meta_description %}Hire our 5-acre secure dog field in Berkshire. £{{ pricing.field_hire_price }} per 1-hour slot. Fully enclosed, ample parking. Book now!{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -35,7 +35,7 @@
 
         <h3>Essential Details</h3>
         <ul class="field-features">
-            <li><strong>Cost:</strong> £15 per 1-hour slot</li>
+            <li><strong>Cost:</strong> £{{ pricing.field_hire_price }} per 1-hour slot</li>
             <li><strong>Booking:</strong> Simply call or email us to reserve your time. Slots fill up fast — book now to ensure your pup's day out!</li>
         </ul>
 

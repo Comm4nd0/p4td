@@ -12,9 +12,10 @@
     </video>
     {% endif %}
     <div class="hero-content">
-        <h1>{{ site_settings.hero_title|default:"Dog Day Care in Berkshire & Buckinghamshire" }}</h1>
+        <h1>{{ site_settings.hero_title|default:"Where Happy Dogs Come to Play" }}</h1>
+        <p class="hero-subtitle">Safe, fun day care in Berkshire &amp; Buckinghamshire</p>
         <div class="hero-buttons">
-            <a href="{% url 'website:blog_list' %}" class="btn btn-primary">blog &rarr;</a>
+            <a href="{% url 'website:services' %}" class="btn btn-primary">Our Services &rarr;</a>
             <a href="{% url 'website:contact' %}" class="btn btn-outline">contact us &rarr;</a>
         </div>
     </div>
@@ -22,22 +23,89 @@
 
 <!-- Welcome -->
 <section class="section-light section-full">
-    <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
+    <div class="section" style="padding-top: 4rem; padding-bottom: 3rem;">
         <div class="welcome">
             <img src="{% static 'website/images/welcome-dog.jpg' %}" alt="Happy dog running through a green field" class="welcome-image" loading="lazy">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">{{ site_settings.welcome_title|default:"Welcome" }}</a></h2>
-                <p>
-                    {{ site_settings.welcome_text|default:"Welcome to our dog day care." }}
-                </p>
+                <h2 class="section-title">{{ site_settings.welcome_title|default:"Welcome to Paws 4 Thought Dogs" }}</h2>
+                <p>{{ site_settings.welcome_text|default:"Welcome to Paws 4 Thought Dogs — a council-licensed dog day care set across 10 secure acres in Berkshire &amp; Buckinghamshire. We offer day care, one-to-one training, puppy classes, and field hire." }}</p>
+            </div>
+        </div>
+
+        <!-- Feature Grid -->
+        <div class="feature-grid">
+            <div class="feature-item">
+                <div class="feature-icon">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <h3>Safe Environment</h3>
+                <p>Council-licensed and fully insured, with over 10 acres of secure, monitored outdoor space.</p>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </div>
+                <h3>Experienced Staff</h3>
+                <p>Our qualified team has years of experience caring for dogs of all breeds and temperaments.</p>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                </div>
+                <h3>Socialisation</h3>
+                <p>Dogs thrive with regular socialisation. We create safe, supervised groups for positive interactions.</p>
             </div>
         </div>
     </div>
 </section>
 
+<!-- Testimonials -->
+{% if testimonials %}
+<section class="section testimonials-section">
+    <h2 class="section-title">What Our Customers Say</h2>
+    <div class="testimonials-grid">
+        {% for testimonial in testimonials %}
+        <div class="testimonial-card">
+            <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+            <p class="testimonial-quote">{{ testimonial.quote }}</p>
+            <p class="testimonial-author">{{ testimonial.name }}</p>
+            {% if testimonial.dog_name %}
+            <p class="testimonial-dog">Owner of {{ testimonial.dog_name }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% else %}
+<section class="section testimonials-section">
+    <h2 class="section-title">What Our Customers Say</h2>
+    <div class="testimonials-grid">
+        <div class="testimonial-card">
+            <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+            <p class="testimonial-quote">Our dog absolutely loves coming here. He runs in excited every morning and comes home tired and happy. The staff are wonderful and clearly care deeply about every dog in their care.</p>
+            <p class="testimonial-author">Sarah M.</p>
+            <p class="testimonial-dog">Owner of Buddy</p>
+        </div>
+        <div class="testimonial-card">
+            <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+            <p class="testimonial-quote">We were nervous about sending our rescue dog somewhere new but the team put us completely at ease. They took so much time to understand her needs and she's come on leaps and bounds.</p>
+            <p class="testimonial-author">James &amp; Emma T.</p>
+            <p class="testimonial-dog">Owner of Luna</p>
+        </div>
+        <div class="testimonial-card">
+            <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+            <p class="testimonial-quote">Best decision we ever made! The 10-acre field gives the dogs so much room to run and explore. After months of attending, our dog's confidence has soared. Highly recommended.</p>
+            <p class="testimonial-author">Claire W.</p>
+            <p class="testimonial-dog">Owner of Archie</p>
+        </div>
+    </div>
+</section>
+{% endif %}
+
 <!-- Featured Blog Posts -->
 {% if featured_posts %}
-<section class="section">
+<section class="section blog-section">
+    <h2 class="section-title">Latest News</h2>
     <div class="card-grid">
         {% for post in featured_posts %}
         <div class="card">
@@ -62,10 +130,9 @@
 <!-- Services Banner -->
 <div class="services-banner" style="background-image: url('{% static 'website/images/services-bg.jpg' %}');">
     <div class="services-banner-content">
-        <h2>SERVICES</h2>
-        <p>Day Care</p>
-        <p>Puppy Classes</p>
-        <p>1 to 1 training</p>
+        <h2>OUR SERVICES</h2>
+        <p>Day Care &bull; Puppy Classes &bull; 1-to-1 Training &bull; Field Hire</p>
+        <a href="{% url 'website:services' %}" class="btn btn-outline" style="margin-top: 1.5rem; display: inline-block;">View All Services &rarr;</a>
     </div>
 </div>
 
@@ -74,7 +141,7 @@
     <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
         <div class="welcome">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">{{ site_settings.daycare_title|default:"Day Care" }}</a></h2>
+                <h2 class="section-title">{{ site_settings.daycare_title|default:"Day Care" }}</h2>
                 {{ site_settings.daycare_text|safe }}
             </div>
             <img src="{% static 'website/images/daycare.jpg' %}" alt="Dogs playing together at our 10-acre daycare facility" class="welcome-image" loading="lazy">
@@ -88,7 +155,7 @@
         <div class="welcome">
             <img src="{% static 'website/images/puppy-classes.jpg' %}" alt="Puppy training class with positive reinforcement techniques" class="welcome-image" loading="lazy">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">{{ site_settings.puppy_classes_title|default:"Puppy Classes" }}</a></h2>
+                <h2 class="section-title">{{ site_settings.puppy_classes_title|default:"Puppy Classes" }}</h2>
                 {{ site_settings.puppy_classes_text|safe }}
             </div>
         </div>
@@ -100,7 +167,7 @@
     <div class="section" style="padding-top: 4rem; padding-bottom: 4rem;">
         <div class="welcome">
             <div class="welcome-text">
-                <h2 class="section-title"><a href="#">{{ site_settings.training_title|default:"One 2 One Training" }}</a></h2>
+                <h2 class="section-title">{{ site_settings.training_title|default:"One 2 One Training" }}</h2>
                 {{ site_settings.training_text|safe }}
             </div>
             <img src="{% static 'website/images/training.jpg' %}" alt="One-to-one personalised dog training session" class="welcome-image" loading="lazy">
@@ -108,26 +175,8 @@
     </div>
 </section>
 
-<!-- Testimonials -->
-{% if testimonials %}
-<section class="section testimonials-section">
-    <h2 class="section-title">What Our Customers Say</h2>
-    <div class="testimonials-grid">
-        {% for testimonial in testimonials %}
-        <div class="testimonial-card">
-            <p class="testimonial-quote">{{ testimonial.quote }}</p>
-            <p class="testimonial-author">{{ testimonial.name }}</p>
-            {% if testimonial.dog_name %}
-            <p class="testimonial-dog">Owner of {{ testimonial.dog_name }}</p>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
-
 <!-- Contact CTA -->
-<section class="section" style="text-align: center;">
+<section class="section" style="text-align: center; background-color: var(--color-white);">
     <h2 class="section-title">{{ site_settings.cta_title|default:"Get in Touch" }}</h2>
     <p style="color: #666; margin-bottom: 1.5rem;">{{ site_settings.cta_subtitle|default:"Interested in our services? We'd love to hear from you." }}</p>
     <a href="{% url 'website:contact' %}" class="btn btn-primary">Contact Us &rarr;</a>
