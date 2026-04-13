@@ -43,6 +43,10 @@ def blog_detail(request, slug):
     })
 
 
+def services(request):
+    return render(request, 'website/services.html')
+
+
 def field_hire(request):
     return render(request, 'website/field_hire.html')
 
