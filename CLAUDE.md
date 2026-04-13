@@ -152,6 +152,36 @@ See `.env.example` for required variables. Key ones:
 - `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` — security origins
 - Firebase and AWS S3 credentials for notifications and media storage
 
+## Management Commands
+
+| Command | Purpose |
+|---|---|
+| `python manage.py flush_notification_queue` | Send queued staff notifications whose scheduled time has arrived |
+| `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files |
+
+### Feed Media Pruning
+
+The `prune_feed_media` command prevents the server from filling up by removing old feed posts (GroupMedia only — dog photos, profile pictures, and website content are not affected).
+
+```bash
+# Preview what would be deleted (no changes made)
+python manage.py prune_feed_media --dry-run
+
+# Delete feed media older than 90 days (default)
+python manage.py prune_feed_media
+
+# Custom retention period (e.g. 180 days)
+python manage.py prune_feed_media --days 180
+
+# Also remove orphaned files in group_media/ with no DB record
+python manage.py prune_feed_media --include-orphans
+```
+
+- **Default retention**: 90 days
+- **Production schedule**: Runs automatically every Sunday at 3am via host cron (set up by `scripts/deploy-to-hetzner.sh`)
+- **Log file**: `/var/log/p4td-prune.log` (on production server)
+- **Tests**: `python manage.py test api.tests.PruneFeedMediaTests`
+
 ## Important Notes
 
 - The `app/` directory is a **legacy Android app** — the active mobile client is `my_app/` (Flutter)

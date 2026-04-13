@@ -1,0 +1,185 @@
+{% extends "website/base.html" %}
+{% load static %}
+
+{% block title %}Our Services - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Dog day care, one-to-one training, puppy classes, and secure field hire in Berkshire &amp; Buckinghamshire. Learn about our services and pricing. Call {{ business_phone }}.{% endblock %}
+
+{% block content %}
+
+<!-- Page Hero -->
+<div class="services-page-hero">
+    <div class="services-page-hero-overlay"></div>
+    <div class="services-page-hero-content">
+        <h1>Our Services</h1>
+        <p>Everything your dog needs, all in one place</p>
+    </div>
+</div>
+
+<!-- Services Overview Cards -->
+<section class="section services-overview-section">
+    <div class="card-grid card-grid-3">
+        <div class="card">
+            <img src="{% static 'website/images/daycare.jpg' %}" alt="Dog Day Care" class="card-image" loading="lazy">
+            <div class="card-body">
+                <h2 class="card-title"><a href="#day-care">Day Care</a></h2>
+                <p class="card-excerpt">A safe, stimulating environment where your dog plays, socialises, and thrives under expert supervision across 10 secure acres.</p>
+            </div>
+        </div>
+        <div class="card">
+            <img src="{% static 'website/images/training.jpg' %}" alt="One-to-One Training" class="card-image" loading="lazy">
+            <div class="card-body">
+                <h2 class="card-title"><a href="#training">1-to-1 Training</a></h2>
+                <p class="card-excerpt">Personalised training sessions tailored to your dog's individual needs using positive reinforcement techniques.</p>
+            </div>
+        </div>
+        <div class="card">
+            <img src="{% static 'website/images/field-1.jpg' %}" alt="Secure Field Hire" class="card-image" loading="lazy">
+            <div class="card-body">
+                <h2 class="card-title"><a href="{% url 'website:field_hire' %}">Field Hire</a></h2>
+                <p class="card-excerpt">Hire our fully enclosed 10-acre field privately. Perfect for reactive or nervous dogs who need space to run safely.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Day Care Detail -->
+<section class="section-light section-full" id="day-care">
+    <div class="section">
+        <div class="welcome">
+            <img src="{% static 'website/images/daycare.jpg' %}" alt="Dogs playing at day care" class="welcome-image" loading="lazy">
+            <div class="welcome-text">
+                <h2 class="section-title">Day Care</h2>
+                <p>Our dog day care gives your dog the very best day, every day. Set across 10 secure, council-licensed acres, your dog enjoys a full programme of play, rest, and enrichment under the watchful eye of our experienced team.</p>
+                <ul class="services-list">
+                    <li>Supervised group play in spacious outdoor fields</li>
+                    <li>Positive socialisation with other dogs</li>
+                    <li>Feeding as per your instructions</li>
+                    <li>Structured rest periods throughout the day</li>
+                    <li>Enrichment activities and mental stimulation</li>
+                    <li>Updates and photos sent to you during the day</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Typical Day Schedule -->
+<section class="section" style="background-color: var(--color-white);">
+    <h2 class="section-title" style="text-align: center; margin-bottom: 2.5rem;">A Typical Day</h2>
+    <div class="day-schedule">
+        <div class="schedule-item">
+            <div class="schedule-time">7:30 – 9:00am</div>
+            <div class="schedule-detail">
+                <strong>Drop Off</strong>
+                <p>Dogs arrive, greet their friends, and settle in for the day.</p>
+            </div>
+        </div>
+        <div class="schedule-item">
+            <div class="schedule-time">9:00 – 11:30am</div>
+            <div class="schedule-detail">
+                <strong>Morning Play</strong>
+                <p>Supervised group play sessions in the fields with socialisation and enrichment activities.</p>
+            </div>
+        </div>
+        <div class="schedule-item">
+            <div class="schedule-time">11:30am – 1:00pm</div>
+            <div class="schedule-detail">
+                <strong>Lunchtime &amp; Rest</strong>
+                <p>Dogs are fed (as per owner instructions) and have quiet rest time to recharge.</p>
+            </div>
+        </div>
+        <div class="schedule-item">
+            <div class="schedule-time">1:00 – 4:00pm</div>
+            <div class="schedule-detail">
+                <strong>Afternoon Play</strong>
+                <p>More outdoor exploration, enrichment games, and group activities.</p>
+            </div>
+        </div>
+        <div class="schedule-item">
+            <div class="schedule-time">4:00 – 5:00pm</div>
+            <div class="schedule-detail">
+                <strong>Wind Down &amp; Pick Up</strong>
+                <p>Dogs wind down ready for home. Pick up anytime until 5:00pm.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Pricing -->
+<section class="section-light section-full">
+    <div class="section">
+        <h2 class="section-title" style="text-align: center;">Pricing</h2>
+        <p style="text-align: center; color: var(--color-gray); margin-bottom: 2.5rem;">Transparent, straightforward pricing with no hidden fees.</p>
+        <div class="pricing-grid">
+            <div class="pricing-card">
+                <h3>Day Care</h3>
+                <div class="pricing-price">from £{{ pricing.day_care_price }} <span>/ day</span></div>
+                <ul>
+                    <li>Full day supervised care</li>
+                    <li>Outdoor field access</li>
+                    <li>Feeding included</li>
+                    <li>Updates &amp; photos</li>
+                </ul>
+                <a href="{% url 'website:contact' %}" class="btn btn-primary">Enquire Now</a>
+            </div>
+            <div class="pricing-card pricing-card-featured">
+                <div class="pricing-badge">Most Popular</div>
+                <h3>Day Care Bundle</h3>
+                <div class="pricing-price">from £{{ pricing.day_care_bundle_price }} <span>/ {{ pricing.day_care_bundle_days }} days</span></div>
+                <ul>
+                    <li>5 days of full day care</li>
+                    <li>Outdoor field access</li>
+                    <li>Feeding included</li>
+                    <li>Priority booking</li>
+                </ul>
+                <a href="{% url 'website:contact' %}" class="btn btn-primary">Enquire Now</a>
+            </div>
+            <div class="pricing-card">
+                <h3>1-to-1 Training</h3>
+                <div class="pricing-price">from £{{ pricing.training_price }} <span>/ session</span></div>
+                <ul>
+                    <li>Personalised session</li>
+                    <li>Positive reinforcement</li>
+                    <li>Progress report</li>
+                    <li>Follow-up advice</li>
+                </ul>
+                <a href="{% url 'website:contact' %}" class="btn btn-primary">Enquire Now</a>
+            </div>
+        </div>
+        <p class="pricing-disclaimer">
+            Prices are indicative &mdash; please <a href="{% url 'website:contact' %}">contact us</a> for an accurate quote based on your dog's needs.
+        </p>
+    </div>
+</section>
+
+<!-- 1-to-1 Training Detail -->
+<section class="section" id="training" style="background-color: var(--color-white);">
+    <div class="welcome">
+        <div class="welcome-text">
+            <h2 class="section-title">One-to-One Training</h2>
+            <p>Our personalised training sessions are designed around your dog's individual needs and personality. Using force-free, positive reinforcement methods, we help dogs build confidence, improve behaviour, and strengthen the bond with their owner.</p>
+            <ul class="services-list" style="margin-top: 1rem;">
+                <li>Puppy foundation training</li>
+                <li>Recall &amp; lead manners</li>
+                <li>Reactive dog support</li>
+                <li>Separation anxiety</li>
+                <li>General obedience &amp; life skills</li>
+            </ul>
+        </div>
+        <img src="{% static 'website/images/training.jpg' %}" alt="One-to-one dog training session" class="welcome-image" loading="lazy">
+    </div>
+</section>
+
+<!-- CTA Section -->
+<div class="services-cta">
+    <div class="section" style="text-align: center; padding-top: 4rem; padding-bottom: 4rem;">
+        <h2 style="color: white; font-family: var(--font-heading); font-size: 2rem; margin-bottom: 1rem;">Ready to Book a Trial Day?</h2>
+        <p style="color: rgba(255,255,255,0.85); margin-bottom: 2rem; font-size: 1.05rem;">Give your dog the best experience. Get in touch today &mdash; we&rsquo;d love to meet you both.</p>
+        <div class="services-cta-buttons">
+            <a href="{% url 'website:contact' %}" class="btn btn-outline">Enquire Now &rarr;</a>
+            <a href="tel:{{ business_phone }}" class="btn btn-cta-phone">&#9742; {{ business_phone }}</a>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

@@ -220,6 +220,53 @@ class Testimonial(models.Model):
         return f'{self.name} — {self.dog_name}' if self.dog_name else self.name
 
 
+class ServicePricing(models.Model):
+    day_care_price = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=25.00,
+        help_text='Day care price per day (e.g. 25.00).',
+    )
+    day_care_bundle_price = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=110.00,
+        help_text='Bundle price for multiple days (e.g. 110.00).',
+    )
+    day_care_bundle_days = models.PositiveIntegerField(
+        default=5,
+        help_text='Number of days included in the bundle.',
+    )
+    training_price = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=40.00,
+        help_text='One-to-one training price per session (e.g. 40.00).',
+    )
+    field_hire_price = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=15.00,
+        help_text='Field hire price per hour (e.g. 15.00).',
+    )
+
+    class Meta:
+        verbose_name = 'Service pricing'
+        verbose_name_plural = 'Service pricing'
+
+    def __str__(self):
+        return 'Service Pricing'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class ContactInquiry(models.Model):
     SERVICE_CHOICES = [
         ('daycare', 'Daycare'),

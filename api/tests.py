@@ -7,6 +7,7 @@ from .models import (
     BoardingRequest, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability,
+    GroupMedia,
 )
 from django.utils import timezone
 
@@ -1077,3 +1078,91 @@ class FeedTests(TestCase):
         self.client.login(username='owner', password='pw')
         resp = self.client.get('/api/feed/')
         self.assertEqual(resp.status_code, 200)
+
+
+class PruneFeedMediaTests(TestCase):
+    def setUp(self):
+        import os
+        from django.conf import settings
+        from django.core.files.base import ContentFile
+
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.media_root = str(settings.MEDIA_ROOT)
+
+        # Ensure directories exist
+        for d in ['group_media', os.path.join('group_media', 'thumbnails')]:
+            os.makedirs(os.path.join(self.media_root, d), exist_ok=True)
+
+        # Create an old feed item (120 days ago)
+        self.old_item = GroupMedia.objects.create(
+            uploaded_by=self.staff,
+            media_type='PHOTO',
+            file=ContentFile(b'old-photo', name='old.jpg'),
+        )
+        GroupMedia.objects.filter(pk=self.old_item.pk).update(
+            created_at=timezone.now() - timedelta(days=120),
+        )
+        self.old_item.refresh_from_db()
+
+        # Create a recent feed item (10 days ago)
+        self.new_item = GroupMedia.objects.create(
+            uploaded_by=self.staff,
+            media_type='PHOTO',
+            file=ContentFile(b'new-photo', name='new.jpg'),
+        )
+        GroupMedia.objects.filter(pk=self.new_item.pk).update(
+            created_at=timezone.now() - timedelta(days=10),
+        )
+        self.new_item.refresh_from_db()
+
+    def tearDown(self):
+        import shutil, os
+        from django.conf import settings
+        # Clean up test media directory
+        for d in ['group_media']:
+            path = os.path.join(str(settings.MEDIA_ROOT), d)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+
+    def test_old_media_deleted(self):
+        from django.core.management import call_command
+        call_command('prune_feed_media', days=90)
+        self.assertFalse(GroupMedia.objects.filter(pk=self.old_item.pk).exists())
+
+    def test_recent_media_preserved(self):
+        from django.core.management import call_command
+        call_command('prune_feed_media', days=90)
+        self.assertTrue(GroupMedia.objects.filter(pk=self.new_item.pk).exists())
+
+    def test_dry_run_preserves_all(self):
+        from django.core.management import call_command
+        call_command('prune_feed_media', days=90, dry_run=True)
+        self.assertTrue(GroupMedia.objects.filter(pk=self.old_item.pk).exists())
+        self.assertTrue(GroupMedia.objects.filter(pk=self.new_item.pk).exists())
+
+    def test_old_media_file_removed_from_disk(self):
+        import os
+        from django.core.management import call_command
+        file_path = os.path.join(self.media_root, self.old_item.file.name)
+        self.assertTrue(os.path.exists(file_path))
+        call_command('prune_feed_media', days=90)
+        self.assertFalse(os.path.exists(file_path))
+
+    def test_orphan_cleanup_removes_unreferenced_files(self):
+        import os
+        from django.core.management import call_command
+        # Create an orphaned file on disk
+        orphan_path = os.path.join(self.media_root, 'group_media', 'orphan.jpg')
+        with open(orphan_path, 'wb') as f:
+            f.write(b'orphan')
+        self.assertTrue(os.path.exists(orphan_path))
+        call_command('prune_feed_media', days=9999, include_orphans=True)
+        self.assertFalse(os.path.exists(orphan_path))
+
+    def test_orphan_cleanup_preserves_referenced_files(self):
+        import os
+        from django.core.management import call_command
+        file_path = os.path.join(self.media_root, self.new_item.file.name)
+        self.assertTrue(os.path.exists(file_path))
+        call_command('prune_feed_media', days=9999, include_orphans=True)
+        self.assertTrue(os.path.exists(file_path))
