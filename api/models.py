@@ -255,6 +255,7 @@ class DailyDogAssignment(models.Model):
         ('PICKED_UP', 'Picked Up'),
         ('AT_DAYCARE', 'At Daycare'),
         ('DROPPED_OFF', 'Dropped Off'),
+        ('REMOVED', 'Removed'),
     ]
 
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='daily_assignments')

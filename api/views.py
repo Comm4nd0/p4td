@@ -866,7 +866,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if error:
             return error
         self._materialize_roster_for_date(target_date)
-        assignments = self.get_queryset().filter(date=target_date)
+        assignments = self.get_queryset().filter(date=target_date).exclude(status='REMOVED')
         serializer = self.get_serializer(assignments, many=True)
         return Response(serializer.data)
 
@@ -879,7 +879,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         self._materialize_roster_for_date(target_date)
         assignments = self.get_queryset().filter(
             staff_member=request.user, date=target_date
-        )
+        ).exclude(status='REMOVED')
         serializer = self.get_serializer(assignments, many=True)
         return Response(serializer.data)
 
@@ -1010,6 +1010,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
+            elif assignment.status == 'REMOVED':
+                assignment.status = 'ASSIGNED'
+                assignment.staff_member = request.user
+                assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
+                created.append(assignment)
 
         serializer = self.get_serializer(created, many=True)
         return Response(serializer.data, status=201)
@@ -1083,6 +1088,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 defaults={'staff_member': target_staff},
             )
             if was_created:
+                created.append(assignment)
+            elif assignment.status == 'REMOVED':
+                assignment.status = 'ASSIGNED'
+                assignment.staff_member = target_staff
+                assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
                 created.append(assignment)
 
         serializer = self.get_serializer(created, many=True)
@@ -1174,9 +1184,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         assignment_date = assignment.date
         weekday = assignment_date.isoweekday()
 
-        assignment.delete()
-
         if scope == 'from_now_on':
+            assignment.delete()
             DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).delete()
             DailyDogAssignment.objects.filter(
                 dog=dog,
@@ -1184,6 +1193,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 date__iso_week_day=weekday,
                 status='ASSIGNED',
             ).delete()
+        else:
+            # Mark as REMOVED instead of deleting so that
+            # _materialize_roster_for_date does not re-create the row.
+            assignment.status = 'REMOVED'
+            assignment.save(update_fields=['status', 'updated_at'])
 
         return Response(status=204)
 
