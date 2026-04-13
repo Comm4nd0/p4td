@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django_summernote.admin import SummernoteModelAdmin
 
-from .models import BlogPost, ContactInquiry, SiteSettings, Testimonial
+from .models import BlogPost, ContactInquiry, ServicePricing, SiteSettings, Testimonial
 
 
 class ResizableSummernoteAdmin(SummernoteModelAdmin):
@@ -91,6 +91,30 @@ class SiteSettingsAdmin(ResizableSummernoteAdmin):
     def has_add_permission(self, request):
         # Only allow one instance
         return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ServicePricing)
+class ServicePricingAdmin(admin.ModelAdmin):
+    fieldsets = (
+        ('Day Care', {
+            'fields': ('day_care_price',),
+        }),
+        ('Day Care Bundle', {
+            'fields': ('day_care_bundle_price', 'day_care_bundle_days'),
+        }),
+        ('1-to-1 Training', {
+            'fields': ('training_price',),
+        }),
+        ('Field Hire', {
+            'fields': ('field_hire_price',),
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return not ServicePricing.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False

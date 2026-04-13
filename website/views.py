@@ -5,7 +5,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.views.decorators.cache import cache_control
 
-from .models import BlogPost, SiteSettings, Testimonial
+from .models import BlogPost, ServicePricing, SiteSettings, Testimonial
 from .forms import ContactForm
 
 
@@ -44,11 +44,13 @@ def blog_detail(request, slug):
 
 
 def services(request):
-    return render(request, 'website/services.html')
+    pricing = ServicePricing.load()
+    return render(request, 'website/services.html', {'pricing': pricing})
 
 
 def field_hire(request):
-    return render(request, 'website/field_hire.html')
+    pricing = ServicePricing.load()
+    return render(request, 'website/field_hire.html', {'pricing': pricing})
 
 
 def contact(request):

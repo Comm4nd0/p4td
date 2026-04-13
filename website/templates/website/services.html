@@ -113,7 +113,7 @@
         <div class="pricing-grid">
             <div class="pricing-card">
                 <h3>Day Care</h3>
-                <div class="pricing-price">from £25 <span>/ day</span></div>
+                <div class="pricing-price">from £{{ pricing.day_care_price }} <span>/ day</span></div>
                 <ul>
                     <li>Full day supervised care</li>
                     <li>Outdoor field access</li>
@@ -125,7 +125,7 @@
             <div class="pricing-card pricing-card-featured">
                 <div class="pricing-badge">Most Popular</div>
                 <h3>Day Care Bundle</h3>
-                <div class="pricing-price">from £110 <span>/ 5 days</span></div>
+                <div class="pricing-price">from £{{ pricing.day_care_bundle_price }} <span>/ {{ pricing.day_care_bundle_days }} days</span></div>
                 <ul>
                     <li>5 days of full day care</li>
                     <li>Outdoor field access</li>
@@ -136,7 +136,7 @@
             </div>
             <div class="pricing-card">
                 <h3>1-to-1 Training</h3>
-                <div class="pricing-price">from £40 <span>/ session</span></div>
+                <div class="pricing-price">from £{{ pricing.training_price }} <span>/ session</span></div>
                 <ul>
                     <li>Personalised session</li>
                     <li>Positive reinforcement</li>
