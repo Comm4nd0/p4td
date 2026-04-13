@@ -954,9 +954,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   children: [
                     _buildOverviewMetrics(assignments),
                     const SizedBox(height: 16),
-                    _buildActionItems(),
-                    const SizedBox(height: 16),
                     _buildStaffCards(assignments),
+                    const SizedBox(height: 16),
+                    _buildActionItems(),
                     const SizedBox(height: 16),
                     // Add Dog to Day button
                     if (widget.canAssignDogs)
