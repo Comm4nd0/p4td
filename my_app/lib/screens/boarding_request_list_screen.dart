@@ -3,8 +3,8 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../constants/app_colors.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
-import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/request_timeline.dart';
 
@@ -149,7 +149,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${DateFormat('MMM d').format(request.startDate)} - ${DateFormat('MMM d, yyyy').format(request.endDate)}',
+                    '${ukDate(request.startDate)} - ${ukDate(request.endDate)}',
                   ),
                   const SizedBox(height: 8),
                   RequestTimeline(

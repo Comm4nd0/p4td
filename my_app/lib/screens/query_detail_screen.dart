@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../models/support_query.dart';
 import '../models/support_message.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 
 class QueryDetailScreen extends StatefulWidget {
   final int queryId;
@@ -200,7 +200,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'By ${_query!.ownerName} \u2022 ${DateFormat('d MMM yyyy, HH:mm').format(_query!.createdAt.toLocal())}',
+                            'By ${_query!.ownerName} \u2022 ${ukDateTime(_query!.createdAt.toLocal())}',
                             style: TextStyle(color: Colors.grey[600], fontSize: 12),
                           ),
                           if (_query!.status == QueryStatus.resolved)
@@ -353,7 +353,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                 Text(message.text),
                 const SizedBox(height: 4),
                 Text(
-                  DateFormat('d MMM, HH:mm').format(message.createdAt.toLocal()),
+                  ukDateTime(message.createdAt.toLocal()),
                   style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                 ),
               ],

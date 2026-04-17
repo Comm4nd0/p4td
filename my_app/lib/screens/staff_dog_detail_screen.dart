@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
@@ -186,7 +186,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   }
 
   Future<void> _confirmRemoveFromDay(DailyDogAssignment assignment) async {
-    final dateLabel = DateFormat('EEE d MMM').format(widget.date);
+    final dateLabel = ukDateWithDay(widget.date);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -421,7 +421,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dateLabel = DateFormat('EEE d MMM').format(widget.date);
+    final dateLabel = ukDateWithDay(widget.date);
     final isUnassigned = widget.staffMemberId == null;
 
     return PopScope(

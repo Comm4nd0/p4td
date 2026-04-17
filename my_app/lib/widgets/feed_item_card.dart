@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../constants/app_colors.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 
 class FeedItemCard extends StatefulWidget {
   final GroupMedia media;
@@ -85,7 +85,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          DateFormat('d MMM yyyy, HH:mm').format(widget.media.createdAt),
+                          ukDateTime(widget.media.createdAt),
                           style: TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],
@@ -233,7 +233,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    DateFormat('d MMM, HH:mm').format(comment.createdAt),
+                    ukDateTime(comment.createdAt),
                     style: TextStyle(color: Colors.grey[600], fontSize: 11),
                   ),
                 ],

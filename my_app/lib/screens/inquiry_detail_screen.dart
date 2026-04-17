@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 
 class InquiryDetailScreen extends StatefulWidget {
   final ContactInquiry inquiry;
@@ -64,7 +64,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
       'From: ${inquiry.name}\n'
       'Email: ${inquiry.email}\n'
       'Service: ${inquiry.serviceDisplay}\n'
-      'Date: ${DateFormat('d MMM yyyy, HH:mm').format(inquiry.createdAt.toLocal())}\n\n'
+      'Date: ${ukDateTime(inquiry.createdAt.toLocal())}\n\n'
       '${inquiry.message}',
     );
     final uri = Uri.parse('mailto:${inquiry.email}?subject=$subject&body=$body');
@@ -239,7 +239,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
                         PhosphorIcon(PhosphorIconsDuotone.clock, size: 14, color: Colors.grey[500]),
                         const SizedBox(width: 4),
                         Text(
-                          DateFormat('d MMM yyyy, HH:mm').format(inquiry.createdAt.toLocal()),
+                          ukDateTime(inquiry.createdAt.toLocal()),
                           style: TextStyle(color: Colors.grey[500], fontSize: 13),
                         ),
                       ],

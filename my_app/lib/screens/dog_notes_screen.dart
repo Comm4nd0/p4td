@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/dog_note.dart';
 import '../services/data_service.dart';
@@ -225,7 +225,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                               Text(note.text, style: const TextStyle(fontSize: 15)),
                               const SizedBox(height: 8),
                               Text(
-                                '${note.createdByName ?? 'Unknown'} - ${DateFormat('d MMM yyyy').format(note.createdAt)}',
+                                '${note.createdByName ?? 'Unknown'} - ${ukDate(note.createdAt)}',
                                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                               ),
                             ],

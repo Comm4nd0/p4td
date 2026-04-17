@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../utils/date_formats.dart';
 
 /// A horizontal 3-step timeline showing the lifecycle of a request:
 /// Submitted → Under Review → Approved / Denied.
@@ -31,7 +31,6 @@ class RequestTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dateFmt = DateFormat('d MMM, HH:mm');
 
     final activeColor = AppColors.primary;
     final deniedColor = AppColors.error;
@@ -57,7 +56,7 @@ class RequestTimeline extends StatelessWidget {
             color: activeColor,
             icon: PhosphorIconsDuotone.paperPlaneTilt,
             label: 'Submitted',
-            detail: dateFmt.format(createdAt),
+            detail: ukDateTime(createdAt),
             labelColor: activeTextColor,
             detailColor: inactiveTextColor,
           ),
@@ -89,7 +88,7 @@ class RequestTimeline extends StatelessWidget {
                 ? 'Denied'
                 : (_isApproved ? 'Approved' : 'Pending'),
             detail: _isResolved
-                ? (resolvedBy != null ? 'by $resolvedBy' : (resolvedAt != null ? dateFmt.format(resolvedAt!) : ''))
+                ? (resolvedBy != null ? 'by $resolvedBy' : (resolvedAt != null ? ukDateTime(resolvedAt!) : ''))
                 : '',
             labelColor: step3TextColor,
             detailColor: inactiveTextColor,

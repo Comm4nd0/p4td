@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
 
 class ClosureDaysScreen extends StatefulWidget {
@@ -70,7 +70,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove Closure'),
-        content: Text('Remove the closure on ${DateFormat('EEE, d MMM yyyy').format(day.date)}?'),
+        content: Text('Remove the closure on ${ukDateWithDay(day.date)}?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Remove')),
@@ -142,7 +142,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                             ),
                           ),
                           title: Text(
-                            DateFormat('EEEE, d MMMM yyyy').format(day.date),
+                            ukDateWithDay(day.date),
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Column(
@@ -215,7 +215,7 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
               title: Text(
                 _selectedDate == null
                     ? 'Select date'
-                    : DateFormat('EEE, d MMM yyyy').format(_selectedDate!),
+                    : ukDateWithDay(_selectedDate!),
               ),
               onTap: () async {
                 final date = await showDatePicker(

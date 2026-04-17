@@ -2,8 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
@@ -398,7 +398,6 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   }
 
   Widget _buildFilterBar() {
-    final dateFormat = DateFormat('d MMM');
     return AnimatedSize(
       duration: const Duration(milliseconds: 200),
       child: _showFilters
@@ -435,7 +434,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                         avatar: PhosphorIcon(PhosphorIconsDuotone.calendar, size: 16),
                         label: Text(
                           _dateRange != null
-                              ? '${dateFormat.format(_dateRange!.start)} – ${dateFormat.format(_dateRange!.end)}'
+                              ? '${ukDate(_dateRange!.start)} – ${ukDate(_dateRange!.end)}'
                               : 'Date range',
                         ),
                         onPressed: _pickDateRange,

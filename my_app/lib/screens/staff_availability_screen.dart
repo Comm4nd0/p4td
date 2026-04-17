@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../utils/date_formats.dart';
 import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
 import '../services/data_service.dart';
@@ -353,7 +353,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   }
 
   Widget _buildMyDayOffCard(DayOffRequest request) {
-    final dateStr = DateFormat('EEE d MMM yyyy').format(request.date);
+    final dateStr = ukDateWithDay(request.date);
     final isPast = request.date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
 
     Color statusColor;
@@ -447,7 +447,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   }
 
   Widget _buildApprovalCard(DayOffRequest request) {
-    final dateStr = DateFormat('EEE d MMM yyyy').format(request.date);
+    final dateStr = ukDateWithDay(request.date);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -527,8 +527,8 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     final isSingle = start.year == end.year && start.month == end.month && start.day == end.day;
 
     final dateLabel = isSingle
-        ? DateFormat('EEE d MMM').format(start)
-        : '${DateFormat('d MMM').format(start)} - ${DateFormat('d MMM').format(end)}';
+        ? ukDateWithDay(start)
+        : '${ukDate(start)} - ${ukDate(end)}';
 
     final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -587,7 +587,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancel Request'),
-        content: Text('Cancel your day off request for ${DateFormat('EEE d MMM').format(request.date)}?'),
+        content: Text('Cancel your day off request for ${ukDateWithDay(request.date)}?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Yes, Cancel')),

@@ -8,6 +8,7 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
@@ -428,7 +429,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   void _showDateChangeRequest(DateTime date) {
     final isConfirmed = _isConfirmed(date);
-    final formattedDate = DateFormat('EEEE, d MMMM yyyy').format(date);
+    final formattedDate = ukDateWithDay(date);
 
     showDialog(
       context: context,
@@ -492,7 +493,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   void _showCancelConfirmation(DateTime originalDate, bool isConfirmed) {
-    final formattedDate = DateFormat('EEEE, d MMMM yyyy').format(originalDate);
+    final formattedDate = ukDateWithDay(originalDate);
 
     showDialog(
       context: context,
@@ -562,8 +563,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   void _showChangeConfirmation(DateTime originalDate, DateTime newDate, bool isConfirmed) {
-    final formattedOriginal = DateFormat('EEE, d MMM').format(originalDate);
-    final formattedNew = DateFormat('EEE, d MMM').format(newDate);
+    final formattedOriginal = ukDateWithDay(originalDate);
+    final formattedNew = ukDateWithDay(newDate);
 
     showDialog(
       context: context,
@@ -825,7 +826,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     PhosphorIcon(PhosphorIconsDuotone.plusCircle, color: Colors.green[800], size: 18),
                     const SizedBox(width: 8),
                     Text(
-                      DateFormat('EEE, d MMMM yyyy').format(date),
+                      ukDateWithDay(date),
                       style: TextStyle(
                         color: Colors.green[800],
                         fontWeight: FontWeight.w500,
@@ -968,7 +969,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       ),
                       child: Text(
                         selectedRange != null
-                            ? '${DateFormat('d MMM').format(selectedRange!.start)} - ${DateFormat('d MMM yyyy').format(selectedRange!.end)}'
+                            ? '${ukDate(selectedRange!.start)} - ${ukDate(selectedRange!.end)}'
                             : 'Tap to select dates',
                         style: TextStyle(
                           color: selectedRange != null ? Colors.black : Colors.grey[600],
@@ -1097,7 +1098,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 color: _getBoardingStatusColor(request.status),
               ),
               title: Text(
-                '${DateFormat('d MMM').format(request.startDate)} - ${DateFormat('d MMM yyyy').format(request.endDate)} ($nights night${nights == 1 ? '' : 's'})',
+                '${ukDate(request.startDate)} - ${ukDate(request.endDate)} ($nights night${nights == 1 ? '' : 's'})',
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               ),
               subtitle: Row(
@@ -1188,10 +1189,10 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             ),
             title: Text(
               request.requestType == RequestType.cancel
-                  ? 'Cancel ${DateFormat('EEE, d MMM').format(request.originalDate!)}'
+                  ? 'Cancel ${ukDateWithDay(request.originalDate!)}'
                   : request.requestType == RequestType.addDay
-                      ? 'Add ${DateFormat('EEE, d MMM').format(request.newDate!)}'
-                      : '${DateFormat('EEE, d MMM').format(request.originalDate!)} → ${DateFormat('EEE, d MMM').format(request.newDate!)}',
+                      ? 'Add ${ukDateWithDay(request.newDate!)}'
+                      : '${ukDateWithDay(request.originalDate!)} → ${ukDateWithDay(request.newDate!)}',
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             ),
             subtitle: Row(
