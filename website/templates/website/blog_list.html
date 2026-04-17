@@ -19,7 +19,7 @@
             </a>
             {% endif %}
             <div class="card-body">
-                <p class="card-date">{{ post.published_at|date:"d/m/Y" }}</p>
+                <p class="card-date">{{ post.published_at|date:"d/m/y" }}</p>
                 <h2 class="card-title">
                     <a href="{% url 'website:blog_detail' post.slug %}">{{ post.title }}</a>
                 </h2>

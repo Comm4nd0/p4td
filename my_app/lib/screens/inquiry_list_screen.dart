@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 import 'inquiry_detail_screen.dart';
 import '../widgets/skeleton_loaders.dart';
 
@@ -261,7 +261,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
                       const SizedBox(width: 8),
                     ],
                     Text(
-                      DateFormat('d MMM, HH:mm').format(inquiry.createdAt.toLocal()),
+                      ukDateTime(inquiry.createdAt.toLocal()),
                       style: TextStyle(color: Colors.grey[500], fontSize: 11),
                     ),
                   ],

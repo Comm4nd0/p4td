@@ -2,12 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'dart:typed_data';
 import '../models/photo.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 
 class GalleryScreen extends StatefulWidget {
   final String dogId;
@@ -363,7 +363,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
-          DateFormat('MMM d, y').format(photo.takenAt),
+          ukDate(photo.takenAt),
           style: const TextStyle(color: Colors.white),
         ),
       ),

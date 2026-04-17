@@ -11,6 +11,7 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/media_tag_dialog.dart';
@@ -336,7 +337,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (!mounted) return;
     final dateLabel = _isSameDay(_selectedDate, DateTime.now())
         ? 'today'
-        : DateFormat('EEE d MMM').format(_selectedDate);
+        : ukDateWithDay(_selectedDate);
 
     if (unassigned.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -560,7 +561,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                 const Text('Scope', style: TextStyle(fontWeight: FontWeight.bold)),
                 RadioListTile<SwapScope>(
                   contentPadding: EdgeInsets.zero, dense: true,
-                  title: Text('Just ${DateFormat('EEE d MMM').format(_selectedDate)}'),
+                  title: Text('Just ${ukDateWithDay(_selectedDate)}'),
                   value: SwapScope.justThisDay, groupValue: scope,
                   onChanged: (v) { setDialogState(() => scope = v!); refreshPreview(setDialogState); },
                 ),
@@ -640,7 +641,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       return !assignedDogIds.contains(dogId) && !unassignedDogIds.contains(dogId);
     }).toList();
 
-    final dateLabel = DateFormat('EEE d MMM').format(_selectedDate);
+    final dateLabel = ukDateWithDay(_selectedDate);
     int? selectedDogId;
     int? selectedStaffId;
     final searchController = TextEditingController();

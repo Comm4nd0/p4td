@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../models/support_query.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
+import '../utils/date_formats.dart';
 import 'query_detail_screen.dart';
 import '../widgets/skeleton_loaders.dart';
 
@@ -455,8 +455,8 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                   ),
                   Text(
                     query.lastMessageAt != null
-                        ? DateFormat('d MMM, HH:mm').format(query.lastMessageAt!.toLocal())
-                        : DateFormat('d MMM, HH:mm').format(query.createdAt.toLocal()),
+                        ? ukDateTime(query.lastMessageAt!.toLocal())
+                        : ukDateTime(query.createdAt.toLocal()),
                     style: TextStyle(color: Colors.grey[500], fontSize: 11),
                   ),
                 ],

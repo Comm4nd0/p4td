@@ -16,7 +16,7 @@
     <div class="blog-detail">
         <div class="blog-detail-header">
             <h1>{{ post.title }}</h1>
-            <p class="blog-detail-date">{{ post.published_at|date:"d/m/Y" }}</p>
+            <p class="blog-detail-date">{{ post.published_at|date:"d/m/y" }}</p>
         </div>
 
         {% if post.featured_image %}
@@ -64,7 +64,7 @@
                 </a>
                 {% endif %}
                 <div class="card-body">
-                    <p class="card-date">{{ post.published_at|date:"d/m/Y" }}</p>
+                    <p class="card-date">{{ post.published_at|date:"d/m/y" }}</p>
                     <h3 class="card-title">
                         <a href="{% url 'website:blog_detail' post.slug %}">{{ post.title }}</a>
                     </h3>
