@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../utils/date_formats.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
@@ -341,12 +341,12 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             const SizedBox(height: 8),
             if (request.requestType == RequestType.cancel)
               Text(
-                'Cancel: ${DateFormat('EEE, d MMM yyyy').format(request.originalDate!)}',
+                'Cancel: ${ukDateWithDay(request.originalDate!)}',
                 style: const TextStyle(fontSize: 14),
               )
             else if (request.requestType == RequestType.addDay)
               Text(
-                'Additional day: ${DateFormat('EEE, d MMM yyyy').format(request.newDate!)}',
+                'Additional day: ${ukDateWithDay(request.newDate!)}',
                 style: const TextStyle(fontSize: 14),
               )
             else
@@ -357,7 +357,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('From:', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                        Text(DateFormat('EEE, d MMM').format(request.originalDate!)),
+                        Text(ukDateWithDay(request.originalDate!)),
                       ],
                     ),
                   ),
@@ -367,7 +367,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('To:', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                        Text(DateFormat('EEE, d MMM').format(request.newDate!)),
+                        Text(ukDateWithDay(request.newDate!)),
                       ],
                     ),
                   ),
@@ -495,7 +495,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${DateFormat('EEE, d MMM').format(request.startDate)} - ${DateFormat('EEE, d MMM yyyy').format(request.endDate)}',
+                        '${ukDateWithDay(request.startDate)} - ${ukDateWithDay(request.endDate)}',
                         style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
                       ),
                       Text(

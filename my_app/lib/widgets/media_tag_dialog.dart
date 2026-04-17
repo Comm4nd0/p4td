@@ -97,6 +97,12 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
     );
   }
 
+  void _openEnlargedImage(Uint8List bytes) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _EnlargedImageView(bytes: bytes),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMultiple = widget.files.length > 1;
@@ -113,6 +119,11 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
             onPressed: () => Navigator.pop(context),
           ),
           actions: [
+            if (isMultiple && !isLastPage)
+              TextButton(
+                onPressed: _submit,
+                child: const Text('Upload all', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
             if (!isMultiple || isLastPage)
               TextButton(
                 onPressed: _submit,
@@ -208,11 +219,17 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
             borderRadius: BorderRadius.circular(12),
             child: isVideo
                 ? _LocalVideoPlayer(bytes: bytes, fileName: fileName)
-                : Image.memory(
-                    bytes,
-                    width: double.infinity,
-                    height: 200,
-                    fit: BoxFit.cover,
+                : GestureDetector(
+                    onTap: () => _openEnlargedImage(bytes),
+                    child: Container(
+                      width: double.infinity,
+                      height: 300,
+                      color: Colors.black,
+                      child: Image.memory(
+                        bytes,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
           ),
           const SizedBox(height: 16),
@@ -442,6 +459,37 @@ class _LocalVideoPlayerState extends State<_LocalVideoPlayer> {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EnlargedImageView extends StatelessWidget {
+  final Uint8List bytes;
+
+  const _EnlargedImageView({required this.bytes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: GestureDetector(
+        onTap: () => Navigator.of(context).pop(),
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 1.0,
+            maxScale: 4.0,
+            child: Image.memory(bytes),
+          ),
         ),
       ),
     );
