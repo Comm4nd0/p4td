@@ -318,6 +318,157 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     }
   }
 
+  Future<void> _showTransportDialog(DailyDogAssignment assignment) async {
+    // Tri-state per field: null = use dog default, true = owner, false = staff.
+    bool? brings = assignment.ownerBrings;
+    bool? collects = assignment.ownerCollects;
+    TimeOfDay? bringsTime = assignment.ownerBringsTime ?? assignment.effectiveOwnerBringsTime;
+    TimeOfDay? collectsTime = assignment.ownerCollectsTime ?? assignment.effectiveOwnerCollectsTime;
+
+    final effectiveBringsAtOpen = assignment.effectiveOwnerBrings;
+    final effectiveCollectsAtOpen = assignment.effectiveOwnerCollects;
+
+    String chipLabel(bool? value, bool effective) {
+      if (value == null) return 'Default (${effective ? 'owner' : 'staff'})';
+      return value ? 'Owner' : 'Staff';
+    }
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Transport: ${assignment.dogName}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Drop-off (morning)',
+                    style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                SegmentedButton<Object>(
+                  segments: const [
+                    ButtonSegment(value: 'default', label: Text('Default')),
+                    ButtonSegment(value: true, label: Text('Owner')),
+                    ButtonSegment(value: false, label: Text('Staff')),
+                  ],
+                  selected: {brings == null ? 'default' : brings!},
+                  onSelectionChanged: (s) {
+                    setDialogState(() {
+                      final v = s.first;
+                      brings = v == 'default' ? null : v as bool;
+                    });
+                  },
+                ),
+                Text(brings == null
+                    ? chipLabel(brings, effectiveBringsAtOpen)
+                    : '',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
+                if ((brings ?? effectiveBringsAtOpen) == true) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+                    label: Text(bringsTime == null
+                        ? 'Set drop-off time'
+                        : 'Drop-off at ${_formatTime(bringsTime!)}'),
+                    onPressed: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: bringsTime ?? const TimeOfDay(hour: 8, minute: 0),
+                      );
+                      if (picked != null) setDialogState(() => bringsTime = picked);
+                    },
+                  ),
+                  if (bringsTime != null)
+                    TextButton(
+                      onPressed: () => setDialogState(() => bringsTime = null),
+                      child: const Text('Clear time', style: TextStyle(fontSize: 12)),
+                    ),
+                ],
+                const Divider(height: 24),
+                Text('Pick-up (evening)',
+                    style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                SegmentedButton<Object>(
+                  segments: const [
+                    ButtonSegment(value: 'default', label: Text('Default')),
+                    ButtonSegment(value: true, label: Text('Owner')),
+                    ButtonSegment(value: false, label: Text('Staff')),
+                  ],
+                  selected: {collects == null ? 'default' : collects!},
+                  onSelectionChanged: (s) {
+                    setDialogState(() {
+                      final v = s.first;
+                      collects = v == 'default' ? null : v as bool;
+                    });
+                  },
+                ),
+                Text(collects == null
+                    ? chipLabel(collects, effectiveCollectsAtOpen)
+                    : '',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
+                if ((collects ?? effectiveCollectsAtOpen) == true) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+                    label: Text(collectsTime == null
+                        ? 'Set pick-up time'
+                        : 'Pick-up at ${_formatTime(collectsTime!)}'),
+                    onPressed: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: collectsTime ?? const TimeOfDay(hour: 17, minute: 0),
+                      );
+                      if (picked != null) setDialogState(() => collectsTime = picked);
+                    },
+                  ),
+                  if (collectsTime != null)
+                    TextButton(
+                      onPressed: () => setDialogState(() => collectsTime = null),
+                      child: const Text('Clear time', style: TextStyle(fontSize: 12)),
+                    ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          ],
+        ),
+      ),
+    );
+
+    if (saved != true || !mounted) return;
+
+    try {
+      final updated = await _dataService.setAssignmentTransport(
+        assignment.id,
+        ownerBrings: brings,
+        ownerCollects: collects,
+        ownerBringsTime: (brings ?? effectiveBringsAtOpen) ? bringsTime : null,
+        ownerCollectsTime: (collects ?? effectiveCollectsAtOpen) ? collectsTime : null,
+      );
+      if (mounted) {
+        setState(() {
+          final index = _assignments.indexWhere((a) => a.id == assignment.id);
+          if (index != -1) _assignments[index] = updated;
+          _dataChanged = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Transport updated for ${assignment.dogName}'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update transport: $e')));
+      }
+    }
+  }
+
+  String _formatTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
   void _showPickupInstructions(DailyDogAssignment assignment) {
     showModalBottomSheet(
       context: context,
@@ -543,6 +694,8 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       _confirmUnassign(assignment);
                     } else if (value == 'remove_from_day') {
                       _confirmRemoveFromDay(assignment);
+                    } else if (value == 'transport') {
+                      _showTransportDialog(assignment);
                     } else if (value == 'next' && next != null) {
                       _updateStatus(assignment, next);
                     } else if (value == 'previous' && previous != null) {
@@ -570,6 +723,14 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       ),
                     if (widget.canAssignDogs) ...[
                       const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'transport',
+                        child: Row(children: [
+                          PhosphorIcon(PhosphorIconsDuotone.car, size: 18),
+                          const SizedBox(width: 8),
+                          const Text('Transport…'),
+                        ]),
+                      ),
                       PopupMenuItem(
                         value: 'reassign',
                         child: Row(children: [
@@ -612,6 +773,55 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
               ],
             ),
             const SizedBox(height: 8),
+            // Transport indicator (owner brings / collects)
+            if (assignment.effectiveOwnerBrings || assignment.effectiveOwnerCollects)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (assignment.effectiveOwnerBrings)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.teal.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 14, color: Colors.teal),
+                          const SizedBox(width: 4),
+                          Text(
+                            assignment.effectiveOwnerBringsTime != null
+                                ? 'Owner drops off ${_formatTime(assignment.effectiveOwnerBringsTime!)}'
+                                : 'Owner drops off',
+                            style: const TextStyle(fontSize: 12, color: Colors.teal),
+                          ),
+                        ]),
+                      ),
+                    if (assignment.effectiveOwnerCollects)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 14, color: Colors.indigo),
+                          const SizedBox(width: 4),
+                          Text(
+                            assignment.effectiveOwnerCollectsTime != null
+                                ? 'Owner picks up ${_formatTime(assignment.effectiveOwnerCollectsTime!)}'
+                                : 'Owner picks up',
+                            style: const TextStyle(fontSize: 12, color: Colors.indigo),
+                          ),
+                        ]),
+                      ),
+                  ],
+                ),
+              ),
             // Pickup info
             if (assignment.ownerAddress != null && assignment.ownerAddress!.isNotEmpty)
               Padding(

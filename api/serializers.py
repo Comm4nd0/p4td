@@ -82,7 +82,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'created_at']
         read_only_fields = ['created_at']
         extra_kwargs = {
             'owner': {'required': False},
@@ -279,6 +279,10 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     owner_phone = serializers.SerializerMethodField()
     pickup_instructions = serializers.SerializerMethodField()
     is_boarding = serializers.SerializerMethodField()
+    effective_owner_brings = serializers.BooleanField(read_only=True)
+    effective_owner_collects = serializers.BooleanField(read_only=True)
+    effective_owner_brings_time = serializers.TimeField(read_only=True)
+    effective_owner_collects_time = serializers.TimeField(read_only=True)
 
     class Meta:
         model = DailyDogAssignment
@@ -286,7 +290,11 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             'id', 'dog', 'dog_name', 'dog_profile_image',
             'staff_member', 'staff_member_name',
             'owner_name', 'owner_address', 'owner_phone', 'pickup_instructions',
-            'date', 'status', 'is_boarding', 'created_at', 'updated_at',
+            'date', 'status', 'is_boarding',
+            'owner_brings', 'owner_collects', 'owner_brings_time', 'owner_collects_time',
+            'effective_owner_brings', 'effective_owner_collects',
+            'effective_owner_brings_time', 'effective_owner_collects_time',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
 

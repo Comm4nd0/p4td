@@ -89,6 +89,10 @@ class Dog(models.Model):
     medical_notes = models.TextField(blank=True, null=True)
     daycare_days = models.JSONField(default=list, blank=True, help_text='List of day numbers (1-7) for daycare attendance')
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='weekly', help_text='How often the dog attends: weekly, fortnightly, or ad hoc')
+    owner_brings_default = models.BooleanField(default=False, help_text='Owner usually drops this dog off at daycare (no staff pickup).')
+    owner_collects_default = models.BooleanField(default=False, help_text='Owner usually collects this dog from daycare (no staff drop-off home).')
+    owner_brings_default_time = models.TimeField(null=True, blank=True, help_text='Expected default drop-off time when owner brings the dog.')
+    owner_collects_default_time = models.TimeField(null=True, blank=True, help_text='Expected default pick-up time when owner collects the dog.')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -262,6 +266,10 @@ class DailyDogAssignment(models.Model):
     staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dog_assignments')
     date = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ASSIGNED')
+    owner_brings = models.BooleanField(null=True, blank=True, help_text='Override for this date. Null = fall back to Dog.owner_brings_default.')
+    owner_collects = models.BooleanField(null=True, blank=True, help_text='Override for this date. Null = fall back to Dog.owner_collects_default.')
+    owner_brings_time = models.TimeField(null=True, blank=True, help_text='Expected drop-off time when owner brings the dog on this date.')
+    owner_collects_time = models.TimeField(null=True, blank=True, help_text='Expected pick-up time when owner collects the dog on this date.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -271,6 +279,22 @@ class DailyDogAssignment(models.Model):
 
     def __str__(self):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
+
+    @property
+    def effective_owner_brings(self) -> bool:
+        return self.owner_brings if self.owner_brings is not None else self.dog.owner_brings_default
+
+    @property
+    def effective_owner_collects(self) -> bool:
+        return self.owner_collects if self.owner_collects is not None else self.dog.owner_collects_default
+
+    @property
+    def effective_owner_brings_time(self):
+        return self.owner_brings_time if self.owner_brings_time is not None else self.dog.owner_brings_default_time
+
+    @property
+    def effective_owner_collects_time(self):
+        return self.owner_collects_time if self.owner_collects_time is not None else self.dog.owner_collects_default_time
 
 
 class DogWeekdayPickup(models.Model):

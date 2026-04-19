@@ -309,6 +309,14 @@ class DogViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
+
+        # Transport default fields are staff-only. Strip them from validated_data
+        # when the caller is not staff.
+        if not self.request.user.is_staff:
+            for field in ('owner_brings_default', 'owner_collects_default',
+                          'owner_brings_default_time', 'owner_collects_default_time'):
+                serializer.validated_data.pop(field, None)
+
         # Attach the requesting user so the care-instructions signal can
         # include who made the change in the staff notification.
         serializer.instance._changed_by = self.request.user
@@ -807,6 +815,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
           * dogs whose current ``daycare_days`` no longer include this weekday
           * dogs with an APPROVED CANCEL DateChangeRequest for this date
           * dogs that already have a DailyDogAssignment for this date
+          * dogs whose owner brings them (owner_brings_default=True with no
+            override, or per-date owner_brings override = True) — no staff
+            pickup is needed
         """
         from .models import ClosureDay
 
@@ -845,6 +856,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             if weekday not in (dog.daycare_days or []):
                 continue
             if dog.id in existing_dog_ids or dog.id in cancelled_dog_ids:
+                continue
+            if dog.owner_brings_default:
                 continue
             to_create.append(DailyDogAssignment(
                 dog=dog,
@@ -892,6 +905,60 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if new_status not in valid_statuses:
             return Response({'detail': 'Invalid status'}, status=400)
         assignment.status = new_status
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=['patch'], url_path='transport')
+    def set_transport(self, request, pk=None):
+        """Staff sets owner_brings / owner_collects / times for this assignment.
+
+        Requires can_assign_dogs or can_manage_requests.
+        Accepts any subset of: owner_brings, owner_collects,
+        owner_brings_time, owner_collects_time. Times accept HH:MM or HH:MM:SS.
+        Explicit null clears a field; absent keys leave the field unchanged.
+        """
+        try:
+            profile = request.user.profile
+        except AttributeError:
+            return Response({'detail': 'Staff permission required.'}, status=403)
+        if not (profile.can_assign_dogs or profile.can_manage_requests):
+            return Response({'detail': 'Staff permission required.'}, status=403)
+
+        from .models import ClosureDay
+        assignment = self.get_object()
+
+        if ClosureDay.objects.filter(date=assignment.date, closure_type='CLOSED').exists():
+            return Response({'detail': 'Cannot set transport on a closure day.'}, status=400)
+
+        bool_fields = ('owner_brings', 'owner_collects')
+        time_fields = ('owner_brings_time', 'owner_collects_time')
+
+        for field in bool_fields:
+            if field in request.data:
+                value = request.data[field]
+                if value is None or isinstance(value, bool):
+                    setattr(assignment, field, value)
+                else:
+                    return Response({field: 'Must be true, false, or null.'}, status=400)
+
+        for field in time_fields:
+            if field in request.data:
+                value = request.data[field]
+                if value is None or value == '':
+                    setattr(assignment, field, None)
+                    continue
+                from datetime import datetime
+                parsed = None
+                for fmt in ('%H:%M:%S', '%H:%M'):
+                    try:
+                        parsed = datetime.strptime(value, fmt).time()
+                        break
+                    except (TypeError, ValueError):
+                        continue
+                if parsed is None:
+                    return Response({field: 'Must be HH:MM or HH:MM:SS.'}, status=400)
+                setattr(assignment, field, parsed)
+
         assignment.save()
         return Response(self.get_serializer(assignment).data)
 

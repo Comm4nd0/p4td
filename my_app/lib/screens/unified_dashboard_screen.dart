@@ -1175,6 +1175,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         const SizedBox(height: 8),
         ...staffList.map((staff) {
           final isAvailable = _availableStaffIds.isEmpty || _availableStaffIds.contains(staff.id);
+          final ownerBringsCount = staff.assignments.where((a) => a.effectiveOwnerBrings).length;
+          final ownerCollectsCount = staff.assignments.where((a) => a.effectiveOwnerCollects).length;
+          final hasOwnerTransport = ownerBringsCount > 0 || ownerCollectsCount > 0;
           return Card(
             child: ListTile(
               leading: CircleAvatar(
@@ -1188,6 +1191,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Text('(off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
                 ],
               ]),
+              subtitle: hasOwnerTransport
+                  ? Row(children: [
+                      const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 13, color: Colors.teal),
+                      const SizedBox(width: 3),
+                      Text(
+                        [
+                          if (ownerBringsCount > 0) '$ownerBringsCount drop-off${ownerBringsCount == 1 ? '' : 's'}',
+                          if (ownerCollectsCount > 0) '$ownerCollectsCount pick-up${ownerCollectsCount == 1 ? '' : 's'}',
+                        ].join(', '),
+                        style: const TextStyle(fontSize: 11, color: Colors.teal),
+                      ),
+                    ])
+                  : null,
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

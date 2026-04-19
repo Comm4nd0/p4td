@@ -60,6 +60,13 @@ class DogAdmin(admin.ModelAdmin):
         ('Daycare', {
             'fields': ('daycare_days',),
         }),
+        ('Transport', {
+            'fields': (
+                ('owner_brings_default', 'owner_brings_default_time'),
+                ('owner_collects_default', 'owner_collects_default_time'),
+            ),
+            'description': 'Owner-perspective defaults. Per-day overrides live on each Daily Dog Assignment.',
+        }),
         ('Care Instructions', {
             'fields': ('food_instructions', 'medical_notes'),
         }),
@@ -148,13 +155,25 @@ admin.site.register(User, StaffUserAdmin)
 
 @admin.register(DailyDogAssignment)
 class DailyDogAssignmentAdmin(admin.ModelAdmin):
-    list_display = ('dog_name', 'owner_name', 'staff_member_name', 'date', 'status_display')
-    list_filter = ('date', 'status', 'staff_member')
+    list_display = ('dog_name', 'owner_name', 'staff_member_name', 'date', 'status_display', 'transport_display')
+    list_filter = ('date', 'status', 'staff_member', 'owner_brings', 'owner_collects')
     search_fields = ('dog__name', 'dog__owner__username', 'staff_member__username', 'staff_member__first_name')
     list_per_page = 30
     date_hierarchy = 'date'
     ordering = ['-date', 'dog__name']
     raw_id_fields = ('dog', 'staff_member')
+    fieldsets = (
+        (None, {
+            'fields': ('dog', 'staff_member', 'date', 'status'),
+        }),
+        ('Transport overrides', {
+            'fields': (
+                ('owner_brings', 'owner_brings_time'),
+                ('owner_collects', 'owner_collects_time'),
+            ),
+            'description': 'Leave booleans blank to use the dog default. Times are the expected owner arrival / departure.',
+        }),
+    )
 
     def dog_name(self, obj):
         return obj.dog.name
@@ -185,6 +204,19 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
         )
     status_display.short_description = 'Status'
     status_display.admin_order_field = 'status'
+
+    def transport_display(self, obj):
+        parts = []
+        if obj.effective_owner_brings:
+            t = obj.effective_owner_brings_time
+            parts.append(format_html('<span title="Owner brings">&#127968;&rarr; {}</span>', t.strftime('%H:%M') if t else '—'))
+        if obj.effective_owner_collects:
+            t = obj.effective_owner_collects_time
+            parts.append(format_html('<span title="Owner collects">&larr;&#127968; {}</span>', t.strftime('%H:%M') if t else '—'))
+        if not parts:
+            return format_html('<span style="color: #999;">staff</span>')
+        return format_html(' &nbsp; '.join(str(p) for p in parts))
+    transport_display.short_description = 'Transport'
 
 
 @admin.register(UserProfile)
