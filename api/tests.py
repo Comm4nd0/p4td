@@ -1166,3 +1166,156 @@ class PruneFeedMediaTests(TestCase):
         self.assertTrue(os.path.exists(file_path))
         call_command('prune_feed_media', days=9999, include_orphans=True)
         self.assertTrue(os.path.exists(file_path))
+
+
+class AssignmentTransportTests(TestCase):
+    """Tests for staff-set owner_brings / owner_collects transport fields."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.staff.profile.can_assign_dogs = True
+        self.staff.profile.save()
+        self.staff_no_perm = User.objects.create_user(username='staff_np', password='pw', is_staff=True)
+        # Explicitly ensure no permissions
+        self.staff_no_perm.profile.can_assign_dogs = False
+        self.staff_no_perm.profile.can_manage_requests = False
+        self.staff_no_perm.profile.save()
+        self.today = date.today()
+        self.dog = Dog.objects.create(
+            owner=self.owner, name='Rex',
+            daycare_days=[self.today.isoweekday()],
+            schedule_type='weekly',
+        )
+        self.assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.today,
+        )
+        self.client = APIClient()
+        self.url = f'/api/daily-assignments/{self.assignment.id}/transport/'
+
+    def test_staff_with_can_assign_dogs_can_set_transport(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(self.url, {
+            'owner_brings': True,
+            'owner_brings_time': '08:30',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assignment.refresh_from_db()
+        self.assertTrue(self.assignment.owner_brings)
+        self.assertEqual(self.assignment.owner_brings_time.strftime('%H:%M'), '08:30')
+
+    def test_staff_with_can_manage_requests_can_set_transport(self):
+        self.staff_no_perm.profile.can_manage_requests = True
+        self.staff_no_perm.profile.save()
+        self.client.login(username='staff_np', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_staff_without_permission_cannot_set_transport(self):
+        self.client.login(username='staff_np', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings': True}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_owner_cannot_set_transport(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings': True}, format='json')
+        self.assertIn(resp.status_code, (401, 403))
+
+    def test_null_override_falls_back_to_dog_default(self):
+        self.dog.owner_brings_default = True
+        self.dog.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/daily-assignments/')
+        self.assertEqual(resp.status_code, 200)
+        row = next(a for a in resp.data if a['id'] == self.assignment.id)
+        self.assertTrue(row['effective_owner_brings'])
+        self.assertIsNone(row['owner_brings'])
+
+    def test_explicit_false_overrides_true_default(self):
+        self.dog.owner_brings_default = True
+        self.dog.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings': False}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assignment.refresh_from_db()
+        self.assertFalse(self.assignment.effective_owner_brings)
+
+    def test_time_fields_persist(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(self.url, {
+            'owner_brings': True, 'owner_brings_time': '08:15',
+            'owner_collects': True, 'owner_collects_time': '17:45',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.owner_brings_time.strftime('%H:%M'), '08:15')
+        self.assertEqual(self.assignment.owner_collects_time.strftime('%H:%M'), '17:45')
+
+    def test_invalid_time_format_rejected(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings_time': 'nope'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_clearing_time_with_null(self):
+        self.assignment.owner_brings_time = '08:00:00'
+        self.assignment.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings_time': None}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assignment.refresh_from_db()
+        self.assertIsNone(self.assignment.owner_brings_time)
+
+    def test_closure_day_rejected(self):
+        ClosureDay.objects.create(date=self.today, closure_type='CLOSED')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(self.url, {'owner_brings': True}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_owner_cannot_update_owner_brings_default_on_dog(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'owner_brings_default': True,
+        }, format='json')
+        # Owner can PATCH their dog, but transport defaults are silently
+        # stripped for non-staff users.
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertFalse(self.dog.owner_brings_default)
+
+    def test_staff_can_update_owner_brings_default_on_dog(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'owner_brings_default': True,
+            'owner_brings_default_time': '08:00',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertTrue(self.dog.owner_brings_default)
+        self.assertEqual(self.dog.owner_brings_default_time.strftime('%H:%M'), '08:00')
+
+    def test_materialization_skips_dog_with_owner_brings_default(self):
+        # Remove today's assignment so the materializer has a clean state
+        self.assignment.delete()
+        self.dog.owner_brings_default = True
+        self.dog.save()
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today.isoweekday(),
+            staff_member=self.staff,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        dog_ids = [a['dog'] for a in resp.data]
+        self.assertNotIn(self.dog.id, dog_ids)
+        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
+
+    def test_materialization_runs_when_owner_brings_default_false(self):
+        self.assignment.delete()
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today.isoweekday(),
+            staff_member=self.staff,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())

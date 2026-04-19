@@ -1,3 +1,6 @@
+import 'package:flutter/material.dart' show TimeOfDay;
+import 'dog.dart' show parseApiTime;
+
 /// Scope used when reassigning or unassigning a single dog on a specific date.
 /// Maps to the backend `scope` body param on /reassign/ and /unassign/.
 enum AssignmentScope {
@@ -93,6 +96,14 @@ class DailyDogAssignment {
   final DateTime date;
   final AssignmentStatus status;
   final bool isBoarding;
+  final bool? ownerBrings;
+  final bool? ownerCollects;
+  final TimeOfDay? ownerBringsTime;
+  final TimeOfDay? ownerCollectsTime;
+  final bool effectiveOwnerBrings;
+  final bool effectiveOwnerCollects;
+  final TimeOfDay? effectiveOwnerBringsTime;
+  final TimeOfDay? effectiveOwnerCollectsTime;
 
   DailyDogAssignment({
     required this.id,
@@ -108,6 +119,14 @@ class DailyDogAssignment {
     required this.date,
     required this.status,
     this.isBoarding = false,
+    this.ownerBrings,
+    this.ownerCollects,
+    this.ownerBringsTime,
+    this.ownerCollectsTime,
+    this.effectiveOwnerBrings = false,
+    this.effectiveOwnerCollects = false,
+    this.effectiveOwnerBringsTime,
+    this.effectiveOwnerCollectsTime,
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -125,10 +144,28 @@ class DailyDogAssignment {
       date: DateTime.parse(json['date']),
       status: AssignmentStatus.fromApi(json['status'] ?? 'ASSIGNED'),
       isBoarding: json['is_boarding'] ?? false,
+      ownerBrings: json['owner_brings'],
+      ownerCollects: json['owner_collects'],
+      ownerBringsTime: parseApiTime(json['owner_brings_time']),
+      ownerCollectsTime: parseApiTime(json['owner_collects_time']),
+      effectiveOwnerBrings: json['effective_owner_brings'] ?? false,
+      effectiveOwnerCollects: json['effective_owner_collects'] ?? false,
+      effectiveOwnerBringsTime: parseApiTime(json['effective_owner_brings_time']),
+      effectiveOwnerCollectsTime: parseApiTime(json['effective_owner_collects_time']),
     );
   }
 
-  DailyDogAssignment copyWith({AssignmentStatus? status}) {
+  DailyDogAssignment copyWith({
+    AssignmentStatus? status,
+    bool? ownerBrings,
+    bool? ownerCollects,
+    TimeOfDay? ownerBringsTime,
+    TimeOfDay? ownerCollectsTime,
+    bool? effectiveOwnerBrings,
+    bool? effectiveOwnerCollects,
+    TimeOfDay? effectiveOwnerBringsTime,
+    TimeOfDay? effectiveOwnerCollectsTime,
+  }) {
     return DailyDogAssignment(
       id: id,
       dogId: dogId,
@@ -143,6 +180,14 @@ class DailyDogAssignment {
       date: date,
       status: status ?? this.status,
       isBoarding: isBoarding,
+      ownerBrings: ownerBrings ?? this.ownerBrings,
+      ownerCollects: ownerCollects ?? this.ownerCollects,
+      ownerBringsTime: ownerBringsTime ?? this.ownerBringsTime,
+      ownerCollectsTime: ownerCollectsTime ?? this.ownerCollectsTime,
+      effectiveOwnerBrings: effectiveOwnerBrings ?? this.effectiveOwnerBrings,
+      effectiveOwnerCollects: effectiveOwnerCollects ?? this.effectiveOwnerCollects,
+      effectiveOwnerBringsTime: effectiveOwnerBringsTime ?? this.effectiveOwnerBringsTime,
+      effectiveOwnerCollectsTime: effectiveOwnerCollectsTime ?? this.effectiveOwnerCollectsTime,
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart' show TimeOfDay;
+
 enum Weekday {
   monday,
   tuesday,
@@ -6,6 +8,21 @@ enum Weekday {
   friday,
   // Note: saturday and sunday removed - daycare only operates Mon-Fri
 }
+
+/// Parse a backend time string ("HH:MM:SS" or "HH:MM") to TimeOfDay.
+TimeOfDay? parseApiTime(dynamic value) {
+  if (value == null) return null;
+  final parts = value.toString().split(':');
+  if (parts.length < 2) return null;
+  final h = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  if (h == null || m == null) return null;
+  return TimeOfDay(hour: h, minute: m);
+}
+
+/// Format a TimeOfDay as "HH:MM" for API submission.
+String formatApiTime(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
 extension WeekdayExtension on Weekday {
   String get displayName {
@@ -126,6 +143,10 @@ class Dog {
   final List<OwnerDetails> additionalOwners;
   final DropoffTime? preferredDropoffTime;
   final ScheduleType scheduleType;
+  final bool ownerBringsDefault;
+  final bool ownerCollectsDefault;
+  final TimeOfDay? ownerBringsDefaultTime;
+  final TimeOfDay? ownerCollectsDefaultTime;
 
   Dog({
     required this.id,
@@ -139,6 +160,10 @@ class Dog {
     this.additionalOwners = const [],
     this.preferredDropoffTime,
     this.scheduleType = ScheduleType.weekly,
+    this.ownerBringsDefault = false,
+    this.ownerCollectsDefault = false,
+    this.ownerBringsDefaultTime,
+    this.ownerCollectsDefaultTime,
   });
 
   /// All owners (primary + additional) for convenience
@@ -161,6 +186,10 @@ class Dog {
     List<OwnerDetails>? additionalOwners,
     DropoffTime? preferredDropoffTime,
     ScheduleType? scheduleType,
+    bool? ownerBringsDefault,
+    bool? ownerCollectsDefault,
+    TimeOfDay? ownerBringsDefaultTime,
+    TimeOfDay? ownerCollectsDefaultTime,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -174,6 +203,10 @@ class Dog {
       additionalOwners: additionalOwners ?? this.additionalOwners,
       preferredDropoffTime: preferredDropoffTime ?? this.preferredDropoffTime,
       scheduleType: scheduleType ?? this.scheduleType,
+      ownerBringsDefault: ownerBringsDefault ?? this.ownerBringsDefault,
+      ownerCollectsDefault: ownerCollectsDefault ?? this.ownerCollectsDefault,
+      ownerBringsDefaultTime: ownerBringsDefaultTime ?? this.ownerBringsDefaultTime,
+      ownerCollectsDefaultTime: ownerCollectsDefaultTime ?? this.ownerCollectsDefaultTime,
     );
   }
 }

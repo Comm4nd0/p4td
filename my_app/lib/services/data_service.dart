@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
 import '../models/dog.dart';
@@ -75,6 +76,13 @@ abstract class DataService {
   Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date});
   Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
+  Future<DailyDogAssignment> setAssignmentTransport(
+    int assignmentId, {
+    required bool? ownerBrings,
+    required bool? ownerCollects,
+    required TimeOfDay? ownerBringsTime,
+    required TimeOfDay? ownerCollectsTime,
+  });
   Future<DailyDogAssignment> reassignDog(
     int assignmentId,
     int newStaffMemberId, {
@@ -183,6 +191,10 @@ class ApiDataService implements DataService {
         additionalOwners: additionalOwners,
         preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
         scheduleType: ScheduleTypeExtension.fromApiValue(json['schedule_type']),
+        ownerBringsDefault: json['owner_brings_default'] ?? false,
+        ownerCollectsDefault: json['owner_collects_default'] ?? false,
+        ownerBringsDefaultTime: parseApiTime(json['owner_brings_default_time']),
+        ownerCollectsDefaultTime: parseApiTime(json['owner_collects_default_time']),
       );
     }).toList();
   }
@@ -414,6 +426,10 @@ class ApiDataService implements DataService {
       additionalOwners: additionalOwners,
       preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
       scheduleType: ScheduleTypeExtension.fromApiValue(data['schedule_type']),
+      ownerBringsDefault: data['owner_brings_default'] ?? false,
+      ownerCollectsDefault: data['owner_collects_default'] ?? false,
+      ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
+      ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
     );
   }
 
@@ -550,6 +566,10 @@ class ApiDataService implements DataService {
           additionalOwners: additionalOwners,
           preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
           scheduleType: ScheduleTypeExtension.fromApiValue(data['schedule_type']),
+          ownerBringsDefault: data['owner_brings_default'] ?? false,
+          ownerCollectsDefault: data['owner_collects_default'] ?? false,
+          ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
+          ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -599,6 +619,10 @@ class ApiDataService implements DataService {
           additionalOwners: additionalOwners,
           preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
           scheduleType: ScheduleTypeExtension.fromApiValue(data['schedule_type']),
+          ownerBringsDefault: data['owner_brings_default'] ?? false,
+          ownerCollectsDefault: data['owner_collects_default'] ?? false,
+          ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
+          ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -1185,6 +1209,10 @@ class ApiDataService implements DataService {
           additionalOwners: additionalOwners,
           preferredDropoffTime: DropoffTimeExtension.fromApiValue(j['preferred_dropoff_time']),
           scheduleType: ScheduleTypeExtension.fromApiValue(j['schedule_type']),
+          ownerBringsDefault: j['owner_brings_default'] ?? false,
+          ownerCollectsDefault: j['owner_collects_default'] ?? false,
+          ownerBringsDefaultTime: parseApiTime(j['owner_brings_default_time']),
+          ownerCollectsDefaultTime: parseApiTime(j['owner_collects_default_time']),
         );
       }).toList();
     } else {
@@ -1265,6 +1293,31 @@ class ApiDataService implements DataService {
     } else {
       throw Exception('Failed to update assignment status');
     }
+  }
+
+  @override
+  Future<DailyDogAssignment> setAssignmentTransport(
+    int assignmentId, {
+    required bool? ownerBrings,
+    required bool? ownerCollects,
+    required TimeOfDay? ownerBringsTime,
+    required TimeOfDay? ownerCollectsTime,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/transport/'),
+      headers: headers,
+      body: json.encode({
+        'owner_brings': ownerBrings,
+        'owner_collects': ownerCollects,
+        'owner_brings_time': ownerBringsTime == null ? null : formatApiTime(ownerBringsTime),
+        'owner_collects_time': ownerCollectsTime == null ? null : formatApiTime(ownerCollectsTime),
+      }),
+    );
+    if (response.statusCode == 200) {
+      return DailyDogAssignment.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to set transport (${response.statusCode}): ${response.body}');
   }
 
   @override
@@ -2190,6 +2243,17 @@ class MockDataService implements DataService {
 
   @override
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<DailyDogAssignment> setAssignmentTransport(
+    int assignmentId, {
+    required bool? ownerBrings,
+    required bool? ownerCollects,
+    required TimeOfDay? ownerBringsTime,
+    required TimeOfDay? ownerCollectsTime,
+  }) async {
     throw UnimplementedError();
   }
 
