@@ -35,6 +35,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
   DropoffTime? _selectedDropoffTime;
   ScheduleType _selectedScheduleType = ScheduleType.weekly;
   bool _isStaff = false;
+  bool _ownerBringsDefault = false;
+  bool _ownerCollectsDefault = false;
+  TimeOfDay? _ownerBringsDefaultTime;
+  TimeOfDay? _ownerCollectsDefaultTime;
 
   @override
   void initState() {
@@ -46,6 +50,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _selectedDays = Set.from(widget.dog.daysInDaycare);
     _selectedDropoffTime = widget.dog.preferredDropoffTime;
     _selectedScheduleType = widget.dog.scheduleType;
+    _ownerBringsDefault = widget.dog.ownerBringsDefault;
+    _ownerCollectsDefault = widget.dog.ownerCollectsDefault;
+    _ownerBringsDefaultTime = widget.dog.ownerBringsDefaultTime;
+    _ownerCollectsDefaultTime = widget.dog.ownerCollectsDefaultTime;
     _checkUserRole();
   }
 
@@ -146,6 +154,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
         daysInDaycare: _selectedDays.toList(),
         preferredDropoffTime: _selectedDropoffTime,
         scheduleType: _selectedScheduleType,
+        ownerBringsDefault: _isStaff ? _ownerBringsDefault : null,
+        ownerCollectsDefault: _isStaff ? _ownerCollectsDefault : null,
+        ownerBringsDefaultTime: _isStaff ? _ownerBringsDefaultTime : null,
+        ownerCollectsDefaultTime: _isStaff ? _ownerCollectsDefaultTime : null,
       );
 
       if (mounted) {
@@ -285,6 +297,42 @@ class _EditDogScreenState extends State<EditDogScreen> {
             maxLines: 3,
           ),
           if (_isStaff) ...[
+            const SizedBox(height: 24),
+            const Text(
+              'Transport defaults',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Who usually handles drop-off and pick-up for this dog? Staff-only; per-day exceptions can be set on each assignment.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 12),
+            _TransportDefaultRow(
+              label: 'Drop-off (morning)',
+              ownerSelected: _ownerBringsDefault,
+              time: _ownerBringsDefaultTime,
+              initialTimeIfUnset: const TimeOfDay(hour: 8, minute: 0),
+              onOwnerChanged: (value) => setState(() {
+                _ownerBringsDefault = value;
+                if (!value) _ownerBringsDefaultTime = null;
+              }),
+              onTimeChanged: (t) => setState(() => _ownerBringsDefaultTime = t),
+              onTimeCleared: () => setState(() => _ownerBringsDefaultTime = null),
+            ),
+            const SizedBox(height: 12),
+            _TransportDefaultRow(
+              label: 'Pick-up (evening)',
+              ownerSelected: _ownerCollectsDefault,
+              time: _ownerCollectsDefaultTime,
+              initialTimeIfUnset: const TimeOfDay(hour: 17, minute: 0),
+              onOwnerChanged: (value) => setState(() {
+                _ownerCollectsDefault = value;
+                if (!value) _ownerCollectsDefaultTime = null;
+              }),
+              onTimeChanged: (t) => setState(() => _ownerCollectsDefaultTime = t),
+              onTimeCleared: () => setState(() => _ownerCollectsDefaultTime = null),
+            ),
             const SizedBox(height: 24),
             const Text(
               'Pickup & Drop-off',
@@ -438,6 +486,68 @@ class _EditDogScreenState extends State<EditDogScreen> {
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+}
+
+class _TransportDefaultRow extends StatelessWidget {
+  final String label;
+  final bool ownerSelected;
+  final TimeOfDay? time;
+  final TimeOfDay initialTimeIfUnset;
+  final ValueChanged<bool> onOwnerChanged;
+  final ValueChanged<TimeOfDay> onTimeChanged;
+  final VoidCallback onTimeCleared;
+
+  const _TransportDefaultRow({
+    required this.label,
+    required this.ownerSelected,
+    required this.time,
+    required this.initialTimeIfUnset,
+    required this.onOwnerChanged,
+    required this.onTimeChanged,
+    required this.onTimeCleared,
+  });
+
+  String _fmt(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 6),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Staff'), icon: PhosphorIcon(PhosphorIconsDuotone.van, size: 18)),
+            ButtonSegment(value: true, label: Text('Owner'), icon: PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18)),
+          ],
+          selected: {ownerSelected},
+          onSelectionChanged: (s) => onOwnerChanged(s.first),
+        ),
+        if (ownerSelected) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            OutlinedButton.icon(
+              icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+              label: Text(time == null ? 'Set time (optional)' : _fmt(time!)),
+              onPressed: () async {
+                final picked = await showTimePicker(
+                  context: context,
+                  initialTime: time ?? initialTimeIfUnset,
+                );
+                if (picked != null) onTimeChanged(picked);
+              },
+            ),
+            if (time != null) ...[
+              const SizedBox(width: 8),
+              TextButton(onPressed: onTimeCleared, child: const Text('Clear')),
+            ],
+          ]),
+        ],
+      ],
     );
   }
 }
