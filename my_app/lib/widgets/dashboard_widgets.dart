@@ -8,8 +8,17 @@ class OverviewCard extends StatefulWidget {
   final String label;
   final Color color;
   final VoidCallback? onTap;
+  final bool compact;
 
-  const OverviewCard({super.key, required this.icon, required this.value, required this.label, required this.color, this.onTap});
+  const OverviewCard({
+    super.key,
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+    this.onTap,
+    this.compact = false,
+  });
 
   @override
   State<OverviewCard> createState() => _OverviewCardState();
@@ -29,6 +38,13 @@ class _OverviewCardState extends State<OverviewCard> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = widget.compact;
+    final padding = compact ? 8.0 : 16.0;
+    final iconSize = compact ? 16.0 : 20.0;
+    final valueSize = compact ? 18.0 : 28.0;
+    final labelSize = compact ? 10.0 : 12.0;
+    final gap = compact ? 2.0 : 8.0;
+
     return GestureDetector(
       onTapDown: widget.onTap != null ? (_) => setState(() => _pressed = true) : null,
       onTapUp: widget.onTap != null ? (_) {} : null,
@@ -39,14 +55,19 @@ class _OverviewCardState extends State<OverviewCard> {
         duration: const Duration(milliseconds: 120),
         child: Card(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(padding),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                PhosphorIcon(widget.icon, color: widget.color, size: 20),
-                const SizedBox(height: 8),
-                Text(widget.value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-                Text(widget.label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                PhosphorIcon(widget.icon, color: widget.color, size: iconSize),
+                SizedBox(height: gap),
+                Text(widget.value, style: TextStyle(fontSize: valueSize, fontWeight: FontWeight.bold)),
+                Text(
+                  widget.label,
+                  style: TextStyle(fontSize: labelSize, color: Colors.grey[500]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),

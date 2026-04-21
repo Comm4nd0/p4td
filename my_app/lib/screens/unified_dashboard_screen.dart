@@ -57,6 +57,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   final Map<String, List<DailyDogAssignment>> _assignmentCache = {};
   final Set<String> _loadingDates = {};
 
+  // Count of scheduled dogs that are not yet assigned for a date,
+  // excluding ad-hoc dogs (those are shown to admins separately).
+  final Map<String, int> _unassignedCountCache = {};
+
   // Date navigation
   List<DateTime> _dateOptions = [];
   late PageController _pageController;
@@ -190,10 +194,22 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load assignments: $e')));
       }
     }
+    _loadUnassignedCountForDate(date, forceReload: forceReload);
+  }
+
+  Future<void> _loadUnassignedCountForDate(DateTime date, {bool forceReload = false}) async {
+    final key = _dateKey(date);
+    if (!forceReload && _unassignedCountCache.containsKey(key)) return;
+    try {
+      final unassigned = await _dataService.getUnassignedDogs(date: date);
+      final count = unassigned.where((d) => d.scheduleType != ScheduleType.adHoc).length;
+      if (mounted) setState(() => _unassignedCountCache[key] = count);
+    } catch (_) {}
   }
 
   Future<void> _loadAssignments() {
     _assignmentCache.clear();
+    _unassignedCountCache.clear();
     return _loadAssignmentsForDate(_selectedDate, forceReload: true);
   }
 
@@ -972,6 +988,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   children: [
+                    _buildUnassignedBanner(date),
                     _buildOverviewMetrics(assignments),
                     const SizedBox(height: 16),
                     _buildStaffCards(assignments),
@@ -1068,6 +1085,39 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
   }
 
+  Widget _buildUnassignedBanner(DateTime date) {
+    final count = _unassignedCountCache[_dateKey(date)] ?? 0;
+    if (count == 0) return const SizedBox.shrink();
+    final label = count == 1 ? '1 dog unassigned' : '$count dogs unassigned';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.red.shade600,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: widget.canAssignDogs || widget.isStaff ? _showAssignDogsDialog : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                PhosphorIcon(PhosphorIconsDuotone.caretRight, color: Colors.white, size: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildOverviewMetrics(List<DailyDogAssignment> assignments) {
     final uniqueDogs = assignments.map((a) => a.dogId).toSet().length;
     final myDogs = widget.myUserId != null
@@ -1077,42 +1127,40 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     // but we can show total assigned count)
     final boardingCount = assignments.where((a) => a.isBoarding).length;
 
-    return Column(
-      children: [
-        Row(children: [
-          Expanded(child: OverviewCard(
-            icon: PhosphorIconsDuotone.pawPrint,
-            value: '$uniqueDogs',
-            label: 'Dogs',
-            color: AppColors.primary,
-          )),
-          const SizedBox(width: 8),
-          Expanded(child: OverviewCard(
-            icon: PhosphorIconsDuotone.user,
-            value: '$myDogs',
-            label: 'My Dogs',
-            color: AppColors.primary,
-            onTap: widget.myUserId != null ? () => filterByStaff(widget.myUserId) : null,
-          )),
-        ]),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: OverviewCard(
-            icon: PhosphorIconsDuotone.clipboardText,
-            value: '${assignments.length}',
-            label: 'Assigned',
-            color: AppColors.info,
-          )),
-          const SizedBox(width: 8),
-          Expanded(child: OverviewCard(
-            icon: PhosphorIconsDuotone.bed,
-            value: '$boardingCount',
-            label: 'Boarding',
-            color: AppColors.primaryLight,
-          )),
-        ]),
-      ],
-    );
+    return Row(children: [
+      Expanded(child: OverviewCard(
+        compact: true,
+        icon: PhosphorIconsDuotone.pawPrint,
+        value: '$uniqueDogs',
+        label: 'Dogs',
+        color: AppColors.primary,
+      )),
+      const SizedBox(width: 6),
+      Expanded(child: OverviewCard(
+        compact: true,
+        icon: PhosphorIconsDuotone.user,
+        value: '$myDogs',
+        label: 'My Dogs',
+        color: AppColors.primary,
+        onTap: widget.myUserId != null ? () => filterByStaff(widget.myUserId) : null,
+      )),
+      const SizedBox(width: 6),
+      Expanded(child: OverviewCard(
+        compact: true,
+        icon: PhosphorIconsDuotone.clipboardText,
+        value: '${assignments.length}',
+        label: 'Assigned',
+        color: AppColors.info,
+      )),
+      const SizedBox(width: 6),
+      Expanded(child: OverviewCard(
+        compact: true,
+        icon: PhosphorIconsDuotone.bed,
+        value: '$boardingCount',
+        label: 'Boarding',
+        color: AppColors.primaryLight,
+      )),
+    ]);
   }
 
   Widget _buildActionItems() {
