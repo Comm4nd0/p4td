@@ -647,6 +647,15 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final searchController = TextEditingController();
     List<Dog> filteredExtraDogs = List.of(extraDogs);
 
+    final sortedStaff = List<Map<String, dynamic>>.from(_staffMembers)
+      ..sort((a, b) {
+        final aAvail = _availableStaffIds.isEmpty || _availableStaffIds.contains(a['id'] as int);
+        final bAvail = _availableStaffIds.isEmpty || _availableStaffIds.contains(b['id'] as int);
+        if (aAvail && !bAvail) return -1;
+        if (!aAvail && bAvail) return 1;
+        return 0;
+      });
+
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -660,6 +669,29 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (widget.canAssignDogs) ...[
+                      DropdownButtonFormField<int>(
+                        decoration: const InputDecoration(labelText: 'Assign to staff', border: OutlineInputBorder()),
+                        value: selectedStaffId,
+                        items: sortedStaff.map((s) {
+                          final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
+                              ? s['first_name'].toString() : s['username'].toString();
+                          final staffId = s['id'] as int;
+                          final isAvailable = _availableStaffIds.isEmpty || _availableStaffIds.contains(staffId);
+                          return DropdownMenuItem<int>(
+                            value: staffId,
+                            child: Row(children: [
+                              Icon(PhosphorIconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
+                              const SizedBox(width: 8),
+                              Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
+                              if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
+                            ]),
+                          );
+                        }).toList(),
+                        onChanged: (v) => setDialogState(() => selectedStaffId = v),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     const Text('Search for a dog to add to this day:', style: TextStyle(fontSize: 13)),
                     const SizedBox(height: 8),
                     TextField(
@@ -710,19 +742,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                               },
                             ),
                     ),
-                    if (selectedDogId != null && widget.canAssignDogs) ...[
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<int>(
-                        decoration: const InputDecoration(labelText: 'Assign to staff', border: OutlineInputBorder()),
-                        value: selectedStaffId,
-                        items: _staffMembers.map((s) {
-                          final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
-                              ? s['first_name'].toString() : s['username'].toString();
-                          return DropdownMenuItem<int>(value: s['id'] as int, child: Text(name));
-                        }).toList(),
-                        onChanged: (v) => setDialogState(() => selectedStaffId = v),
-                      ),
-                    ],
                   ],
                 ),
               ),

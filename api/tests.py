@@ -436,6 +436,80 @@ class WeekdayRosterTests(TestCase):
             dog=self.dog, weekday=self.today_weekday
         ).exists())
 
+    def test_unassigned_dog_returns_to_unassigned_pool(self):
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            self.skipTest('JSON contains lookup not supported on SQLite')
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        self.client.login(username='staffa', password='pw')
+        unassign_resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'just_this_day'}, format='json',
+        )
+        self.assertEqual(unassign_resp.status_code, 204)
+
+        resp = self.client.get(
+            f'/api/daily-assignments/unassigned_dogs/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        dog_ids = [d['id'] for d in resp.data]
+        self.assertIn(self.dog.id, dog_ids)
+
+    def test_reassign_after_unassign_reactivates_row(self):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        self.client.login(username='staffa', password='pw')
+        self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'just_this_day'}, format='json',
+        )
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'REMOVED')
+
+        resp = self.client.post('/api/daily-assignments/assign_dogs/', {
+            'dog_ids': [self.dog.id],
+            'staff_member_id': self.staff_b.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+        rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.today)
+        self.assertEqual(rows.count(), 1)
+        revived = rows.get()
+        self.assertEqual(revived.pk, assignment.pk)
+        self.assertEqual(revived.status, 'ASSIGNED')
+        self.assertEqual(revived.staff_member, self.staff_b)
+
+    def test_materialize_roster_does_not_revive_removed(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        self.client.login(username='staffa', password='pw')
+        self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'just_this_day'}, format='json',
+        )
+
+        resp = self.client.get(
+            f'/api/daily-assignments/today/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        # The REMOVED row is hidden from `today`, and materialization must not
+        # insert a duplicate or flip the status back.
+        self.assertEqual(len(resp.data), 0)
+        rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.today)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.get().status, 'REMOVED')
+
     # --- swap_staff ---
 
     def _make_swap_scenario(self):

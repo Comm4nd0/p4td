@@ -1013,10 +1013,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             id__in=cancelled_dog_ids
         ).distinct()
 
-        # Exclude dogs already assigned for that date
+        # Exclude dogs with an active assignment for that date. REMOVED
+        # rows are intentionally kept out of this filter so that dogs
+        # unassigned via `just_this_day` fall back into the unassigned
+        # pool where they can be reassigned.
         assigned_dog_ids = DailyDogAssignment.objects.filter(
             date=target_date
-        ).values_list('dog_id', flat=True)
+        ).exclude(status='REMOVED').values_list('dog_id', flat=True)
 
         unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
         serializer = DogSerializer(unassigned, many=True, context={'request': request})
