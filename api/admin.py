@@ -137,7 +137,6 @@ class StaffUserAdmin(BaseUserAdmin):
             color = {
                 'ASSIGNED': '#ffc107',
                 'PICKED_UP': '#0d6efd',
-                'AT_DAYCARE': '#6f42c1',
                 'DROPPED_OFF': '#198754',
             }.get(a.status, '#6c757d')
             dogs.append(format_html(
@@ -194,7 +193,6 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
         colors = {
             'ASSIGNED': '#ffc107',
             'PICKED_UP': '#0d6efd',
-            'AT_DAYCARE': '#6f42c1',
             'DROPPED_OFF': '#198754',
         }
         return format_html(

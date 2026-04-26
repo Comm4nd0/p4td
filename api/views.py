@@ -1456,7 +1456,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         Swap moves ALL DailyDogAssignment rows owned by the source staff in
         the target window — including rows that originated from boarding or
         ADD_DAY requests — not just rows created from the roster. Rows
-        already in PICKED_UP/AT_DAYCARE/DROPPED_OFF status are untouched.
+        already in PICKED_UP/DROPPED_OFF status are untouched.
 
         Requires can_assign_dogs permission.
         """
@@ -1567,6 +1567,24 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         from django.contrib.auth.models import User
         staff = User.objects.filter(is_staff=True).values('id', 'username', 'first_name')
         return Response(list(staff))
+
+    @action(detail=False, methods=['post'])
+    def reorder(self, request):
+        """Persist custom sort order for assignments.
+
+        Accepts: {"assignment_ids": [4, 7, 2, ...]}
+        Sets sort_order = 0, 1, 2, ... in the given sequence.
+        """
+        assignment_ids = request.data.get('assignment_ids', [])
+        if not isinstance(assignment_ids, list) or not assignment_ids:
+            return Response({'detail': 'assignment_ids list is required.'}, status=400)
+
+        from django.db import transaction
+        with transaction.atomic():
+            for i, aid in enumerate(assignment_ids):
+                DailyDogAssignment.objects.filter(id=aid).update(sort_order=i)
+
+        return Response({'detail': 'Order saved.'})
 
     @action(detail=False, methods=['post'])
     def send_traffic_alert(self, request):

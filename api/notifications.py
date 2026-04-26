@@ -250,7 +250,7 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     if alert_type == 'pickup':
         relevant_statuses = ['ASSIGNED']
     else:
-        relevant_statuses = ['PICKED_UP', 'AT_DAYCARE']
+        relevant_statuses = ['PICKED_UP']
 
     assignments = DailyDogAssignment.objects.filter(
         date=date, staff_member=staff_member, status__in=relevant_statuses
@@ -259,8 +259,15 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     # If specific dogs were selected, filter to only those
     if dog_ids:
         assignments = assignments.filter(dog_id__in=dog_ids)
+
+    # Skip dogs where the owner is handling this leg of transport —
+    # they don't need a staff traffic delay alert.
     owner_ids = set()
     for assignment in assignments:
+        if alert_type == 'pickup' and assignment.effective_owner_brings:
+            continue
+        if alert_type == 'dropoff' and assignment.effective_owner_collects:
+            continue
         owner_ids.add(assignment.dog.owner_id)
         for additional_owner in assignment.dog.additional_owners.all():
             owner_ids.add(additional_owner.id)
@@ -358,13 +365,21 @@ def notify_post_comment(comment, post):
         send_push_notification(user, title, body, data, category='feed')
 
 
-def send_staff_notification(title, body, data=None):
-    """Sends a push notification to all working staff members individually.
+def send_staff_notification(title, body, data=None, permission=None):
+    """Sends a push notification to staff members individually.
 
     Unlike the previous topic-based approach, this sends to each staff member
     separately so that work-hours and working-day filters can be applied.
+
+    If *permission* is supplied (e.g. ``'can_manage_requests'``), only staff
+    whose UserProfile has that flag set to True will receive the notification.
+    When omitted, all staff members are notified.
     """
     from django.contrib.auth.models import User
 
-    for user in User.objects.filter(is_staff=True):
+    filters = {'is_staff': True}
+    if permission:
+        filters[f'profile__{permission}'] = True
+
+    for user in User.objects.filter(**filters):
         send_push_notification(user, title, body, data)

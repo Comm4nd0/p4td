@@ -1,0 +1,13 @@
+{% load static %}
+<a href="{{ link_url|default:'#' }}" class="service-card" style="text-decoration:none;">
+    <div class="ph">
+        <img src="{% static img %}" alt="{{ title }}">
+        <div class="num-tag" data-num="{{ num }}">{{ num }}</div>
+        <div class="tag-right">{{ tag }}</div>
+    </div>
+    <div class="body">
+        <h3>{{ title }}</h3>
+        <p style="font-size:15px;">{{ desc }}</p>
+        <div class="more" style="margin-top:auto;padding-top:20px;">Learn more <span>→</span></div>
+    </div>
+</a>

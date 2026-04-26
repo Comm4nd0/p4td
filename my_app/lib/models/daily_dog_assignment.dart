@@ -39,7 +39,6 @@ enum SwapScope {
 enum AssignmentStatus {
   assigned,
   pickedUp,
-  atDaycare,
   droppedOff;
 
   String get apiValue {
@@ -48,8 +47,6 @@ enum AssignmentStatus {
         return 'ASSIGNED';
       case AssignmentStatus.pickedUp:
         return 'PICKED_UP';
-      case AssignmentStatus.atDaycare:
-        return 'AT_DAYCARE';
       case AssignmentStatus.droppedOff:
         return 'DROPPED_OFF';
     }
@@ -60,9 +57,7 @@ enum AssignmentStatus {
       case AssignmentStatus.assigned:
         return 'Assigned';
       case AssignmentStatus.pickedUp:
-        return 'Picked Up';
-      case AssignmentStatus.atDaycare:
-        return 'At Daycare';
+        return 'With Team';
       case AssignmentStatus.droppedOff:
         return 'Dropped Off';
     }
@@ -72,8 +67,6 @@ enum AssignmentStatus {
     switch (value) {
       case 'PICKED_UP':
         return AssignmentStatus.pickedUp;
-      case 'AT_DAYCARE':
-        return AssignmentStatus.atDaycare;
       case 'DROPPED_OFF':
         return AssignmentStatus.droppedOff;
       default:
@@ -104,6 +97,7 @@ class DailyDogAssignment {
   final bool effectiveOwnerCollects;
   final TimeOfDay? effectiveOwnerBringsTime;
   final TimeOfDay? effectiveOwnerCollectsTime;
+  final int sortOrder;
 
   DailyDogAssignment({
     required this.id,
@@ -127,6 +121,7 @@ class DailyDogAssignment {
     this.effectiveOwnerCollects = false,
     this.effectiveOwnerBringsTime,
     this.effectiveOwnerCollectsTime,
+    this.sortOrder = 0,
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -152,6 +147,7 @@ class DailyDogAssignment {
       effectiveOwnerCollects: json['effective_owner_collects'] ?? false,
       effectiveOwnerBringsTime: parseApiTime(json['effective_owner_brings_time']),
       effectiveOwnerCollectsTime: parseApiTime(json['effective_owner_collects_time']),
+      sortOrder: json['sort_order'] ?? 0,
     );
   }
 
@@ -165,6 +161,7 @@ class DailyDogAssignment {
     bool? effectiveOwnerCollects,
     TimeOfDay? effectiveOwnerBringsTime,
     TimeOfDay? effectiveOwnerCollectsTime,
+    int? sortOrder,
   }) {
     return DailyDogAssignment(
       id: id,
@@ -188,6 +185,7 @@ class DailyDogAssignment {
       effectiveOwnerCollects: effectiveOwnerCollects ?? this.effectiveOwnerCollects,
       effectiveOwnerBringsTime: effectiveOwnerBringsTime ?? this.effectiveOwnerBringsTime,
       effectiveOwnerCollectsTime: effectiveOwnerCollectsTime ?? this.effectiveOwnerCollectsTime,
+      sortOrder: sortOrder ?? this.sortOrder,
     );
   }
 }

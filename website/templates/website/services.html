@@ -1,94 +1,185 @@
 {% extends "website/base.html" %}
 {% load static %}
 
-{% block title %}Our Services - Paws 4 Thought Dogs{% endblock %}
-{% block meta_description %}Dog day care, one-to-one training, puppy classes, and secure field hire in Berkshire &amp; Buckinghamshire. Learn about our services and pricing. Call {{ business_phone }}.{% endblock %}
+{% block title %}Services — Paws 4 Thought Dogs{% endblock %}
 
 {% block content %}
 
-<!-- Page Hero -->
-<div class="services-page-hero">
-    <div class="services-page-hero-overlay"></div>
-    <div class="services-page-hero-content">
-        <h1>Our Services</h1>
-        <p>Everything your dog needs, all in one place</p>
+<header class="page-header">
+    <div class="container">
+        <div class="crumbs"><span>Paws 4 Thought</span><span class="sep">/</span><span>Services</span></div>
+        <h1>Four things we do, and <em>do well.</em></h1>
+        <p>Day care, puppy classes, one-to-one training, and private field hire — every service is hands-on, small-group, and built around the dog in front of us.</p>
     </div>
-</div>
+</header>
 
-<!-- Services Overview Cards -->
-<section class="section services-overview-section">
-    <div class="card-grid card-grid-3">
-        <div class="card">
-            <img src="{% static 'website/images/daycare.jpg' %}" alt="Dog Day Care" class="card-image" loading="lazy">
-            <div class="card-body">
-                <h2 class="card-title"><a href="#day-care">Day Care</a></h2>
-                <p class="card-excerpt">A safe, stimulating environment where your dog plays, socialises, and thrives under expert supervision across 10 secure acres.</p>
-            </div>
+<section style="padding:40px 0;background:var(--cream-2);border-bottom:1px solid var(--line);">
+    <div class="container">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);">
+            <a href="#svc-daycare" style="background:var(--cream-2);padding:20px 24px;display:flex;flex-direction:column;gap:6px;">
+                <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">Day Care</span>
+                <span style="font-size:19px;font-weight:500;letter-spacing:-0.01em;">Grouped &amp; supervised</span>
+            </a>
+            <a href="#svc-puppy" style="background:var(--cream-2);padding:20px 24px;display:flex;flex-direction:column;gap:6px;">
+                <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">Puppy Classes</span>
+                <span style="font-size:19px;font-weight:500;letter-spacing:-0.01em;">4-week course</span>
+            </a>
+            <a href="#svc-training" style="background:var(--cream-2);padding:20px 24px;display:flex;flex-direction:column;gap:6px;">
+                <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">1-to-1 Training</span>
+                <span style="font-size:19px;font-weight:500;letter-spacing:-0.01em;">Tailored sessions</span>
+            </a>
+            <a href="#svc-field" style="background:var(--cream-2);padding:20px 24px;display:flex;flex-direction:column;gap:6px;">
+                <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">Field Hire</span>
+                <span style="font-size:19px;font-weight:500;letter-spacing:-0.01em;">Private bookings</span>
+            </a>
         </div>
-        <div class="card">
-            <img src="{% static 'website/images/training.jpg' %}" alt="One-to-One Training" class="card-image" loading="lazy">
-            <div class="card-body">
-                <h2 class="card-title"><a href="#training">1-to-1 Training</a></h2>
-                <p class="card-excerpt">Personalised training sessions tailored to your dog's individual needs using positive reinforcement techniques.</p>
-            </div>
-        </div>
-        <div class="card">
-            <img src="{% static 'website/images/field-1.jpg' %}" alt="Secure Field Hire" class="card-image" loading="lazy">
-            <div class="card-body">
-                <h2 class="card-title"><a href="{% url 'website:field_hire' %}">Field Hire</a></h2>
-                <p class="card-excerpt">Hire our fully enclosed 10-acre field privately. Perfect for reactive or nervous dogs who need space to run safely.</p>
+    </div>
+</section>
+
+<section id="svc-daycare" class="section">
+    <div class="container">
+        <div class="split">
+            <div class="ph" style="order:1;"><img src="{% static 'website/images/daycare.jpg' %}" alt="Day care"></div>
+            <div class="copy" style="order:2;">
+                <span class="eyebrow">01 · Service</span>
+                <h2 style="margin-top:16px;">Day Care</h2>
+                <p class="lede" style="margin-top:20px;">A ten-acre site of secure countryside, grouped by temperament, supervised all day.</p>
+                <p style="margin-top:16px;">Every dog is unique, and every day at Paws 4 Thought reflects that. Our outdoor site covers ten acres of fenced land split into multiple fields, so dogs are grouped by size, age, and play style — not just thrown together.</p>
+                <p style="margin-top:16px;">Our staff are trained in canine body language and first aid, and every new dog starts with a free assessment day so we can find the right group for them. We offer door-to-door pick up and drop off across Berkshire and Buckinghamshire — because we know that's often the piece that makes daycare actually work around your schedule.</p>
+                <div style="margin-top:32px;">
+                    <span class="eyebrow no-line" style="margin-bottom:16px;display:block;">What's included</span>
+                    <ul style="list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>10-acre fenced site</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Small, temperament-matched groups</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Pick-up &amp; drop-off available</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Daily photo updates via app</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Free assessment day for every new dog</span></li>
+                    </ul>
+                </div>
+                <div style="margin-top:32px;display:flex;gap:10px;">
+                    <a href="{% url 'website:contact' %}" class="btn btn-primary">Enquire <span class="arr">→</span></a>
+                    <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-ghost">Call us</a>
+                </div>
             </div>
         </div>
     </div>
 </section>
 
-<!-- Day Care Detail -->
-<section class="section-light section-full" id="day-care">
-    <div class="section">
-        <div class="welcome">
-            <img src="{% static 'website/images/daycare.jpg' %}" alt="Dogs playing at day care" class="welcome-image" loading="lazy">
-            <div class="welcome-text">
-                <h2 class="section-title">Day Care</h2>
-                <p>Our dog day care gives your dog the very best day, every day. Set across 10 secure, council-licensed acres, your dog enjoys a full programme of play, rest, and enrichment under the watchful eye of our experienced team.</p>
-                <ul class="services-list">
-                    <li>Supervised group play in spacious outdoor fields</li>
-                    <li>Positive socialisation with other dogs</li>
-                    <li>Feeding as per your instructions</li>
-                    <li>Structured rest periods throughout the day</li>
-                    <li>Enrichment activities and mental stimulation</li>
-                    <li>Updates and photos sent to you during the day</li>
-                </ul>
+<section id="svc-puppy" class="section section-cream-2">
+    <div class="container">
+        <div class="split" style="grid-template-columns:1fr 1fr;">
+            <div class="ph" style="order:2;"><img src="{% static 'website/images/puppy-classes.jpg' %}" alt="Puppy classes"></div>
+            <div class="copy" style="order:1;">
+                <span class="eyebrow">02 · Service</span>
+                <h2 style="margin-top:16px;">Puppy Classes</h2>
+                <p class="lede" style="margin-top:20px;">A 4-week course covering every foundation your puppy needs.</p>
+                <p style="margin-top:16px;">Our puppy classes run on-site for four weeks — enough time to make real progress without overwhelming either of you. We use positive reinforcement to teach basic commands (sit, stay, come, loose-lead walking) alongside essential socialisation skills.</p>
+                <p style="margin-top:16px;">Classes are kept deliberately small (max 6 puppies) so every pup gets individual attention. You'll leave with confident, well-mannered dogs and the vocabulary to keep training at home.</p>
+                <div style="margin-top:32px;">
+                    <span class="eyebrow no-line" style="margin-bottom:16px;display:block;">What's included</span>
+                    <ul style="list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>4-week structured course</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Maximum 6 puppies per class</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Positive reinforcement only</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Recap videos after every class</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Lifetime access to alumni group</span></li>
+                    </ul>
+                </div>
+                <div style="margin-top:32px;display:flex;gap:10px;">
+                    <a href="{% url 'website:contact' %}" class="btn btn-primary">Enquire <span class="arr">→</span></a>
+                    <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-ghost">Call us</a>
+                </div>
             </div>
         </div>
     </div>
 </section>
 
-<!-- 1-to-1 Training Detail -->
-<section class="section" id="training" style="background-color: var(--color-white);">
-    <div class="welcome">
-        <div class="welcome-text">
-            <h2 class="section-title">One-to-One Training</h2>
-            <p>Our personalised training sessions are designed around your dog's individual needs and personality. Using force-free, positive reinforcement methods, we help dogs build confidence, improve behaviour, and strengthen the bond with their owner.</p>
-            <ul class="services-list" style="margin-top: 1rem;">
-                <li>Puppy foundation training</li>
-                <li>Recall &amp; lead manners</li>
-                <li>Reactive dog support</li>
-                <li>Separation anxiety</li>
-                <li>General obedience &amp; life skills</li>
-            </ul>
+<section id="svc-training" class="section">
+    <div class="container">
+        <div class="split">
+            <div class="ph" style="order:1;"><img src="{% static 'website/images/training.jpg' %}" alt="1-to-1 training"></div>
+            <div class="copy" style="order:2;">
+                <span class="eyebrow">03 · Service</span>
+                <h2 style="margin-top:16px;">1-to-1 Training</h2>
+                <p class="lede" style="margin-top:20px;">Personalised sessions for any behaviour or skill goal.</p>
+                <p style="margin-top:16px;">Every dog has unique needs and personality traits, which is why our one-to-one training is built around you both. We'll start with a conversation, watch your dog, and build a plan — whether that's tackling reactivity, loose-lead work, recall, or advanced skills like agility.</p>
+                <p style="margin-top:16px;">Sessions can be at your home, on one of our fields, or wherever your dog struggles most. Because sometimes the problem only shows up on the high street.</p>
+                <div style="margin-top:32px;">
+                    <span class="eyebrow no-line" style="margin-bottom:16px;display:block;">What's included</span>
+                    <ul style="list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Initial consultation included</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Your home, our field, or on location</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Positive reinforcement techniques</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Written follow-up plan every session</span></li>
+                        <li style="display:flex;gap:10px;font-size:14px;align-items:flex-start;"><span style="color:var(--sage);margin-top:2px;">✓</span><span>Packages of 4 or 8 sessions available</span></li>
+                    </ul>
+                </div>
+                <div style="margin-top:32px;display:flex;gap:10px;">
+                    <a href="{% url 'website:contact' %}" class="btn btn-primary">Enquire <span class="arr">→</span></a>
+                    <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-ghost">Call us</a>
+                </div>
+            </div>
         </div>
-        <img src="{% static 'website/images/training.jpg' %}" alt="One-to-one dog training session" class="welcome-image" loading="lazy">
     </div>
 </section>
 
-<!-- CTA Section -->
-<div class="services-cta">
-    <div class="section" style="text-align: center; padding-top: 4rem; padding-bottom: 4rem;">
-        <h2 style="color: white; font-family: var(--font-heading); font-size: 2rem; margin-bottom: 1rem;">Ready to Book a Trial Day?</h2>
-        <p style="color: rgba(255,255,255,0.85); margin-bottom: 2rem; font-size: 1.05rem;">Give your dog the best experience. Get in touch today &mdash; we&rsquo;d love to meet you both.</p>
-        <div class="services-cta-buttons">
-            <a href="{% url 'website:contact' %}" class="btn btn-outline">Enquire Now &rarr;</a>
-            <a href="tel:{{ business_phone }}" class="btn btn-cta-phone">&#9742; {{ business_phone }}</a>
+<section id="svc-field" class="section section-ink">
+    <div class="container">
+        <div class="split">
+            <div class="copy">
+                <span class="eyebrow" style="color:var(--sage);">04 · Service</span>
+                <h2 style="margin-top:16px;">Field Hire</h2>
+                <p class="lede" style="margin-top:20px;color:color-mix(in oklab, var(--cream) 85%, transparent);">Our secure 5-acre private field, booked by the hour. Perfect for reactive, anxious, or recovering dogs who need space without the pack.</p>
+                <div style="margin-top:28px;">
+                    <a href="{% url 'website:field_hire' %}" class="btn btn-sage">Field hire details <span class="arr">→</span></a>
+                </div>
+            </div>
+            <div class="ph"><img src="{% static 'website/images/hero-bg.jpg' %}" alt="Secure field"></div>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        <div class="section-head">
+            <div>
+                <span class="eyebrow">Questions</span>
+                <h2 style="margin-top:16px;">Things we get<br>asked a lot.</h2>
+            </div>
+            <div class="right">
+                <p class="lede">Can't find what you're after? Just give us a call — we'd rather answer a "stupid" question than have you worry about it.</p>
+                <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-primary" style="margin-top:20px;">Call {{ business_phone|default:"07966 184948" }}</a>
+            </div>
+        </div>
+
+        <div>
+            {% for faq in faqs %}
+            <div class="faq-item">
+                <button class="faq-q"><span>{{ faq.question }}</span><span class="plus">+</span></button>
+                <div class="faq-a">{{ faq.answer }}</div>
+            </div>
+            {% empty %}
+            <div class="faq-item"><button class="faq-q"><span>What ages and breeds do you take?</span><span class="plus">+</span></button><div class="faq-a">We welcome dogs from 6 months old (once fully vaccinated) and have no breed restrictions — temperament matters far more than breed. Every new dog comes in for a free assessment day first.</div></div>
+            <div class="faq-item"><button class="faq-q"><span>Do you offer pick-up and drop-off?</span><span class="plus">+</span></button><div class="faq-a">Yes — across most of Berkshire and Buckinghamshire. We'll confirm availability for your postcode when you book your assessment.</div></div>
+            <div class="faq-item"><button class="faq-q"><span>Is the site secure?</span><span class="plus">+</span></button><div class="faq-a">Yes. All fields are fenced to 6ft with double-gated entry, and the site is monitored throughout the day. We're licensed by Buckinghamshire Council (Lc202210-79924) and fully insured.</div></div>
+            <div class="faq-item"><button class="faq-q"><span>What's included in the day rate?</span><span class="plus">+</span></button><div class="faq-a">Full day of supervised play, all food and water, rest time, and updates via our owner app. Bath and groom are available as optional extras.</div></div>
+            <div class="faq-item"><button class="faq-q"><span>Do you look after puppies?</span><span class="plus">+</span></button><div class="faq-a">Once fully vaccinated at around 12–16 weeks. Our puppy classes are the best way to introduce very young pups to the site — they graduate into day care naturally.</div></div>
+            <div class="faq-item"><button class="faq-q"><span>What if my dog has a medical condition?</span><span class="plus">+</span></button><div class="faq-a">We handle medications, special diets, and behavioural needs routinely. Tell us everything on your registration form — we'd rather know too much than too little.</div></div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<div class="container" style="padding:80px 32px;">
+    <div class="cta-band">
+        <div>
+            <span class="eyebrow no-line" style="color:var(--sage);margin-bottom:16px;display:block;">Let's meet your dog</span>
+            <h2>Pop in for a tour — tea's usually on.</h2>
+            <p style="margin-top:16px;max-width:40ch;">Every new dog joins us for a free assessment day.</p>
+        </div>
+        <div class="actions">
+            <a href="{% url 'website:contact' %}" class="btn btn-primary">Book an assessment <span class="arr">→</span></a>
+            <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-ghost">Call {{ business_phone|default:"07966 184948" }}</a>
         </div>
     </div>
 </div>

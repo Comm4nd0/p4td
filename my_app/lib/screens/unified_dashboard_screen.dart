@@ -15,6 +15,7 @@ import '../utils/date_formats.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/media_tag_dialog.dart';
+import 'all_dogs_today_screen.dart';
 import 'staff_dog_detail_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'boarding_request_list_screen.dart';
@@ -312,7 +313,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
-  // ─── Navigation to staff detail ───────────────────────────────────
+  // ─── Navigation ────────────────────────────────────────────────────
+
+  Future<void> _navigateToAllDogs(List<DailyDogAssignment> assignments) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AllDogsTodayScreen(
+          date: _selectedDate,
+          assignments: assignments,
+        ),
+      ),
+    );
+    // Refresh after returning — statuses may have changed
+    if (mounted) {
+      await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+    }
+  }
 
   Future<void> _navigateToStaffDetail(int? staffId, String staffName, List<DailyDogAssignment> assignments) async {
     await Navigator.push(
@@ -1132,8 +1149,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         compact: true,
         icon: PhosphorIconsDuotone.pawPrint,
         value: '$uniqueDogs',
-        label: 'Dogs',
+        label: 'All Dogs',
         color: AppColors.primary,
+        onTap: () => _navigateToAllDogs(assignments),
       )),
       const SizedBox(width: 6),
       Expanded(child: OverviewCard(

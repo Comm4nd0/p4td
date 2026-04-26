@@ -256,8 +256,7 @@ class BoardingRequestHistory(models.Model):
 class DailyDogAssignment(models.Model):
     STATUS_CHOICES = [
         ('ASSIGNED', 'Assigned'),
-        ('PICKED_UP', 'Picked Up'),
-        ('AT_DAYCARE', 'At Daycare'),
+        ('PICKED_UP', 'With Team'),
         ('DROPPED_OFF', 'Dropped Off'),
         ('REMOVED', 'Removed'),
     ]
@@ -270,12 +269,13 @@ class DailyDogAssignment(models.Model):
     owner_collects = models.BooleanField(null=True, blank=True, help_text='Override for this date. Null = fall back to Dog.owner_collects_default.')
     owner_brings_time = models.TimeField(null=True, blank=True, help_text='Expected drop-off time when owner brings the dog on this date.')
     owner_collects_time = models.TimeField(null=True, blank=True, help_text='Expected pick-up time when owner collects the dog on this date.')
+    sort_order = models.IntegerField(default=0, help_text='Custom sort order for staff pickup list. Lower numbers appear first.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('dog', 'date')
-        ordering = ['dog__name']
+        ordering = ['sort_order', 'dog__name']
 
     def __str__(self):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
@@ -716,4 +716,59 @@ def notify_staff_care_instructions_changed(sender, instance, created, **kwargs):
         'click_action': 'FLUTTER_NOTIFICATION_CLICK',
     }
 
-    send_staff_notification(title, body, data)
+    send_staff_notification(title, body, data, permission='can_assign_dogs')
+
+# --- Day-Off Request Notifications ---
+
+@receiver(post_save, sender=DayOffRequest)
+def notify_managers_new_dayoff_request(sender, instance, created, **kwargs):
+    """Notify managers when a staff member submits a new day-off request."""
+    if not created:
+        return
+
+    staff_name = instance.staff_member.first_name or instance.staff_member.username
+    title = "New Day-Off Request"
+    body = f"{staff_name} requested {instance.date} off."
+    if instance.reason:
+        body += f" Reason: {instance.reason}"
+    data = {
+        'type': 'day_off_request',
+        'id': str(instance.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+    from django.contrib.auth.models import User
+    for user in User.objects.filter(is_staff=True, profile__can_approve_timeoff=True):
+        send_push_notification(user, title, body, data)
+
+
+@receiver(pre_save, sender=DayOffRequest)
+def store_old_dayoff_request_status(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_instance = DayOffRequest.objects.get(pk=instance.pk)
+            instance._old_status = old_instance.status
+        except DayOffRequest.DoesNotExist:
+            instance._old_status = None
+    else:
+        instance._old_status = None
+
+
+@receiver(post_save, sender=DayOffRequest)
+def notify_staff_dayoff_request_status(sender, instance, created, **kwargs):
+    """Notify the requesting staff member when their day-off request is approved or denied."""
+    if created:
+        return
+
+    if hasattr(instance, '_old_status') and instance._old_status != instance.status:
+        new_status = instance.get_status_display()
+
+        title = "Day-Off Request Update"
+        body = f"Your day-off request for {instance.date} has been {new_status.lower()}."
+
+        data = {
+            'type': 'day_off_request_update',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+
+        send_push_notification(instance.staff_member, title, body, data)

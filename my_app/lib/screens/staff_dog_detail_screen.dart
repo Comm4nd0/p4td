@@ -43,13 +43,19 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   final DataService _dataService = ApiDataService();
   late List<DailyDogAssignment> _assignments;
   DogSortOption _sortOption = DogSortOption.nameAsc;
-  final Map<String, List<int>> _customOrderCache = {};
   bool _dataChanged = false;
+  bool _reordering = false;
 
   @override
   void initState() {
     super.initState();
     _assignments = List.of(widget.assignments);
+    // If any assignment has a non-zero sort_order, the user has previously
+    // customised the order — default to custom sort to honour it.
+    final hasCustomOrder = _assignments.any((a) => a.sortOrder != 0);
+    if (hasCustomOrder) {
+      _sortOption = DogSortOption.custom;
+    }
     _applySorting();
   }
 
@@ -68,16 +74,12 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
           return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
         });
       case DogSortOption.custom:
-        final orderKey = 'custom-${widget.staffMemberId}';
-        final order = _customOrderCache[orderKey];
-        if (order != null) {
-          _assignments.sort((a, b) {
-            final idxA = order.indexOf(a.dogId);
-            final idxB = order.indexOf(b.dogId);
-            return (idxA == -1 ? order.length : idxA)
-                .compareTo(idxB == -1 ? order.length : idxB);
-          });
-        }
+        // Sort by the persisted sort_order from the API, then by name
+        _assignments.sort((a, b) {
+          final cmp = a.sortOrder.compareTo(b.sortOrder);
+          if (cmp != 0) return cmp;
+          return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
+        });
     }
   }
 
@@ -515,8 +517,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   AssignmentStatus? _nextStatus(AssignmentStatus current) {
     switch (current) {
       case AssignmentStatus.assigned: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.pickedUp: return AssignmentStatus.atDaycare;
-      case AssignmentStatus.atDaycare: return AssignmentStatus.droppedOff;
+      case AssignmentStatus.pickedUp: return AssignmentStatus.droppedOff;
       case AssignmentStatus.droppedOff: return null;
     }
   }
@@ -525,16 +526,14 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     switch (current) {
       case AssignmentStatus.assigned: return null;
       case AssignmentStatus.pickedUp: return AssignmentStatus.assigned;
-      case AssignmentStatus.atDaycare: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.droppedOff: return AssignmentStatus.atDaycare;
+      case AssignmentStatus.droppedOff: return AssignmentStatus.pickedUp;
     }
   }
 
   PhosphorIconData _statusIcon(AssignmentStatus status) {
     switch (status) {
       case AssignmentStatus.assigned: return PhosphorIconsDuotone.clipboardText;
-      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.car;
-      case AssignmentStatus.atDaycare: return PhosphorIconsDuotone.house;
+      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.pawPrint;
       case AssignmentStatus.droppedOff: return PhosphorIconsFill.checkCircle;
     }
   }
@@ -543,7 +542,6 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     switch (status) {
       case AssignmentStatus.assigned: return Colors.orange;
       case AssignmentStatus.pickedUp: return AppColors.primary;
-      case AssignmentStatus.atDaycare: return AppColors.primaryLight;
       case AssignmentStatus.droppedOff: return Colors.green;
     }
   }
@@ -598,31 +596,105 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                   ],
                 ),
               )
-            : widget.staffMemberId != null
-                ? ReorderableListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                    itemCount: _assignments.length,
-                    onReorder: (oldIndex, newIndex) {
-                      if (newIndex > oldIndex) newIndex--;
-                      setState(() {
-                        final item = _assignments.removeAt(oldIndex);
-                        _assignments.insert(newIndex, item);
-                        final orderKey = 'custom-${widget.staffMemberId}';
-                        _customOrderCache[orderKey] = _assignments.map((a) => a.dogId).toList();
-                        _sortOption = DogSortOption.custom;
-                      });
-                    },
-                    proxyDecorator: (child, index, animation) {
-                      return Material(elevation: 4, borderRadius: BorderRadius.circular(12), child: child);
-                    },
-                    itemBuilder: (context, i) => _buildAssignmentCard(_assignments[i], key: ValueKey(_assignments[i].id)),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                    itemCount: _assignments.length,
-                    itemBuilder: (context, i) => _buildAssignmentCard(_assignments[i]),
-                  ),
+            : _buildSectionedList(),
       ),
+    );
+  }
+
+  Future<void> _onReorder(int oldIndex, int newIndex, List<DailyDogAssignment> staffPickups) async {
+    if (oldIndex < newIndex) newIndex -= 1;
+    setState(() {
+      final item = staffPickups.removeAt(oldIndex);
+      staffPickups.insert(newIndex, item);
+      // Update local sort orders and switch to custom sort
+      for (var i = 0; i < staffPickups.length; i++) {
+        final idx = _assignments.indexWhere((a) => a.id == staffPickups[i].id);
+        if (idx != -1) {
+          _assignments[idx] = _assignments[idx].copyWith(sortOrder: i);
+        }
+      }
+      _sortOption = DogSortOption.custom;
+      _dataChanged = true;
+    });
+
+    // Persist to backend
+    final ids = staffPickups.map((a) => a.id).toList();
+    try {
+      setState(() => _reordering = true);
+      await _dataService.reorderAssignments(ids);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save order: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _reordering = false);
+    }
+  }
+
+  Widget _buildSectionedList() {
+    final staffPickups = _assignments.where((a) => !a.effectiveOwnerBrings).toList();
+    final ownerDropoffs = _assignments.where((a) => a.effectiveOwnerBrings).toList();
+
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        // Saving indicator
+        if (_reordering)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: LinearProgressIndicator(),
+            ),
+          ),
+        // Reorderable staff pickups section
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          sliver: SliverReorderableList(
+            itemCount: staffPickups.length,
+            onReorder: (oldIndex, newIndex) => _onReorder(oldIndex, newIndex, staffPickups),
+            itemBuilder: (context, index) {
+              final a = staffPickups[index];
+              return ReorderableDragStartListener(
+                key: ValueKey(a.id),
+                index: index,
+                child: _buildAssignmentCard(a),
+              );
+            },
+          ),
+        ),
+        // Owner drop-offs section (not reorderable)
+        if (ownerDropoffs.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18, color: Colors.teal),
+                  const SizedBox(width: 8),
+                  Text('Owner Drop-offs',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => _buildAssignmentCard(ownerDropoffs[index], key: ValueKey(ownerDropoffs[index].id)),
+                childCount: ownerDropoffs.length,
+              ),
+            ),
+          ),
+        ],
+        // Bottom padding when no owner drop-offs
+        if (ownerDropoffs.isEmpty)
+          const SliverPadding(padding: EdgeInsets.only(bottom: 80)),
+      ],
     );
   }
 

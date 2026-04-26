@@ -102,6 +102,7 @@ abstract class DataService {
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date});
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
   Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail, List<int>? dogIds});
+  Future<void> reorderAssignments(List<int> assignmentIds);
 
   // Support Queries
   Future<List<SupportQuery>> getSupportQueries();
@@ -1499,6 +1500,26 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
+  Future<void> reorderAssignments(List<int> assignmentIds) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/reorder/'),
+      headers: headers,
+      body: json.encode({'assignment_ids': assignmentIds}),
+    );
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to save order';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
   // --- Support Queries ---
 
   @override
@@ -2300,6 +2321,9 @@ class MockDataService implements DataService {
 
   @override
   Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail, List<int>? dogIds}) async {}
+
+  @override
+  Future<void> reorderAssignments(List<int> assignmentIds) async {}
 
   @override
   Future<List<SupportQuery>> getSupportQueries() async => [];
