@@ -594,31 +594,37 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                   ],
                 ),
               )
-            : widget.staffMemberId != null
-                ? ReorderableListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                    itemCount: _assignments.length,
-                    onReorder: (oldIndex, newIndex) {
-                      if (newIndex > oldIndex) newIndex--;
-                      setState(() {
-                        final item = _assignments.removeAt(oldIndex);
-                        _assignments.insert(newIndex, item);
-                        final orderKey = 'custom-${widget.staffMemberId}';
-                        _customOrderCache[orderKey] = _assignments.map((a) => a.dogId).toList();
-                        _sortOption = DogSortOption.custom;
-                      });
-                    },
-                    proxyDecorator: (child, index, animation) {
-                      return Material(elevation: 4, borderRadius: BorderRadius.circular(12), child: child);
-                    },
-                    itemBuilder: (context, i) => _buildAssignmentCard(_assignments[i], key: ValueKey(_assignments[i].id)),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                    itemCount: _assignments.length,
-                    itemBuilder: (context, i) => _buildAssignmentCard(_assignments[i]),
-                  ),
+            : _buildSectionedList(),
       ),
+    );
+  }
+
+  Widget _buildSectionedList() {
+    final staffPickups = _assignments.where((a) => !a.effectiveOwnerBrings).toList();
+    final ownerDropoffs = _assignments.where((a) => a.effectiveOwnerBrings).toList();
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+      children: [
+        ...staffPickups.map((a) => _buildAssignmentCard(a, key: ValueKey(a.id))),
+        if (ownerDropoffs.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 16, bottom: 8),
+            child: Row(
+              children: [
+                PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18, color: Colors.teal),
+                const SizedBox(width: 8),
+                Text('Owner Drop-offs',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ],
+            ),
+          ),
+          ...ownerDropoffs.map((a) => _buildAssignmentCard(a, key: ValueKey(a.id))),
+        ],
+      ],
     );
   }
 

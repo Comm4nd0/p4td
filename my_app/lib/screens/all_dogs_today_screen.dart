@@ -329,11 +329,31 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
   }
 
   Widget _buildFlatList(List<DailyDogAssignment> assignments) {
-    return ListView.builder(
+    final staffPickups = assignments.where((a) => !a.effectiveOwnerBrings).toList();
+    final ownerDropoffs = assignments.where((a) => a.effectiveOwnerBrings).toList();
+
+    return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-      itemCount: assignments.length,
-      itemBuilder: (context, i) => _buildAssignmentCard(assignments[i]),
+      children: [
+        ...staffPickups.map((a) => _buildAssignmentCard(a)),
+        if (ownerDropoffs.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 16, bottom: 8),
+            child: Row(
+              children: [
+                PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18, color: Colors.teal),
+                const SizedBox(width: 8),
+                Text('Owner Drop-offs',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ],
+            ),
+          ),
+          ...ownerDropoffs.map((a) => _buildAssignmentCard(a)),
+        ],
+      ],
     );
   }
 
@@ -356,6 +376,8 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
         final staffId = sortedStaffIds[i];
         final staffAssignments = groups[staffId]!;
         final staffName = staffNames[staffId]!;
+        final staffPickups = staffAssignments.where((a) => !a.effectiveOwnerBrings).toList();
+        final ownerDropoffs = staffAssignments.where((a) => a.effectiveOwnerBrings).toList();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -378,7 +400,21 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 ],
               ),
             ),
-            ...staffAssignments.map((a) => _buildAssignmentCard(a)),
+            ...staffPickups.map((a) => _buildAssignmentCard(a)),
+            if (ownerDropoffs.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 6, left: 4),
+                child: Row(
+                  children: [
+                    PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 16, color: Colors.teal),
+                    const SizedBox(width: 6),
+                    Text('Owner Drop-offs',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal)),
+                  ],
+                ),
+              ),
+              ...ownerDropoffs.map((a) => _buildAssignmentCard(a)),
+            ],
           ],
         );
       },
