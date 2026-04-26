@@ -1456,7 +1456,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         Swap moves ALL DailyDogAssignment rows owned by the source staff in
         the target window — including rows that originated from boarding or
         ADD_DAY requests — not just rows created from the roster. Rows
-        already in PICKED_UP/AT_DAYCARE/DROPPED_OFF status are untouched.
+        already in PICKED_UP/DROPPED_OFF status are untouched.
 
         Requires can_assign_dogs permission.
         """

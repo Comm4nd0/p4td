@@ -122,8 +122,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
   AssignmentStatus? _nextStatus(AssignmentStatus current) {
     switch (current) {
       case AssignmentStatus.assigned: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.pickedUp: return AssignmentStatus.atDaycare;
-      case AssignmentStatus.atDaycare: return AssignmentStatus.droppedOff;
+      case AssignmentStatus.pickedUp: return AssignmentStatus.droppedOff;
       case AssignmentStatus.droppedOff: return null;
     }
   }
@@ -132,16 +131,14 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     switch (current) {
       case AssignmentStatus.assigned: return null;
       case AssignmentStatus.pickedUp: return AssignmentStatus.assigned;
-      case AssignmentStatus.atDaycare: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.droppedOff: return AssignmentStatus.atDaycare;
+      case AssignmentStatus.droppedOff: return AssignmentStatus.pickedUp;
     }
   }
 
   PhosphorIconData _statusIcon(AssignmentStatus status) {
     switch (status) {
       case AssignmentStatus.assigned: return PhosphorIconsDuotone.clipboardText;
-      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.car;
-      case AssignmentStatus.atDaycare: return PhosphorIconsDuotone.house;
+      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.pawPrint;
       case AssignmentStatus.droppedOff: return PhosphorIconsFill.checkCircle;
     }
   }
@@ -150,7 +147,6 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     switch (status) {
       case AssignmentStatus.assigned: return Colors.orange;
       case AssignmentStatus.pickedUp: return AppColors.primary;
-      case AssignmentStatus.atDaycare: return AppColors.primaryLight;
       case AssignmentStatus.droppedOff: return Colors.green;
     }
   }
@@ -210,8 +206,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
 
     // Status summary counts
     final assignedCount = _assignments.where((a) => a.status == AssignmentStatus.assigned).length;
-    final pickedUpCount = _assignments.where((a) => a.status == AssignmentStatus.pickedUp).length;
-    final atDaycareCount = _assignments.where((a) => a.status == AssignmentStatus.atDaycare).length;
+    final withTeamCount = _assignments.where((a) => a.status == AssignmentStatus.pickedUp).length;
     final droppedOffCount = _assignments.where((a) => a.status == AssignmentStatus.droppedOff).length;
 
     return PopScope(
@@ -258,9 +253,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 children: [
                   _buildStatusChip('Assigned', assignedCount, Colors.orange),
                   const SizedBox(width: 8),
-                  _buildStatusChip('Picked Up', pickedUpCount, AppColors.primary),
-                  const SizedBox(width: 8),
-                  _buildStatusChip('At Daycare', atDaycareCount, AppColors.primaryLight),
+                  _buildStatusChip('With Team', withTeamCount, AppColors.primary),
                   const SizedBox(width: 8),
                   _buildStatusChip('Done', droppedOffCount, Colors.green),
                 ],

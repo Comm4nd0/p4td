@@ -256,8 +256,7 @@ class BoardingRequestHistory(models.Model):
 class DailyDogAssignment(models.Model):
     STATUS_CHOICES = [
         ('ASSIGNED', 'Assigned'),
-        ('PICKED_UP', 'Picked Up'),
-        ('AT_DAYCARE', 'At Daycare'),
+        ('PICKED_UP', 'With Team'),
         ('DROPPED_OFF', 'Dropped Off'),
         ('REMOVED', 'Removed'),
     ]

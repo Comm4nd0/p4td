@@ -515,8 +515,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   AssignmentStatus? _nextStatus(AssignmentStatus current) {
     switch (current) {
       case AssignmentStatus.assigned: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.pickedUp: return AssignmentStatus.atDaycare;
-      case AssignmentStatus.atDaycare: return AssignmentStatus.droppedOff;
+      case AssignmentStatus.pickedUp: return AssignmentStatus.droppedOff;
       case AssignmentStatus.droppedOff: return null;
     }
   }
@@ -525,16 +524,14 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     switch (current) {
       case AssignmentStatus.assigned: return null;
       case AssignmentStatus.pickedUp: return AssignmentStatus.assigned;
-      case AssignmentStatus.atDaycare: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.droppedOff: return AssignmentStatus.atDaycare;
+      case AssignmentStatus.droppedOff: return AssignmentStatus.pickedUp;
     }
   }
 
   PhosphorIconData _statusIcon(AssignmentStatus status) {
     switch (status) {
       case AssignmentStatus.assigned: return PhosphorIconsDuotone.clipboardText;
-      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.car;
-      case AssignmentStatus.atDaycare: return PhosphorIconsDuotone.house;
+      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.pawPrint;
       case AssignmentStatus.droppedOff: return PhosphorIconsFill.checkCircle;
     }
   }
@@ -543,7 +540,6 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     switch (status) {
       case AssignmentStatus.assigned: return Colors.orange;
       case AssignmentStatus.pickedUp: return AppColors.primary;
-      case AssignmentStatus.atDaycare: return AppColors.primaryLight;
       case AssignmentStatus.droppedOff: return Colors.green;
     }
   }

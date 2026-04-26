@@ -250,7 +250,7 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     if alert_type == 'pickup':
         relevant_statuses = ['ASSIGNED']
     else:
-        relevant_statuses = ['PICKED_UP', 'AT_DAYCARE']
+        relevant_statuses = ['PICKED_UP']
 
     assignments = DailyDogAssignment.objects.filter(
         date=date, staff_member=staff_member, status__in=relevant_statuses

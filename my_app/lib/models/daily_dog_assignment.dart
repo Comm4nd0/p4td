@@ -39,7 +39,6 @@ enum SwapScope {
 enum AssignmentStatus {
   assigned,
   pickedUp,
-  atDaycare,
   droppedOff;
 
   String get apiValue {
@@ -48,8 +47,6 @@ enum AssignmentStatus {
         return 'ASSIGNED';
       case AssignmentStatus.pickedUp:
         return 'PICKED_UP';
-      case AssignmentStatus.atDaycare:
-        return 'AT_DAYCARE';
       case AssignmentStatus.droppedOff:
         return 'DROPPED_OFF';
     }
@@ -60,9 +57,7 @@ enum AssignmentStatus {
       case AssignmentStatus.assigned:
         return 'Assigned';
       case AssignmentStatus.pickedUp:
-        return 'Picked Up';
-      case AssignmentStatus.atDaycare:
-        return 'At Daycare';
+        return 'With Team';
       case AssignmentStatus.droppedOff:
         return 'Dropped Off';
     }
@@ -72,8 +67,6 @@ enum AssignmentStatus {
     switch (value) {
       case 'PICKED_UP':
         return AssignmentStatus.pickedUp;
-      case 'AT_DAYCARE':
-        return AssignmentStatus.atDaycare;
       case 'DROPPED_OFF':
         return AssignmentStatus.droppedOff;
       default:
