@@ -358,13 +358,21 @@ def notify_post_comment(comment, post):
         send_push_notification(user, title, body, data, category='feed')
 
 
-def send_staff_notification(title, body, data=None):
-    """Sends a push notification to all working staff members individually.
+def send_staff_notification(title, body, data=None, permission=None):
+    """Sends a push notification to staff members individually.
 
     Unlike the previous topic-based approach, this sends to each staff member
     separately so that work-hours and working-day filters can be applied.
+
+    If *permission* is supplied (e.g. ``'can_manage_requests'``), only staff
+    whose UserProfile has that flag set to True will receive the notification.
+    When omitted, all staff members are notified.
     """
     from django.contrib.auth.models import User
 
-    for user in User.objects.filter(is_staff=True):
+    filters = {'is_staff': True}
+    if permission:
+        filters[f'profile__{permission}'] = True
+
+    for user in User.objects.filter(**filters):
         send_push_notification(user, title, body, data)
