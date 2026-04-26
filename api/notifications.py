@@ -259,8 +259,15 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     # If specific dogs were selected, filter to only those
     if dog_ids:
         assignments = assignments.filter(dog_id__in=dog_ids)
+
+    # Skip dogs where the owner is handling this leg of transport —
+    # they don't need a staff traffic delay alert.
     owner_ids = set()
     for assignment in assignments:
+        if alert_type == 'pickup' and assignment.effective_owner_brings:
+            continue
+        if alert_type == 'dropoff' and assignment.effective_owner_collects:
+            continue
         owner_ids.add(assignment.dog.owner_id)
         for additional_owner in assignment.dog.additional_owners.all():
             owner_ids.add(additional_owner.id)
