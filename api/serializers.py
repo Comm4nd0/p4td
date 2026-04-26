@@ -294,7 +294,7 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             'owner_brings', 'owner_collects', 'owner_brings_time', 'owner_collects_time',
             'effective_owner_brings', 'effective_owner_collects',
             'effective_owner_brings_time', 'effective_owner_collects_time',
-            'created_at', 'updated_at',
+            'sort_order', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
 

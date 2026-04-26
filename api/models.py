@@ -269,12 +269,13 @@ class DailyDogAssignment(models.Model):
     owner_collects = models.BooleanField(null=True, blank=True, help_text='Override for this date. Null = fall back to Dog.owner_collects_default.')
     owner_brings_time = models.TimeField(null=True, blank=True, help_text='Expected drop-off time when owner brings the dog on this date.')
     owner_collects_time = models.TimeField(null=True, blank=True, help_text='Expected pick-up time when owner collects the dog on this date.')
+    sort_order = models.IntegerField(default=0, help_text='Custom sort order for staff pickup list. Lower numbers appear first.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('dog', 'date')
-        ordering = ['dog__name']
+        ordering = ['sort_order', 'dog__name']
 
     def __str__(self):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"

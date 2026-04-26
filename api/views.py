@@ -1569,6 +1569,24 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         return Response(list(staff))
 
     @action(detail=False, methods=['post'])
+    def reorder(self, request):
+        """Persist custom sort order for assignments.
+
+        Accepts: {"assignment_ids": [4, 7, 2, ...]}
+        Sets sort_order = 0, 1, 2, ... in the given sequence.
+        """
+        assignment_ids = request.data.get('assignment_ids', [])
+        if not isinstance(assignment_ids, list) or not assignment_ids:
+            return Response({'detail': 'assignment_ids list is required.'}, status=400)
+
+        from django.db import transaction
+        with transaction.atomic():
+            for i, aid in enumerate(assignment_ids):
+                DailyDogAssignment.objects.filter(id=aid).update(sort_order=i)
+
+        return Response({'detail': 'Order saved.'})
+
+    @action(detail=False, methods=['post'])
     def send_traffic_alert(self, request):
         """Send a traffic delay notification to owners on the requesting staff member's route."""
         alert_type = request.data.get('alert_type')

@@ -97,6 +97,7 @@ class DailyDogAssignment {
   final bool effectiveOwnerCollects;
   final TimeOfDay? effectiveOwnerBringsTime;
   final TimeOfDay? effectiveOwnerCollectsTime;
+  final int sortOrder;
 
   DailyDogAssignment({
     required this.id,
@@ -120,6 +121,7 @@ class DailyDogAssignment {
     this.effectiveOwnerCollects = false,
     this.effectiveOwnerBringsTime,
     this.effectiveOwnerCollectsTime,
+    this.sortOrder = 0,
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -145,6 +147,7 @@ class DailyDogAssignment {
       effectiveOwnerCollects: json['effective_owner_collects'] ?? false,
       effectiveOwnerBringsTime: parseApiTime(json['effective_owner_brings_time']),
       effectiveOwnerCollectsTime: parseApiTime(json['effective_owner_collects_time']),
+      sortOrder: json['sort_order'] ?? 0,
     );
   }
 
@@ -158,6 +161,7 @@ class DailyDogAssignment {
     bool? effectiveOwnerCollects,
     TimeOfDay? effectiveOwnerBringsTime,
     TimeOfDay? effectiveOwnerCollectsTime,
+    int? sortOrder,
   }) {
     return DailyDogAssignment(
       id: id,
@@ -181,6 +185,7 @@ class DailyDogAssignment {
       effectiveOwnerCollects: effectiveOwnerCollects ?? this.effectiveOwnerCollects,
       effectiveOwnerBringsTime: effectiveOwnerBringsTime ?? this.effectiveOwnerBringsTime,
       effectiveOwnerCollectsTime: effectiveOwnerCollectsTime ?? this.effectiveOwnerCollectsTime,
+      sortOrder: sortOrder ?? this.sortOrder,
     );
   }
 }
