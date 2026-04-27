@@ -266,7 +266,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     );
     if (wantTag == null) return; // User cancelled
 
-    String? caption;
+    List<String?>? captionsByFile;
     List<List<String>>? taggedDogIdsByFile;
 
     if (wantTag) {
@@ -278,7 +278,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         ),
       );
       if (tagResult == null) return; // User cancelled
-      caption = tagResult.caption;
+      captionsByFile = tagResult.captionsByFile;
       taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
     }
 
@@ -313,7 +313,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     try {
       await _dataService.uploadMultipleGroupMedia(
         files: fileData,
-        caption: caption,
+        captionsByFile: captionsByFile,
         taggedDogIdsByFile: taggedDogIdsByFile,
         onProgress: (done, count) {
           completed = done;

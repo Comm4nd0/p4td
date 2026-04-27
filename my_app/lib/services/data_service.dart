@@ -51,6 +51,7 @@ abstract class DataService {
   Future<void> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
+    List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   });
@@ -921,6 +922,7 @@ class ApiDataService implements DataService {
   Future<void> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
+    List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   }) async {
@@ -928,11 +930,15 @@ class ApiDataService implements DataService {
       final (bytes, fileName) = files[i];
       final ext = fileName.toLowerCase();
       final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
+      // Per-file caption takes priority, then fall back to shared caption
+      final fileCaption = (captionsByFile != null && i < captionsByFile.length)
+          ? captionsByFile[i]
+          : caption;
       await uploadGroupMedia(
         fileBytes: bytes,
         fileName: fileName,
         isVideo: isVideo,
-        caption: caption,
+        caption: fileCaption,
         taggedDogIds: taggedDogIdsByFile != null && i < taggedDogIdsByFile.length
             ? taggedDogIdsByFile[i]
             : null,
@@ -2211,6 +2217,7 @@ class MockDataService implements DataService {
   Future<void> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
+    List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   }) async {}

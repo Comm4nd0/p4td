@@ -10,14 +10,17 @@ import 'dog_typeahead.dart';
 
 /// Result returned from the media tagging dialog.
 class MediaTagResult {
-  final String? caption;
+  final List<String?> captionsByFile;
   final List<List<String>> taggedDogIdsByFile;
 
-  MediaTagResult({this.caption, required this.taggedDogIdsByFile});
+  MediaTagResult({required this.captionsByFile, required this.taggedDogIdsByFile});
+
+  /// Convenience getter for single-file uploads.
+  String? get caption => captionsByFile.isNotEmpty ? captionsByFile[0] : null;
 }
 
 /// A dialog that presents each media item one at a time, letting the user
-/// tag which dogs are in each item, plus an optional shared caption.
+/// tag which dogs are in each item, plus a caption per item.
 class MediaTagDialog extends StatefulWidget {
   /// List of (bytes, filename, isVideo) for each media item.
   final List<(Uint8List, String, bool)> files;
@@ -30,12 +33,14 @@ class MediaTagDialog extends StatefulWidget {
 
 class _MediaTagDialogState extends State<MediaTagDialog> {
   final DataService _dataService = ApiDataService();
-  final TextEditingController _captionController = TextEditingController();
   final PageController _pageController = PageController();
 
   List<Dog> _allDogs = [];
   bool _loadingDogs = true;
   int _currentPage = 0;
+
+  /// One caption controller per file.
+  late List<TextEditingController> _captionControllers;
 
   /// One set of selected dog IDs per file.
   late List<Set<String>> _selectedDogsByFile;
@@ -43,13 +48,16 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
   @override
   void initState() {
     super.initState();
+    _captionControllers = List.generate(widget.files.length, (_) => TextEditingController());
     _selectedDogsByFile = List.generate(widget.files.length, (_) => <String>{});
     _loadDogs();
   }
 
   @override
   void dispose() {
-    _captionController.dispose();
+    for (final c in _captionControllers) {
+      c.dispose();
+    }
     _pageController.dispose();
     super.dispose();
   }
@@ -86,12 +94,13 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
     final tagsByFile = _selectedDogsByFile
         .map((set) => set.toList())
         .toList();
+    final captions = _captionControllers
+        .map((c) => c.text.trim().isEmpty ? null : c.text.trim())
+        .toList();
     Navigator.pop(
       context,
       MediaTagResult(
-        caption: _captionController.text.trim().isEmpty
-            ? null
-            : _captionController.text.trim(),
+        captionsByFile: captions,
         taggedDogIdsByFile: tagsByFile,
       ),
     );
@@ -131,78 +140,66 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
               ),
           ],
         ),
-        body: Column(
-          children: [
-            // Media preview & dog selection (paged)
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (page) => setState(() => _currentPage = page),
-                itemCount: widget.files.length,
-                itemBuilder: (context, index) {
-                  final (bytes, fileName, isVideo) = widget.files[index];
-                  return _buildFileTagPage(bytes, fileName, isVideo, index);
-                },
-              ),
-            ),
-            // Caption field (shared across all files)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
-                controller: _captionController,
-                decoration: const InputDecoration(
-                  hintText: 'Write a caption (optional)',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Media preview, dog selection & caption (paged)
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  onPageChanged: (page) => setState(() => _currentPage = page),
+                  itemCount: widget.files.length,
+                  itemBuilder: (context, index) {
+                    final (bytes, fileName, isVideo) = widget.files[index];
+                    return _buildFileTagPage(bytes, fileName, isVideo, index);
+                  },
                 ),
-                maxLines: 2,
-                textCapitalization: TextCapitalization.sentences,
               ),
-            ),
-            // Navigation buttons for multiple files
-            if (isMultiple)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Row(
-                  children: [
-                    if (_currentPage > 0)
-                      OutlinedButton.icon(
-                        onPressed: _goToPrevious,
-                        icon: const Icon(Icons.arrow_back, size: 18),
-                        label: const Text('Previous'),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    const Spacer(),
-                    if (!isLastPage)
-                      FilledButton.icon(
-                        onPressed: _goToNext,
-                        icon: const Icon(Icons.arrow_forward, size: 18),
-                        label: const Text('Next'),
-                      )
-                    else
-                      FilledButton.icon(
-                        onPressed: _submit,
-                        icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
-                        label: const Text('Upload All'),
-                      ),
-                  ],
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _submit,
-                    icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
-                    label: const Text('Upload'),
+              // Navigation buttons for multiple files
+              if (isMultiple)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Row(
+                    children: [
+                      if (_currentPage > 0)
+                        OutlinedButton.icon(
+                          onPressed: _goToPrevious,
+                          icon: const Icon(Icons.arrow_back, size: 18),
+                          label: const Text('Previous'),
+                        )
+                      else
+                        const SizedBox.shrink(),
+                      const Spacer(),
+                      if (!isLastPage)
+                        FilledButton.icon(
+                          onPressed: _goToNext,
+                          icon: const Icon(Icons.arrow_forward, size: 18),
+                          label: const Text('Next'),
+                        )
+                      else
+                        FilledButton.icon(
+                          onPressed: _submit,
+                          icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
+                          label: const Text('Upload All'),
+                        ),
+                    ],
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _submit,
+                      icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
+                      label: const Text('Upload'),
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -231,6 +228,18 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                       ),
                     ),
                   ),
+          ),
+          const SizedBox(height: 16),
+          // Caption field (per file)
+          TextField(
+            controller: _captionControllers[fileIndex],
+            decoration: const InputDecoration(
+              hintText: 'Write a caption (optional)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            maxLines: 2,
+            textCapitalization: TextCapitalization.sentences,
           ),
           const SizedBox(height: 16),
           // Dog selection

@@ -880,7 +880,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       );
       if (wantTag == null) return;
 
-      String? caption;
+      List<String?>? captionsByFile;
       List<List<String>>? taggedDogIdsByFile;
 
       if (wantTag) {
@@ -889,7 +889,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: tagDialogFiles)),
         );
         if (tagResult == null) return;
-        caption = tagResult.caption;
+        captionsByFile = tagResult.captionsByFile;
         taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
       }
 
@@ -917,7 +917,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
       try {
         await _dataService.uploadMultipleGroupMedia(
-          files: fileData, caption: caption,
+          files: fileData, captionsByFile: captionsByFile,
           taggedDogIdsByFile: taggedDogIdsByFile,
           onProgress: (done, count) => progress.value = done,
         );
