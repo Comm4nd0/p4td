@@ -108,9 +108,25 @@ class DogCRUDTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertTrue(Dog.objects.filter(id=dog.id).exists())
 
-    def test_update_dog(self):
+    def test_update_dog_owner_requires_approval(self):
+        """Non-staff dog updates are submitted for approval (202), not applied."""
         dog = Dog.objects.create(owner=self.owner, name='OldName')
         self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{dog.id}/', {'name': 'NewName'}, format='json')
+        self.assertEqual(resp.status_code, 202)
+        dog.refresh_from_db()
+        # Name should NOT have changed yet
+        self.assertEqual(dog.name, 'OldName')
+        # A change request should have been created
+        from .models import DogProfileChangeRequest
+        cr = DogProfileChangeRequest.objects.filter(dog=dog, status='PENDING').first()
+        self.assertIsNotNone(cr)
+        self.assertEqual(cr.proposed_changes.get('name'), 'NewName')
+
+    def test_update_dog_staff_applies_immediately(self):
+        """Staff dog updates are applied directly (200)."""
+        dog = Dog.objects.create(owner=self.owner, name='OldName')
+        self.client.login(username='staff', password='pw')
         resp = self.client.patch(f'/api/dogs/{dog.id}/', {'name': 'NewName'}, format='json')
         self.assertEqual(resp.status_code, 200)
         dog.refresh_from_db()

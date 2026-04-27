@@ -21,6 +21,7 @@ import 'staff_notifications_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
+import 'dog_profile_changes_screen.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -79,6 +80,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
+  int _pendingProfileChangeCount = 0;
   List<BoardingRequest> _boardingTonight = [];
 
   @override
@@ -219,6 +221,14 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadUnresolvedQueryCount();
     if (widget.canViewInquiries) _loadUnreadInquiryCount();
     _loadBoardingTonight();
+    if (widget.canManageRequests) _loadPendingProfileChangeCount();
+  }
+
+  Future<void> _loadPendingProfileChangeCount() async {
+    try {
+      final count = await _dataService.getPendingDogProfileChangeCount();
+      if (mounted) setState(() => _pendingProfileChangeCount = count);
+    } catch (_) {}
   }
 
   Future<void> _loadPendingRequestCount() async {
@@ -1257,6 +1267,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             onTap: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
               _loadUnreadInquiryCount();
+            },
+          ),
+        ],
+        if (widget.canManageRequests) ...[
+          const SizedBox(height: 4),
+          ActionItemTile(
+            icon: PhosphorIconsDuotone.dog,
+            label: 'Profile Changes',
+            count: _pendingProfileChangeCount,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const DogProfileChangesScreen()));
+              _loadPendingProfileChangeCount();
             },
           ),
         ],

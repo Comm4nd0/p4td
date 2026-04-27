@@ -166,6 +166,17 @@ class _EditDogScreenState extends State<EditDogScreen> {
         );
         Navigator.pop(context, updatedDog);
       }
+    } on DogUpdatePendingApprovalException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Colors.orange[700],
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        Navigator.pop(context);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

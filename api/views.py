@@ -5,8 +5,8 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer
 from website.models import ContactInquiry
 
 class DeviceTokenViewSet(viewsets.ModelViewSet):
@@ -307,6 +307,100 @@ class DogViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(owner=self.request.user)
 
+    def update(self, request, *args, **kwargs):
+        """Override update to route non-staff edits through the approval workflow."""
+        instance = self.get_object()
+
+        if not request.user.is_staff:
+            return self._create_change_request(request, instance)
+
+        # Staff: apply changes directly via the normal DRF path
+        return super().update(request, *args, **kwargs)
+
+    def _create_change_request(self, request, dog):
+        """Build a DogProfileChangeRequest from the incoming PATCH data."""
+        # Fields an owner may propose to change
+        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type']
+
+        proposed_changes = {}
+        for field in ALLOWED_FIELDS:
+            if field in request.data:
+                new_val = request.data[field]
+                # Parse daycare_days from JSON string if needed
+                if field == 'daycare_days' and isinstance(new_val, str):
+                    import json as _json
+                    try:
+                        new_val = _json.loads(new_val)
+                    except (ValueError, TypeError):
+                        pass
+                old_val = getattr(dog, field)
+                # Normalize for comparison
+                if field == 'daycare_days':
+                    old_val = list(old_val or [])
+                    if isinstance(new_val, list):
+                        new_val_cmp = sorted(new_val)
+                        old_val_cmp = sorted(old_val)
+                    else:
+                        new_val_cmp = new_val
+                        old_val_cmp = old_val
+                    if new_val_cmp != old_val_cmp:
+                        proposed_changes[field] = new_val
+                else:
+                    # Treat empty string / None as equivalent
+                    old_norm = (old_val or '').strip() if isinstance(old_val, str) else old_val
+                    new_norm = (new_val or '').strip() if isinstance(new_val, str) else new_val
+                    if old_norm != new_norm:
+                        proposed_changes[field] = new_val
+
+        # Handle image upload / deletion
+        proposed_image = None
+        delete_image = False
+        if 'profile_image' in request.FILES:
+            proposed_image = request.FILES['profile_image']
+            # Process image the same way we do for direct updates
+            proposed_image = process_image(proposed_image, max_size=(800, 800))
+        elif 'profile_image' in request.data and request.data['profile_image'] == '':
+            delete_image = True
+
+        # Don't create a request if nothing actually changed
+        if not proposed_changes and not proposed_image and not delete_image:
+            # Return the current dog as-is (nothing to approve)
+            serializer = self.get_serializer(dog)
+            return Response(serializer.data, status=200)
+
+        change_request = DogProfileChangeRequest.objects.create(
+            dog=dog,
+            requested_by=request.user,
+            proposed_changes=proposed_changes,
+            proposed_image=proposed_image,
+            delete_image=delete_image,
+        )
+
+        # Notify staff about the pending change
+        try:
+            from .notifications import send_staff_notification
+            owner_name = request.user.first_name or request.user.username
+            title = "Dog Profile Change Request"
+            body = f"{owner_name} wants to update {dog.name}'s profile."
+            data = {
+                'type': 'dog_profile_change',
+                'id': str(change_request.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            send_staff_notification(title, body, data, permission='can_manage_requests')
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+        from .serializers import DogProfileChangeRequestSerializer
+        result = DogProfileChangeRequestSerializer(change_request, context={'request': request}).data
+        return Response(
+            {
+                'detail': 'Your changes have been submitted for approval.',
+                'change_request': result,
+            },
+            status=202,
+        )
+
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
 
@@ -408,6 +502,152 @@ class DogViewSet(viewsets.ModelViewSet):
                 # Resize profile images to max 800x800
                 processed_image = process_image(image_file, max_size=(800, 800))
                 serializer.validated_data['profile_image'] = processed_image
+
+class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
+    """View and manage dog profile change requests.
+
+    Owners see requests for their own dogs.  Staff see all requests and can
+    approve or reject them via the ``/approve/`` and ``/reject/`` actions.
+    """
+    serializer_class = DogProfileChangeRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = DogProfileChangeRequest.objects.select_related(
+            'dog', 'requested_by', 'reviewed_by',
+        )
+        if self.request.user.is_staff:
+            status = self.request.query_params.get('status')
+            if status:
+                qs = qs.filter(status=status.upper())
+            return qs
+        from django.db.models import Q
+        return qs.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can approve change requests.")
+
+        change_request = self.get_object()
+        if change_request.status != 'PENDING':
+            return Response(
+                {'detail': f'Request is already {change_request.get_status_display().lower()}.'},
+                status=400,
+            )
+
+        dog = change_request.dog
+
+        # Apply proposed text/JSON field changes
+        for field, value in change_request.proposed_changes.items():
+            if hasattr(dog, field):
+                setattr(dog, field, value)
+
+        # Apply image changes
+        if change_request.delete_image:
+            if dog.profile_image:
+                dog.profile_image.delete(save=False)
+            dog.profile_image = None
+        elif change_request.proposed_image:
+            # Delete old image file first
+            if dog.profile_image:
+                dog.profile_image.delete(save=False)
+            dog.profile_image = change_request.proposed_image
+
+        # Handle schedule/roster side-effects (same logic as perform_update)
+        old_daycare_days = list(dog.daycare_days or [])
+        old_schedule_type = dog.schedule_type
+
+        dog.save()
+
+        dog.refresh_from_db()
+        new_daycare_days = list(dog.daycare_days or [])
+        new_schedule_type = dog.schedule_type
+
+        if old_schedule_type != 'ad_hoc' and new_schedule_type == 'ad_hoc':
+            DogWeekdayPickup.objects.filter(dog=dog).delete()
+        elif set(old_daycare_days) != set(new_daycare_days):
+            dropped = set(old_daycare_days) - set(new_daycare_days)
+            if dropped:
+                DogWeekdayPickup.objects.filter(dog=dog, weekday__in=dropped).delete()
+
+        # Mark as approved
+        change_request.status = 'APPROVED'
+        change_request.reviewed_by = request.user
+        change_request.reviewed_at = timezone.now()
+        change_request.save()
+
+        # Notify the owner
+        try:
+            from .notifications import send_push_notification
+            staff_name = request.user.first_name or request.user.username
+            title = "Profile Update Approved"
+            body = f"Your changes to {dog.name}'s profile have been approved by {staff_name}."
+            data = {
+                'type': 'dog_profile_change_approved',
+                'id': str(change_request.id),
+                'dog_id': str(dog.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            send_push_notification(change_request.requested_by, title, body, data)
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+        serializer = self.get_serializer(change_request)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can reject change requests.")
+
+        change_request = self.get_object()
+        if change_request.status != 'PENDING':
+            return Response(
+                {'detail': f'Request is already {change_request.get_status_display().lower()}.'},
+                status=400,
+            )
+
+        change_request.status = 'REJECTED'
+        change_request.reviewed_by = request.user
+        change_request.reviewed_at = timezone.now()
+        change_request.save()
+
+        # Clean up the proposed image file if any
+        if change_request.proposed_image:
+            change_request.proposed_image.delete(save=False)
+
+        # Notify the owner
+        try:
+            from .notifications import send_push_notification
+            staff_name = request.user.first_name or request.user.username
+            title = "Profile Update Rejected"
+            body = f"Your changes to {change_request.dog.name}'s profile were not approved."
+            data = {
+                'type': 'dog_profile_change_rejected',
+                'id': str(change_request.id),
+                'dog_id': str(change_request.dog.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            send_push_notification(change_request.requested_by, title, body, data)
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+        serializer = self.get_serializer(change_request)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def pending_count(self, request):
+        """Return the number of pending change requests (staff only)."""
+        if not request.user.is_staff:
+            return Response({'count': 0})
+        count = DogProfileChangeRequest.objects.filter(status='PENDING').count()
+        return Response({'count': count})
+
 
 class PhotoViewSet(viewsets.ModelViewSet):
     serializer_class = PhotoSerializer

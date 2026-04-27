@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -501,6 +501,48 @@ class DayOffRequestSerializer(serializers.ModelSerializer):
         if obj.reviewed_by:
             return obj.reviewed_by.first_name or obj.reviewed_by.username
         return None
+
+
+class DogProfileChangeRequestSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    dog_profile_image = serializers.ImageField(source='dog.profile_image', read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DogProfileChangeRequest
+        fields = [
+            'id', 'dog', 'dog_name', 'dog_profile_image',
+            'requested_by', 'requested_by_name',
+            'proposed_changes', 'proposed_image', 'delete_image',
+            'status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
+            'created_at',
+        ]
+        read_only_fields = [
+            'id', 'requested_by', 'requested_by_name',
+            'status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
+            'created_at',
+        ]
+
+    def get_requested_by_name(self, obj):
+        if obj.requested_by.first_name:
+            return obj.requested_by.first_name
+        return obj.requested_by.username
+
+    def get_reviewed_by_name(self, obj):
+        if obj.reviewed_by:
+            return obj.reviewed_by.first_name or obj.reviewed_by.username
+        return None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request:
+            if instance.proposed_image:
+                data['proposed_image'] = request.build_absolute_uri(instance.proposed_image.url)
+            if instance.dog.profile_image:
+                data['dog_profile_image'] = request.build_absolute_uri(instance.dog.profile_image.url)
+        return data
 
 
 class ContactInquirySerializer(serializers.ModelSerializer):
