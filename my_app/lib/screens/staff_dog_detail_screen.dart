@@ -656,11 +656,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             onReorder: (oldIndex, newIndex) => _onReorder(oldIndex, newIndex, staffPickups),
             itemBuilder: (context, index) {
               final a = staffPickups[index];
-              return ReorderableDragStartListener(
-                key: ValueKey(a.id),
-                index: index,
-                child: _buildAssignmentCard(a),
-              );
+              return _buildAssignmentCard(a, key: ValueKey(a.id), reorderIndex: index);
             },
           ),
         ),
@@ -698,7 +694,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     );
   }
 
-  Widget _buildAssignmentCard(DailyDogAssignment assignment, {Key? key}) {
+  Widget _buildAssignmentCard(DailyDogAssignment assignment, {Key? key, int? reorderIndex}) {
     final next = _nextStatus(assignment.status);
     final previous = _previousStatus(assignment.status);
     final statusColor = _statusColor(assignment.status);
@@ -715,6 +711,19 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             // Dog info row
             Row(
               children: [
+                // Drag handle — only shown for reorderable items
+                if (reorderIndex != null)
+                  ReorderableDragStartListener(
+                    index: reorderIndex,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: PhosphorIcon(
+                        PhosphorIconsDuotone.dotsSixVertical,
+                        size: 24,
+                        color: Colors.grey[400],
+                      ),
+                    ),
+                  ),
                 if (assignment.dogProfileImage != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(24),
