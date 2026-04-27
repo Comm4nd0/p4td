@@ -662,17 +662,20 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Future<void> _showAddDogToDayDialog() async {
     List<Dog> allDogs;
     List<Dog> unassigned;
+    List<DailyDogAssignment> currentAssignments;
     try {
       allDogs = await _dataService.getDogs();
       unassigned = await _dataService.getUnassignedDogs(date: _selectedDate);
+      // Fetch fresh from the API — never rely on the local cache here
+      currentAssignments = await _dataService.getTodayAssignments(date: _selectedDate);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load dogs: $e')));
       return;
     }
     if (!mounted) return;
 
-    // Get IDs of dogs already assigned for this date
-    final assignedDogIds = (_assignmentCache[_dateKey(_selectedDate)] ?? []).map((a) => a.dogId).toSet();
+    // Get IDs of dogs already assigned for this date (fresh from API)
+    final assignedDogIds = currentAssignments.map((a) => a.dogId).toSet();
     final unassignedDogIds = unassigned.map((d) => int.parse(d.id)).toSet();
 
     // Extra dogs = all dogs minus already assigned minus unassigned (i.e. dogs not booked at all)
