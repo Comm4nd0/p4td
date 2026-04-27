@@ -261,15 +261,37 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       tagDialogFiles.add((bytes, file.name, isVideo));
     }
 
-    // Show tagging dialog for each file
-    final tagResult = await Navigator.push<MediaTagResult>(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => MediaTagDialog(files: tagDialogFiles),
+    // Ask whether to tag or upload straight away
+    if (!mounted) return;
+    final wantTag = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${files.length} file${files.length == 1 ? '' : 's'} selected'),
+        content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Upload Now')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tag & Caption')),
+        ],
       ),
     );
-    if (tagResult == null) return; // User cancelled
+    if (wantTag == null) return; // User cancelled
+
+    String? caption;
+    List<List<String>>? taggedDogIdsByFile;
+
+    if (wantTag) {
+      final tagResult = await Navigator.push<MediaTagResult>(
+        context,
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => MediaTagDialog(files: tagDialogFiles),
+        ),
+      );
+      if (tagResult == null) return; // User cancelled
+      caption = tagResult.caption;
+      taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
+    }
 
     // Show progress dialog using a ValueNotifier so we can update it in place
     final progress = ValueNotifier<int>(0);
@@ -302,8 +324,8 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     try {
       await _dataService.uploadMultipleGroupMedia(
         files: fileData,
-        caption: tagResult.caption,
-        taggedDogIdsByFile: tagResult.taggedDogIdsByFile,
+        caption: caption,
+        taggedDogIdsByFile: taggedDogIdsByFile,
         onProgress: (done, count) {
           completed = done;
           progress.value = done;

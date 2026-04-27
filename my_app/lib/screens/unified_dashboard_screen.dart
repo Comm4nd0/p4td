@@ -867,11 +867,34 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         fileData.add((bytes, file.name));
       }
 
-      final tagResult = await Navigator.push<MediaTagResult>(
-        context,
-        MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: tagDialogFiles)),
+      // Ask whether to tag or upload straight away
+      if (!mounted) return;
+      final wantTag = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('${files.length} file${files.length == 1 ? '' : 's'} selected'),
+          content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Upload Now')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tag & Caption')),
+          ],
+        ),
       );
-      if (tagResult == null) return;
+      if (wantTag == null) return;
+
+      String? caption;
+      List<List<String>>? taggedDogIdsByFile;
+
+      if (wantTag) {
+        final tagResult = await Navigator.push<MediaTagResult>(
+          context,
+          MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: tagDialogFiles)),
+        );
+        if (tagResult == null) return;
+        caption = tagResult.caption;
+        taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
+      }
 
       final progress = ValueNotifier<int>(0);
       final total = files.length;
@@ -897,15 +920,15 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
       try {
         await _dataService.uploadMultipleGroupMedia(
-          files: fileData, caption: tagResult.caption,
-          taggedDogIdsByFile: tagResult.taggedDogIdsByFile,
+          files: fileData, caption: caption,
+          taggedDogIdsByFile: taggedDogIdsByFile,
           onProgress: (done, count) => progress.value = done,
         );
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green));
-              }
+        }
       } catch (e) {
         if (mounted) {
           Navigator.pop(context);
