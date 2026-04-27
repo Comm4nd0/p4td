@@ -153,25 +153,14 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
               onTap: () => Navigator.pop(context, 'camera_photo'),
             ),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.images),
-              title: const Text('Choose Photo'),
-              onTap: () => Navigator.pop(context, 'gallery_photo'),
-            ),
-            const Divider(),
-            ListTile(
               leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera),
               title: const Text('Record Video'),
               onTap: () => Navigator.pop(context, 'camera_video'),
             ),
+            const Divider(),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.filmStrip),
-              title: const Text('Choose Video'),
-              onTap: () => Navigator.pop(context, 'gallery_video'),
-            ),
-             const Divider(),
-            ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.plusSquare),
-              title: const Text('Upload Multiple'),
+              leading: PhosphorIcon(PhosphorIconsDuotone.uploadSimple),
+              title: const Text('Upload'),
               onTap: () => Navigator.pop(context, 'multiple'),
             ),
           ],
