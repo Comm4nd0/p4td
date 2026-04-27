@@ -5,6 +5,7 @@ from .views import (
     GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet,
     DailyDogAssignmentViewSet, SupportQueryViewSet, ContactInquiryViewSet,
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
+    DogProfileChangeRequestViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
     delete_account,
 )
@@ -25,6 +26,7 @@ router.register(r'dog-notes', DogNoteViewSet, basename='dog-notes')
 router.register(r'staff-availability', StaffAvailabilityViewSet, basename='staff-availability')
 router.register(r'day-off-requests', DayOffRequestViewSet, basename='day-off-requests')
 router.register(r'contact-inquiries', ContactInquiryViewSet, basename='contact-inquiries')
+router.register(r'dog-profile-changes', DogProfileChangeRequestViewSet, basename='dog-profile-changes')
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -7,7 +7,7 @@ from .models import (
     Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
     DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
-    ClosureDay, DogNote, StaffAvailability,
+    ClosureDay, DogNote, StaffAvailability, DogProfileChangeRequest,
 )
 
 
@@ -662,3 +662,46 @@ class StaffAvailabilityAdmin(admin.ModelAdmin):
             return format_html('<span style="color: #198754;">Available</span>')
         return format_html('<span style="color: #dc3545;">Unavailable</span>')
     availability_display.short_description = 'Status'
+
+
+@admin.register(DogProfileChangeRequest)
+class DogProfileChangeRequestAdmin(admin.ModelAdmin):
+    list_display = ('dog_name', 'requested_by_name', 'changes_summary', 'status_display', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('dog__name', 'requested_by__username', 'requested_by__first_name')
+    raw_id_fields = ('dog', 'requested_by', 'reviewed_by')
+    readonly_fields = ('dog', 'requested_by', 'proposed_changes', 'proposed_image', 'delete_image', 'created_at', 'reviewed_by', 'reviewed_at')
+    list_per_page = 20
+    ordering = ['-created_at']
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def requested_by_name(self, obj):
+        return obj.requested_by.first_name or obj.requested_by.username
+    requested_by_name.short_description = 'Requested By'
+    requested_by_name.admin_order_field = 'requested_by__first_name'
+
+    def changes_summary(self, obj):
+        parts = list(obj.proposed_changes.keys()) if obj.proposed_changes else []
+        if obj.proposed_image:
+            parts.append('photo')
+        if obj.delete_image:
+            parts.append('remove photo')
+        return ', '.join(parts) if parts else '-'
+    changes_summary.short_description = 'Changes'
+
+    def status_display(self, obj):
+        colors = {
+            'PENDING': '#ffc107',
+            'APPROVED': '#198754',
+            'REJECTED': '#dc3545',
+        }
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display()
+        )
+    status_display.short_description = 'Status'

@@ -404,6 +404,48 @@ class DayOffRequest(models.Model):
         return f"{self.staff_member.username} - {self.date} ({self.get_status_display()})"
 
 
+class DogProfileChangeRequest(models.Model):
+    """Stores proposed changes to a dog's profile submitted by an owner.
+
+    Instead of editing the Dog record directly, non-staff users create one of
+    these.  A staff member can then approve (applying the changes) or reject.
+    """
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='profile_change_requests')
+    requested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dog_profile_change_requests')
+    proposed_changes = models.JSONField(
+        default=dict,
+        help_text='Dict of field_name → new_value for text/JSON fields that differ from the current dog record.',
+    )
+    proposed_image = models.ImageField(
+        upload_to='dog_profile_changes/',
+        null=True, blank=True,
+        help_text='New profile image if the owner uploaded one.',
+    )
+    delete_image = models.BooleanField(
+        default=False,
+        help_text='True when the owner wants to remove the current profile image.',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    reviewed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='reviewed_profile_changes',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Profile change for {self.dog.name} by {self.requested_by.username} ({self.get_status_display()})"
+
+
 class DeviceToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
     token = models.CharField(max_length=255, unique=True)

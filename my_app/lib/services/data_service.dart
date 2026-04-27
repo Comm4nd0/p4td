@@ -18,8 +18,18 @@ import '../models/dog_note.dart';
 import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
 import '../models/contact_inquiry.dart';
+import '../models/dog_profile_change_request.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
+
+/// Thrown when a dog update is submitted for staff approval instead of applied
+/// directly.  The caller should show a confirmation message rather than an error.
+class DogUpdatePendingApprovalException implements Exception {
+  final String message;
+  DogUpdatePendingApprovalException([this.message = 'Your changes have been submitted for approval.']);
+  @override
+  String toString() => message;
+}
 
 abstract class DataService {
   Future<List<Dog>> getDogs();
@@ -151,6 +161,12 @@ abstract class DataService {
   Future<List<DayOffRequest>> getAllDayOffRequests();
   Future<DayOffRequest> approveDayOffRequest(int requestId);
   Future<DayOffRequest> denyDayOffRequest(int requestId);
+
+  // Dog Profile Change Requests
+  Future<List<DogProfileChangeRequest>> getDogProfileChangeRequests({String? status});
+  Future<DogProfileChangeRequest> approveDogProfileChange(int requestId);
+  Future<DogProfileChangeRequest> rejectDogProfileChange(int requestId);
+  Future<int> getPendingDogProfileChangeCount();
 }
 
 class ApiDataService implements DataService {
@@ -402,6 +418,14 @@ class ApiDataService implements DataService {
           if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
           if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
         }),
+      );
+    }
+
+    // 202 means the changes were submitted for staff approval
+    if (response.statusCode == 202) {
+      final body = json.decode(response.body);
+      throw DogUpdatePendingApprovalException(
+        body['detail'] ?? 'Your changes have been submitted for approval.',
       );
     }
 
@@ -2030,6 +2054,60 @@ class ApiDataService implements DataService {
     }
     throw Exception('Failed to deny day off request: ${response.statusCode}');
   }
+
+  // --- Dog Profile Change Requests ---
+
+  @override
+  Future<List<DogProfileChangeRequest>> getDogProfileChangeRequests({String? status}) async {
+    final headers = await _getHeaders();
+    var url = '${AuthService.baseUrl}/api/dog-profile-changes/';
+    if (status != null) url += '?status=$status';
+    final response = await http.get(Uri.parse(url), headers: headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => DogProfileChangeRequest.fromJson(j)).toList();
+    }
+    throw Exception('Failed to fetch dog profile change requests: ${response.statusCode}');
+  }
+
+  @override
+  Future<DogProfileChangeRequest> approveDogProfileChange(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dog-profile-changes/$requestId/approve/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return DogProfileChangeRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to approve dog profile change: ${response.statusCode}');
+  }
+
+  @override
+  Future<DogProfileChangeRequest> rejectDogProfileChange(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dog-profile-changes/$requestId/reject/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return DogProfileChangeRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to reject dog profile change: ${response.statusCode}');
+  }
+
+  @override
+  Future<int> getPendingDogProfileChangeCount() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/dog-profile-changes/pending_count/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body)['count'] ?? 0;
+    }
+    return 0;
+  }
 }
 
 class MockDataService implements DataService {
@@ -2419,4 +2497,16 @@ class MockDataService implements DataService {
   @override
   Future<DayOffRequest> denyDayOffRequest(int requestId) async =>
       DayOffRequest(id: requestId, staffMemberId: 1, staffMemberName: 'Test', date: DateTime.now(), status: DayOffStatus.denied, createdAt: DateTime.now());
+
+  // Dog Profile Change Requests
+  @override
+  Future<List<DogProfileChangeRequest>> getDogProfileChangeRequests({String? status}) async => [];
+  @override
+  Future<DogProfileChangeRequest> approveDogProfileChange(int requestId) async =>
+      DogProfileChangeRequest(id: requestId, dogId: 1, dogName: 'Test', requestedById: 1, requestedByName: 'Test', proposedChanges: {}, status: 'APPROVED', createdAt: DateTime.now());
+  @override
+  Future<DogProfileChangeRequest> rejectDogProfileChange(int requestId) async =>
+      DogProfileChangeRequest(id: requestId, dogId: 1, dogName: 'Test', requestedById: 1, requestedByName: 'Test', proposedChanges: {}, status: 'REJECTED', createdAt: DateTime.now());
+  @override
+  Future<int> getPendingDogProfileChangeCount() async => 0;
 }
