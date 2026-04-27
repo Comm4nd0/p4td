@@ -189,3 +189,28 @@ class DailyDogAssignment {
     );
   }
 }
+
+/// Result of an assign-dogs call. Contains the newly created assignments
+/// plus any dogs that were skipped because they were already assigned.
+class AssignDogsResult {
+  final List<DailyDogAssignment> created;
+  final List<SkippedDog> skipped;
+
+  AssignDogsResult({required this.created, this.skipped = const []});
+
+  bool get hasSkipped => skipped.isNotEmpty;
+}
+
+class SkippedDog {
+  final String dogName;
+  final String reason;
+
+  SkippedDog({required this.dogName, required this.reason});
+
+  factory SkippedDog.fromJson(Map<String, dynamic> json) {
+    return SkippedDog(
+      dogName: json['dog'] ?? '',
+      reason: json['reason'] ?? 'Already assigned',
+    );
+  }
+}

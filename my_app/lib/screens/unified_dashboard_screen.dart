@@ -471,10 +471,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
     if (result == true && selected.isNotEmpty) {
       try {
+        final AssignDogsResult assignResult;
         if (widget.canAssignDogs && targetStaffId != null) {
-          await _dataService.assignDogs(selected.toList(), targetStaffId, date: _selectedDate);
+          assignResult = await _dataService.assignDogs(selected.toList(), targetStaffId, date: _selectedDate);
         } else {
-          await _dataService.assignDogsToMe(selected.toList(), date: _selectedDate);
+          assignResult = await _dataService.assignDogsToMe(selected.toList(), date: _selectedDate);
+        }
+        if (mounted && assignResult.hasSkipped) {
+          final names = assignResult.skipped.map((s) => s.dogName).join(', ');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Already assigned: $names'), backgroundColor: Colors.orange, duration: const Duration(seconds: 4)),
+          );
         }
         await _loadAssignments();
       } catch (e) {
@@ -795,15 +802,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
     if (result == true && selectedDogId != null) {
       try {
+        final AssignDogsResult assignResult;
         if (widget.canAssignDogs && selectedStaffId != null) {
-          await _dataService.assignDogs([selectedDogId!], selectedStaffId!, date: _selectedDate);
+          assignResult = await _dataService.assignDogs([selectedDogId!], selectedStaffId!, date: _selectedDate);
         } else {
-          await _dataService.assignDogsToMe([selectedDogId!], date: _selectedDate);
+          assignResult = await _dataService.assignDogsToMe([selectedDogId!], date: _selectedDate);
         }
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Dog added to day'), backgroundColor: Colors.green),
-          );
+          if (assignResult.hasSkipped) {
+            final reason = assignResult.skipped.first.reason;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${assignResult.skipped.first.dogName} - $reason'), backgroundColor: Colors.orange),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Dog added to day'), backgroundColor: Colors.green),
+            );
+          }
         }
         await _loadAssignments();
       } catch (e) {

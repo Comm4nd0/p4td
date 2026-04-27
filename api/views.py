@@ -1055,6 +1055,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         weekday = target_date.isoweekday()
         created = []
+        skipped = []
         for dog_id in dog_ids:
             try:
                 dog = Dog.objects.get(id=dog_id)
@@ -1085,9 +1086,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 assignment.staff_member = request.user
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
                 created.append(assignment)
+            else:
+                skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
 
         serializer = self.get_serializer(created, many=True)
-        return Response(serializer.data, status=201)
+        data = serializer.data
+        if skipped:
+            return Response({'created': data, 'skipped': skipped}, status=200)
+        return Response(data, status=201)
 
     @action(detail=False, methods=['post'])
     def assign_dogs(self, request):
@@ -1136,6 +1142,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         weekday = target_date.isoweekday()
         created = []
+        skipped = []
         for dog_id in dog_ids:
             try:
                 dog = Dog.objects.get(id=dog_id)
@@ -1164,9 +1171,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 assignment.staff_member = target_staff
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
                 created.append(assignment)
+            else:
+                skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
 
         serializer = self.get_serializer(created, many=True)
-        return Response(serializer.data, status=201)
+        data = serializer.data
+        if skipped:
+            return Response({'created': data, 'skipped': skipped}, status=200)
+        return Response(data, status=201)
 
     @action(detail=True, methods=['post'])
     def reassign(self, request, pk=None):

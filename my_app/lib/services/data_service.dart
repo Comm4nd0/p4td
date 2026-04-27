@@ -72,8 +72,8 @@ abstract class DataService {
   Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date});
   Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date});
   Future<List<Dog>> getUnassignedDogs({DateTime? date});
-  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds, {DateTime? date});
-  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date});
+  Future<AssignDogsResult> assignDogsToMe(List<int> dogIds, {DateTime? date});
+  Future<AssignDogsResult> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date});
   Future<List<Map<String, dynamic>>> getStaffMembers();
   Future<DailyDogAssignment> updateAssignmentStatus(int assignmentId, AssignmentStatus status);
   Future<DailyDogAssignment> setAssignmentTransport(
@@ -1230,7 +1230,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds, {DateTime? date}) async {
+  Future<AssignDogsResult> assignDogsToMe(List<int> dogIds, {DateTime? date}) async {
     final headers = await _getHeaders();
     final body = <String, dynamic>{'dog_ids': dogIds};
     final d = _dateBody(date);
@@ -1241,15 +1241,22 @@ class ApiDataService implements DataService {
       body: json.encode(body),
     );
     if (response.statusCode == 201) {
+      // All dogs assigned successfully (plain list)
       final List<dynamic> data = json.decode(response.body);
-      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+      return AssignDogsResult(created: data.map((j) => DailyDogAssignment.fromJson(j)).toList());
+    } else if (response.statusCode == 200) {
+      // Some dogs skipped (object with created + skipped)
+      final Map<String, dynamic> result = json.decode(response.body);
+      final created = (result['created'] as List<dynamic>).map((j) => DailyDogAssignment.fromJson(j)).toList();
+      final skipped = (result['skipped'] as List<dynamic>).map((j) => SkippedDog.fromJson(j)).toList();
+      return AssignDogsResult(created: created, skipped: skipped);
     } else {
       throw Exception('Failed to assign dogs');
     }
   }
 
   @override
-  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date}) async {
+  Future<AssignDogsResult> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date}) async {
     final headers = await _getHeaders();
     final body = <String, dynamic>{'dog_ids': dogIds, 'staff_member_id': staffMemberId};
     final d = _dateBody(date);
@@ -1261,7 +1268,12 @@ class ApiDataService implements DataService {
     );
     if (response.statusCode == 201) {
       final List<dynamic> data = json.decode(response.body);
-      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+      return AssignDogsResult(created: data.map((j) => DailyDogAssignment.fromJson(j)).toList());
+    } else if (response.statusCode == 200) {
+      final Map<String, dynamic> result = json.decode(response.body);
+      final created = (result['created'] as List<dynamic>).map((j) => DailyDogAssignment.fromJson(j)).toList();
+      final skipped = (result['skipped'] as List<dynamic>).map((j) => SkippedDog.fromJson(j)).toList();
+      return AssignDogsResult(created: created, skipped: skipped);
     } else {
       String errorMessage = 'Failed to assign dogs';
       try {
@@ -2262,10 +2274,10 @@ class MockDataService implements DataService {
   Future<List<Dog>> getUnassignedDogs({DateTime? date}) async => [];
 
   @override
-  Future<List<DailyDogAssignment>> assignDogsToMe(List<int> dogIds, {DateTime? date}) async => [];
+  Future<AssignDogsResult> assignDogsToMe(List<int> dogIds, {DateTime? date}) async => AssignDogsResult(created: []);
 
   @override
-  Future<List<DailyDogAssignment>> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date}) async => [];
+  Future<AssignDogsResult> assignDogs(List<int> dogIds, int staffMemberId, {DateTime? date}) async => AssignDogsResult(created: []);
 
   @override
   Future<List<Map<String, dynamic>>> getStaffMembers() async => [];
