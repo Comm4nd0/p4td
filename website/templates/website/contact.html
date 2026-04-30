@@ -1,89 +1,73 @@
 {% extends "website/base.html" %}
-{% load static %}
 
-{% block title %}Contact — Paws 4 Thought Dogs{% endblock %}
+{% block title %}Contact - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Contact Paws 4 Thought Dogs. Mon-Fri 8:00-17:00. Call {{ business_phone }}. Enquire about daycare, training, puppy classes, or field hire.{% endblock %}
 
 {% block content %}
-
-<header class="page-header">
-    <div class="container">
-        <div class="crumbs"><span>Paws 4 Thought</span><span class="sep">/</span><span>Contact</span></div>
-        <h1>Let's <em>talk dogs.</em></h1>
-        <p>Whether you're looking for day care, training, or just want a tour of the fields — we'd love to hear from you. Most enquiries get a reply within a few hours.</p>
-    </div>
-</header>
+<div class="page-header">
+    <h1>Contact</h1>
+</div>
 
 <section class="section">
-    <div class="container">
-        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:60px;">
-            <div style="background:var(--cream-2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:40px;">
-                <form method="post" action="{% url 'website:contact' %}">
-                    {% csrf_token %}
-                    <span class="eyebrow no-line" style="margin-bottom:24px;display:block;">Enquiry form</span>
-                    {% if form %}
-                        <div class="form-grid">
-                            {% for field in form %}
-                            <div class="form-row{% if field.field.widget.input_type == 'textarea' or field.name == 'service' or field.name == 'message' %} full{% endif %}">
-                                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                                {{ field }}
-                                {% if field.errors %}<div style="color:var(--red);font-size:13px;">{{ field.errors|striptags }}</div>{% endif %}
-                            </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <div class="form-grid">
-                            <div class="form-row"><label for="name">Your name</label><input type="text" id="name" name="name" required placeholder="Sarah Mitchell"></div>
-                            <div class="form-row"><label for="email">Email</label><input type="email" id="email" name="email" required placeholder="sarah@example.com"></div>
-                            <div class="form-row full"><label for="service">I'm interested in</label>
-                                <select id="service" name="service">
-                                    <option value="daycare">Day Care</option>
-                                    <option value="puppy">Puppy Classes</option>
-                                    <option value="training">1-to-1 Training</option>
-                                    <option value="field_hire">Field Hire</option>
-                                    <option value="other">Something else</option>
-                                </select>
-                            </div>
-                            <div class="form-row full"><label for="message">Tell us about your dog</label><textarea id="message" name="message" required placeholder="Name, age, breed, and anything we should know…"></textarea></div>
-                        </div>
+    <div class="contact-grid">
+        <div>
+            <div class="contact-info-card">
+                <strong>Hours</strong>
+                {{ business_hours }}
+            </div>
+            <div class="contact-info-card">
+                <strong>Call Us</strong>
+                <a href="tel:{{ business_phone }}" class="contact-phone-link">{{ business_phone }}</a>
+            </div>
+            <div class="contact-info-card">
+                <strong>Service Area</strong>
+                Berkshire &amp; Buckinghamshire, UK
+            </div>
+            <div class="contact-info-card">
+                <strong>Find Us</strong>
+                Based near the Berkshire / Buckinghamshire border &mdash; exact address provided on booking.
+            </div>
+        </div>
+
+        <div>
+            <form method="post" novalidate>
+                {% csrf_token %}
+
+                <div class="form-group">
+                    <label for="id_name">Name <span class="required">*</span></label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                    <div class="form-errors">{{ form.name.errors.0 }}</div>
                     {% endif %}
-                    <button type="submit" class="btn btn-primary" style="margin-top:24px;">Send message <span class="arr">→</span></button>
-                    <p style="font-size:12px;color:var(--muted);margin-top:16px;">By submitting you agree to our privacy policy. We'll never share your details.</p>
-                </form>
-            </div>
-
-            <div style="display:flex;flex-direction:column;gap:32px;">
-                <div>
-                    <span class="eyebrow">Direct</span>
-                    <h3 style="margin-top:12px;font-size:28px;">Prefer to skip the form?</h3>
-                    <p style="margin-top:12px;">Every message goes to the same inbox. Pick whatever's easiest.</p>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:2px;">
-                    <div style="padding:18px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;">Phone</span>
-                        <a href="tel:{{ business_phone|default:'07966184948' }}" style="font-weight:500;">{{ business_phone|default:"07966 184948" }}</a>
-                    </div>
-                    <div style="padding:18px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;">Email</span>
-                        <a href="mailto:{{ business_email|default:'hello@paws4thoughtdogs.com' }}" style="font-weight:500;">{{ business_email|default:"hello@paws4thoughtdogs.com" }}</a>
-                    </div>
-                    <div style="padding:18px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;">Hours</span>
-                        <span style="font-weight:500;">Mon–Fri · 8am–5pm</span>
-                    </div>
-                    <div style="padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;">Area</span>
-                        <span style="font-weight:500;">Berkshire &amp; Buckinghamshire</span>
-                    </div>
                 </div>
 
-                <div style="background:var(--ink);color:var(--cream);border-radius:var(--radius);padding:28px;">
-                    <span class="eyebrow no-line" style="color:var(--sage);">First-time visitors</span>
-                    <h3 style="color:var(--cream);margin-top:10px;font-size:22px;">Free assessment day</h3>
-                    <p style="color:color-mix(in oklab, var(--cream) 75%, transparent);margin-top:10px;font-size:15px;">Every new dog gets a free full-day assessment. We'll introduce them to the site, find the right group, and give you an honest take.</p>
+                <div class="form-group">
+                    <label for="id_email">Email <span class="required">*</span></label>
+                    {{ form.email }}
+                    {% if form.email.errors %}
+                    <div class="form-errors">{{ form.email.errors.0 }}</div>
+                    {% endif %}
                 </div>
-            </div>
+
+                <div class="form-group">
+                    <label for="id_service">Service <span class="required">*</span></label>
+                    {{ form.service }}
+                    {% if form.service.errors %}
+                    <div class="form-errors">{{ form.service.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_message">Comment or Message</label>
+                    {{ form.message }}
+                    {% if form.message.errors %}
+                    <div class="form-errors">{{ form.message.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </form>
         </div>
     </div>
 </section>
-
 {% endblock %}

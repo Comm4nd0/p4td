@@ -1,87 +1,108 @@
 {% extends "website/base.html" %}
 {% load static %}
 
-{% block title %}{{ post.title }} — Paws 4 Thought Dogs{% endblock %}
-{% block meta_description %}{{ post.excerpt|truncatewords:28 }}{% endblock %}
+{% block title %}{{ post.title }} - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}{{ post.excerpt }}{% endblock %}
+
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ post.title }}{% endblock %}
+{% block og_description %}{{ post.excerpt }}{% endblock %}
+{% block og_image %}{% if post.featured_image %}{{ post.featured_image.url }}{% else %}{% static 'website/images/hero-bg.jpg' %}{% endif %}{% endblock %}
+{% block twitter_title %}{{ post.title }}{% endblock %}
+{% block twitter_description %}{{ post.excerpt }}{% endblock %}
 
 {% block content %}
-
-<header class="page-header">
-    <div class="container">
-        <div class="crumbs">
-            <a href="{% url 'website:home' %}" style="color:inherit;">Paws 4 Thought</a>
-            <span class="sep">/</span>
-            <a href="{% url 'website:blog_list' %}" style="color:inherit;">Blog</a>
-            <span class="sep">/</span>
-            <span>{{ post.published_at|date:"d M Y" }}</span>
+<section class="section">
+    <div class="blog-detail">
+        <div class="blog-detail-header">
+            <h1>{{ post.title }}</h1>
+            <p class="blog-detail-date">{{ post.published_at|date:"d/m/y" }}</p>
         </div>
-        <h1 style="font-size:clamp(36px, 5vw, 68px);max-width:22ch;">{{ post.title }}</h1>
-        <div style="display:flex;gap:16px;margin-top:28px;font-size:14px;color:color-mix(in oklab, var(--cream) 70%, transparent);">
-            <span>By {{ post.author|default:"The Paws 4 Thought Team" }}</span><span>·</span><span>{{ post.published_at|date:"d M Y" }}</span><span>·</span><span>{{ post.read_time|default:"5 min read" }}</span>
+
+        {% if post.featured_image %}
+        <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="blog-detail-image" loading="lazy">
+        {% endif %}
+
+        <div class="blog-detail-body">
+            {{ post.body|safe }}
         </div>
-    </div>
-</header>
 
-<section style="padding:0;">
-    <div class="container" style="transform:translateY(-60px);">
-        <div style="border-radius:var(--radius-lg);overflow:hidden;aspect-ratio:16/9;">
-            <img src="{% if post.image %}{{ post.image.url }}{% else %}{% static 'website/images/daycare.jpg' %}{% endif %}" alt="{{ post.title }}" style="width:100%;height:100%;object-fit:cover;">
-        </div>
-    </div>
-</section>
-
-<section style="padding:0 0 100px;">
-    <div class="container">
-        <div style="display:grid;grid-template-columns:220px 1fr;gap:60px;">
-            <aside style="position:sticky;top:100px;align-self:start;">
-                <span class="eyebrow no-line" style="display:block;margin-bottom:16px;">Share</span>
-                <div style="display:flex;flex-direction:column;gap:6px;">
-                    <a href="#" onclick="navigator.clipboard.writeText(window.location.href);return false;" style="font-size:14px;color:var(--ink-soft);padding:6px 0;">Copy link</a>
-                    <a href="mailto:?subject={{ post.title|urlencode }}&body={{ request.build_absolute_uri|urlencode }}" style="font-size:14px;color:var(--ink-soft);padding:6px 0;">Email</a>
-                    <a href="https://twitter.com/intent/tweet?url={{ request.build_absolute_uri|urlencode }}&text={{ post.title|urlencode }}" target="_blank" rel="noopener" style="font-size:14px;color:var(--ink-soft);padding:6px 0;">Twitter</a>
-                    <a href="https://facebook.com/sharer/sharer.php?u={{ request.build_absolute_uri|urlencode }}" target="_blank" rel="noopener" style="font-size:14px;color:var(--ink-soft);padding:6px 0;">Facebook</a>
-                </div>
-                <div style="margin-top:40px;padding:24px 0;border-top:1px solid var(--line);">
-                    <div style="width:48px;height:48px;border-radius:50%;background:var(--sage-soft);display:grid;place-items:center;color:var(--sage-dark);font-weight:600;margin-bottom:12px;">{{ post.author_initials|default:"P4" }}</div>
-                    <div style="font-weight:600;font-size:15px;">{{ post.author|default:"The Paws 4 Thought Team" }}</div>
-                    <div style="font-size:13px;color:var(--muted);margin-top:4px;">Paws 4 Thought</div>
-                </div>
-            </aside>
-
-            <article style="max-width:64ch;">
-                <p class="lede" style="margin-bottom:32px;">{{ post.excerpt }}</p>
-                <div style="font-size:18px;line-height:1.65;color:var(--ink-soft);">
-                    {{ post.body|safe|linebreaks }}
-                </div>
-
-                <div style="margin-top:40px;padding:32px;background:var(--cream-2);border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;">
-                    <div>
-                        <strong style="font-size:18px;">Thinking about day care?</strong>
-                        <p style="font-size:14px;margin-top:4px;">Book a free assessment day — no commitment, just a visit.</p>
-                    </div>
-                    <a href="{% url 'website:contact' %}" class="btn btn-primary">Get in touch <span class="arr">→</span></a>
-                </div>
-            </article>
-        </div>
-    </div>
-</section>
-
-{% if related_posts %}
-<section class="section section-cream-2">
-    <div class="container">
-        <h2 style="margin-bottom:40px;">Keep reading</h2>
-        <div class="blog-grid">
-            {% for p in related_posts %}
-            <a href="{{ p.get_absolute_url }}" class="blog-card">
-                <div class="ph"><img src="{% if p.image %}{{ p.image.url }}{% else %}{% static 'website/images/daycare.jpg' %}{% endif %}" alt="{{ p.title }}"></div>
-                <div class="meta"><span>{{ p.published_at|date:"d M Y" }}</span><span>·</span><span>{{ p.read_time|default:"5 min read" }}</span></div>
-                <h3>{{ p.title }}</h3>
-                <p>{{ p.excerpt|truncatewords:28 }}</p>
+        <!-- Share Links -->
+        <div class="share-links">
+            <span class="share-label">Share:</span>
+            <a href="https://www.facebook.com/sharer/sharer.php?u={{ request.build_absolute_uri|urlencode }}"
+               target="_blank" rel="noopener noreferrer" class="share-btn share-facebook" aria-label="Share on Facebook">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                Facebook
             </a>
+            <a href="https://wa.me/?text={{ post.title|urlencode }}%20{{ request.build_absolute_uri|urlencode }}"
+               target="_blank" rel="noopener noreferrer" class="share-btn share-whatsapp" aria-label="Share on WhatsApp">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                WhatsApp
+            </a>
+            <button class="share-btn share-copy" onclick="navigator.clipboard.writeText(window.location.href).then(function(){this.textContent='Copied!'}.bind(this))" aria-label="Copy link">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Copy Link
+            </button>
+        </div>
+
+        <a href="{% url 'website:blog_list' %}" class="back-link">&larr; Back to Blog</a>
+    </div>
+</section>
+
+<!-- Related Posts -->
+{% if related_posts %}
+<section class="section" style="padding-top: 0;">
+    <div class="blog-detail" style="border-top: 1px solid #ddd; padding-top: 2rem;">
+        <h2 class="section-title" style="font-size: 1.4rem;">More from our blog</h2>
+        <div class="card-grid card-grid-3">
+            {% for post in related_posts %}
+            <div class="card">
+                {% if post.featured_image %}
+                <a href="{% url 'website:blog_detail' post.slug %}">
+                    <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="card-image" loading="lazy">
+                </a>
+                {% endif %}
+                <div class="card-body">
+                    <p class="card-date">{{ post.published_at|date:"d/m/y" }}</p>
+                    <h3 class="card-title">
+                        <a href="{% url 'website:blog_detail' post.slug %}">{{ post.title }}</a>
+                    </h3>
+                </div>
+            </div>
             {% endfor %}
         </div>
     </div>
 </section>
 {% endif %}
+{% endblock %}
 
+{% block structured_data %}
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "{{ post.title|escapejs }}",
+    "description": "{{ post.excerpt|escapejs }}",
+    {% if post.featured_image %}"image": "{{ post.featured_image.url }}",{% endif %}
+    "datePublished": "{{ post.published_at|date:'c' }}",
+    "dateModified": "{{ post.updated_at|date:'c' }}",
+    "author": {
+        "@type": "Organization",
+        "name": "Paws 4 Thought Dogs"
+    },
+    "publisher": {
+        "@type": "Organization",
+        "name": "Paws 4 Thought Dogs",
+        "logo": {
+            "@type": "ImageObject",
+            "url": "{% static 'website/images/logo.png' %}"
+        }
+    },
+    "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": "{{ request.build_absolute_uri }}"
+    }
+}
+</script>
 {% endblock %}

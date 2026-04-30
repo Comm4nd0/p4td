@@ -1,102 +1,58 @@
 {% extends "website/base.html" %}
 {% load static %}
 
-{% block title %}Field Hire — Paws 4 Thought Dogs{% endblock %}
+{% block title %}Field Hire - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Hire our 5-acre secure dog field in Berkshire. £{{ pricing.field_hire_price }} per 1-hour slot. Fully enclosed, ample parking. Book now!{% endblock %}
 
 {% block content %}
-
-<header class="page-header">
-    <div class="container">
-        <div class="crumbs"><span>Paws 4 Thought</span><span class="sep">/</span><span>Field Hire</span></div>
-        <h1>Five acres. <em>Just you two.</em></h1>
-        <p>Book our secure, fully-fenced 5-acre field for private sessions with your dog. Ideal for reactive, anxious, or recovering dogs — or anyone who just wants space to train without distractions.</p>
-    </div>
-</header>
-
-<section class="section">
-    <div class="container">
-        <div class="split">
-            <div class="ph"><img src="{% static 'website/images/hero-bg.jpg' %}" alt="Secure field"></div>
-            <div class="copy">
-                <span class="eyebrow">How it works</span>
-                <h2 style="margin-top:16px;">A private field, by the hour.</h2>
-                <p style="margin-top:20px;">Our site is split across ten acres — five of which are dedicated to private field hire. When you book, that field is entirely yours. No other dogs on site during your slot. Bring your own, bring a friend's, or just sit on the grass with a coffee.</p>
-                <p>Perfect for recall training, reactive-dog rehab, post-surgery recovery, or simply letting your dog run off-lead somewhere completely safe.</p>
-
-                <div style="margin-top:32px;display:flex;flex-direction:column;gap:16px;">
-                    <div style="display:flex;gap:16px;align-items:flex-start;">
-                        <div style="width:36px;height:36px;border-radius:50%;background:var(--sage-soft);color:var(--sage-dark);display:grid;place-items:center;flex-shrink:0;font-size:14px;">✓</div>
-                        <div><div style="font-weight:500;">6ft fencing throughout, double-gated entry</div><div style="font-size:14px;color:var(--muted);margin-top:2px;">No escape risk, even for diggers and jumpers</div></div>
-                    </div>
-                    <div style="display:flex;gap:16px;align-items:flex-start;">
-                        <div style="width:36px;height:36px;border-radius:50%;background:var(--sage-soft);color:var(--sage-dark);display:grid;place-items:center;flex-shrink:0;font-size:14px;">✓</div>
-                        <div><div style="font-weight:500;">No other dogs on site during your slot</div><div style="font-size:14px;color:var(--muted);margin-top:2px;">Perfect for reactive or anxious dogs</div></div>
-                    </div>
-                    <div style="display:flex;gap:16px;align-items:flex-start;">
-                        <div style="width:36px;height:36px;border-radius:50%;background:var(--sage-soft);color:var(--sage-dark);display:grid;place-items:center;flex-shrink:0;font-size:14px;">✓</div>
-                        <div><div style="font-weight:500;">Water, shade, and rest areas</div><div style="font-size:14px;color:var(--muted);margin-top:2px;">Plus poo bags and disposal provided</div></div>
-                    </div>
-                    <div style="display:flex;gap:16px;align-items:flex-start;">
-                        <div style="width:36px;height:36px;border-radius:50%;background:var(--sage-soft);color:var(--sage-dark);display:grid;place-items:center;flex-shrink:0;font-size:14px;">✓</div>
-                        <div><div style="font-weight:500;">Online booking, 7 days ahead</div><div style="font-size:14px;color:var(--muted);margin-top:2px;">Cancel up to 24 hours before for a full refund</div></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<section class="section section-cream-2">
-    <div class="container">
-        <div class="section-head">
-            <div>
-                <span class="eyebrow">Booking</span>
-                <h2 style="margin-top:16px;">Pay by<br>the hour.</h2>
-            </div>
-            <div class="right">
-                <p class="lede">One-off, bundle, or regular weekly slot — whatever fits your routine. Prices below are placeholders — confirm with us and we'll update.</p>
-            </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
-            <div class="price-card">
-                <h3>Single hour</h3>
-                <div class="price-num">{{ price_single|default:"£15" }}<small>/hour</small></div>
-                <p>One-off booking, any available slot. Perfect for trying it out.</p>
-                <ul><li>One full hour, one field</li><li>Up to 4 dogs from one household</li><li>Book online or call</li></ul>
-                <a href="{% url 'website:contact' %}" class="btn btn-ghost" style="margin-top:auto;">Book a slot <span class="arr">→</span></a>
-            </div>
-            <div class="price-card highlight">
-                <span class="badge" style="align-self:flex-start;background:var(--red);color:#fff;"><span class="dot" style="background:#fff;"></span>Most popular</span>
-                <h3>5-hour bundle</h3>
-                <div class="price-num">{{ price_bundle|default:"£65" }}<small>/5 hrs</small></div>
-                <p>Save £10 over single hours. Use across three months, same or different slots.</p>
-                <ul><li>Split hours however you like</li><li>3-month expiry</li><li>Priority booking window</li><li>Cancel up to 24hrs before</li></ul>
-                <a href="{% url 'website:contact' %}" class="btn btn-red" style="margin-top:auto;">Enquire <span class="arr">→</span></a>
-            </div>
-            <div class="price-card">
-                <h3>Weekly regular</h3>
-                <div class="price-num">{{ price_weekly|default:"£50" }}<small>/month</small></div>
-                <p>Same time slot, every week. Best for training and routine.</p>
-                <ul><li>4 hours / month guaranteed</li><li>Same time, every week</li><li>Rollover unused hours</li><li>Cancel anytime</li></ul>
-                <a href="{% url 'website:contact' %}" class="btn btn-ghost" style="margin-top:auto;">Set up <span class="arr">→</span></a>
-            </div>
-        </div>
-    </div>
-</section>
-
-<div class="container" style="padding:80px 32px;">
-    <div class="cta-band">
-        <div>
-            <span class="eyebrow no-line" style="color:var(--sage);margin-bottom:16px;display:block;">Let's meet your dog</span>
-            <h2>Pop in for a tour — tea's usually on.</h2>
-            <p style="margin-top:16px;max-width:40ch;">Every new dog joins us for a free assessment day.</p>
-        </div>
-        <div class="actions">
-            <a href="{% url 'website:contact' %}" class="btn btn-primary">Book an assessment <span class="arr">→</span></a>
-            <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-ghost">Call {{ business_phone|default:"07966 184948" }}</a>
-        </div>
-    </div>
+<div class="page-header">
+    <h1>Field Hire</h1>
 </div>
 
+<section class="section">
+    <div class="field-gallery">
+        <img src="{% static 'website/images/field-1.jpg' %}" alt="Entrance to our secure 5-acre dog field" loading="lazy">
+        <img src="{% static 'website/images/field-2.jpg' %}" alt="Wide open space for dogs to run and play" loading="lazy">
+        <img src="{% static 'website/images/field-3.jpg' %}" alt="Panoramic view of the enclosed dog field" loading="lazy">
+    </div>
+    <div class="field-hero-image-container" style="text-align: center;">
+        <img src="{% static 'website/images/field-panorama.jpg' %}" alt="Aerial view of our 5-acre fully enclosed dog field in Berkshire" class="field-hero-image" loading="lazy">
+    </div>
+
+    <h2 class="section-title" style="font-size: 2rem; margin-top: 1rem;">Your Dog's Paradise Awaits: 5-Acre Secure Field for Hire</h2>
+
+    <p style="color: #666; line-height: 1.8; margin-bottom: 2rem;">
+        Unleash the joy and set your dog free in our expansive 5-acre field, designed exclusively for dog walks and playtime! This is more than just a field; it's a haven for you and your canine companion.
+    </p>
+
+    <div class="field-details">
+        <h3>Why Choose Our Field?</h3>
+        <ul class="field-features">
+            <li><strong>Space to Roam:</strong> With 5 acres of lush, open land, there's ample room for fetch, frisbee, and frolicking.</li>
+            <li><strong>Utmost Security:</strong> Your pup's safety is our priority. Our field is fully secure, so you can relax while your dog explores.</li>
+            <li><strong>Convenient Parking:</strong> Drive right up to your dog's playground! Ample parking is available on-site for your convenience.</li>
+        </ul>
+
+        <h3>Essential Details</h3>
+        <ul class="field-features">
+            <li><strong>Cost:</strong> £{{ pricing.field_hire_price }} per 1-hour slot</li>
+            <li><strong>Booking:</strong> Simply call or email us to reserve your time. Slots fill up fast — book now to ensure your pup's day out!</li>
+        </ul>
+
+        <h3>Our One Rule: Be Responsible</h3>
+        <p style="color: #666; line-height: 1.8;">
+            We love dogs, and we love our field. Help us keep it clean by collecting all dog waste during your visit.
+        </p>
+
+        <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
+
+        <p style="color: #666; line-height: 1.8;">
+            Indulge your dog in a playground as boundless as their energy. Call or email us today to secure your slot and make your dog's tail wag in pure delight.
+        </p>
+
+        <div style="margin-top: 2rem;">
+            <a href="{% url 'website:contact' %}" class="btn btn-primary">Book Now &rarr;</a>
+        </div>
+    </div>
+</section>
 {% endblock %}

@@ -1,87 +1,52 @@
 {% extends "website/base.html" %}
-{% load static %}
 
-{% block title %}Blog — Paws 4 Thought Dogs{% endblock %}
+{% block title %}Blog - Paws 4 Thought Dogs{% endblock %}
+{% block meta_description %}Read our blog for tips on dog care, training, and day-to-day life at Paws 4 Thought Dogs daycare.{% endblock %}
 
 {% block content %}
-
-<header class="page-header">
-    <div class="container">
-        <div class="crumbs"><span>Paws 4 Thought</span><span class="sep">/</span><span>Blog</span></div>
-        <h1>Notes from <em>the field.</em></h1>
-        <p>Training tips, a-day-in-the-life posts, behavioural advice, and stories from the pack. Written by our team, for the owners we look after.</p>
-    </div>
-</header>
-
-{% if featured_post %}
-<section class="section">
-    <div class="container">
-        <div class="split" style="gap:60px;">
-            <a href="{{ featured_post.get_absolute_url }}" class="ph" style="aspect-ratio:4/3;">
-                <img src="{% if featured_post.image %}{{ featured_post.image.url }}{% else %}{% static 'website/images/daycare.jpg' %}{% endif %}" alt="{{ featured_post.title }}">
-            </a>
-            <div class="copy">
-                <span class="eyebrow">Featured · Latest post</span>
-                <h2 style="margin-top:16px;"><a href="{{ featured_post.get_absolute_url }}" style="color:inherit;">{{ featured_post.title }}</a></h2>
-                <div style="display:flex;gap:14px;margin-top:16px;font-size:14px;color:var(--muted);">
-                    <span>{{ featured_post.published_at|date:"d M Y" }}</span><span>·</span><span>{{ featured_post.read_time|default:"5 min read" }}</span><span>·</span><span>{{ featured_post.author|default:"The Paws 4 Thought Team" }}</span>
-                </div>
-                <p style="margin-top:20px;font-size:17px;">{{ featured_post.excerpt }}</p>
-                <a href="{{ featured_post.get_absolute_url }}" class="btn btn-primary" style="margin-top:24px;">Read article <span class="arr">→</span></a>
-            </div>
-        </div>
-    </div>
-</section>
-{% endif %}
-
-<section class="section section-cream-2" style="padding-top:80px;">
-    <div class="container">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:40px;gap:20px;flex-wrap:wrap;">
-            <h2>All articles</h2>
-            <div style="display:flex;gap:8px;">
-                <a href="?" class="btn btn-ghost" style="padding:8px 14px;font-size:13px;{% if not request.GET.category %}background:var(--ink);color:var(--cream);border-color:var(--ink);{% endif %}">All</a>
-                {% for cat in categories %}
-                <a href="?category={{ cat.slug }}" class="btn btn-ghost" style="padding:8px 14px;font-size:13px;{% if request.GET.category == cat.slug %}background:var(--ink);color:var(--cream);border-color:var(--ink);{% endif %}">{{ cat.name }}</a>
-                {% endfor %}
-            </div>
-        </div>
-        <div class="blog-grid">
-            {% for post in posts %}
-            <a href="{{ post.get_absolute_url }}" class="blog-card">
-                <div class="ph"><img src="{% if post.image %}{{ post.image.url }}{% else %}{% static 'website/images/daycare.jpg' %}{% endif %}" alt="{{ post.title }}"></div>
-                <div class="meta"><span>{{ post.published_at|date:"d M Y" }}</span><span>·</span><span>{{ post.read_time|default:"5 min read" }}</span></div>
-                <h3>{{ post.title }}</h3>
-                <p>{{ post.excerpt|truncatewords:28 }}</p>
-            </a>
-            {% empty %}
-            <p style="grid-column:1/-1;color:var(--muted);">No posts yet — check back soon.</p>
-            {% endfor %}
-        </div>
-
-        {% if is_paginated %}
-        <div style="display:flex;justify-content:center;margin-top:60px;gap:8px;">
-            {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="btn btn-ghost">← Prev</a>{% endif %}
-            {% for n in page_obj.paginator.page_range %}
-                <a href="?page={{ n }}" class="btn{% if n == page_obj.number %}" style="background:var(--ink);color:var(--cream);{% else %} btn-ghost{% endif %}">{{ n }}</a>
-            {% endfor %}
-            {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="btn btn-ghost">Next →</a>{% endif %}
-        </div>
-        {% endif %}
-    </div>
-</section>
-
-<div class="container" style="padding:80px 32px;">
-    <div class="cta-band">
-        <div>
-            <span class="eyebrow no-line" style="color:var(--sage);margin-bottom:16px;display:block;">Let's meet your dog</span>
-            <h2>Pop in for a tour — tea's usually on.</h2>
-            <p style="margin-top:16px;max-width:40ch;">Every new dog joins us for a free assessment day.</p>
-        </div>
-        <div class="actions">
-            <a href="{% url 'website:contact' %}" class="btn btn-primary">Book an assessment <span class="arr">→</span></a>
-            <a href="tel:{{ business_phone|default:'07966184948' }}" class="btn btn-ghost">Call {{ business_phone|default:"07966 184948" }}</a>
-        </div>
-    </div>
+<div class="page-header">
+    <h1>Blog</h1>
 </div>
 
+<section class="section">
+    {% if posts %}
+    <div class="card-grid">
+        {% for post in posts %}
+        <div class="card">
+            {% if post.featured_image %}
+            <a href="{% url 'website:blog_detail' post.slug %}">
+                <img src="{{ post.featured_image.url }}" alt="{{ post.title }}" class="card-image" loading="lazy">
+            </a>
+            {% endif %}
+            <div class="card-body">
+                <p class="card-date">{{ post.published_at|date:"d/m/y" }}</p>
+                <h2 class="card-title">
+                    <a href="{% url 'website:blog_detail' post.slug %}">{{ post.title }}</a>
+                </h2>
+                <p class="card-excerpt">{{ post.excerpt }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if posts.has_other_pages %}
+    <nav class="pagination" aria-label="Blog pagination">
+        {% if posts.has_previous %}
+        <a href="?page={{ posts.previous_page_number }}" class="pagination-link">&larr; Newer</a>
+        {% endif %}
+
+        <span class="pagination-info">
+            Page {{ posts.number }} of {{ posts.paginator.num_pages }}
+        </span>
+
+        {% if posts.has_next %}
+        <a href="?page={{ posts.next_page_number }}" class="pagination-link">Older &rarr;</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+
+    {% else %}
+    <p style="text-align: center; color: #666;">No blog posts yet. Check back soon!</p>
+    {% endif %}
+</section>
 {% endblock %}

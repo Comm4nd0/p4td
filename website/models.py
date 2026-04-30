@@ -213,19 +213,6 @@ class Testimonial(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    @property
-    def stars_range(self):
-        return range(5)
-
-    @property
-    def initials(self):
-        parts = [p for p in self.name.split() if p]
-        return ''.join(p[0].upper() for p in parts[:2]) or '?'
-
-    @property
-    def role(self):
-        return f'Owner of {self.dog_name}' if self.dog_name else ''
-
     class Meta:
         ordering = ['order', '-created_at']
 
