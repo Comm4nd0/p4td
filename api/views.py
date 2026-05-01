@@ -736,35 +736,57 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
-        instance = serializer.save()
 
-        # Auto-approve ADD_DAY requests created by staff
-        if self.request.user.is_staff and instance.request_type == 'ADD_DAY':
-            instance.status = 'APPROVED'
-            instance.approved_by = self.request.user
-            instance.approved_at = timezone.now()
-            instance.save()
+        # Auto-approve any date change request created by staff — owner-created
+        # requests stay PENDING and go through the normal approval workflow.
+        if not self.request.user.is_staff:
+            serializer.save()
+            return
 
-            # Record history
-            DateChangeRequestHistory.objects.create(
-                request=instance,
-                changed_by=self.request.user,
-                from_status='PENDING',
-                to_status='APPROVED',
-            )
+        instance = serializer.save(
+            status='APPROVED',
+            approved_by=self.request.user,
+            approved_at=timezone.now(),
+        )
 
-            # Notify dog owners
-            try:
-                from .notifications import send_push_notification
+        # Record history
+        DateChangeRequestHistory.objects.create(
+            request=instance,
+            changed_by=self.request.user,
+            from_status='PENDING',
+            to_status='APPROVED',
+        )
+
+        # When a cancellation is approved, unassign the dog for that date
+        # (mirrors the change_status flow used for owner-created requests).
+        if instance.request_type == 'CANCEL' and instance.original_date:
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog,
+                date=instance.original_date,
+            ).delete()
+
+        # Notify dog owners
+        try:
+            from .notifications import send_push_notification
+            if instance.request_type == 'ADD_DAY':
                 title = "Additional Day Added"
                 body = f"An additional day for {instance.dog.name} on {instance.new_date} has been added by staff."
-                data = {'type': 'date_change_status', 'id': str(instance.id)}
-                if instance.dog.owner:
-                    send_push_notification(instance.dog.owner, title, body, data)
-                for additional_owner in instance.dog.additional_owners.all():
-                    send_push_notification(additional_owner, title, body, data)
-            except Exception as e:
-                print(f"Failed to send push notification: {e}")
+            elif instance.request_type == 'CANCEL':
+                title = "Day Cancelled"
+                body = f"{instance.dog.name}'s day on {instance.original_date} has been cancelled by staff."
+            else:  # CHANGE
+                title = "Day Changed"
+                body = (
+                    f"{instance.dog.name}'s day has been changed from "
+                    f"{instance.original_date} to {instance.new_date} by staff."
+                )
+            data = {'type': 'date_change_status', 'id': str(instance.id)}
+            if instance.dog.owner:
+                send_push_notification(instance.dog.owner, title, body, data)
+            for additional_owner in instance.dog.additional_owners.all():
+                send_push_notification(additional_owner, title, body, data)
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):

@@ -519,6 +519,10 @@ from .notifications import send_staff_notification, send_push_notification
 @receiver(post_save, sender=DateChangeRequest)
 def notify_staff_date_change(sender, instance, created, **kwargs):
     if created:
+        # Skip the staff notification when staff has auto-approved their own
+        # request — there's nothing for managers to action.
+        if instance.status != 'PENDING':
+            return
         dog_name = instance.dog.name
         request_type = instance.get_request_type_display()
         if instance.request_type == 'ADD_DAY':

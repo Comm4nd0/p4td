@@ -55,6 +55,65 @@ class DateChangeRequestStatusTests(TestCase):
         self.assertEqual(resp.status_code, 400)
 
 
+class DateChangeRequestCreateTests(TestCase):
+    """Owner-created date changes go to PENDING; staff-created ones auto-approve."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.client = APIClient()
+
+    def _post(self, **kwargs):
+        payload = {'dog': self.dog.id, **kwargs}
+        return self.client.post('/api/date-change-requests/', payload, format='json')
+
+    def test_owner_cancel_stays_pending(self):
+        self.client.login(username='owner', password='pw')
+        resp = self._post(request_type='CANCEL', original_date='2026-05-10')
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'PENDING')
+        self.assertIsNone(req.approved_by)
+
+    def test_staff_cancel_auto_approves_and_unassigns(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date='2026-05-10', status='ASSIGNED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self._post(request_type='CANCEL', original_date='2026-05-10')
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'APPROVED')
+        self.assertEqual(req.approved_by, self.staff)
+        self.assertIsNotNone(req.approved_at)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date='2026-05-10').exists()
+        )
+        hist = DateChangeRequestHistory.objects.filter(request=req).first()
+        self.assertIsNotNone(hist)
+        self.assertEqual(hist.from_status, 'PENDING')
+        self.assertEqual(hist.to_status, 'APPROVED')
+
+    def test_staff_change_auto_approves(self):
+        self.client.login(username='staff', password='pw')
+        resp = self._post(
+            request_type='CHANGE',
+            original_date='2026-05-10',
+            new_date='2026-05-12',
+        )
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'APPROVED')
+
+    def test_staff_add_day_auto_approves(self):
+        self.client.login(username='staff', password='pw')
+        resp = self._post(request_type='ADD_DAY', new_date='2026-05-15')
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'APPROVED')
+
+
 class DogCRUDTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
