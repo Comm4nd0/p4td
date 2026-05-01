@@ -693,6 +693,8 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
 
         title = f"{dog_name} Status Update"
         body = f"{dog_name} is now {new_status}."
+        if instance.status in ('PICKED_UP', 'DROPPED_OFF'):
+            body += "\n\nThis message might not reflect actual timing of drop off/pick up."
 
         data = {
             'type': 'dog_status_update',
