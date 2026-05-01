@@ -614,6 +614,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
         }
       }
       _sortOption = DogSortOption.custom;
+      _applySorting();
       _dataChanged = true;
     });
 
