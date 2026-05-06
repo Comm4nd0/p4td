@@ -72,7 +72,7 @@ class SiteSettings(models.Model):
             'for your dog to play, exercise and socialize with other dogs, all '
             'under the watchful eye of our experienced and caring staff. Whether '
             'you\'re at work, running errands or simply need a break, we\'re here '
-            'to give your pup the attention and care they need, so you can have '
+            'to give your dog the attention and care they need, so you can have '
             'peace of mind knowing that your dog is happy and well taken care of.'
         ),
         help_text='Welcome section body text. HTML is allowed.',
@@ -148,7 +148,9 @@ class SiteSettings(models.Model):
             'problem behaviours your dog may be exhibiting.</p>'
             '<p>Our one-to-one training sessions are tailored to your specific '
             'needs, and can cover anything from basic obedience to advanced skills '
-            'such as agility training. With our one-to-one training, you\'ll '
+            'such as agility training. Sessions don\'t have to be on-site — our '
+            'trainer can come to you, whether that\'s your home, a local park, or '
+            'wherever your dog feels most comfortable. With our one-to-one training, you\'ll '
             'receive personalised attention and support throughout the entire '
             'training process, ensuring that you and your dog achieve your goals '
             'together. We are passionate about working with dogs and are committed '
