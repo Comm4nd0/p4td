@@ -23,7 +23,7 @@
                 <h2 class="card-title">
                     <a href="{% url 'website:blog_detail' post.slug %}">{{ post.title }}</a>
                 </h2>
-                <p class="card-excerpt">{{ post.excerpt }}</p>
+                <p class="card-excerpt">{{ post.excerpt|striptags }}</p>
             </div>
         </div>
         {% endfor %}

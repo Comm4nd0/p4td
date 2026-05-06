@@ -8,3 +8,4 @@ boto3
 Pillow
 firebase-admin
 django-summernote
+django-recaptcha>=4.0
