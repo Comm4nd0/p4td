@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'djoser',
     'corsheaders',
     'django_summernote',
+    'django_recaptcha',
     'api',
     'website',
 ]
@@ -264,6 +265,17 @@ if not DEBUG:
 # =============================================================================
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# =============================================================================
+# RECAPTCHA (v3)
+# =============================================================================
+
+# Public site key is rendered in HTML; private key verifies tokens server-side.
+# Generate at https://www.google.com/recaptcha/admin (choose reCAPTCHA v3).
+RECAPTCHA_PUBLIC_KEY = os.environ.get('RECAPTCHA_PUBLIC_KEY', '')
+RECAPTCHA_PRIVATE_KEY = os.environ.get('RECAPTCHA_PRIVATE_KEY', '')
+# Minimum score (0.0 = bot, 1.0 = human) required for the form to validate.
+RECAPTCHA_REQUIRED_SCORE = float(os.environ.get('RECAPTCHA_REQUIRED_SCORE', '0.5'))
 
 # =============================================================================
 # NOTIFICATION SETTINGS
