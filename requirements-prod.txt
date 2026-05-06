@@ -25,3 +25,6 @@ firebase-admin>=6.5.0
 
 # Rich text editor for admin
 django-summernote>=0.8
+
+# reCAPTCHA v3 (contact form)
+django-recaptcha>=4.0
