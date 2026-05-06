@@ -1,10 +1,8 @@
 import firebase_admin
 from firebase_admin import credentials, messaging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
-
-from django.conf import settings
 
 from .models import DeviceToken
 
@@ -31,41 +29,11 @@ def initialize_firebase():
         return False
 
 
-def _get_notification_tz():
-    return ZoneInfo(getattr(settings, 'NOTIFICATION_TIMEZONE', 'Europe/London'))
-
-
-def _is_work_hours():
-    """Return True if the current time is within the configured work-hours window."""
-    tz = _get_notification_tz()
-    local_now = datetime.now(tz)
-    start = getattr(settings, 'NOTIFICATION_START_HOUR', 8)
-    end = getattr(settings, 'NOTIFICATION_END_HOUR', 18)
-    return start <= local_now.hour < end
-
-
-def _next_work_hours_start():
-    """Return the next work-hours start as a timezone-aware datetime (UTC)."""
-    tz = _get_notification_tz()
-    local_now = datetime.now(tz)
-    start = getattr(settings, 'NOTIFICATION_START_HOUR', 8)
-
-    # If we haven't passed the start hour yet today, schedule for today
-    if local_now.hour < start:
-        next_start = local_now.replace(hour=start, minute=0, second=0, microsecond=0)
-    else:
-        # Schedule for tomorrow
-        next_start = (local_now + timedelta(days=1)).replace(hour=start, minute=0, second=0, microsecond=0)
-
-    return next_start.astimezone(timezone.utc)
-
-
 def _is_staff_working_today(user):
     """Check if a staff member is working today based on availability and day-off requests."""
     from .models import StaffAvailability, DayOffRequest
 
-    tz = _get_notification_tz()
-    today = datetime.now(tz).date()
+    today = datetime.now(ZoneInfo('Europe/London')).date()
     dow = today.isoweekday()  # 1=Monday ... 7=Sunday
 
     # Check weekly availability (default to available if no record exists)
@@ -81,84 +49,6 @@ def _is_staff_working_today(user):
         return False
 
     return True
-
-
-def _queue_notification(user, title, body, data=None, category=''):
-    """Queue a notification for delivery at the next work-hours window."""
-    from .models import QueuedNotification
-
-    QueuedNotification.objects.create(
-        user=user,
-        title=title,
-        body=body,
-        data=data or {},
-        category=category,
-        scheduled_for=_next_work_hours_start(),
-    )
-
-
-_last_flush_time = None
-
-
-def _flush_queued_notifications():
-    """Opportunistically send any queued notifications whose scheduled time has passed.
-
-    Called during work hours from send_push_notification so that queued
-    messages are delivered without needing an external cron job.  A simple
-    time guard prevents flushing more than once per minute.
-    """
-    global _last_flush_time
-
-    now = datetime.now(timezone.utc)
-    if _last_flush_time and (now - _last_flush_time).total_seconds() < 60:
-        return
-    _last_flush_time = now
-
-    from .models import QueuedNotification
-    from django.utils.timezone import now as tz_now
-
-    pending = QueuedNotification.objects.filter(scheduled_for__lte=tz_now()).select_related('user')
-    if not pending.exists():
-        return
-
-    if not initialize_firebase():
-        return
-
-    for queued in pending:
-        user = queued.user
-
-        # Re-check working day
-        if user.is_staff and not _is_staff_working_today(user):
-            queued.delete()
-            continue
-
-        # Re-check preference
-        if queued.category and not _user_has_preference(user, queued.category):
-            queued.delete()
-            continue
-
-        tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
-        if not tokens:
-            queued.delete()
-            continue
-
-        for token in tokens:
-            message = messaging.Message(
-                notification=messaging.Notification(
-                    title=queued.title,
-                    body=queued.body,
-                ),
-                data=queued.data or {},
-                token=token,
-            )
-            try:
-                messaging.send(message)
-            except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
-                DeviceToken.objects.filter(token=token).delete()
-            except Exception as e:
-                print(f"Failed to flush queued notification to {token[:10]}...: {e}")
-
-        queued.delete()
 
 
 def _user_has_preference(user, category):
@@ -184,22 +74,14 @@ def send_push_notification(user, title, body, data=None, category=None):
     first.  When the preference is disabled the notification is silently
     skipped.
 
-    For staff users, notifications are only sent during work hours to staff
-    members who are working that day.  Out-of-hours notifications are queued
-    for the next work-hours window.
+    Staff members are skipped on days they are not working (per their weekly
+    availability or approved day-off requests).
     """
     if not _user_has_preference(user, category):
         return
 
-    # Staff-specific filtering
-    if user.is_staff:
-        if not _is_work_hours():
-            _queue_notification(user, title, body, data, category or '')
-            return
-        # During work hours, opportunistically flush any queued notifications
-        _flush_queued_notifications()
-        if not _is_staff_working_today(user):
-            return
+    if user.is_staff and not _is_staff_working_today(user):
+        return
 
     if not initialize_firebase():
         return

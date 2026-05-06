@@ -278,17 +278,6 @@ RECAPTCHA_PRIVATE_KEY = os.environ.get('RECAPTCHA_PRIVATE_KEY', '')
 RECAPTCHA_REQUIRED_SCORE = float(os.environ.get('RECAPTCHA_REQUIRED_SCORE', '0.5'))
 
 # =============================================================================
-# NOTIFICATION SETTINGS
-# =============================================================================
-
-# Staff push notifications are only sent during work hours in this timezone.
-# Notifications generated outside the window are queued and delivered at the
-# next NOTIFICATION_START_HOUR.
-NOTIFICATION_TIMEZONE = 'Europe/London'
-NOTIFICATION_START_HOUR = 8
-NOTIFICATION_END_HOUR = 18
-
-# =============================================================================
 # LOGGING
 # =============================================================================
 
