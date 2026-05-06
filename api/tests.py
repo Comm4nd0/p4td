@@ -585,6 +585,79 @@ class WeekdayRosterTests(TestCase):
         self.assertEqual(rows.count(), 1)
         self.assertEqual(rows.get().status, 'REMOVED')
 
+    # --- mark_removed (skip a rostered dog without first assigning) ---
+
+    def test_mark_removed_creates_removed_row_for_unassigned_dog(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.today)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.get().status, 'REMOVED')
+
+    def test_mark_removed_hides_dog_from_today_and_unassigned(self):
+        from django.db import connection
+        self.client.login(username='staffa', password='pw')
+        self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        today_resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(today_resp.status_code, 200)
+        self.assertEqual(today_resp.data, [])
+        if connection.vendor != 'sqlite':
+            unassigned_resp = self.client.get(
+                f'/api/daily-assignments/unassigned_dogs/?date={self.today.isoformat()}'
+            )
+            self.assertEqual(unassigned_resp.status_code, 200)
+            dog_ids = [d['id'] for d in unassigned_resp.data]
+            self.assertNotIn(self.dog.id, dog_ids)
+
+    def test_mark_removed_overwrites_existing_assignment(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today, status='ASSIGNED'
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.today)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.get().status, 'REMOVED')
+
+    def test_mark_removed_requires_can_assign_dogs(self):
+        no_perm = User.objects.create_user(username='noperm', password='pw', is_staff=True)
+        no_perm.profile.can_assign_dogs = False
+        no_perm.profile.save()
+        self.client.login(username='noperm', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
+
+    def test_mark_removed_validates_input(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': 'not-a-date',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
     # --- swap_staff ---
 
     def _make_swap_scenario(self):

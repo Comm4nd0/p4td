@@ -1441,6 +1441,59 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'created': data, 'skipped': skipped}, status=200)
         return Response(data, status=201)
 
+    @action(detail=False, methods=['post'])
+    def mark_removed(self, request):
+        """Mark a dog as removed from a specific day without first creating
+        a regular assignment. Used to skip a rostered dog (e.g. a daycare-day
+        dog that won't be coming this particular day) directly from the
+        unassigned list.
+
+        Body:
+          dog_id: int (required)
+          date: str (YYYY-MM-DD, required)
+
+        Creates a DailyDogAssignment with status='REMOVED' so the dog will
+        not be re-materialised by ``_materialize_roster_for_date``. If a row
+        already exists for (dog, date), it is updated to REMOVED.
+
+        Requires can_assign_dogs permission.
+        """
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to remove dogs from a day.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        from datetime import date as date_cls, timedelta
+        dog_id = request.data.get('dog_id')
+        date_str = request.data.get('date')
+        if not dog_id:
+            return Response({'detail': 'dog_id is required'}, status=400)
+        if not date_str:
+            return Response({'detail': 'date is required'}, status=400)
+        try:
+            target_date = date_cls.fromisoformat(date_str)
+        except ValueError:
+            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        max_date = date_cls.today() + timedelta(days=14)
+        if target_date > max_date:
+            return Response({'detail': 'Cannot modify days more than 14 days in advance.'}, status=400)
+
+        try:
+            dog = Dog.objects.get(id=dog_id)
+        except Dog.DoesNotExist:
+            return Response({'detail': 'Dog not found'}, status=404)
+
+        assignment, _ = DailyDogAssignment.objects.get_or_create(
+            dog=dog,
+            date=target_date,
+            defaults={'staff_member': request.user, 'status': 'REMOVED'},
+        )
+        if assignment.status != 'REMOVED':
+            assignment.status = 'REMOVED'
+            assignment.save(update_fields=['status', 'updated_at'])
+        return Response(status=204)
+
     @action(detail=True, methods=['post'])
     def reassign(self, request, pk=None):
         """Reassign a dog to a different staff member.
