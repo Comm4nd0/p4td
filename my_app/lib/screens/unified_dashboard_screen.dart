@@ -59,9 +59,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   final Map<String, List<DailyDogAssignment>> _assignmentCache = {};
   final Set<String> _loadingDates = {};
 
-  // Count of scheduled dogs that are not yet assigned for a date,
-  // excluding ad-hoc dogs (those are shown to admins separately).
-  final Map<String, int> _unassignedCountCache = {};
+  // Scheduled dogs that are not yet assigned for a date, excluding ad-hoc
+  // dogs (those are shown to admins separately). Used both for the
+  // unassigned banner count and the All Dogs view.
+  final Map<String, List<Dog>> _unassignedDogsCache = {};
 
   // Date navigation
   List<DateTime> _dateOptions = [];
@@ -202,17 +203,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   Future<void> _loadUnassignedCountForDate(DateTime date, {bool forceReload = false}) async {
     final key = _dateKey(date);
-    if (!forceReload && _unassignedCountCache.containsKey(key)) return;
+    if (!forceReload && _unassignedDogsCache.containsKey(key)) return;
     try {
       final unassigned = await _dataService.getUnassignedDogs(date: date);
-      final count = unassigned.where((d) => d.scheduleType != ScheduleType.adHoc).length;
-      if (mounted) setState(() => _unassignedCountCache[key] = count);
+      final nonAdHoc = unassigned.where((d) => d.scheduleType != ScheduleType.adHoc).toList();
+      if (mounted) setState(() => _unassignedDogsCache[key] = nonAdHoc);
     } catch (_) {}
   }
 
   Future<void> _loadAssignments() {
     _assignmentCache.clear();
-    _unassignedCountCache.clear();
+    _unassignedDogsCache.clear();
     return _loadAssignmentsForDate(_selectedDate, forceReload: true);
   }
 
@@ -325,13 +326,21 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   // ─── Navigation ────────────────────────────────────────────────────
 
-  Future<void> _navigateToAllDogs(List<DailyDogAssignment> assignments) async {
+  Future<void> _navigateToAllDogs(
+    List<DailyDogAssignment> assignments,
+    List<Dog> unassignedDogs,
+  ) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AllDogsTodayScreen(
           date: _selectedDate,
           assignments: assignments,
+          unassignedDogs: unassignedDogs,
+          canAssignDogs: widget.canAssignDogs,
+          isStaff: widget.isStaff,
+          staffMembers: _staffMembers,
+          availableStaffIds: _availableStaffIds,
         ),
       ),
     );
@@ -1151,7 +1160,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildUnassignedBanner(DateTime date) {
-    final count = _unassignedCountCache[_dateKey(date)] ?? 0;
+    final count = _unassignedDogsCache[_dateKey(date)]?.length ?? 0;
     if (count == 0) return const SizedBox.shrink();
     final label = count == 1 ? '1 dog unassigned' : '$count dogs unassigned';
     return Padding(
@@ -1184,22 +1193,22 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildOverviewMetrics(List<DailyDogAssignment> assignments) {
-    final uniqueDogs = assignments.map((a) => a.dogId).toSet().length;
+    final unassignedDogs = _unassignedDogsCache[_dateKey(_selectedDate)] ?? const <Dog>[];
+    final uniqueAssignedDogs = assignments.map((a) => a.dogId).toSet().length;
+    final allDogsCount = uniqueAssignedDogs + unassignedDogs.length;
     final myDogs = widget.myUserId != null
         ? assignments.where((a) => a.staffMemberId == widget.myUserId).length
         : 0;
-    // Count dogs that are unassigned (booked but in the "unassigned" pool is not directly known from assignments,
-    // but we can show total assigned count)
     final boardingCount = assignments.where((a) => a.isBoarding).length;
 
     return Row(children: [
       Expanded(child: OverviewCard(
         compact: true,
         icon: PhosphorIconsDuotone.pawPrint,
-        value: '$uniqueDogs',
+        value: '$allDogsCount',
         label: 'All Dogs',
         color: AppColors.primary,
-        onTap: () => _navigateToAllDogs(assignments),
+        onTap: () => _navigateToAllDogs(assignments, unassignedDogs),
       )),
       const SizedBox(width: 6),
       Expanded(child: OverviewCard(
