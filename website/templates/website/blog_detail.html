@@ -2,14 +2,14 @@
 {% load static %}
 
 {% block title %}{{ post.title }} - Paws 4 Thought Dogs{% endblock %}
-{% block meta_description %}{{ post.excerpt }}{% endblock %}
+{% block meta_description %}{{ post.excerpt|striptags }}{% endblock %}
 
 {% block og_type %}article{% endblock %}
 {% block og_title %}{{ post.title }}{% endblock %}
-{% block og_description %}{{ post.excerpt }}{% endblock %}
+{% block og_description %}{{ post.excerpt|striptags }}{% endblock %}
 {% block og_image %}{% if post.featured_image %}{{ post.featured_image.url }}{% else %}{% static 'website/images/hero-bg.jpg' %}{% endif %}{% endblock %}
 {% block twitter_title %}{{ post.title }}{% endblock %}
-{% block twitter_description %}{{ post.excerpt }}{% endblock %}
+{% block twitter_description %}{{ post.excerpt|striptags }}{% endblock %}
 
 {% block content %}
 <section class="section">
@@ -83,7 +83,7 @@
     "@context": "https://schema.org",
     "@type": "BlogPosting",
     "headline": "{{ post.title|escapejs }}",
-    "description": "{{ post.excerpt|escapejs }}",
+    "description": "{{ post.excerpt|striptags|escapejs }}",
     {% if post.featured_image %}"image": "{{ post.featured_image.url }}",{% endif %}
     "datePublished": "{{ post.published_at|date:'c' }}",
     "dateModified": "{{ post.updated_at|date:'c' }}",
