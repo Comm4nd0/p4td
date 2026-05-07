@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'constants/app_colors.dart';
 import 'screens/home_screen.dart';
-import 'screens/login_screen.dart';
+import 'screens/landing_screen.dart';
 import 'services/auth_service.dart';
 import 'services/theme_service.dart';
 import 'services/cache_service.dart';
@@ -82,7 +82,7 @@ class _MyAppState extends State<MyApp> {
             if (snapshot.hasData && snapshot.data != null) {
               return const HomeScreen();
             } else {
-              return const LoginScreen();
+              return const LandingScreen();
             }
           },
         ),
