@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
+import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
 
 enum DogSortOption {
@@ -40,7 +41,9 @@ class StaffDogDetailScreen extends StatefulWidget {
 }
 
 class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
+  static const _sortCacheKey = 'staff_dog_detail';
   final DataService _dataService = ApiDataService();
+  final CacheService _cacheService = CacheService();
   late List<DailyDogAssignment> _assignments;
   DogSortOption _sortOption = DogSortOption.nameAsc;
   bool _dataChanged = false;
@@ -56,7 +59,20 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     if (hasCustomOrder) {
       _sortOption = DogSortOption.custom;
     }
+    _restoreSortPreference();
     _applySorting();
+  }
+
+  void _restoreSortPreference() {
+    final saved = _cacheService.getCachedSortPreference(_sortCacheKey);
+    if (saved != null) {
+      for (final option in DogSortOption.values) {
+        if (option.name == saved) {
+          _sortOption = option;
+          break;
+        }
+      }
+    }
   }
 
   void _applySorting() {
@@ -550,10 +566,13 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     return PopupMenuButton<DogSortOption>(
       icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
-      onSelected: (option) => setState(() {
-        _sortOption = option;
-        _applySorting();
-      }),
+      onSelected: (option) {
+        setState(() {
+          _sortOption = option;
+          _applySorting();
+        });
+        _cacheService.cacheSortPreference(_sortCacheKey, option.name);
+      },
       itemBuilder: (context) => DogSortOption.values
           .where((option) => option != DogSortOption.custom)
           .map((option) => PopupMenuItem(
@@ -614,8 +633,10 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
         }
       }
       _sortOption = DogSortOption.custom;
+      _applySorting();
       _dataChanged = true;
     });
+    _cacheService.cacheSortPreference(_sortCacheKey, DogSortOption.custom.name);
 
     // Persist to backend
     final ids = staffPickups.map((a) => a.id).toList();

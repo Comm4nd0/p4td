@@ -65,6 +65,11 @@
                     {% endif %}
                 </div>
 
+                {{ form.captcha }}
+                {% if form.captcha.errors %}
+                <div class="form-errors">{{ form.captcha.errors.0 }}</div>
+                {% endif %}
+
                 <button type="submit" class="btn btn-primary">Submit</button>
             </form>
         </div>

@@ -736,35 +736,57 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only create requests for your own dogs")
-        instance = serializer.save()
 
-        # Auto-approve ADD_DAY requests created by staff
-        if self.request.user.is_staff and instance.request_type == 'ADD_DAY':
-            instance.status = 'APPROVED'
-            instance.approved_by = self.request.user
-            instance.approved_at = timezone.now()
-            instance.save()
+        # Auto-approve any date change request created by staff — owner-created
+        # requests stay PENDING and go through the normal approval workflow.
+        if not self.request.user.is_staff:
+            serializer.save()
+            return
 
-            # Record history
-            DateChangeRequestHistory.objects.create(
-                request=instance,
-                changed_by=self.request.user,
-                from_status='PENDING',
-                to_status='APPROVED',
-            )
+        instance = serializer.save(
+            status='APPROVED',
+            approved_by=self.request.user,
+            approved_at=timezone.now(),
+        )
 
-            # Notify dog owners
-            try:
-                from .notifications import send_push_notification
+        # Record history
+        DateChangeRequestHistory.objects.create(
+            request=instance,
+            changed_by=self.request.user,
+            from_status='PENDING',
+            to_status='APPROVED',
+        )
+
+        # When a cancellation is approved, unassign the dog for that date
+        # (mirrors the change_status flow used for owner-created requests).
+        if instance.request_type == 'CANCEL' and instance.original_date:
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog,
+                date=instance.original_date,
+            ).delete()
+
+        # Notify dog owners
+        try:
+            from .notifications import send_push_notification
+            if instance.request_type == 'ADD_DAY':
                 title = "Additional Day Added"
                 body = f"An additional day for {instance.dog.name} on {instance.new_date} has been added by staff."
-                data = {'type': 'date_change_status', 'id': str(instance.id)}
-                if instance.dog.owner:
-                    send_push_notification(instance.dog.owner, title, body, data)
-                for additional_owner in instance.dog.additional_owners.all():
-                    send_push_notification(additional_owner, title, body, data)
-            except Exception as e:
-                print(f"Failed to send push notification: {e}")
+            elif instance.request_type == 'CANCEL':
+                title = "Day Cancelled"
+                body = f"{instance.dog.name}'s day on {instance.original_date} has been cancelled by staff."
+            else:  # CHANGE
+                title = "Day Changed"
+                body = (
+                    f"{instance.dog.name}'s day has been changed from "
+                    f"{instance.original_date} to {instance.new_date} by staff."
+                )
+            data = {'type': 'date_change_status', 'id': str(instance.id)}
+            if instance.dog.owner:
+                send_push_notification(instance.dog.owner, title, body, data)
+            for additional_owner in instance.dog.additional_owners.all():
+                send_push_notification(additional_owner, title, body, data)
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
@@ -1253,15 +1275,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             id__in=cancelled_dog_ids
         ).distinct()
 
-        # Exclude dogs with an active assignment for that date. REMOVED
-        # rows are intentionally kept out of this filter so that dogs
-        # unassigned via `just_this_day` fall back into the unassigned
-        # pool where they can be reassigned.
-        assigned_dog_ids = DailyDogAssignment.objects.filter(
+        # Exclude dogs that already have an assignment for this date
+        # (any status, including REMOVED — a REMOVED row means staff
+        # explicitly cancelled the dog for this day).
+        assigned_or_removed_dog_ids = DailyDogAssignment.objects.filter(
             date=target_date
-        ).exclude(status='REMOVED').values_list('dog_id', flat=True)
+        ).values_list('dog_id', flat=True)
 
-        unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
+        unassigned = scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids)
         serializer = DogSerializer(unassigned, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -1419,6 +1440,59 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if skipped:
             return Response({'created': data, 'skipped': skipped}, status=200)
         return Response(data, status=201)
+
+    @action(detail=False, methods=['post'])
+    def mark_removed(self, request):
+        """Mark a dog as removed from a specific day without first creating
+        a regular assignment. Used to skip a rostered dog (e.g. a daycare-day
+        dog that won't be coming this particular day) directly from the
+        unassigned list.
+
+        Body:
+          dog_id: int (required)
+          date: str (YYYY-MM-DD, required)
+
+        Creates a DailyDogAssignment with status='REMOVED' so the dog will
+        not be re-materialised by ``_materialize_roster_for_date``. If a row
+        already exists for (dog, date), it is updated to REMOVED.
+
+        Requires can_assign_dogs permission.
+        """
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to remove dogs from a day.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        from datetime import date as date_cls, timedelta
+        dog_id = request.data.get('dog_id')
+        date_str = request.data.get('date')
+        if not dog_id:
+            return Response({'detail': 'dog_id is required'}, status=400)
+        if not date_str:
+            return Response({'detail': 'date is required'}, status=400)
+        try:
+            target_date = date_cls.fromisoformat(date_str)
+        except ValueError:
+            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        max_date = date_cls.today() + timedelta(days=14)
+        if target_date > max_date:
+            return Response({'detail': 'Cannot modify days more than 14 days in advance.'}, status=400)
+
+        try:
+            dog = Dog.objects.get(id=dog_id)
+        except Dog.DoesNotExist:
+            return Response({'detail': 'Dog not found'}, status=404)
+
+        assignment, _ = DailyDogAssignment.objects.get_or_create(
+            dog=dog,
+            date=target_date,
+            defaults={'staff_member': request.user, 'status': 'REMOVED'},
+        )
+        if assignment.status != 'REMOVED':
+            assignment.status = 'REMOVED'
+            assignment.save(update_fields=['status', 'updated_at'])
+        return Response(status=204)
 
     @action(detail=True, methods=['post'])
     def reassign(self, request, pk=None):

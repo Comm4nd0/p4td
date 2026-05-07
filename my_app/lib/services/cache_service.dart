@@ -81,6 +81,22 @@ class CacheService {
     return (data as List).cast<Map<String, dynamic>>();
   }
 
+  // ── Sort Preferences ─────────────────────────────────────────────
+
+  static const _sortPrefPrefix = 'sort_pref_';
+
+  /// Save the user's chosen sort option for a given screen.
+  Future<void> cacheSortPreference(String screenKey, String sortOptionName) async {
+    if (_box == null) return;
+    await _box!.put('$_sortPrefPrefix$screenKey', sortOptionName);
+  }
+
+  /// Retrieve the saved sort option name for a screen, or null if none saved.
+  String? getCachedSortPreference(String screenKey) {
+    if (_box == null) return null;
+    return _box!.get('$_sortPrefPrefix$screenKey') as String?;
+  }
+
   // ── Utilities ───────────────────────────────────────────────────
 
   /// Clear all cached data (e.g. on logout).

@@ -103,6 +103,7 @@ abstract class DataService {
     int assignmentId, {
     AssignmentScope scope = AssignmentScope.justThisDay,
   });
+  Future<void> removeDogFromDay(int dogId, DateTime date);
   Future<Map<String, dynamic>> swapStaff({
     required int fromStaffId,
     required int toStaffId,
@@ -1424,6 +1425,29 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<void> removeDogFromDay(int dogId, DateTime date) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/mark_removed/'),
+      headers: headers,
+      body: json.encode({
+        'dog_id': dogId,
+        'date': _dateBody(date),
+      }),
+    );
+    if (response.statusCode != 204) {
+      String errorMessage = 'Failed to remove dog from day';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData['detail'] != null) {
+          errorMessage = errorData['detail'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
   Future<Map<String, dynamic>> swapStaff({
     required int fromStaffId,
     required int toStaffId,
@@ -2397,6 +2421,9 @@ class MockDataService implements DataService {
     int assignmentId, {
     AssignmentScope scope = AssignmentScope.justThisDay,
   }) async {}
+
+  @override
+  Future<void> removeDogFromDay(int dogId, DateTime date) async {}
 
   @override
   Future<Map<String, dynamic>> swapStaff({

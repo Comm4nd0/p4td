@@ -156,7 +156,6 @@ See `.env.example` for required variables. Key ones:
 
 | Command | Purpose |
 |---|---|
-| `python manage.py flush_notification_queue` | Send queued staff notifications whose scheduled time has arrived |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files |
 
 ### Feed Media Pruning

@@ -457,23 +457,6 @@ class DeviceToken(models.Model):
         return f"Token for {self.user.username} ({self.device_type})"
 
 
-class QueuedNotification(models.Model):
-    """Stores staff notifications generated outside work hours for later delivery."""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='queued_notifications')
-    title = models.CharField(max_length=255)
-    body = models.TextField()
-    data = models.JSONField(default=dict, blank=True)
-    category = models.CharField(max_length=50, blank=True, default='')
-    created_at = models.DateTimeField(auto_now_add=True)
-    scheduled_for = models.DateTimeField()
-
-    class Meta:
-        ordering = ['scheduled_for', 'created_at']
-
-    def __str__(self):
-        return f"Queued for {self.user.username} at {self.scheduled_for}: {self.title}"
-
-
 class SupportQuery(models.Model):
     STATUS_CHOICES = [
         ('OPEN', 'Open'),
@@ -519,6 +502,10 @@ from .notifications import send_staff_notification, send_push_notification
 @receiver(post_save, sender=DateChangeRequest)
 def notify_staff_date_change(sender, instance, created, **kwargs):
     if created:
+        # Skip the staff notification when staff has auto-approved their own
+        # request — there's nothing for managers to action.
+        if instance.status != 'PENDING':
+            return
         dog_name = instance.dog.name
         request_type = instance.get_request_type_display()
         if instance.request_type == 'ADD_DAY':
@@ -693,6 +680,8 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
 
         title = f"{dog_name} Status Update"
         body = f"{dog_name} is now {new_status}."
+        if instance.status in ('PICKED_UP', 'DROPPED_OFF'):
+            body += "\n\nThis message might not reflect actual timing of drop off/pick up."
 
         data = {
             'type': 'dog_status_update',
