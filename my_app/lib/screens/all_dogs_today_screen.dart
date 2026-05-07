@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
 
 enum _SortOption {
@@ -46,7 +47,9 @@ class AllDogsTodayScreen extends StatefulWidget {
 }
 
 class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
+  static const _sortCacheKey = 'all_dogs_today';
   final DataService _dataService = ApiDataService();
+  final CacheService _cacheService = CacheService();
   late List<DailyDogAssignment> _assignments;
   late List<Dog> _unassignedDogs;
   _SortOption _sortOption = _SortOption.nameAsc;
@@ -59,7 +62,20 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     super.initState();
     _assignments = List.of(widget.assignments);
     _unassignedDogs = List.of(widget.unassignedDogs);
+    _restoreSortPreference();
     _applySorting();
+  }
+
+  void _restoreSortPreference() {
+    final saved = _cacheService.getCachedSortPreference(_sortCacheKey);
+    if (saved != null) {
+      for (final option in _SortOption.values) {
+        if (option.name == saved) {
+          _sortOption = option;
+          break;
+        }
+      }
+    }
   }
 
   void _applySorting() {
@@ -791,10 +807,13 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     return PopupMenuButton<_SortOption>(
       icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
-      onSelected: (option) => setState(() {
-        _sortOption = option;
-        _applySorting();
-      }),
+      onSelected: (option) {
+        setState(() {
+          _sortOption = option;
+          _applySorting();
+        });
+        _cacheService.cacheSortPreference(_sortCacheKey, option.name);
+      },
       itemBuilder: (context) => _SortOption.values
           .map((option) => PopupMenuItem(
                 value: option,
