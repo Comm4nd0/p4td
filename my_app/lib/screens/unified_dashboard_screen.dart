@@ -1072,23 +1072,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     const SizedBox(height: 16),
                     _buildActionItems(),
                     const SizedBox(height: 16),
-                    // Add Dog to Day button
-                    if (widget.canAssignDogs)
-                      OutlinedButton.icon(
-                        onPressed: _showAddDogToDayDialog,
-                        icon: PhosphorIcon(PhosphorIconsDuotone.plusCircle),
-                        label: const Text('Add Dog to Day'),
-                      ),
-                    if (widget.canAssignDogs)
-                      const SizedBox(height: 8),
-                    // Swap Staff button
-                    if (widget.canAssignDogs)
-                      OutlinedButton.icon(
-                        onPressed: _showSwapStaffDialog,
-                        icon: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight),
-                        label: const Text('Swap Staff'),
-                      ),
-                    const SizedBox(height: 16),
                     _buildBoardingSection(),
                     const SizedBox(height: 16),
                     _buildQuickActions(),
@@ -1601,12 +1584,25 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
             ActionChip(
               avatar: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
               label: const Text('Upload to Feed'),
               onPressed: _uploadMediaFromDashboard,
             ),
+            if (widget.canAssignDogs)
+              ActionChip(
+                avatar: PhosphorIcon(PhosphorIconsDuotone.plusCircle, size: 18),
+                label: const Text('Add Dog to Day'),
+                onPressed: _showAddDogToDayDialog,
+              ),
+            if (widget.canAssignDogs)
+              ActionChip(
+                avatar: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight, size: 18),
+                label: const Text('Swap Staff'),
+                onPressed: _showSwapStaffDialog,
+              ),
           ],
         ),
       ],
