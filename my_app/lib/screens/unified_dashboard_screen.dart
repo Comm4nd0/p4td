@@ -77,6 +77,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   List<Map<String, dynamic>> _staffMembers = [];
   Set<int> _availableStaffIds = {};
 
+  // Unassigned banner expansion state
+  bool _unassignedExpanded = false;
+
   // Dashboard data
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -275,7 +278,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   // ─── Public methods for parent FABs ───────────────────────────────
 
-  void assignDogs() => _showAssignDogsDialog();
   void showSwapStaffDialog() => _showSwapStaffDialog();
 
   void filterByStaff(int? staffId) {
@@ -1038,7 +1040,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             itemCount: _dateOptions.length,
             onPageChanged: (index) {
               final date = _dateOptions[index];
-              setState(() => _selectedDate = date);
+              setState(() {
+                _selectedDate = date;
+                _unassignedExpanded = false;
+              });
               _scrollToDateChip(index);
               _loadAssignmentsForDate(date);
               _loadAvailableStaff(date);
@@ -1160,36 +1165,213 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildUnassignedBanner(DateTime date) {
-    final count = _unassignedDogsCache[_dateKey(date)]?.length ?? 0;
-    if (count == 0) return const SizedBox.shrink();
+    final dogs = _unassignedDogsCache[_dateKey(date)] ?? [];
+    if (dogs.isEmpty) return const SizedBox.shrink();
+    final count = dogs.length;
     final label = count == 1 ? '1 dog unassigned' : '$count dogs unassigned';
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.red.shade600,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: widget.canAssignDogs || widget.isStaff ? _showAssignDogsDialog : null,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.white, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                  ),
+      child: Column(
+        children: [
+          // Tappable header
+          Material(
+            color: Colors.red.shade600,
+            borderRadius: _unassignedExpanded
+                ? const BorderRadius.vertical(top: Radius.circular(8))
+                : BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: _unassignedExpanded
+                  ? const BorderRadius.vertical(top: Radius.circular(8))
+                  : BorderRadius.circular(8),
+              onTap: () => setState(() => _unassignedExpanded = !_unassignedExpanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    AnimatedRotation(
+                      turns: _unassignedExpanded ? 0.25 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: PhosphorIcon(PhosphorIconsDuotone.caretRight, color: Colors.white, size: 16),
+                    ),
+                  ],
                 ),
-                PhosphorIcon(PhosphorIconsDuotone.caretRight, color: Colors.white, size: 16),
+              ),
+            ),
+          ),
+          // Expandable dog list
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Container(
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Column(
+                children: [
+                  ...dogs.map((dog) => _buildUnassignedDogRow(dog)),
+                  // Bulk assign button
+                  if (widget.canAssignDogs || widget.isStaff)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _showAssignDogsDialog,
+                          icon: PhosphorIcon(PhosphorIconsDuotone.usersThree, size: 18),
+                          label: const Text('Assign All...'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade700,
+                            side: BorderSide(color: Colors.red.shade300),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            crossFadeState: _unassignedExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnassignedDogRow(Dog dog) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          // Dog avatar
+          if (dog.profileImageUrl != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: CachedNetworkImage(
+                imageUrl: dog.profileImageUrl!,
+                width: 36, height: 36, fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  width: 36, height: 36, color: Colors.grey[200],
+                  child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18),
+                ),
+                errorWidget: (context, url, error) =>
+                    CircleAvatar(radius: 18, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18)),
+              ),
+            )
+          else
+            CircleAvatar(radius: 18, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18)),
+          const SizedBox(width: 10),
+          // Dog name + owner
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(dog.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                if (dog.ownerDetails != null)
+                  Text(dog.ownerDetails!.username,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
               ],
             ),
           ),
+          // Quick assign actions
+          if (widget.isStaff)
+            _buildAssignToMeButton(dog),
+          if (widget.canAssignDogs) ...[
+            const SizedBox(width: 4),
+            _buildAssignToStaffButton(dog),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssignToMeButton(Dog dog) {
+    return SizedBox(
+      height: 32,
+      child: TextButton.icon(
+        onPressed: () => _quickAssignToMe(dog),
+        icon: PhosphorIcon(PhosphorIconsDuotone.userPlus, size: 16, color: AppColors.primary),
+        label: Text('Me', style: TextStyle(fontSize: 12, color: AppColors.primary)),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       ),
     );
+  }
+
+  Widget _buildAssignToStaffButton(Dog dog) {
+    return SizedBox(
+      height: 32,
+      child: TextButton.icon(
+        onPressed: () => _quickAssignToStaff(dog),
+        icon: PhosphorIcon(PhosphorIconsDuotone.users, size: 16, color: AppColors.primaryLight),
+        label: Text('Staff', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _quickAssignToMe(Dog dog) async {
+    try {
+      final result = await _dataService.assignDogsToMe([int.parse(dog.id)], date: _selectedDate);
+      if (mounted) {
+        if (result.hasSkipped) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: Colors.orange),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${dog.name} assigned to you'), backgroundColor: Colors.green),
+          );
+        }
+      }
+      await _loadAssignments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign: $e')));
+      }
+    }
+  }
+
+  Future<void> _quickAssignToStaff(Dog dog) async {
+    final staffId = await _pickStaffMember();
+    if (staffId == null || !mounted) return;
+    try {
+      final result = await _dataService.assignDogs([int.parse(dog.id)], staffId, date: _selectedDate);
+      if (mounted) {
+        if (result.hasSkipped) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: Colors.orange),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${dog.name} assigned'), backgroundColor: Colors.green),
+          );
+        }
+      }
+      await _loadAssignments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign: $e')));
+      }
+    }
   }
 
   Widget _buildOverviewMetrics(List<DailyDogAssignment> assignments) {
