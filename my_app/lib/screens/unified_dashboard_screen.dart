@@ -82,6 +82,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   // Dashboard data
   int _pendingRequestCount = 0;
+  int _pendingBoardingCount = 0;
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
   int _pendingProfileChangeCount = 0;
@@ -241,7 +242,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       final boardingRequests = await _dataService.getBoardingRequests();
       final pendingDateCount = dateRequests.where((r) => r.status == RequestStatus.pending).length;
       final pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
-      if (mounted) setState(() => _pendingRequestCount = pendingDateCount + pendingBoardingCount);
+      if (mounted) {
+        setState(() {
+          _pendingRequestCount = pendingDateCount + pendingBoardingCount;
+          _pendingBoardingCount = pendingBoardingCount;
+        });
+      }
     } catch (_) {}
   }
 
@@ -1467,8 +1473,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         ActionItemTile(
           icon: PhosphorIconsDuotone.bed,
           label: 'Boarding Requests',
-          count: _boardingTonight.length,
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen())),
+          count: _pendingBoardingCount,
+          onTap: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()));
+            _loadPendingRequestCount();
+          },
         ),
       ],
     );
