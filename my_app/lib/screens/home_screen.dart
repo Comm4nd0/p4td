@@ -453,14 +453,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: PhosphorIcon(PhosphorIconsDuotone.plus),
               label: const Text('Add Dog'),
             )
-          : _currentIndex == 2 && _canAssignDogs
-              ? FloatingActionButton.small(
-                  heroTag: 'swapStaffFab',
-                  onPressed: () => _dashboardKey.currentState?.showSwapStaffDialog(),
-                  tooltip: 'Swap staff',
-                  child: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight),
-                )
-              : null,
+          : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) async {

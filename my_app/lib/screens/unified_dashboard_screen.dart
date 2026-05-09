@@ -276,9 +276,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     } catch (_) {}
   }
 
-  // ─── Public methods for parent FABs ───────────────────────────────
-
-  void showSwapStaffDialog() => _showSwapStaffDialog();
+  // ─── Public methods for parent ─────────────────────────────────────
 
   void filterByStaff(int? staffId) {
     if (staffId != null) {
@@ -1080,6 +1078,15 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         onPressed: _showAddDogToDayDialog,
                         icon: PhosphorIcon(PhosphorIconsDuotone.plusCircle),
                         label: const Text('Add Dog to Day'),
+                      ),
+                    if (widget.canAssignDogs)
+                      const SizedBox(height: 8),
+                    // Swap Staff button
+                    if (widget.canAssignDogs)
+                      OutlinedButton.icon(
+                        onPressed: _showSwapStaffDialog,
+                        icon: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight),
+                        label: const Text('Swap Staff'),
                       ),
                     const SizedBox(height: 16),
                     _buildBoardingSection(),
