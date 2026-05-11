@@ -129,7 +129,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       if (mounted) {
         setState(() {
           _assignments = assignments;
-          _unassignedDogs = unassigned.where((d) => d.scheduleType != ScheduleType.adHoc).toList();
+          _unassignedDogs = unassigned;
           _applySorting();
           _dataChanged = true;
         });
