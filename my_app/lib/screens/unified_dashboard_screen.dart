@@ -210,8 +210,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (!forceReload && _unassignedDogsCache.containsKey(key)) return;
     try {
       final unassigned = await _dataService.getUnassignedDogs(date: date);
-      final nonAdHoc = unassigned.where((d) => d.scheduleType != ScheduleType.adHoc).toList();
-      if (mounted) setState(() => _unassignedDogsCache[key] = nonAdHoc);
+      if (mounted) setState(() => _unassignedDogsCache[key] = unassigned);
     } catch (_) {}
   }
 
