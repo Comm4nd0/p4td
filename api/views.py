@@ -1246,9 +1246,6 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # Dogs with this weekday in their daycare_days
         daycare_dogs = Dog.objects.filter(daycare_days__contains=[day_number])
 
-        # Ad hoc dogs can be assigned on any day
-        ad_hoc_dogs = Dog.objects.filter(schedule_type='ad_hoc')
-
         # Dogs with approved boarding that spans the target date
         boarding_dogs = Dog.objects.filter(
             boarding_requests__status='APPROVED',
@@ -1257,6 +1254,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         )
 
         # Dogs with approved additional day requests for the target date
+        # (this covers ad-hoc dogs — they only appear when explicitly booked)
         add_day_dogs = Dog.objects.filter(
             date_change_requests__request_type='ADD_DAY',
             date_change_requests__status='APPROVED',
@@ -1270,8 +1268,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             original_date=target_date,
         ).values_list('dog_id', flat=True)
 
-        # Combine daycare + ad hoc + boarding + additional days, exclude cancelled
-        scheduled_dogs = (daycare_dogs | ad_hoc_dogs | boarding_dogs | add_day_dogs).exclude(
+        # Combine daycare + boarding + additional days, exclude cancelled
+        scheduled_dogs = (daycare_dogs | boarding_dogs | add_day_dogs).exclude(
             id__in=cancelled_dog_ids
         ).distinct()
 
