@@ -225,9 +225,41 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                       width: double.infinity,
                       height: 300,
                       color: Colors.black,
-                      child: Image.memory(
-                        bytes,
-                        fit: BoxFit.contain,
+                      child: Stack(
+                        children: [
+                          InteractiveViewer(
+                            minScale: 1.0,
+                            maxScale: 5.0,
+                            clipBehavior: Clip.hardEdge,
+                            child: SizedBox.expand(
+                              child: Image.memory(bytes, fit: BoxFit.contain),
+                            ),
+                          ),
+                          Positioned(
+                            right: 8,
+                            top: 8,
+                            child: IgnorePointer(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Pinch to zoom',
+                                      style: TextStyle(color: Colors.white, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
