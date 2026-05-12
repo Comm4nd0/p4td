@@ -23,7 +23,7 @@ class DogTypeahead extends StatefulWidget {
   State<DogTypeahead> createState() => _DogTypeaheadState();
 }
 
-class _DogTypeaheadState extends State<DogTypeahead> {
+class _DogTypeaheadState extends State<DogTypeahead> with WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final LayerLink _layerLink = LayerLink();
@@ -33,6 +33,7 @@ class _DogTypeaheadState extends State<DogTypeahead> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _filteredDogs = widget.dogs;
     _focusNode.addListener(_onFocusChanged);
     // Set initial text if a dog is selected
@@ -42,6 +43,13 @@ class _DogTypeaheadState extends State<DogTypeahead> {
         _controller.text = dog.name;
       }
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // Rebuild the overlay when the keyboard appears / disappears so its
+    // maxHeight is re-clamped to the visible area above the keyboard.
+    _overlayEntry?.markNeedsBuild();
   }
 
   @override
@@ -61,6 +69,7 @@ class _DogTypeaheadState extends State<DogTypeahead> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _removeOverlay();
     _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
@@ -87,6 +96,19 @@ class _DogTypeaheadState extends State<DogTypeahead> {
     }
   }
 
+  double _availableOverlayHeight(BuildContext overlayContext) {
+    final renderBox = context.findRenderObject();
+    if (renderBox is! RenderBox || !renderBox.attached) return 200;
+    final mediaQuery = MediaQuery.of(overlayContext);
+    final fieldPos = renderBox.localToGlobal(Offset.zero);
+    final fieldBottom = fieldPos.dy + renderBox.size.height;
+    final available = mediaQuery.size.height
+        - mediaQuery.viewInsets.bottom
+        - fieldBottom
+        - 16;
+    return available.clamp(120.0, 280.0);
+  }
+
   void _filterDogs(String query) {
     setState(() {
       if (query.isEmpty) {
@@ -106,7 +128,7 @@ class _DogTypeaheadState extends State<DogTypeahead> {
     final size = renderBox.size;
 
     _overlayEntry = OverlayEntry(
-      builder: (context) => Positioned(
+      builder: (overlayContext) => Positioned(
         width: size.width,
         child: CompositedTransformFollower(
           link: _layerLink,
@@ -116,7 +138,7 @@ class _DogTypeaheadState extends State<DogTypeahead> {
             elevation: 4,
             borderRadius: BorderRadius.circular(8),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 200),
+              constraints: BoxConstraints(maxHeight: _availableOverlayHeight(overlayContext)),
               child: _filteredDogs.isEmpty
                   ? const Padding(
                       padding: EdgeInsets.all(12),
@@ -227,7 +249,7 @@ class DogMultiSelectTypeahead extends StatefulWidget {
   State<DogMultiSelectTypeahead> createState() => _DogMultiSelectTypeaheadState();
 }
 
-class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> {
+class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> with WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final LayerLink _layerLink = LayerLink();
@@ -237,17 +259,37 @@ class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _filteredDogs = widget.dogs;
     _focusNode.addListener(_onFocusChanged);
   }
 
   @override
+  void didChangeMetrics() {
+    _overlayEntry?.markNeedsBuild();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _removeOverlay();
     _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  double _availableOverlayHeight(BuildContext overlayContext) {
+    final renderBox = context.findRenderObject();
+    if (renderBox is! RenderBox || !renderBox.attached) return 200;
+    final mediaQuery = MediaQuery.of(overlayContext);
+    final fieldPos = renderBox.localToGlobal(Offset.zero);
+    final fieldBottom = fieldPos.dy + renderBox.size.height;
+    final available = mediaQuery.size.height
+        - mediaQuery.viewInsets.bottom
+        - fieldBottom
+        - 16;
+    return available.clamp(120.0, 280.0);
   }
 
   void _onFocusChanged() {
@@ -298,7 +340,7 @@ class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> {
     final size = renderBox.size;
 
     _overlayEntry = OverlayEntry(
-      builder: (context) => Positioned(
+      builder: (overlayContext) => Positioned(
         width: size.width,
         child: CompositedTransformFollower(
           link: _layerLink,
@@ -308,7 +350,7 @@ class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> {
             elevation: 4,
             borderRadius: BorderRadius.circular(8),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 200),
+              constraints: BoxConstraints(maxHeight: _availableOverlayHeight(overlayContext)),
               child: _filteredDogs.isEmpty
                   ? const Padding(
                       padding: EdgeInsets.all(12),
