@@ -9,6 +9,43 @@ enum Weekday {
   // Note: saturday and sunday removed - daycare only operates Mon-Fri
 }
 
+enum DogSex { male, female }
+
+DogSex? parseDogSex(dynamic value) {
+  if (value == null) return null;
+  switch (value.toString().toUpperCase()) {
+    case 'M':
+      return DogSex.male;
+    case 'F':
+      return DogSex.female;
+    default:
+      return null;
+  }
+}
+
+String? dogSexToApi(DogSex? sex) {
+  switch (sex) {
+    case DogSex.male:
+      return 'M';
+    case DogSex.female:
+      return 'F';
+    case null:
+      return null;
+  }
+}
+
+DateTime? parseApiDate(dynamic value) {
+  if (value == null) return null;
+  final s = value.toString();
+  if (s.isEmpty) return null;
+  return DateTime.tryParse(s);
+}
+
+String? formatApiDate(DateTime? d) {
+  if (d == null) return null;
+  return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+}
+
 /// Parse a backend time string ("HH:MM:SS" or "HH:MM") to TimeOfDay.
 TimeOfDay? parseApiTime(dynamic value) {
   if (value == null) return null;
@@ -147,6 +184,9 @@ class Dog {
   final bool ownerCollectsDefault;
   final TimeOfDay? ownerBringsDefaultTime;
   final TimeOfDay? ownerCollectsDefaultTime;
+  final DogSex? sex;
+  final DateTime? dateOfBirth;
+  final bool isSpayed;
 
   Dog({
     required this.id,
@@ -164,6 +204,9 @@ class Dog {
     this.ownerCollectsDefault = false,
     this.ownerBringsDefaultTime,
     this.ownerCollectsDefaultTime,
+    this.sex,
+    this.dateOfBirth,
+    this.isSpayed = false,
   });
 
   /// All owners (primary + additional) for convenience
@@ -172,6 +215,13 @@ class Dog {
     if (ownerDetails != null) owners.add(ownerDetails!);
     owners.addAll(additionalOwners);
     return owners;
+  }
+
+  /// True when staff need to chase the owner about spay status:
+  /// male, over 1 year old, and not marked spayed.
+  bool get needsSpayPrompt {
+    if (sex != DogSex.male || isSpayed || dateOfBirth == null) return false;
+    return DateTime.now().difference(dateOfBirth!).inDays > 365;
   }
 
   Dog copyWith({
@@ -190,6 +240,9 @@ class Dog {
     bool? ownerCollectsDefault,
     TimeOfDay? ownerBringsDefaultTime,
     TimeOfDay? ownerCollectsDefaultTime,
+    DogSex? sex,
+    DateTime? dateOfBirth,
+    bool? isSpayed,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -207,6 +260,9 @@ class Dog {
       ownerCollectsDefault: ownerCollectsDefault ?? this.ownerCollectsDefault,
       ownerBringsDefaultTime: ownerBringsDefaultTime ?? this.ownerBringsDefaultTime,
       ownerCollectsDefaultTime: ownerCollectsDefaultTime ?? this.ownerCollectsDefaultTime,
+      sex: sex ?? this.sex,
+      dateOfBirth: dateOfBirth ?? this.dateOfBirth,
+      isSpayed: isSpayed ?? this.isSpayed,
     );
   }
 }
