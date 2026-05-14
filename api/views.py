@@ -320,7 +320,7 @@ class DogViewSet(viewsets.ModelViewSet):
     def _create_change_request(self, request, dog):
         """Build a DogProfileChangeRequest from the incoming PATCH data."""
         # Fields an owner may propose to change
-        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type']
+        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
 
         proposed_changes = {}
         for field in ALLOWED_FIELDS:
@@ -404,11 +404,12 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
 
-        # Transport default fields are staff-only. Strip them from validated_data
-        # when the caller is not staff.
+        # Transport default fields and is_spayed are staff-only. Strip them from
+        # validated_data when the caller is not staff.
         if not self.request.user.is_staff:
             for field in ('owner_brings_default', 'owner_collects_default',
-                          'owner_brings_default_time', 'owner_collects_default_time'):
+                          'owner_brings_default_time', 'owner_collects_default_time',
+                          'is_spayed'):
                 serializer.validated_data.pop(field, None)
 
         # Attach the requesting user so the care-instructions signal can
@@ -441,6 +442,29 @@ class DogViewSet(viewsets.ModelViewSet):
                     dog=dog,
                     weekday__in=dropped,
                 ).delete()
+
+    @action(detail=False, methods=['get'])
+    def unspayed_males(self, request):
+        """Staff-only: list male dogs over 1 year old that are not yet spayed.
+
+        Dogs with no recorded date_of_birth are excluded because their age
+        is unknown. Used by the staff dashboard to prompt asking owners.
+        """
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Staff only.")
+
+        cutoff = timezone.now().date() - timezone.timedelta(days=365)
+        qs = Dog.objects.filter(
+            sex='M',
+            is_spayed=False,
+            date_of_birth__isnull=False,
+            date_of_birth__lte=cutoff,
+        ).order_by('name')
+        return Response({
+            'count': qs.count(),
+            'dogs': [{'id': d.id, 'name': d.name} for d in qs],
+        })
 
     def destroy(self, request, *args, **kwargs):
         """Staff-only endpoint to delete a dog and clean up associated data."""

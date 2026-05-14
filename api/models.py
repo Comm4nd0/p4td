@@ -81,6 +81,11 @@ class Dog(models.Model):
         ('ad_hoc', 'Ad Hoc'),
     ]
 
+    SEX_CHOICES = [
+        ('M', 'Male'),
+        ('F', 'Female'),
+    ]
+
     owner = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='dogs', null=True, blank=True)
     additional_owners = models.ManyToManyField(User, related_name='additional_dogs', blank=True)
     name = models.CharField(max_length=100)
@@ -93,6 +98,9 @@ class Dog(models.Model):
     owner_collects_default = models.BooleanField(default=False, help_text='Owner usually collects this dog from daycare (no staff drop-off home).')
     owner_brings_default_time = models.TimeField(null=True, blank=True, help_text='Expected default drop-off time when owner brings the dog.')
     owner_collects_default_time = models.TimeField(null=True, blank=True, help_text='Expected default pick-up time when owner collects the dog.')
+    sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

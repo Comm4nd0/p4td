@@ -192,6 +192,88 @@ class DogCRUDTests(TestCase):
         self.assertEqual(dog.name, 'NewName')
 
 
+class DogSpayStatusTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.client = APIClient()
+
+    def test_new_dog_defaults_is_spayed_false(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/dogs/', {'name': 'NewPup', 'owner': self.owner.id}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(resp.data['is_spayed'])
+
+    def test_owner_can_view_is_spayed(self):
+        Dog.objects.create(owner=self.owner, name='Fido', is_spayed=True)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/dogs/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertIn('is_spayed', resp.data[0])
+        self.assertTrue(resp.data[0]['is_spayed'])
+
+    def test_owner_cannot_change_is_spayed(self):
+        """Owner PATCH with is_spayed must not change the dog (not whitelisted)."""
+        dog = Dog.objects.create(owner=self.owner, name='Fido', is_spayed=False)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{dog.id}/', {'is_spayed': True}, format='json')
+        dog.refresh_from_db()
+        self.assertFalse(dog.is_spayed)
+        # No change request should be created for is_spayed alone
+        from .models import DogProfileChangeRequest
+        cr = DogProfileChangeRequest.objects.filter(dog=dog, status='PENDING').first()
+        if cr is not None:
+            self.assertNotIn('is_spayed', cr.proposed_changes)
+
+    def test_staff_can_change_is_spayed(self):
+        dog = Dog.objects.create(owner=self.owner, name='Fido', is_spayed=False)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/dogs/{dog.id}/', {'is_spayed': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        dog.refresh_from_db()
+        self.assertTrue(dog.is_spayed)
+
+    def test_unspayed_males_endpoint(self):
+        today = timezone.now().date()
+        two_years_ago = today - timedelta(days=730)
+        six_months_ago = today - timedelta(days=180)
+
+        target = Dog.objects.create(
+            owner=self.owner, name='UnspayedAdultMale',
+            sex='M', date_of_birth=two_years_ago, is_spayed=False,
+        )
+        Dog.objects.create(
+            owner=self.owner, name='YoungMale',
+            sex='M', date_of_birth=six_months_ago, is_spayed=False,
+        )
+        Dog.objects.create(
+            owner=self.owner, name='UnspayedFemale',
+            sex='F', date_of_birth=two_years_ago, is_spayed=False,
+        )
+        Dog.objects.create(
+            owner=self.owner, name='SpayedMale',
+            sex='M', date_of_birth=two_years_ago, is_spayed=True,
+        )
+        Dog.objects.create(
+            owner=self.owner, name='UnknownDobMale',
+            sex='M', date_of_birth=None, is_spayed=False,
+        )
+
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/dogs/unspayed_males/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 1)
+        names = [d['name'] for d in resp.data['dogs']]
+        self.assertEqual(names, ['UnspayedAdultMale'])
+        self.assertEqual(resp.data['dogs'][0]['id'], target.id)
+
+    def test_unspayed_males_endpoint_requires_staff(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/dogs/unspayed_males/')
+        self.assertEqual(resp.status_code, 403)
+
+
 class DailyAssignmentTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

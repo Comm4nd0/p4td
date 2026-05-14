@@ -86,6 +86,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
   int _pendingProfileChangeCount = 0;
+  int _unspayedMalesCount = 0;
+  List<UnspayedMaleSummary> _unspayedMales = [];
   List<BoardingRequest> _boardingTonight = [];
 
   @override
@@ -226,6 +228,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (widget.canViewInquiries) _loadUnreadInquiryCount();
     _loadBoardingTonight();
     if (widget.canManageRequests) _loadPendingProfileChangeCount();
+    _loadUnspayedMales();
+  }
+
+  Future<void> _loadUnspayedMales() async {
+    try {
+      final result = await _dataService.getUnspayedMales();
+      if (mounted) {
+        setState(() {
+          _unspayedMalesCount = result.count;
+          _unspayedMales = result.dogs;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadPendingProfileChangeCount() async {
@@ -1478,7 +1493,52 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             _loadPendingRequestCount();
           },
         ),
+        if (_unspayedMalesCount > 0) ...[
+          const SizedBox(height: 4),
+          ActionItemTile(
+            icon: PhosphorIconsDuotone.warningCircle,
+            label: 'Spay status to confirm',
+            count: _unspayedMalesCount,
+            onTap: _showUnspayedMalesDialog,
+          ),
+        ],
       ],
+    );
+  }
+
+  void _showUnspayedMalesDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Spay status to confirm'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'These male dogs are over 1 year old and not yet marked as spayed/neutered. '
+              'Please ask the owner whether their dog has been spayed yet.',
+            ),
+            const SizedBox(height: 12),
+            ..._unspayedMales.map((d) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      const PhosphorIcon(PhosphorIconsDuotone.dog, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(d.name)),
+                    ],
+                  ),
+                )),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
