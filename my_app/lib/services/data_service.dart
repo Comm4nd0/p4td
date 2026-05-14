@@ -31,6 +31,18 @@ class DogUpdatePendingApprovalException implements Exception {
   String toString() => message;
 }
 
+class UnspayedMaleSummary {
+  final String id;
+  final String name;
+  UnspayedMaleSummary({required this.id, required this.name});
+}
+
+class UnspayedMalesResult {
+  final int count;
+  final List<UnspayedMaleSummary> dogs;
+  UnspayedMalesResult({required this.count, required this.dogs});
+}
+
 abstract class DataService {
   Future<List<Dog>> getDogs();
   Future<List<Photo>> getPhotos(String dogId);
@@ -42,8 +54,9 @@ abstract class DataService {
   Future<UserProfile> deleteProfilePhoto();
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime});
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType});
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false});
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed});
+  Future<UnspayedMalesResult> getUnspayedMales();
   Future<void> deleteDog(String dogId);
   Future<Dog> assignDogToUser(String dogId, {int? owner, List<int>? additionalOwners});
   Future<List<OwnerProfile>> getOwners();
@@ -214,6 +227,9 @@ class ApiDataService implements DataService {
         ownerCollectsDefault: json['owner_collects_default'] ?? false,
         ownerBringsDefaultTime: parseApiTime(json['owner_brings_default_time']),
         ownerCollectsDefaultTime: parseApiTime(json['owner_collects_default_time']),
+        sex: parseDogSex(json['sex']),
+        dateOfBirth: parseApiDate(json['date_of_birth']),
+        isSpayed: json['is_spayed'] ?? false,
       );
     }).toList();
   }
@@ -367,7 +383,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -386,6 +402,10 @@ class ApiDataService implements DataService {
       if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
       if (ownerBringsDefaultTime != null) request.fields['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
       if (ownerCollectsDefaultTime != null) request.fields['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
+      if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
+      if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
+      if (clearDateOfBirth) request.fields['date_of_birth'] = '';
+      if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
 
       if (deletePhoto) {
         request.fields['profile_image'] = '';  // Empty string to clear the image
@@ -418,6 +438,10 @@ class ApiDataService implements DataService {
           if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
           if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
           if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
+          if (sex != null) 'sex': dogSexToApi(sex),
+          if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
+          if (clearDateOfBirth) 'date_of_birth': null,
+          if (isSpayed != null) 'is_spayed': isSpayed,
         }),
       );
     }
@@ -465,6 +489,9 @@ class ApiDataService implements DataService {
       ownerCollectsDefault: data['owner_collects_default'] ?? false,
       ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
       ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
+      sex: parseDogSex(data['sex']),
+      dateOfBirth: parseApiDate(data['date_of_birth']),
+      isSpayed: data['is_spayed'] ?? false,
     );
   }
 
@@ -544,7 +571,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     final token = await _authService.getToken();
 
     if (imageBytes != null) {
@@ -559,6 +586,9 @@ class ApiDataService implements DataService {
       if (ownerId != null) request.fields['owner'] = ownerId;
       if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
       if (scheduleType != null) request.fields['schedule_type'] = scheduleType.apiValue;
+      if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
+      if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
+      if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
 
       // Use bytes instead of file path for cross-platform compatibility
       final filename = imageName ?? 'dog_photo.jpg';
@@ -605,6 +635,9 @@ class ApiDataService implements DataService {
           ownerCollectsDefault: data['owner_collects_default'] ?? false,
           ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
           ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
+          sex: parseDogSex(data['sex']),
+          dateOfBirth: parseApiDate(data['date_of_birth']),
+          isSpayed: data['is_spayed'] ?? false,
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
@@ -623,6 +656,9 @@ class ApiDataService implements DataService {
           if (ownerId != null) 'owner': int.parse(ownerId),
           if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
           if (scheduleType != null) 'schedule_type': scheduleType.apiValue,
+          if (sex != null) 'sex': dogSexToApi(sex),
+          if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
+          if (isSpayed != null) 'is_spayed': isSpayed,
         }),
       );
 
@@ -658,11 +694,34 @@ class ApiDataService implements DataService {
           ownerCollectsDefault: data['owner_collects_default'] ?? false,
           ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
           ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
+          sex: parseDogSex(data['sex']),
+          dateOfBirth: parseApiDate(data['date_of_birth']),
+          isSpayed: data['is_spayed'] ?? false,
         );
       } else {
         throw Exception('Failed to create dog: ${response.body}');
       }
     }
+  }
+
+  @override
+  Future<UnspayedMalesResult> getUnspayedMales() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/dogs/unspayed_males/'),
+      headers: headers,
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load unspayed males: ${response.body}');
+    }
+    final data = json.decode(response.body) as Map<String, dynamic>;
+    final dogs = (data['dogs'] as List<dynamic>? ?? [])
+        .map((d) => UnspayedMaleSummary(
+              id: d['id'].toString(),
+              name: d['name']?.toString() ?? '',
+            ))
+        .toList();
+    return UnspayedMalesResult(count: data['count'] ?? dogs.length, dogs: dogs);
   }
 
   @override
@@ -2199,7 +2258,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
     await Future.delayed(const Duration(milliseconds: 300)); // Simulate network
     final index = _dogs.indexWhere((d) => d.id == dog.id);
     if (index == -1) {
@@ -2211,14 +2270,29 @@ class MockDataService implements DataService {
       medicalNotes: medicalNotes,
       daysInDaycare: daysInDaycare,
       profileImageUrl: deletePhoto ? null : _dogs[index].profileImageUrl,
+      sex: sex,
+      dateOfBirth: clearDateOfBirth ? null : dateOfBirth,
+      isSpayed: isSpayed,
     );
     _dogs[index] = updatedDog;
     return updatedDog;
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType}) async {
-    return Dog(id: '99', name: name, ownerId: 'user1');
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+    return Dog(
+      id: '99',
+      name: name,
+      ownerId: 'user1',
+      sex: sex,
+      dateOfBirth: dateOfBirth,
+      isSpayed: isSpayed ?? false,
+    );
+  }
+
+  @override
+  Future<UnspayedMalesResult> getUnspayedMales() async {
+    return UnspayedMalesResult(count: 0, dogs: const []);
   }
 
   @override

@@ -39,6 +39,9 @@ class _EditDogScreenState extends State<EditDogScreen> {
   bool _ownerCollectsDefault = false;
   TimeOfDay? _ownerBringsDefaultTime;
   TimeOfDay? _ownerCollectsDefaultTime;
+  DogSex? _selectedSex;
+  DateTime? _selectedDateOfBirth;
+  bool _isSpayed = false;
 
   @override
   void initState() {
@@ -54,6 +57,9 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _ownerCollectsDefault = widget.dog.ownerCollectsDefault;
     _ownerBringsDefaultTime = widget.dog.ownerBringsDefaultTime;
     _ownerCollectsDefaultTime = widget.dog.ownerCollectsDefaultTime;
+    _selectedSex = widget.dog.sex;
+    _selectedDateOfBirth = widget.dog.dateOfBirth;
+    _isSpayed = widget.dog.isSpayed;
     _checkUserRole();
   }
 
@@ -158,6 +164,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
         ownerCollectsDefault: _isStaff ? _ownerCollectsDefault : null,
         ownerBringsDefaultTime: _isStaff ? _ownerBringsDefaultTime : null,
         ownerCollectsDefaultTime: _isStaff ? _ownerCollectsDefaultTime : null,
+        sex: _selectedSex,
+        dateOfBirth: _selectedDateOfBirth,
+        clearDateOfBirth: _selectedDateOfBirth == null && widget.dog.dateOfBirth != null,
+        isSpayed: _isStaff ? _isSpayed : null,
       );
 
       if (mounted) {
@@ -306,6 +316,70 @@ class _EditDogScreenState extends State<EditDogScreen> {
               prefixIcon: PhosphorIcon(PhosphorIconsDuotone.firstAid),
             ),
             maxLines: 3,
+          ),
+          const SizedBox(height: 24),
+          const Text('About', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<DogSex?>(
+            value: _selectedSex,
+            decoration: const InputDecoration(
+              labelText: 'Sex',
+              border: OutlineInputBorder(),
+              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.dog),
+            ),
+            items: const [
+              DropdownMenuItem(value: null, child: Text('Unknown')),
+              DropdownMenuItem(value: DogSex.male, child: Text('Male')),
+              DropdownMenuItem(value: DogSex.female, child: Text('Female')),
+            ],
+            onChanged: (value) => setState(() => _selectedSex = value),
+          ),
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: () async {
+              final now = DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedDateOfBirth ?? DateTime(now.year - 2, now.month, now.day),
+                firstDate: DateTime(now.year - 30),
+                lastDate: now,
+              );
+              if (picked != null) {
+                setState(() => _selectedDateOfBirth = picked);
+              }
+            },
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Date of birth',
+                border: const OutlineInputBorder(),
+                prefixIcon: const PhosphorIcon(PhosphorIconsDuotone.cake),
+                suffixIcon: _selectedDateOfBirth == null
+                    ? null
+                    : IconButton(
+                        icon: const PhosphorIcon(PhosphorIconsDuotone.x),
+                        onPressed: () => setState(() => _selectedDateOfBirth = null),
+                      ),
+              ),
+              child: Text(
+                _selectedDateOfBirth == null
+                    ? 'Not set'
+                    : '${_selectedDateOfBirth!.day.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.month.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.year}',
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Spayed / Neutered'),
+            subtitle: Text(
+              _isStaff
+                  ? 'Only staff can change this.'
+                  : 'View only — ask a staff member to update.',
+              style: const TextStyle(fontSize: 12),
+            ),
+            secondary: const PhosphorIcon(PhosphorIconsDuotone.heart),
+            value: _isSpayed,
+            onChanged: _isStaff ? (v) => setState(() => _isSpayed = v) : null,
           ),
           if (_isStaff) ...[
             const SizedBox(height: 24),
