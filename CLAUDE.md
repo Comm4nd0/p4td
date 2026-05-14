@@ -143,6 +143,15 @@ Additional non-router endpoints: password reset/change, account deletion.
 - **Mobile deploy**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
 - **Production server**: Gunicorn (2 workers, 2 threads, 120s timeout)
 
+### Mobile version bumps (required)
+
+**Every commit that changes anything under `my_app/` must bump the version in `my_app/pubspec.yaml`.** The Play Store build fails if the build code (the number after the `+`) is not greater than the previously uploaded one.
+
+- Format: `version: <major>.<minor>.<patch>+<buildNumber>`
+- Default: bump patch and build number by 1 (e.g. `1.7.8+271` → `1.7.9+272`).
+- Bump major/minor only when the change warrants it.
+- Make the bump part of the same commit as the feature change (or as an immediate follow-up commit before pushing).
+
 ## Environment Variables
 
 See `.env.example` for required variables. Key ones:
