@@ -19,6 +19,7 @@ import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
 import '../models/contact_inquiry.dart';
 import '../models/dog_profile_change_request.dart';
+import '../models/staff_permission.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 
@@ -181,6 +182,10 @@ abstract class DataService {
   Future<DogProfileChangeRequest> approveDogProfileChange(int requestId);
   Future<DogProfileChangeRequest> rejectDogProfileChange(int requestId);
   Future<int> getPendingDogProfileChangeCount();
+
+  // Staff Permissions (superuser only)
+  Future<List<StaffPermission>> listStaffPermissions();
+  Future<StaffPermission> updateStaffPermissions(int userId, Map<String, bool> permissions);
 }
 
 class ApiDataService implements DataService {
@@ -2191,6 +2196,41 @@ class ApiDataService implements DataService {
     }
     return 0;
   }
+
+  @override
+  Future<List<StaffPermission>> listStaffPermissions() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/profile/list_staff_permissions/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => StaffPermission.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception('Failed to load staff permissions (${response.statusCode})');
+  }
+
+  @override
+  Future<StaffPermission> updateStaffPermissions(int userId, Map<String, bool> permissions) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/profile/update_staff_permissions/?user_id=$userId'),
+      headers: headers,
+      body: json.encode(permissions),
+    );
+    if (response.statusCode == 200) {
+      return StaffPermission.fromJson(json.decode(response.body));
+    }
+    String errorMessage = 'Failed to update permissions';
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map && errorData['detail'] != null) {
+        errorMessage = errorData['detail'].toString();
+      }
+    } catch (_) {}
+    throw Exception(errorMessage);
+  }
 }
 
 class MockDataService implements DataService {
@@ -2610,4 +2650,11 @@ class MockDataService implements DataService {
       DogProfileChangeRequest(id: requestId, dogId: 1, dogName: 'Test', requestedById: 1, requestedByName: 'Test', proposedChanges: {}, status: 'REJECTED', createdAt: DateTime.now());
   @override
   Future<int> getPendingDogProfileChangeCount() async => 0;
+
+  // Staff Permissions (superuser only)
+  @override
+  Future<List<StaffPermission>> listStaffPermissions() async => [];
+  @override
+  Future<StaffPermission> updateStaffPermissions(int userId, Map<String, bool> permissions) async =>
+      StaffPermission(userId: userId, username: 'test', email: 'test@example.com');
 }

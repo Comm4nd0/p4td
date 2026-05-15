@@ -22,6 +22,7 @@ import 'boarding_request_list_screen.dart';
 import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'dog_profile_changes_screen.dart';
+import 'staff_permissions_screen.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -30,6 +31,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
   final bool canViewInquiries;
   final bool canAddFeedMedia;
   final bool isStaff;
+  final bool isSuperuser;
   final int? myUserId;
   final int? initialStaffId;
   /// Callback to switch to feed tab (index 1)
@@ -43,6 +45,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.canViewInquiries = false,
     this.canAddFeedMedia = false,
     this.isStaff = false,
+    this.isSuperuser = false,
     this.myUserId,
     this.initialStaffId,
     this.onSwitchToFeed,
@@ -1095,6 +1098,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     _buildBoardingSection(),
                     const SizedBox(height: 16),
                     _buildQuickActions(),
+                    if (widget.isSuperuser) ...[
+                      const SizedBox(height: 24),
+                      _buildManagePermissionsButton(),
+                    ],
                     const SizedBox(height: 80), // space for FABs
                   ],
                 ),
@@ -1674,6 +1681,24 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildManagePermissionsButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        icon: PhosphorIcon(PhosphorIconsDuotone.shieldStar, size: 20),
+        label: const Text('Manage Staff Permissions'),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
+          );
+        },
+      ),
     );
   }
 }

@@ -52,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
 
   bool _isStaff = false;
+  bool _isSuperuser = false;
   int? _myUserId;
   bool _canAssignDogs = false;
   bool _canAddFeedMedia = false;
@@ -170,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isStaff = profile.isStaff;
+          _isSuperuser = profile.isSuperuser;
           _myUserId = profile.userId;
           _canAssignDogs = profile.canAssignDogs;
           _canAddFeedMedia = profile.canAddFeedMedia;
@@ -504,6 +506,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       canViewInquiries: _canViewInquiries,
                       canAddFeedMedia: _canAddFeedMedia,
                       isStaff: _isStaff,
+                      isSuperuser: _isSuperuser,
                       myUserId: _myUserId,
                       initialStaffId: _dogGroupsStaffFilter,
                       onSwitchToFeed: () => setState(() => _currentIndex = 1),

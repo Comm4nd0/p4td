@@ -1364,6 +1364,101 @@ class UserProfileTests(TestCase):
         self.assertEqual(self.user.profile.address, '123 Test St')
 
 
+class StaffPermissionsManagementTests(TestCase):
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            username='admin', password='pw', is_staff=True, is_superuser=True
+        )
+        self.staff = User.objects.create_user(
+            username='staff1', password='pw', is_staff=True, first_name='Alice'
+        )
+        self.other_staff = User.objects.create_user(
+            username='staff2', password='pw', is_staff=True, first_name='Bob'
+        )
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.client = APIClient()
+
+    def test_list_staff_permissions_requires_superuser(self):
+        self.client.login(username='staff1', password='pw')
+        resp = self.client.get('/api/profile/list_staff_permissions/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_list_staff_permissions_rejects_owner(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/profile/list_staff_permissions/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_superuser_can_list_staff_permissions(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.get('/api/profile/list_staff_permissions/')
+        self.assertEqual(resp.status_code, 200)
+        usernames = {entry['username'] for entry in resp.data}
+        self.assertIn('admin', usernames)
+        self.assertIn('staff1', usernames)
+        self.assertIn('staff2', usernames)
+        self.assertNotIn('owner', usernames)
+        for entry in resp.data:
+            for field in (
+                'can_manage_requests', 'can_assign_dogs', 'can_reply_queries',
+                'can_add_feed_media', 'can_approve_timeoff', 'can_view_inquiries',
+                'is_superuser',
+            ):
+                self.assertIn(field, entry)
+
+    def test_superuser_can_update_staff_permissions(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post(
+            f'/api/profile/update_staff_permissions/?user_id={self.staff.id}',
+            {'can_manage_requests': True, 'can_assign_dogs': True},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.staff.profile.refresh_from_db()
+        self.assertTrue(self.staff.profile.can_manage_requests)
+        self.assertTrue(self.staff.profile.can_assign_dogs)
+        self.assertFalse(self.staff.profile.can_reply_queries)
+
+    def test_non_superuser_cannot_update_staff_permissions(self):
+        self.client.login(username='staff1', password='pw')
+        resp = self.client.post(
+            f'/api/profile/update_staff_permissions/?user_id={self.other_staff.id}',
+            {'can_manage_requests': True},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.other_staff.profile.refresh_from_db()
+        self.assertFalse(self.other_staff.profile.can_manage_requests)
+
+    def test_update_staff_permissions_requires_user_id(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post(
+            '/api/profile/update_staff_permissions/',
+            {'can_manage_requests': True},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_cannot_update_non_staff_user_permissions(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post(
+            f'/api/profile/update_staff_permissions/?user_id={self.owner.id}',
+            {'can_manage_requests': True},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_profile_endpoint_exposes_is_superuser(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.get('/api/profile/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['is_superuser'])
+
+        self.client.login(username='staff1', password='pw')
+        resp = self.client.get('/api/profile/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['is_superuser'])
+
+
 class FeedTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

@@ -239,6 +239,43 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         serializer = UserSummarySerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def list_staff_permissions(self, request):
+        """Superuser-only endpoint to list staff members and their permissions: GET /profile/list_staff_permissions/"""
+        if not request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only superusers can manage staff permissions")
+
+        from .serializers import StaffPermissionsSerializer
+        profiles = UserProfile.objects.filter(user__is_staff=True).select_related('user').order_by('user__first_name', 'user__username')
+        serializer = StaffPermissionsSerializer(profiles, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def update_staff_permissions(self, request):
+        """Superuser-only endpoint to update a staff member's permissions: POST /profile/update_staff_permissions/?user_id=<id>"""
+        if not request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only superusers can manage staff permissions")
+
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id query parameter required'}, status=400)
+
+        try:
+            profile = UserProfile.objects.select_related('user').get(user_id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'detail': 'User profile not found'}, status=404)
+
+        if not profile.user.is_staff:
+            return Response({'detail': 'Target user is not a staff member'}, status=400)
+
+        from .serializers import StaffPermissionsSerializer
+        serializer = StaffPermissionsSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 class DogViewSet(viewsets.ModelViewSet):
     serializer_class = DogSerializer
     permission_classes = [IsAuthenticated]
