@@ -23,6 +23,7 @@ import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'dog_profile_changes_screen.dart';
 import 'staff_permissions_screen.dart';
+import 'multi_photo_capture_screen.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -882,10 +883,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.camera), title: const Text('Take Photo'), onTap: () => Navigator.pop(context, 'camera_photo')),
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera), title: const Text('Record Video'), onTap: () => Navigator.pop(context, 'camera_video')),
+            ListTile(
+              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
+              title: const Text('Take Photos'),
+              subtitle: const Text('Capture one or more shots in a row'),
+              onTap: () => Navigator.pop(context, 'camera_photo'),
+            ),
+            ListTile(
+              leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera),
+              title: const Text('Record Video'),
+              onTap: () => Navigator.pop(context, 'camera_video'),
+            ),
             const Divider(),
-            ListTile(leading: PhosphorIcon(PhosphorIconsDuotone.uploadSimple), title: const Text('Upload'), onTap: () => Navigator.pop(context, 'multiple')),
+            ListTile(
+              leading: PhosphorIcon(PhosphorIconsDuotone.uploadSimple),
+              title: const Text('Upload'),
+              onTap: () => Navigator.pop(context, 'multiple'),
+            ),
           ],
         ),
       ),
@@ -905,75 +919,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         tagDialogFiles.add((bytes, file.name, isVideo));
         fileData.add((bytes, file.name));
       }
+      await _processAndUploadFiles(fileData, tagDialogFiles);
+      return;
+    }
 
-      // Ask whether to tag or upload straight away
-      if (!mounted) return;
-      final wantTag = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('${files.length} file${files.length == 1 ? '' : 's'} selected'),
-          content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Upload Now')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tag & Caption')),
-          ],
-        ),
+    if (choice == 'camera_photo') {
+      final captured = await Navigator.push<List<(Uint8List, String)>>(
+        context,
+        MaterialPageRoute(fullscreenDialog: true, builder: (_) => const MultiPhotoCaptureScreen()),
       );
-      if (wantTag == null) return;
-
-      List<String?>? captionsByFile;
-      List<List<String>>? taggedDogIdsByFile;
-
-      if (wantTag) {
-        final tagResult = await Navigator.push<MediaTagResult>(
-          context,
-          MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: tagDialogFiles)),
-        );
-        if (tagResult == null) return;
-        captionsByFile = tagResult.captionsByFile;
-        taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
-      }
-
-      final progress = ValueNotifier<int>(0);
-      final total = files.length;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => PopScope(
-          canPop: false,
-          child: ValueListenableBuilder<int>(
-            valueListenable: progress,
-            builder: (context, completed, _) => AlertDialog(
-              content: Column(mainAxisSize: MainAxisSize.min, children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text('Uploading $completed/$total...'),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
-              ]),
-            ),
-          ),
-        ),
-      );
-
-      try {
-        await _dataService.uploadMultipleGroupMedia(
-          files: fileData, captionsByFile: captionsByFile,
-          taggedDogIdsByFile: taggedDogIdsByFile,
-          onProgress: (done, count) => progress.value = done,
-        );
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green));
-        }
-      } catch (e) {
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
-        }
-      }
+      if (captured == null || captured.isEmpty) return;
+      final tagDialogFiles = captured.map((p) => (p.$1, p.$2, false)).toList();
+      await _processAndUploadFiles(captured, tagDialogFiles);
       return;
     }
 
@@ -1005,6 +962,79 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green));
           }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  Future<void> _processAndUploadFiles(
+    List<(Uint8List, String)> fileData,
+    List<(Uint8List, String, bool)> tagDialogFiles,
+  ) async {
+    final total = fileData.length;
+    if (!mounted) return;
+    final wantTag = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('$total file${total == 1 ? '' : 's'} selected'),
+        content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Upload Now')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tag & Caption')),
+        ],
+      ),
+    );
+    if (wantTag == null) return;
+
+    List<String?>? captionsByFile;
+    List<List<String>>? taggedDogIdsByFile;
+
+    if (wantTag) {
+      final tagResult = await Navigator.push<MediaTagResult>(
+        context,
+        MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: tagDialogFiles)),
+      );
+      if (tagResult == null) return;
+      captionsByFile = tagResult.captionsByFile;
+      taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
+    }
+
+    final progress = ValueNotifier<int>(0);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: ValueListenableBuilder<int>(
+          valueListenable: progress,
+          builder: (context, completed, _) => AlertDialog(
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text('Uploading $completed/$total...'),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+            ]),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      await _dataService.uploadMultipleGroupMedia(
+        files: fileData, captionsByFile: captionsByFile,
+        taggedDogIdsByFile: taggedDogIdsByFile,
+        onProgress: (done, count) => progress.value = done,
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green));
+      }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
@@ -1098,10 +1128,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     _buildBoardingSection(),
                     const SizedBox(height: 16),
                     _buildQuickActions(),
-                    if (widget.isSuperuser) ...[
-                      const SizedBox(height: 24),
-                      _buildManagePermissionsButton(),
-                    ],
                     const SizedBox(height: 80), // space for FABs
                   ],
                 ),
@@ -1678,27 +1704,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                 label: const Text('Swap Staff'),
                 onPressed: _showSwapStaffDialog,
               ),
+            if (widget.isSuperuser)
+              ActionChip(
+                avatar: PhosphorIcon(PhosphorIconsDuotone.shieldStar, size: 18),
+                label: const Text('Manage Staff Permissions'),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
+                  );
+                },
+              ),
           ],
         ),
       ],
-    );
-  }
-
-  Widget _buildManagePermissionsButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        icon: PhosphorIcon(PhosphorIconsDuotone.shieldStar, size: 20),
-        label: const Text('Manage Staff Permissions'),
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-        ),
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
-          );
-        },
-      ),
     );
   }
 }
