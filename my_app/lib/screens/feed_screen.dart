@@ -11,6 +11,7 @@ import '../widgets/feed_item_card.dart';
 import '../widgets/dog_typeahead.dart';
 import '../widgets/media_tag_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
+import 'multi_photo_capture_screen.dart';
 import '../main.dart';
 
 class FeedScreen extends StatefulWidget {
@@ -149,7 +150,8 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           children: [
             ListTile(
               leading: PhosphorIcon(PhosphorIconsDuotone.camera),
-              title: const Text('Take Photo'),
+              title: const Text('Take Photos'),
+              subtitle: const Text('Capture one or more shots in a row'),
               onTap: () => Navigator.pop(context, 'camera_photo'),
             ),
             ListTile(
@@ -170,12 +172,19 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
     if (choice == null) return;
 
-    // Handle multiple photos upload
+    // Handle multiple photos upload from gallery
     if (choice == 'multiple') {
       await _uploadMultiplePhotos(picker);
       return;
     }
 
+    // Multi-shot camera capture
+    if (choice == 'camera_photo') {
+      await _captureFromCamera();
+      return;
+    }
+
+    // Single video capture (camera) or gallery video pick — single file flow.
     XFile? file;
     final isVideo = choice.contains('video');
     final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
@@ -250,12 +259,37 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       tagDialogFiles.add((bytes, file.name, isVideo));
     }
 
+    await _processAndUploadFiles(fileData, tagDialogFiles);
+  }
+
+  Future<void> _captureFromCamera() async {
+    final captured = await Navigator.push<List<(Uint8List, String)>>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const MultiPhotoCaptureScreen(),
+      ),
+    );
+    if (captured == null || captured.isEmpty) return;
+
+    final tagDialogFiles =
+        captured.map((p) => (p.$1, p.$2, false)).toList();
+    await _processAndUploadFiles(captured, tagDialogFiles);
+  }
+
+  /// Shared tag-prompt + batch upload pipeline used by both gallery multi-pick
+  /// and in-app multi-photo capture.
+  Future<void> _processAndUploadFiles(
+    List<(Uint8List, String)> fileData,
+    List<(Uint8List, String, bool)> tagDialogFiles,
+  ) async {
+    final total = fileData.length;
     // Ask whether to tag or upload straight away
     if (!mounted) return;
     final wantTag = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('${files.length} file${files.length == 1 ? '' : 's'} selected'),
+        title: Text('$total file${total == 1 ? '' : 's'} selected'),
         content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
@@ -284,7 +318,6 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
     // Show progress dialog using a ValueNotifier so we can update it in place
     final progress = ValueNotifier<int>(0);
-    final total = files.length;
 
     showDialog(
       context: context,
