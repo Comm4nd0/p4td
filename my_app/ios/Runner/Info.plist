@@ -49,6 +49,8 @@
 	<string>This app needs camera access to take photos and videos of dogs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to upload photos and videos of dogs.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app needs permission to save photos to your device so you can keep your own copies of the shots you take.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access to record videos with sound.</string>
 	<key>NSAppTransportSecurity</key>

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
 
 /// Full-screen camera that lets the user capture multiple photos in one
 /// session. Returns a `List<(Uint8List, String)>` of (jpegBytes, fileName)
@@ -20,6 +21,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
   FlashMode _flashMode = FlashMode.off;
   bool _initializing = true;
   bool _capturing = false;
+  bool _saveToGallery = false;
   String? _initError;
 
   final List<(Uint8List, String)> _captured = [];
@@ -163,8 +165,80 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
     setState(() => _captured.removeAt(index));
   }
 
-  void _done() {
-    Navigator.pop(context, List<(Uint8List, String)>.from(_captured));
+  Future<void> _toggleSaveToGallery() async {
+    if (_saveToGallery) {
+      setState(() => _saveToGallery = false);
+      return;
+    }
+    try {
+      final hasAccess = await Gal.hasAccess();
+      final granted = hasAccess ? true : await Gal.requestAccess();
+      if (!mounted) return;
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Photo library permission denied. Enable it in your device settings to save photos.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      setState(() => _saveToGallery = true);
+    } on GalException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not enable saving: ${e.type.message}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _done() async {
+    final photos = List<(Uint8List, String)>.from(_captured);
+    if (_saveToGallery && photos.isNotEmpty) {
+      final ok = await _saveAllToGallery(photos);
+      if (!mounted) return;
+      if (!ok) return; // Let the user decide what to do next.
+    }
+    if (mounted) Navigator.pop(context, photos);
+  }
+
+  Future<bool> _saveAllToGallery(List<(Uint8List, String)> photos) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Expanded(child: Text('Saving to your photos...')),
+          ],
+        ),
+      ),
+    );
+    try {
+      for (final (bytes, name) in photos) {
+        await Gal.putImageBytes(bytes, name: name);
+      }
+      if (mounted) Navigator.pop(context); // Close the progress dialog.
+      return true;
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close the progress dialog.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not save to your photos: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
   }
 
   Future<bool> _confirmDiscard() async {
@@ -273,6 +347,16 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
           ),
           const Spacer(),
           IconButton(
+            tooltip: _saveToGallery
+                ? 'Saving copies to your photos'
+                : 'Also save copies to your photos',
+            icon: Icon(
+              _saveToGallery ? Icons.save_alt : Icons.save_alt_outlined,
+              color: _saveToGallery ? Colors.amberAccent : Colors.white,
+            ),
+            onPressed: () => _toggleSaveToGallery(),
+          ),
+          IconButton(
             tooltip: 'Flash',
             icon: Icon(_flashIcon(), color: Colors.white),
             onPressed: _cycleFlash,
@@ -332,7 +416,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
                 child: _captured.isEmpty
                     ? null
                     : FilledButton(
-                        onPressed: _done,
+                        onPressed: () => _done(),
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         ),
