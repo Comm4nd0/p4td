@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:gal/gal.dart';
 import 'package:video_player/video_player.dart';
 import '../constants/app_colors.dart';
 import '../models/group_media.dart';
@@ -283,24 +285,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
 
   void _openFullScreenImage(BuildContext context, String imageUrl) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          backgroundColor: Colors.black,
-          iconTheme: const IconThemeData(color: Colors.white),
-        ),
-        body: Center(
-          child: InteractiveViewer(
-            minScale: 1.0,
-            maxScale: 4.0,
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-              errorWidget: (context, url, error) => const PhosphorIcon(PhosphorIconsDuotone.warningCircle, color: Colors.white),
-            ),
-          ),
-        ),
-      ),
+      builder: (_) => _FullScreenImageViewer(imageUrl: imageUrl),
     ));
   }
 
@@ -483,6 +468,113 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
               );
             }),
         ],
+      ),
+    );
+  }
+}
+
+class _FullScreenImageViewer extends StatefulWidget {
+  final String imageUrl;
+
+  const _FullScreenImageViewer({required this.imageUrl});
+
+  @override
+  State<_FullScreenImageViewer> createState() => _FullScreenImageViewerState();
+}
+
+class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
+  bool _saving = false;
+
+  Future<void> _saveToDevice() async {
+    if (_saving) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _saving = true);
+    try {
+      final hasAccess = await Gal.hasAccess();
+      final granted = hasAccess ? true : await Gal.requestAccess();
+      if (!granted) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Photo library permission denied. Enable it in your device settings to save photos.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      final file = await DefaultCacheManager().getSingleFile(widget.imageUrl);
+      final bytes = await file.readAsBytes();
+      await Gal.putImageBytes(bytes, name: _suggestedFileName(widget.imageUrl));
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Saved to your photos'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } on GalException catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not save: ${e.type.message}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not save: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  String _suggestedFileName(String url) {
+    final last = Uri.tryParse(url)?.pathSegments.lastOrNull;
+    if (last != null && last.isNotEmpty) return last;
+    return 'p4td_${DateTime.now().millisecondsSinceEpoch}.jpg';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            tooltip: 'Save to device',
+            onPressed: _saving ? null : () => _saveToDevice(),
+            icon: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.download_rounded, color: Colors.white),
+          ),
+        ],
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 1.0,
+          maxScale: 4.0,
+          child: CachedNetworkImage(
+            imageUrl: widget.imageUrl,
+            placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+            errorWidget: (context, url, error) => const PhosphorIcon(PhosphorIconsDuotone.warningCircle, color: Colors.white),
+          ),
+        ),
       ),
     );
   }
