@@ -111,6 +111,11 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
     }
   }
 
+  String? _otherDogNameForCurrent(DogNote note) {
+    if (note.dogId != widget.dogId) return note.dogName;
+    return note.relatedDogName;
+  }
+
   PhosphorIconData _iconForType(DogNoteType type) {
     switch (type) {
       case DogNoteType.compatibility:
@@ -206,14 +211,14 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                   ),
                                 ],
                               ),
-                              if (note.relatedDogName != null) ...[
+                              if (_otherDogNameForCurrent(note) != null) ...[
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
                                     PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 16, color: AppColors.grey600),
                                     const SizedBox(width: 4),
                                     Text(
-                                      'With ${note.relatedDogName}',
+                                      'With ${_otherDogNameForCurrent(note)}',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w600,
                                         color: AppColors.grey700,

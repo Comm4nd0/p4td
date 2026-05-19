@@ -44,6 +44,42 @@ class UnspayedMalesResult {
   UnspayedMalesResult({required this.count, required this.dogs});
 }
 
+class CompatibilityConflict {
+  final int staffMemberId;
+  final String staffMemberName;
+  final int dogAId;
+  final String dogAName;
+  final int dogBId;
+  final String dogBName;
+  final List<String> reasons;
+
+  CompatibilityConflict({
+    required this.staffMemberId,
+    required this.staffMemberName,
+    required this.dogAId,
+    required this.dogAName,
+    required this.dogBId,
+    required this.dogBName,
+    required this.reasons,
+  });
+
+  factory CompatibilityConflict.fromJson(Map<String, dynamic> json) {
+    return CompatibilityConflict(
+      staffMemberId: json['staff_member_id'] is int
+          ? json['staff_member_id']
+          : int.parse(json['staff_member_id'].toString()),
+      staffMemberName: json['staff_member_name']?.toString() ?? '',
+      dogAId: json['dog_a_id'] is int ? json['dog_a_id'] : int.parse(json['dog_a_id'].toString()),
+      dogAName: json['dog_a_name']?.toString() ?? '',
+      dogBId: json['dog_b_id'] is int ? json['dog_b_id'] : int.parse(json['dog_b_id'].toString()),
+      dogBName: json['dog_b_name']?.toString() ?? '',
+      reasons: (json['reasons'] as List<dynamic>? ?? [])
+          .map((r) => r.toString())
+          .toList(),
+    );
+  }
+}
+
 abstract class DataService {
   Future<List<Dog>> getDogs();
   Future<List<Photo>> getPhotos(String dogId);
@@ -129,6 +165,7 @@ abstract class DataService {
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
   Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail, List<int>? dogIds});
   Future<void> reorderAssignments(List<int> assignmentIds);
+  Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date});
 
   // Support Queries
   Future<List<SupportQuery>> getSupportQueries();
@@ -1276,6 +1313,23 @@ class ApiDataService implements DataService {
     } else {
       throw Exception('Failed to load today assignments');
     }
+  }
+
+  @override
+  Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date}) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/compatibility_conflicts/${_dateParam(date)}'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final list = data['conflicts'] as List<dynamic>? ?? [];
+      return list
+          .map((c) => CompatibilityConflict.fromJson(c as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load compatibility conflicts: ${response.statusCode}');
   }
 
   @override
@@ -2492,6 +2546,9 @@ class MockDataService implements DataService {
 
   @override
   Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date}) async => [];
+
+  @override
+  Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date}) async => [];
 
   @override
   Future<List<Dog>> getUnassignedDogs({DateTime? date}) async => [];

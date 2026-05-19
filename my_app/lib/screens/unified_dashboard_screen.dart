@@ -93,6 +93,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   int _unspayedMalesCount = 0;
   List<UnspayedMaleSummary> _unspayedMales = [];
   List<BoardingRequest> _boardingTonight = [];
+  final Map<String, List<CompatibilityConflict>> _conflictsCache = {};
 
   @override
   void initState() {
@@ -209,6 +210,16 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       }
     }
     _loadUnassignedCountForDate(date, forceReload: forceReload);
+    _loadCompatibilityConflictsForDate(date, forceReload: forceReload);
+  }
+
+  Future<void> _loadCompatibilityConflictsForDate(DateTime date, {bool forceReload = false}) async {
+    final key = _dateKey(date);
+    if (!forceReload && _conflictsCache.containsKey(key)) return;
+    try {
+      final conflicts = await _dataService.getCompatibilityConflicts(date: date);
+      if (mounted) setState(() => _conflictsCache[key] = conflicts);
+    } catch (_) {}
   }
 
   Future<void> _loadUnassignedCountForDate(DateTime date, {bool forceReload = false}) async {
@@ -223,6 +234,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Future<void> _loadAssignments() {
     _assignmentCache.clear();
     _unassignedDogsCache.clear();
+    _conflictsCache.clear();
     return _loadAssignmentsForDate(_selectedDate, forceReload: true);
   }
 
@@ -1119,6 +1131,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     _buildUnassignedBanner(date),
+                    _buildCompatibilityWarning(date),
                     _buildOverviewMetrics(assignments),
                     const SizedBox(height: 16),
                     _buildStaffCards(assignments),
@@ -1285,6 +1298,121 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 200),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompatibilityWarning(DateTime date) {
+    final conflicts = _conflictsCache[_dateKey(date)] ?? [];
+    if (conflicts.isEmpty) return const SizedBox.shrink();
+    final label = conflicts.length == 1
+        ? '1 grouping conflict'
+        : '${conflicts.length} grouping conflicts';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.orange.shade600,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _showCompatibilityConflictsDialog(conflicts),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                PhosphorIcon(PhosphorIconsDuotone.warningCircle, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        'Incompatible dogs assigned to the same staff',
+                        style: TextStyle(color: Colors.white.withAlpha(220), fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                PhosphorIcon(PhosphorIconsDuotone.caretRight, color: Colors.white, size: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCompatibilityConflictsDialog(List<CompatibilityConflict> conflicts) {
+    final byStaff = <String, List<CompatibilityConflict>>{};
+    for (final c in conflicts) {
+      byStaff.putIfAbsent(c.staffMemberName, () => []).add(c);
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Grouping conflicts'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'These dogs are flagged as incompatible but are assigned to the same staff member. Reassign one of them or update the note.',
+              ),
+              const SizedBox(height: 12),
+              ...byStaff.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(entry.key,
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        ...entry.value.map((c) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(children: [
+                                    const PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 16),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        '${c.dogAName} + ${c.dogBName}',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ]),
+                                  if (c.reasons.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 22, top: 2),
+                                      child: Text(
+                                        c.reasons.first,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.grey700,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            )),
+                      ],
+                    ),
+                  )),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
           ),
         ],
       ),

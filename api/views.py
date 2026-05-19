@@ -1219,6 +1219,67 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(assignments, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def compatibility_conflicts(self, request):
+        """List pairs of incompatible dogs assigned to the same staff member
+        on a given date.
+
+        A conflict is detected when both dogs share the same ``staff_member``
+        for the date and at least one negative COMPATIBILITY DogNote links
+        them. Accepts optional ?date=YYYY-MM-DD (defaults to today).
+        """
+        from django.db.models import Q
+        from .models import DogNote
+
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        self._materialize_roster_for_date(target_date)
+
+        assignments = (
+            self.get_queryset()
+            .filter(date=target_date)
+            .exclude(status='REMOVED')
+        )
+
+        dogs_by_staff = {}
+        for a in assignments:
+            dogs_by_staff.setdefault(a.staff_member_id, []).append(a)
+
+        negative_notes = (
+            DogNote.objects.filter(note_type='COMPATIBILITY', is_positive=False)
+            .filter(~Q(related_dog=None))
+            .select_related('dog', 'related_dog')
+        )
+        incompat = {}
+        for note in negative_notes:
+            key = tuple(sorted((note.dog_id, note.related_dog_id)))
+            incompat.setdefault(key, []).append(note)
+
+        conflicts = []
+        for staff_id, staff_assignments in dogs_by_staff.items():
+            assigned_dog_ids = {a.dog_id for a in staff_assignments}
+            assignment_by_dog = {a.dog_id: a for a in staff_assignments}
+            for (dog_a_id, dog_b_id), notes in incompat.items():
+                if dog_a_id in assigned_dog_ids and dog_b_id in assigned_dog_ids:
+                    a_assignment = assignment_by_dog[dog_a_id]
+                    b_assignment = assignment_by_dog[dog_b_id]
+                    conflicts.append({
+                        'staff_member_id': staff_id,
+                        'staff_member_name': (
+                            a_assignment.staff_member.first_name
+                            or a_assignment.staff_member.username
+                        ),
+                        'dog_a_id': dog_a_id,
+                        'dog_a_name': a_assignment.dog.name,
+                        'dog_b_id': dog_b_id,
+                        'dog_b_name': b_assignment.dog.name,
+                        'reasons': [n.text for n in notes],
+                    })
+
+        conflicts.sort(key=lambda c: (c['staff_member_name'].lower(), c['dog_a_name'].lower()))
+        return Response({'date': target_date.isoformat(), 'conflicts': conflicts})
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update the status of an assignment."""
@@ -2147,11 +2208,17 @@ class DogNoteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
 
     def get_queryset(self):
+        from django.db.models import Q
         from .models import DogNote
         queryset = DogNote.objects.select_related('dog', 'related_dog', 'created_by')
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
-            queryset = queryset.filter(dog_id=dog_id)
+            # Compatibility notes describe a relationship between two dogs and
+            # should surface on both dogs' profiles.
+            queryset = queryset.filter(
+                Q(dog_id=dog_id)
+                | Q(note_type='COMPATIBILITY', related_dog_id=dog_id)
+            )
         note_type = self.request.query_params.get('note_type')
         if note_type:
             queryset = queryset.filter(note_type=note_type)

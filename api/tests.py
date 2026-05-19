@@ -1265,6 +1265,105 @@ class DogNoteTests(TestCase):
         self.assertEqual(len(resp.data), 1)
         self.assertEqual(resp.data[0]['note_type'], 'BEHAVIORAL')
 
+    def test_behavioral_note_does_not_leak_via_related_dog(self):
+        # Behavioural notes are unidirectional even when they reference a related dog.
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='BEHAVIORAL', text='Reacts to Bella', created_by=self.staff,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/dog-notes/?dog_id={self.dog2.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 0)
+
+
+class CompatibilityConflictTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff_a = User.objects.create_user(
+            username='staffa', password='pw', is_staff=True, first_name='Alice',
+        )
+        self.staff_b = User.objects.create_user(
+            username='staffb', password='pw', is_staff=True, first_name='Bob',
+        )
+        self.dog1 = Dog.objects.create(owner=self.owner, name='Rex')
+        self.dog2 = Dog.objects.create(owner=self.owner, name='Buddy')
+        self.dog3 = Dog.objects.create(owner=self.owner, name='Max')
+        self.today = date.today()
+        self.client = APIClient()
+
+    def _assign(self, dog, staff):
+        return DailyDogAssignment.objects.create(dog=dog, staff_member=staff, date=self.today)
+
+    def test_flags_two_incompatible_dogs_with_same_staff(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_a)
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=False,
+            text='Fights at pickup', created_by=self.staff_a,
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        conflicts = resp.data['conflicts']
+        self.assertEqual(len(conflicts), 1)
+        names = sorted([conflicts[0]['dog_a_name'], conflicts[0]['dog_b_name']])
+        self.assertEqual(names, ['Buddy', 'Rex'])
+        self.assertIn('Fights at pickup', conflicts[0]['reasons'])
+
+    def test_no_conflict_when_dogs_with_different_staff(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_b)
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=False,
+            text='Fights', created_by=self.staff_a,
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['conflicts'], [])
+
+    def test_positive_compatibility_note_does_not_flag(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_a)
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=True,
+            text='Play together well', created_by=self.staff_a,
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.data['conflicts'], [])
+
+    def test_removed_assignment_not_counted(self):
+        self._assign(self.dog1, self.staff_a)
+        removed = self._assign(self.dog2, self.staff_a)
+        removed.status = 'REMOVED'
+        removed.save()
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=False,
+            text='Fights', created_by=self.staff_a,
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.data['conflicts'], [])
+
+    def test_non_staff_blocked(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/daily-assignments/compatibility_conflicts/')
+        self.assertEqual(resp.status_code, 403)
+
 
 class StaffAvailabilityTests(TestCase):
     def setUp(self):
