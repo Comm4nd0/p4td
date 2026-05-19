@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../constants/app_colors.dart';
@@ -265,9 +266,20 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
   @override
+  void initState() {
+    super.initState();
+    _textController.addListener(_onTextChanged);
+  }
+
+  @override
   void dispose() {
+    _textController.removeListener(_onTextChanged);
     _textController.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    setState(() {});
   }
 
   @override
@@ -303,17 +315,10 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
             ),
             if (_noteType == DogNoteType.compatibility && _otherDogs.isNotEmpty) ...[
               const SizedBox(height: 16),
-              DropdownButtonFormField<Dog>(
-                value: _relatedDog,
-                decoration: const InputDecoration(
-                  labelText: 'Related Dog (optional)',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('None')),
-                  ..._otherDogs.map((d) => DropdownMenuItem(value: d, child: Text(d.name))),
-                ],
-                onChanged: (dog) => setState(() => _relatedDog = dog),
+              _RelatedDogTypeahead(
+                otherDogs: _otherDogs,
+                selected: _relatedDog,
+                onSelected: (dog) => setState(() => _relatedDog = dog),
               ),
             ],
             const SizedBox(height: 16),
@@ -346,6 +351,117 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
           child: const Text('Add'),
         ),
       ],
+    );
+  }
+}
+
+class _RelatedDogTypeahead extends StatefulWidget {
+  final List<Dog> otherDogs;
+  final Dog? selected;
+  final ValueChanged<Dog?> onSelected;
+
+  const _RelatedDogTypeahead({
+    required this.otherDogs,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  State<_RelatedDogTypeahead> createState() => _RelatedDogTypeaheadState();
+}
+
+class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
+  @override
+  Widget build(BuildContext context) {
+    return Autocomplete<Dog>(
+      initialValue: TextEditingValue(text: widget.selected?.name ?? ''),
+      displayStringForOption: (Dog d) => d.name,
+      optionsBuilder: (TextEditingValue value) {
+        final query = value.text.trim().toLowerCase();
+        if (query.isEmpty) return widget.otherDogs;
+        return widget.otherDogs.where((d) => d.name.toLowerCase().contains(query));
+      },
+      onSelected: widget.onSelected,
+      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+            labelText: 'Related Dog (optional)',
+            hintText: 'Search by name',
+            prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass, size: 20),
+            border: const OutlineInputBorder(),
+            suffixIcon: controller.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
+                    onPressed: () {
+                      controller.clear();
+                      widget.onSelected(null);
+                    },
+                  ),
+          ),
+          onChanged: (value) {
+            if (widget.selected != null && value != widget.selected!.name) {
+              widget.onSelected(null);
+            }
+          },
+        );
+      },
+      optionsViewBuilder: (context, onSelected, options) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240, maxWidth: 320),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final dog = options.elementAt(index);
+                  return ListTile(
+                    dense: true,
+                    leading: dog.profileImageUrl != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: CachedNetworkImage(
+                              imageUrl: dog.profileImageUrl!,
+                              width: 36,
+                              height: 36,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => Container(
+                                width: 36,
+                                height: 36,
+                                color: AppColors.grey200,
+                              ),
+                              errorWidget: (_, __, ___) => CircleAvatar(
+                                radius: 18,
+                                child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18),
+                              ),
+                            ),
+                          )
+                        : CircleAvatar(
+                            radius: 18,
+                            child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18),
+                          ),
+                    title: Text(dog.name),
+                    subtitle: dog.ownerDetails != null
+                        ? Text(
+                            dog.ownerDetails!.username,
+                            style: const TextStyle(fontSize: 12),
+                          )
+                        : null,
+                    onTap: () => onSelected(dog),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
