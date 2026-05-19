@@ -111,6 +111,29 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
     }
   }
 
+  Future<void> _editNote(DogNote note) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => _EditDogNoteDialog(note: note),
+    );
+    if (result == null) return;
+
+    try {
+      await _dataService.updateDogNote(
+        note.id,
+        text: result['text'] as String?,
+        isPositive: result['is_positive'] as bool?,
+      );
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update note: $e')),
+        );
+      }
+    }
+  }
+
   String? _otherDogNameForCurrent(DogNote note) {
     if (note.dogId != widget.dogId) return note.dogName;
     return note.relatedDogName;
@@ -203,11 +226,21 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                   ),
                                   const Spacer(),
                                   IconButton(
+                                    icon: PhosphorIcon(PhosphorIconsDuotone.pencilSimple, size: 20),
+                                    onPressed: () => _editNote(note),
+                                    color: AppColors.primary,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    tooltip: 'Edit',
+                                  ),
+                                  const SizedBox(width: 12),
+                                  IconButton(
                                     icon: PhosphorIcon(PhosphorIconsDuotone.trash, size: 20),
                                     onPressed: () => _deleteNote(note),
                                     color: AppColors.error,
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
+                                    tooltip: 'Delete',
                                   ),
                                 ],
                               ),
@@ -467,6 +500,92 @@ class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
           ),
         );
       },
+    );
+  }
+}
+
+class _EditDogNoteDialog extends StatefulWidget {
+  final DogNote note;
+
+  const _EditDogNoteDialog({required this.note});
+
+  @override
+  State<_EditDogNoteDialog> createState() => _EditDogNoteDialogState();
+}
+
+class _EditDogNoteDialogState extends State<_EditDogNoteDialog> {
+  late bool _isPositive;
+  late final TextEditingController _textController;
+
+  @override
+  void initState() {
+    super.initState();
+    _isPositive = widget.note.isPositive;
+    _textController = TextEditingController(text: widget.note.text);
+    _textController.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _textController.removeListener(_onTextChanged);
+    _textController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasChanges = _textController.text.trim() != widget.note.text.trim()
+        || _isPositive != widget.note.isPositive;
+    final textValid = _textController.text.trim().isNotEmpty;
+    return AlertDialog(
+      title: const Text('Edit Note'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Sentiment', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(value: true, label: const Text('Positive'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsUp, size: 16)),
+                ButtonSegment(value: false, label: const Text('Negative'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsDown, size: 16)),
+              ],
+              selected: {_isPositive},
+              onSelectionChanged: (set) => setState(() => _isPositive = set.first),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _textController,
+              decoration: const InputDecoration(
+                labelText: 'Note',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+              textCapitalization: TextCapitalization.sentences,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: (!hasChanges || !textValid)
+              ? null
+              : () {
+                  final result = <String, dynamic>{};
+                  final newText = _textController.text.trim();
+                  if (newText != widget.note.text.trim()) result['text'] = newText;
+                  if (_isPositive != widget.note.isPositive) result['is_positive'] = _isPositive;
+                  Navigator.pop(context, result);
+                },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

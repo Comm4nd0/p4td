@@ -1265,6 +1265,35 @@ class DogNoteTests(TestCase):
         self.assertEqual(len(resp.data), 1)
         self.assertEqual(resp.data[0]['note_type'], 'BEHAVIORAL')
 
+    def test_staff_can_edit_note(self):
+        note = DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=True,
+            text='Initial text', created_by=self.staff,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/dog-notes/{note.id}/', {
+            'text': 'Updated text',
+            'is_positive': False,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        note.refresh_from_db()
+        self.assertEqual(note.text, 'Updated text')
+        self.assertFalse(note.is_positive)
+
+    def test_owner_cannot_edit_note(self):
+        note = DogNote.objects.create(
+            dog=self.dog1, note_type='BEHAVIORAL',
+            text='Original', created_by=self.staff,
+        )
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dog-notes/{note.id}/', {
+            'text': 'Hacked',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        note.refresh_from_db()
+        self.assertEqual(note.text, 'Original')
+
     def test_behavioral_note_does_not_leak_via_related_dog(self):
         # Behavioural notes are unidirectional even when they reference a related dog.
         DogNote.objects.create(
