@@ -83,6 +83,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // Unassigned banner expansion state
   bool _unassignedExpanded = false;
 
+  // Swipe direction for slide animation: 1 = forward (next), -1 = backward (prev)
+  int _swipeDirection = 1;
+
   // Dashboard data
   int _pendingRequestCount = 0;
   int _pendingBoardingCount = 0;
@@ -337,13 +340,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     // Check if picked date is within current date options
     final existingIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
     if (existingIndex >= 0) {
-      setState(() => _selectedDate = picked);
+      final oldIndex = _dateOptions.indexWhere((d) => _isSameDay(d, _selectedDate));
+      setState(() {
+        _swipeDirection = existingIndex >= oldIndex ? 1 : -1;
+        _selectedDate = picked;
+      });
       _scrollToDateChip(existingIndex);
       _loadAssignmentsForDate(picked);
       _loadAvailableStaff(picked);
     } else {
       // Regenerate date options centered on picked date
       setState(() {
+        _swipeDirection = picked.isAfter(_selectedDate) ? 1 : -1;
         _dateOptions = _generateWeekdays(picked);
         _selectedDate = picked;
       });
@@ -1070,6 +1078,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (currentIndex >= 0 && currentIndex < _dateOptions.length - 1) {
       final nextDate = _dateOptions[currentIndex + 1];
       setState(() {
+        _swipeDirection = 1;
         _selectedDate = nextDate;
         _unassignedExpanded = false;
       });
@@ -1084,6 +1093,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (currentIndex > 0) {
       final prevDate = _dateOptions[currentIndex - 1];
       setState(() {
+        _swipeDirection = -1;
         _selectedDate = prevDate;
         _unassignedExpanded = false;
       });
@@ -1147,17 +1157,48 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                       _goToPreviousDate();
                     }
                   },
-                  child: isLoading && !_assignmentCache.containsKey(dateKey)
-                      ? const ListTileSkeletonList()
-                      : Column(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    switchInCurve: Curves.easeInOut,
+                    switchOutCurve: Curves.easeInOut,
+                    transitionBuilder: (child, animation) {
+                      final isIncoming = child.key == ValueKey(dateKey);
+                      final beginOffset = Offset(
+                        isIncoming
+                            ? _swipeDirection.toDouble()   // slide in from the direction of travel
+                            : -_swipeDirection.toDouble(), // slide out the opposite way
+                        0.0,
+                      );
+                      return SlideTransition(
+                        position: Tween<Offset>(begin: beginOffset, end: Offset.zero)
+                            .animate(animation),
+                        child: child,
+                      );
+                    },
+                    layoutBuilder: (currentChild, previousChildren) {
+                      return ClipRect(
+                        child: Stack(
+                          alignment: Alignment.topCenter,
                           children: [
-                            _buildUnassignedBanner(_selectedDate),
-                            _buildCompatibilityWarning(_selectedDate),
-                            _buildOverviewMetrics(assignments),
-                            const SizedBox(height: 16),
-                            _buildStaffCards(assignments),
+                            ...previousChildren,
+                            if (currentChild != null) currentChild,
                           ],
                         ),
+                      );
+                    },
+                    child: isLoading && !_assignmentCache.containsKey(dateKey)
+                        ? ListTileSkeletonList(key: const ValueKey('loading'))
+                        : Column(
+                            key: ValueKey(dateKey),
+                            children: [
+                              _buildUnassignedBanner(_selectedDate),
+                              _buildCompatibilityWarning(_selectedDate),
+                              _buildOverviewMetrics(assignments),
+                              const SizedBox(height: 16),
+                              _buildStaffCards(assignments),
+                            ],
+                          ),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 // Static content — stays in place when swiping between dates
@@ -1202,7 +1243,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   child: ChoiceChip(
                     selected: isSelected,
                     onSelected: (_) {
+                      final oldIndex = _dateOptions.indexWhere((d) => _isSameDay(d, _selectedDate));
                       setState(() {
+                        _swipeDirection = index >= oldIndex ? 1 : -1;
                         _selectedDate = date;
                         _unassignedExpanded = false;
                       });
