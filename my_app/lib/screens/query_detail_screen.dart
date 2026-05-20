@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../models/support_query.dart';
@@ -29,16 +30,19 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
   bool _loading = true;
   bool _loadFailed = false;
   bool _sending = false;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadQuery();
+    _startPolling();
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _messageController.dispose();
     _scrollController.dispose();
@@ -47,8 +51,31 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _loadFailed) {
-      _loadQuery();
+    if (state == AppLifecycleState.resumed) {
+      if (_loadFailed) _loadQuery();
+      _startPolling();
+    } else if (state == AppLifecycleState.paused) {
+      _pollTimer?.cancel();
+    }
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _pollForMessages());
+  }
+
+  Future<void> _pollForMessages() async {
+    if (_loading || _sending) return;
+    try {
+      final updated = await _dataService.getSupportQuery(widget.queryId);
+      if (!mounted) return;
+      final oldCount = _query?.messages.length ?? 0;
+      if (updated.messages.length != oldCount) {
+        setState(() => _query = updated);
+        _scrollToBottom();
+      }
+    } catch (_) {
+      // Silent failure — next poll will retry
     }
   }
 
