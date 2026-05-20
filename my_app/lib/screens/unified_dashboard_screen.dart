@@ -188,7 +188,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     } catch (_) {}
   }
 
-  Future<void> _loadAssignmentsForDate(DateTime date, {bool forceReload = false}) async {
+  Future<void> _loadAssignmentsForDate(DateTime date, {bool forceReload = false, bool prefetchAdjacent = true}) async {
     if (!mounted) return;
     final key = _dateKey(date);
     if (!forceReload && _assignmentCache.containsKey(key)) return;
@@ -209,6 +209,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
     _loadUnassignedCountForDate(date, forceReload: forceReload);
     _loadCompatibilityConflictsForDate(date, forceReload: forceReload);
+    // Pre-cache adjacent dates so swiping is instant
+    if (prefetchAdjacent) _prefetchAdjacentDates(date);
+  }
+
+  /// Silently loads the dates either side of [date] so the next swipe
+  /// already has data and avoids the skeleton-loader artifact.
+  void _prefetchAdjacentDates(DateTime date) {
+    final currentIndex = _dateOptions.indexWhere((d) => _isSameDay(d, date));
+    if (currentIndex < 0) return;
+    if (currentIndex > 0) {
+      _loadAssignmentsForDate(_dateOptions[currentIndex - 1], prefetchAdjacent: false);
+      _loadAvailableStaff(_dateOptions[currentIndex - 1]);
+    }
+    if (currentIndex < _dateOptions.length - 1) {
+      _loadAssignmentsForDate(_dateOptions[currentIndex + 1], prefetchAdjacent: false);
+      _loadAvailableStaff(_dateOptions[currentIndex + 1]);
+    }
   }
 
   Future<void> _loadCompatibilityConflictsForDate(DateTime date, {bool forceReload = false}) async {
