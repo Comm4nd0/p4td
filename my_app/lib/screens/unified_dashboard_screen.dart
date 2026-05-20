@@ -70,7 +70,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   // Date navigation
   List<DateTime> _dateOptions = [];
-  late PageController _pageController;
   final ScrollController _dateScrollController = ScrollController();
   late DateTime _selectedDate;
 
@@ -101,9 +100,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _dateOptions = _generateWeekdays(DateTime.now());
     final today = DateTime.now();
     final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
-    final initialIndex = todayIndex >= 0 ? todayIndex : 0;
-    _selectedDate = _dateOptions[initialIndex];
-    _pageController = PageController(initialPage: initialIndex);
+    _selectedDate = _dateOptions[todayIndex >= 0 ? todayIndex : 0];
     _loadStaffMembers();
     _loadAssignmentsForDate(_selectedDate);
     _loadClosureDays();
@@ -112,7 +109,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   @override
   void dispose() {
-    _pageController.dispose();
     _dateScrollController.dispose();
     super.dispose();
   }
@@ -182,7 +178,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               .toList();
           if (!_dateOptions.any((d) => _isSameDay(d, _selectedDate)) && _dateOptions.isNotEmpty) {
             _selectedDate = _dateOptions.first;
-            _pageController.jumpToPage(0);
             _loadAssignmentsForDate(_selectedDate);
           }
         });
@@ -343,7 +338,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final existingIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
     if (existingIndex >= 0) {
       setState(() => _selectedDate = picked);
-      _pageController.animateToPage(existingIndex, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      _scrollToDateChip(existingIndex);
       _loadAssignmentsForDate(picked);
       _loadAvailableStaff(picked);
     } else {
@@ -351,9 +346,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       setState(() {
         _dateOptions = _generateWeekdays(picked);
         _selectedDate = picked;
-        final newIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
-        _pageController = PageController(initialPage: newIndex >= 0 ? newIndex : 0);
       });
+      final newIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
+      if (newIndex >= 0) _scrollToDateChip(newIndex);
       _loadAssignmentsForDate(picked);
       _loadAvailableStaff(picked);
       _loadClosureDays();
@@ -1068,10 +1063,44 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
+  // ─── Date swipe navigation ─────────────────────────────────────────
+
+  void _goToNextDate() {
+    final currentIndex = _dateOptions.indexWhere((d) => _isSameDay(d, _selectedDate));
+    if (currentIndex >= 0 && currentIndex < _dateOptions.length - 1) {
+      final nextDate = _dateOptions[currentIndex + 1];
+      setState(() {
+        _selectedDate = nextDate;
+        _unassignedExpanded = false;
+      });
+      _scrollToDateChip(currentIndex + 1);
+      _loadAssignmentsForDate(nextDate);
+      _loadAvailableStaff(nextDate);
+    }
+  }
+
+  void _goToPreviousDate() {
+    final currentIndex = _dateOptions.indexWhere((d) => _isSameDay(d, _selectedDate));
+    if (currentIndex > 0) {
+      final prevDate = _dateOptions[currentIndex - 1];
+      setState(() {
+        _selectedDate = prevDate;
+        _unassignedExpanded = false;
+      });
+      _scrollToDateChip(currentIndex - 1);
+      _loadAssignmentsForDate(prevDate);
+      _loadAvailableStaff(prevDate);
+    }
+  }
+
   // ─── Build ────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final dateKey = _dateKey(_selectedDate);
+    final isLoading = _loadingDates.contains(dateKey);
+    final assignments = _assignmentCache[dateKey] ?? [];
+
     return Column(
       children: [
         _buildDateSelector(),
@@ -1098,54 +1127,48 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             ]),
           ),
         Expanded(
-          child: PageView.builder(
-            controller: _pageController,
-            itemCount: _dateOptions.length,
-            onPageChanged: (index) {
-              final date = _dateOptions[index];
-              setState(() {
-                _selectedDate = date;
-                _unassignedExpanded = false;
-              });
-              _scrollToDateChip(index);
-              _loadAssignmentsForDate(date);
-              _loadAvailableStaff(date);
+          child: RefreshIndicator(
+            onRefresh: () async {
+              await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+              await _loadDashboardData();
             },
-            itemBuilder: (context, index) {
-              final date = _dateOptions[index];
-              final key = _dateKey(date);
-              final isLoading = _loadingDates.contains(key);
-              final assignments = _assignmentCache[key] ?? [];
-
-              if (isLoading && !_assignmentCache.containsKey(key)) {
-                return const ListTileSkeletonList();
-              }
-
-              return RefreshIndicator(
-                onRefresh: () async {
-                  await _loadAssignmentsForDate(date, forceReload: true);
-                  await _loadDashboardData();
-                },
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    _buildUnassignedBanner(date),
-                    _buildCompatibilityWarning(date),
-                    _buildOverviewMetrics(assignments),
-                    const SizedBox(height: 16),
-                    _buildStaffCards(assignments),
-                    const SizedBox(height: 16),
-                    _buildActionItems(),
-                    const SizedBox(height: 16),
-                    _buildBoardingSection(),
-                    const SizedBox(height: 16),
-                    _buildQuickActions(),
-                    const SizedBox(height: 80), // space for FABs
-                  ],
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              children: [
+                // Date-dependent content — swipe left/right to change date
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onHorizontalDragEnd: (details) {
+                    if (details.primaryVelocity == null) return;
+                    if (details.primaryVelocity! < -300) {
+                      _goToNextDate();
+                    } else if (details.primaryVelocity! > 300) {
+                      _goToPreviousDate();
+                    }
+                  },
+                  child: isLoading && !_assignmentCache.containsKey(dateKey)
+                      ? const ListTileSkeletonList()
+                      : Column(
+                          children: [
+                            _buildUnassignedBanner(_selectedDate),
+                            _buildCompatibilityWarning(_selectedDate),
+                            _buildOverviewMetrics(assignments),
+                            const SizedBox(height: 16),
+                            _buildStaffCards(assignments),
+                          ],
+                        ),
                 ),
-              );
-            },
+                const SizedBox(height: 16),
+                // Static content — stays in place when swiping between dates
+                _buildActionItems(),
+                const SizedBox(height: 16),
+                _buildBoardingSection(),
+                const SizedBox(height: 16),
+                _buildQuickActions(),
+                const SizedBox(height: 80), // space for FABs
+              ],
+            ),
           ),
         ),
       ],
@@ -1179,8 +1202,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   child: ChoiceChip(
                     selected: isSelected,
                     onSelected: (_) {
-                      setState(() => _selectedDate = date);
-                      _pageController.animateToPage(index, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                      setState(() {
+                        _selectedDate = date;
+                        _unassignedExpanded = false;
+                      });
+                      _scrollToDateChip(index);
                       _loadAssignmentsForDate(date);
                       _loadAvailableStaff(date);
                     },
