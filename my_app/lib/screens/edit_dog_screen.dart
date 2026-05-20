@@ -176,16 +176,27 @@ class _EditDogScreenState extends State<EditDogScreen> {
         );
         Navigator.pop(context, updatedDog);
       }
-    } on DogUpdatePendingApprovalException catch (e) {
+    } on DogUpdatePendingApprovalException {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: Colors.orange[700],
-            duration: const Duration(seconds: 4),
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: Icon(Icons.hourglass_top_rounded, color: Colors.orange[700], size: 48),
+            title: const Text('Changes Pending Approval'),
+            content: const Text(
+              'Your changes have been sent to the staff team for review. '
+              'You\'ll receive a notification once they\'ve been approved.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
-        Navigator.pop(context);
+        if (mounted) Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {

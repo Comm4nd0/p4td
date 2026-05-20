@@ -83,8 +83,9 @@ class ActionItemTile extends StatelessWidget {
   final String label;
   final int count;
   final VoidCallback onTap;
+  final Color? countColor;
 
-  const ActionItemTile({super.key, required this.icon, required this.label, required this.count, required this.onTap});
+  const ActionItemTile({super.key, required this.icon, required this.label, required this.count, required this.onTap, this.countColor});
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +95,7 @@ class ActionItemTile extends StatelessWidget {
         title: Text(label),
         trailing: CircleAvatar(
           radius: 14,
-          backgroundColor: Colors.grey[700],
+          backgroundColor: countColor ?? Colors.grey[700],
           child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 12)),
         ),
         onTap: onTap,

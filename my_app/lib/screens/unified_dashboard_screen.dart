@@ -1638,6 +1638,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             icon: PhosphorIconsDuotone.dog,
             label: 'Profile Changes',
             count: _pendingProfileChangeCount,
+            countColor: _pendingProfileChangeCount > 0 ? Colors.red : null,
             onTap: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const DogProfileChangesScreen()));
               _loadPendingProfileChangeCount();
