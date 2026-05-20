@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 
 /// Full-screen camera that lets the user capture multiple photos in one
@@ -208,37 +210,113 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
   }
 
   Future<bool> _saveAllToGallery(List<(Uint8List, String)> photos) async {
-    showDialog(
+    final total = photos.length;
+    final progress = ValueNotifier<int>(0);
+    BuildContext? dialogCtx;
+
+    // Re-verify permission immediately before saving — the toggle state
+    // may be stale if the user revoked access in settings since enabling it.
+    try {
+      final granted = await Gal.hasAccess() || await Gal.requestAccess();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Photo library permission denied. Enable it in your device settings to save photos.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return false;
+      }
+    } catch (_) {
+      // Fall through — putImageBytes will surface a clearer error.
+    }
+
+    if (!mounted) return false;
+
+    // Show progress dialog. We deliberately don't await the future from
+    // showDialog (we close it ourselves) and capture the dialog's context so
+    // we can definitively pop the correct route later.
+    unawaited(showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Expanded(child: Text('Saving to your photos...')),
-          ],
-        ),
-      ),
-    );
-    try {
-      for (final (bytes, name) in photos) {
-        await Gal.putImageBytes(bytes, name: name);
-      }
-      if (mounted) Navigator.pop(context); // Close the progress dialog.
-      return true;
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close the progress dialog.
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not save to your photos: $e'),
-            backgroundColor: Colors.red,
+      builder: (ctx) {
+        dialogCtx = ctx;
+        return PopScope(
+          canPop: false,
+          child: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (_, done, __) => AlertDialog(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text('Saving $done/$total to your photos...'),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(value: total > 0 ? done / total : 0),
+                ],
+              ),
+            ),
           ),
         );
+      },
+    ));
+
+    // Yield a frame so the dialog actually renders before native work begins.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    String? errorMessage;
+    int saved = 0;
+    try {
+      for (final (bytes, fileName) in photos) {
+        // Some gal versions choke on names that already include an extension
+        // and either fail silently or hang on Android — strip it defensively.
+        final bareName = fileName.replaceAll(RegExp(r'\.[^./\\]+$'), '');
+        try {
+          await Gal.putImageBytes(bytes, name: bareName)
+              .timeout(const Duration(seconds: 30));
+          saved++;
+          progress.value = saved;
+        } on TimeoutException {
+          errorMessage = 'Saving stopped after $saved/$total photos (timed out).';
+          break;
+        } on GalException catch (e) {
+          errorMessage = 'Could not save photo ${saved + 1} of $total: ${e.type.message}';
+          break;
+        } on PlatformException catch (e) {
+          errorMessage = 'Could not save photo ${saved + 1} of $total: ${e.message ?? e.code}';
+          break;
+        } catch (e) {
+          errorMessage = 'Could not save photo ${saved + 1} of $total: $e';
+          break;
+        }
       }
-      return false;
+    } finally {
+      // Always close the progress dialog so we can never end up with a stuck
+      // spinner regardless of what happened. Prefer the dialog's own context;
+      // fall back to the screen context if the builder hadn't run yet.
+      final closeCtx = (dialogCtx != null && dialogCtx!.mounted) ? dialogCtx! : context;
+      if (mounted && Navigator.canPop(closeCtx)) {
+        Navigator.of(closeCtx).pop();
+      }
+      progress.dispose();
     }
+
+    if (!mounted) return saved == total;
+
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+      );
+      // If at least one saved, let the upload proceed; otherwise stay put.
+      return saved > 0;
+    }
+
+    return true;
   }
 
   Future<bool> _confirmDiscard() async {
