@@ -214,11 +214,16 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     );
     if (tagResult == null) return; // User cancelled
 
+    // Use the (possibly cropped) bytes returned from the tag dialog.
+    final uploadBytes = tagResult.bytesByFile.isNotEmpty
+        ? tagResult.bytesByFile[0]
+        : bytes;
+
     // Upload
     try {
       _showUploadingDialog();
       await _dataService.uploadGroupMedia(
-        fileBytes: bytes,
+        fileBytes: uploadBytes,
         fileName: pickedFile.name,
         isVideo: isVideo,
         caption: tagResult.caption,
@@ -314,6 +319,13 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       if (tagResult == null) return; // User cancelled
       captionsByFile = tagResult.captionsByFile;
       taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
+      // Replace the per-file bytes with whatever the user cropped to (or
+      // original bytes for items they left alone / videos).
+      if (tagResult.bytesByFile.length == fileData.length) {
+        for (var i = 0; i < fileData.length; i++) {
+          fileData[i] = (tagResult.bytesByFile[i], fileData[i].$2);
+        }
+      }
     }
 
     // Show progress dialog using a ValueNotifier so we can update it in place

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:video_player/video_player.dart';
 import '../models/dog.dart';
@@ -13,7 +14,16 @@ class MediaTagResult {
   final List<String?> captionsByFile;
   final List<List<String>> taggedDogIdsByFile;
 
-  MediaTagResult({required this.captionsByFile, required this.taggedDogIdsByFile});
+  /// Possibly-cropped bytes for each file, in the same order as the files
+  /// passed in. For videos (or images the user didn't crop) this is the
+  /// original bytes.
+  final List<Uint8List> bytesByFile;
+
+  MediaTagResult({
+    required this.captionsByFile,
+    required this.taggedDogIdsByFile,
+    required this.bytesByFile,
+  });
 
   /// Convenience getter for single-file uploads.
   String? get caption => captionsByFile.isNotEmpty ? captionsByFile[0] : null;
@@ -45,11 +55,15 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
   /// One set of selected dog IDs per file.
   late List<Set<String>> _selectedDogsByFile;
 
+  /// Mutable copy of each file's bytes — replaced when the user crops.
+  late List<Uint8List> _bytesByFile;
+
   @override
   void initState() {
     super.initState();
     _captionControllers = List.generate(widget.files.length, (_) => TextEditingController());
     _selectedDogsByFile = List.generate(widget.files.length, (_) => <String>{});
+    _bytesByFile = widget.files.map((f) => f.$1).toList();
     _loadDogs();
   }
 
@@ -102,6 +116,7 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
       MediaTagResult(
         captionsByFile: captions,
         taggedDogIdsByFile: tagsByFile,
+        bytesByFile: List<Uint8List>.from(_bytesByFile),
       ),
     );
   }
@@ -110,6 +125,63 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => _EnlargedImageView(bytes: bytes),
     ));
+  }
+
+  Future<void> _cropImage(int fileIndex) async {
+    final (_, fileName, _) = widget.files[fileIndex];
+    final bytes = _bytesByFile[fileIndex];
+
+    // image_cropper needs a file path; write the current bytes to a temp file.
+    File? tempInput;
+    try {
+      final dir = Directory.systemTemp;
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      tempInput = File('${dir.path}/p4td_crop_input_${timestamp}_$fileName');
+      await tempInput.writeAsBytes(bytes);
+
+      final theme = Theme.of(context);
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: tempInput.path,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 90,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop photo',
+            toolbarColor: theme.colorScheme.primary,
+            toolbarWidgetColor: Colors.white,
+            activeControlsWidgetColor: theme.colorScheme.primary,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+            hideBottomControls: false,
+          ),
+          IOSUiSettings(
+            title: 'Crop photo',
+            aspectRatioLockEnabled: false,
+            resetAspectRatioEnabled: true,
+          ),
+        ],
+      );
+
+      if (cropped == null) return; // User cancelled.
+
+      final croppedFile = File(cropped.path);
+      final newBytes = await croppedFile.readAsBytes();
+      unawaited(croppedFile.delete().catchError((_) => croppedFile));
+      if (!mounted) return;
+      setState(() {
+        _bytesByFile[fileIndex] = newBytes;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not crop image: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      final cleanup = tempInput;
+      if (cleanup != null) {
+        unawaited(cleanup.delete().catchError((_) => cleanup));
+      }
+    }
   }
 
   @override
@@ -151,8 +223,8 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                   onPageChanged: (page) => setState(() => _currentPage = page),
                   itemCount: widget.files.length,
                   itemBuilder: (context, index) {
-                    final (bytes, fileName, isVideo) = widget.files[index];
-                    return _buildFileTagPage(bytes, fileName, isVideo, index);
+                    final (_, fileName, isVideo) = widget.files[index];
+                    return _buildFileTagPage(_bytesByFile[index], fileName, isVideo, index);
                   },
                 ),
               ),
@@ -229,7 +301,11 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                             maxScale: 5.0,
                             clipBehavior: Clip.hardEdge,
                             child: SizedBox.expand(
-                              child: Image.memory(bytes, fit: BoxFit.contain),
+                              child: Image.memory(
+                                bytes,
+                                fit: BoxFit.contain,
+                                gaplessPlayback: true,
+                              ),
                             ),
                           ),
                           Positioned(
@@ -252,6 +328,36 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                                       style: TextStyle(color: Colors.white, fontSize: 11),
                                     ),
                                   ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 8,
+                            bottom: 8,
+                            child: Material(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () => _cropImage(fileIndex),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      PhosphorIcon(
+                                        PhosphorIconsDuotone.crop,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      const Text(
+                                        'Crop',
+                                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),

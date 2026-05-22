@@ -983,10 +983,14 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
     if (tagResult == null) return;
 
+    final uploadBytes = tagResult.bytesByFile.isNotEmpty
+        ? tagResult.bytesByFile[0]
+        : bytes;
+
     try {
       showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
       await _dataService.uploadGroupMedia(
-        fileBytes: bytes, fileName: file.name, isVideo: isVideo,
+        fileBytes: uploadBytes, fileName: file.name, isVideo: isVideo,
         caption: tagResult.caption,
         taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty ? tagResult.taggedDogIdsByFile[0] : null,
       );
@@ -1033,6 +1037,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       if (tagResult == null) return;
       captionsByFile = tagResult.captionsByFile;
       taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
+      if (tagResult.bytesByFile.length == fileData.length) {
+        for (var i = 0; i < fileData.length; i++) {
+          fileData[i] = (tagResult.bytesByFile[i], fileData[i].$2);
+        }
+      }
     }
 
     final progress = ValueNotifier<int>(0);
