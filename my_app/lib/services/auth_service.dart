@@ -176,14 +176,14 @@ class AuthService {
   /// All accounts saved on this device.
   Future<List<Account>> getAccounts() async {
     final raw = await _storage.read(key: _kAccounts);
-    if (raw == null || raw.isEmpty) return const [];
+    if (raw == null || raw.isEmpty) return <Account>[];
     try {
       final list = json.decode(raw) as List;
       return list
           .map((e) => Account.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
     } catch (_) {
-      return const [];
+      return <Account>[];
     }
   }
 
