@@ -9,6 +9,7 @@ import '../services/auth_service.dart';
 import '../services/theme_service.dart';
 
 import 'login_screen.dart';
+import 'home_screen.dart';
 import 'change_password_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -27,6 +28,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isUploadingPhoto = false;
   UserProfile? _profile;
   String? _error;
+
+  List<Account> _accounts = const [];
+  int? _activeAccountId;
 
   final _firstNameController = TextEditingController();
   final _addressController = TextEditingController();
@@ -48,6 +52,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadProfile() async {
     try {
       final profile = await _dataService.getProfile();
+      // Make sure the active session is recorded in the device's account
+      // list (idempotent — refreshes name/avatar each time profile loads).
+      if (profile.userId != null) {
+        await _authService.upsertActiveAccount(
+          userId: profile.userId!,
+          username: profile.username,
+          email: profile.email,
+          displayName: profile.firstName,
+          profilePhotoUrl: profile.profilePhotoUrl,
+        );
+      }
+      final accounts = await _authService.getAccounts();
+      final activeId = await _authService.getActiveAccountId();
       setState(() {
         _profile = profile;
         _firstNameController.text = profile.firstName ?? '';
@@ -58,6 +75,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _notifyTraffic = profile.notifyTraffic;
         _notifyBookings = profile.notifyBookings;
         _notifyDogUpdates = profile.notifyDogUpdates;
+        _accounts = accounts;
+        _activeAccountId = activeId;
         _isLoading = false;
       });
     } catch (e) {
@@ -68,6 +87,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     }
+  }
+
+  Future<void> _switchAccount(Account account) async {
+    if (account.userId == _activeAccountId) return;
+    final next = await _authService.switchAccount(account.userId);
+    if (next == null || !mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (route) => false,
+    );
+  }
+
+  Future<void> _addAccount() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginScreen(addingAccount: true)),
+    );
   }
 
   Future<void> _saveProfile() async {
@@ -233,8 +268,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _logout() async {
-    await _authService.logout();
-    if (mounted) {
+    final next = await _authService.logout();
+    if (!mounted) return;
+    if (next != null) {
+      // Another account is now active — stay in the app.
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (route) => false,
+      );
+    } else {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
@@ -395,8 +437,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     passwordController.dispose();
 
     if (passwordConfirmed == true && mounted) {
+      // After deletion, AuthService.deleteAccount() has already signed out
+      // the active account. If another account remains, drop into it.
+      final stillSignedIn = (await _authService.getToken()) != null;
+      if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(
+          builder: (_) => stillSignedIn ? const HomeScreen() : const LoginScreen(),
+        ),
         (route) => false,
       );
     }
@@ -475,6 +523,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  List<Widget> _buildAccountTiles() {
+    if (_accounts.isEmpty) return const [];
+    return _accounts.map((a) {
+      final isActive = a.userId == _activeAccountId;
+      final label = (a.displayName?.isNotEmpty ?? false) ? a.displayName! : a.username;
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: CircleAvatar(
+          backgroundImage: (a.profilePhotoUrl != null && a.profilePhotoUrl!.isNotEmpty)
+              ? CachedNetworkImageProvider(a.profilePhotoUrl!)
+              : null,
+          child: (a.profilePhotoUrl == null || a.profilePhotoUrl!.isEmpty)
+              ? Text(label.isNotEmpty ? label[0].toUpperCase() : '?')
+              : null,
+        ),
+        title: Text(label),
+        subtitle: Text(a.email),
+        trailing: isActive
+            ? PhosphorIcon(PhosphorIconsDuotone.checkCircle,
+                color: Theme.of(context).primaryColor)
+            : null,
+        onTap: isActive ? null : () => _switchAccount(a),
+      );
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -551,6 +625,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         maxLines: 4,
                       ),
                     ],
+                    const Divider(height: 32),
+                    Text(
+                      'Accounts',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    ..._buildAccountTiles(),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const PhosphorIcon(PhosphorIconsDuotone.userPlus),
+                      title: const Text('Add another account'),
+                      onTap: _addAccount,
+                    ),
                     const Divider(height: 32),
                     Text(
                       'Notifications',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../services/auth_service.dart';
+import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../widgets/no_connection_widget.dart';
 import 'home_screen.dart';
@@ -9,7 +10,12 @@ import 'forgot_password_screen.dart';
 import '../services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// When true, this screen is being used to add another account while the
+  /// user is already logged in. On success we pop back instead of replacing
+  /// the navigation stack.
+  final bool addingAccount;
+
+  const LoginScreen({super.key, this.addingAccount = false});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -63,6 +69,24 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
 
       if (error == null) {
         if (mounted) {
+          // Fetch the profile so we can record the account in the switcher.
+          // Don't block login on failures here — the user is still logged in
+          // even if profile lookup fails, the active token is set.
+          try {
+            final profile = await ApiDataService().getProfile();
+            if (profile.userId != null) {
+              await _authService.upsertActiveAccount(
+                userId: profile.userId!,
+                username: profile.username,
+                email: profile.email,
+                displayName: profile.firstName,
+                profilePhotoUrl: profile.profilePhotoUrl,
+              );
+            }
+          } catch (e) {
+            debugPrint("Failed to record account: $e");
+          }
+
           // Register push notification token
           try {
             await NotificationService().updateToken();
@@ -72,9 +96,16 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           }
 
           if (mounted) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const HomeScreen()),
-            );
+            if (widget.addingAccount) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+                (route) => false,
+              );
+            } else {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+              );
+            }
           }
         }
       } else {
@@ -103,6 +134,9 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     }
 
     return Scaffold(
+      appBar: widget.addingAccount
+          ? AppBar(title: const Text('Add another account'))
+          : null,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),

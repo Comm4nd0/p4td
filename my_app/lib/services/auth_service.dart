@@ -6,8 +6,66 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'cache_service.dart';
 import 'no_connection_exception.dart';
 
+/// A saved account on this device. The token is the long-lived auth token
+/// returned by Djoser's `auth/token/login/` endpoint.
+class Account {
+  final int userId;
+  final String username;
+  final String email;
+  final String? displayName;
+  final String? profilePhotoUrl;
+  final String token;
+
+  const Account({
+    required this.userId,
+    required this.username,
+    required this.email,
+    required this.token,
+    this.displayName,
+    this.profilePhotoUrl,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'userId': userId,
+        'username': username,
+        'email': email,
+        'displayName': displayName,
+        'profilePhotoUrl': profilePhotoUrl,
+        'token': token,
+      };
+
+  factory Account.fromJson(Map<String, dynamic> json) => Account(
+        userId: json['userId'] as int,
+        username: json['username'] as String,
+        email: json['email'] as String,
+        displayName: json['displayName'] as String?,
+        profilePhotoUrl: json['profilePhotoUrl'] as String?,
+        token: json['token'] as String,
+      );
+
+  Account copyWith({
+    String? username,
+    String? email,
+    String? displayName,
+    String? profilePhotoUrl,
+    String? token,
+  }) =>
+      Account(
+        userId: userId,
+        username: username ?? this.username,
+        email: email ?? this.email,
+        displayName: displayName ?? this.displayName,
+        profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
+        token: token ?? this.token,
+      );
+}
+
 class AuthService {
   final _storage = const FlutterSecureStorage();
+
+  static const _kActiveToken = 'auth_token';
+  static const _kAccounts = 'accounts';
+  static const _kActiveAccountId = 'active_account_id';
 
   // Production URL can be set at compile time:
   // flutter build apk --dart-define=API_URL=https://your-api.com
@@ -45,7 +103,7 @@ class AuthService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final token = data['auth_token'];
-        await _storage.write(key: 'auth_token', value: token);
+        await _storage.write(key: _kActiveToken, value: token);
         return null; // Success
       } else {
         try {
@@ -70,17 +128,134 @@ class AuthService {
     }
   }
 
-  Future<void> logout() async {
-    await _storage.delete(key: 'auth_token');
-    // Clear local cache to prevent stale data for a different user
+  /// Signs out the *active* account. If there are other saved accounts, the
+  /// most recently registered one becomes active and its token is loaded.
+  /// Otherwise all session state is cleared (token + cache).
+  ///
+  /// Returns the [Account] that is now active, or null if the user is fully
+  /// signed out.
+  Future<Account?> logout() async {
+    final accounts = await getAccounts();
+    final activeId = await getActiveAccountId();
+    final remaining = accounts.where((a) => a.userId != activeId).toList();
+
+    // Always wipe the per-user cache — the next signed-in account must not
+    // see stale data from the previous one.
     try {
-      final cacheService = CacheService();
-      await cacheService.clearAll();
+      await CacheService().clearAll();
+    } catch (_) {}
+
+    if (remaining.isEmpty) {
+      await _storage.delete(key: _kActiveToken);
+      await _storage.delete(key: _kAccounts);
+      await _storage.delete(key: _kActiveAccountId);
+      return null;
+    }
+
+    await _writeAccounts(remaining);
+    final next = remaining.last;
+    await _storage.write(key: _kActiveToken, value: next.token);
+    await _storage.write(key: _kActiveAccountId, value: next.userId.toString());
+    return next;
+  }
+
+  /// Signs out of every account on this device and clears the cache.
+  Future<void> logoutAll() async {
+    await _storage.delete(key: _kActiveToken);
+    await _storage.delete(key: _kAccounts);
+    await _storage.delete(key: _kActiveAccountId);
+    try {
+      await CacheService().clearAll();
     } catch (_) {}
   }
 
   Future<String?> getToken() async {
-    return await _storage.read(key: 'auth_token');
+    return await _storage.read(key: _kActiveToken);
+  }
+
+  /// All accounts saved on this device.
+  Future<List<Account>> getAccounts() async {
+    final raw = await _storage.read(key: _kAccounts);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = json.decode(raw) as List;
+      return list
+          .map((e) => Account.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<int?> getActiveAccountId() async {
+    final raw = await _storage.read(key: _kActiveAccountId);
+    if (raw == null) return null;
+    return int.tryParse(raw);
+  }
+
+  Future<void> _writeAccounts(List<Account> accounts) async {
+    final payload = json.encode(accounts.map((a) => a.toJson()).toList());
+    await _storage.write(key: _kAccounts, value: payload);
+  }
+
+  /// Records the currently-active session as an [Account] in the device's
+  /// account list (or refreshes the existing record). Call this whenever the
+  /// active user's profile is loaded so the switcher stays in sync.
+  Future<void> upsertActiveAccount({
+    required int userId,
+    required String username,
+    required String email,
+    String? displayName,
+    String? profilePhotoUrl,
+  }) async {
+    final token = await getToken();
+    if (token == null) return; // Nothing to record.
+
+    final previousActiveId = await getActiveAccountId();
+    final accounts = await getAccounts();
+    final idx = accounts.indexWhere((a) => a.userId == userId);
+    final updated = Account(
+      userId: userId,
+      username: username,
+      email: email,
+      displayName: displayName,
+      profilePhotoUrl: profilePhotoUrl,
+      token: token,
+    );
+    if (idx >= 0) {
+      accounts[idx] = updated;
+    } else {
+      accounts.add(updated);
+    }
+    await _writeAccounts(accounts);
+    await _storage.write(key: _kActiveAccountId, value: userId.toString());
+
+    // If the active user changed (e.g. an "add another account" flow that
+    // logged in as a different user), wipe the shared cache so the new
+    // session doesn't see the previous user's data.
+    if (previousActiveId != null && previousActiveId != userId) {
+      try {
+        await CacheService().clearAll();
+      } catch (_) {}
+    }
+  }
+
+  /// Switch the active session to [userId]. The caller is responsible for
+  /// routing the UI back to the home screen afterwards — the cache is cleared
+  /// here so the next data fetch comes from the network.
+  ///
+  /// Returns the now-active [Account], or null if no matching account exists.
+  Future<Account?> switchAccount(int userId) async {
+    final accounts = await getAccounts();
+    final target = accounts.where((a) => a.userId == userId).firstOrNull;
+    if (target == null) return null;
+
+    await _storage.write(key: _kActiveToken, value: target.token);
+    await _storage.write(key: _kActiveAccountId, value: target.userId.toString());
+    try {
+      await CacheService().clearAll();
+    } catch (_) {}
+    return target;
   }
 
   /// Step 1: Request a password reset OTP to be sent to the given email.

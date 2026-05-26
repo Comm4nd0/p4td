@@ -108,7 +108,8 @@ abstract class DataService {
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
   });
-  Future<void> uploadMultipleGroupMedia({
+  Future<List<({int index, String fileName, Object error})>>
+      uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
     List<String?>? captionsByFile,
@@ -1042,35 +1043,64 @@ class ApiDataService implements DataService {
     }
   }
 
-  /// Upload multiple media files to the group feed
-  /// [files] is a list of (bytes, filename) tuples
-  /// [onProgress] is called after each file upload with (completed, total)
-  Future<void> uploadMultipleGroupMedia({
+  /// Upload multiple media files to the group feed.
+  ///
+  /// Each file is retried up to 3 times with backoff on failure; if it still
+  /// fails the batch continues with the remaining files. Returns the list of
+  /// files that ultimately failed (empty list means everything succeeded).
+  ///
+  /// [onProgress] fires after each file is processed (success or final
+  /// failure) with (completed, total).
+  Future<List<({int index, String fileName, Object error})>>
+      uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
     List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
   }) async {
+    const maxAttempts = 3;
+    const backoffs = [Duration(seconds: 1), Duration(seconds: 3)];
+    final failures = <({int index, String fileName, Object error})>[];
+
     for (int i = 0; i < files.length; i++) {
       final (bytes, fileName) = files[i];
       final ext = fileName.toLowerCase();
       final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
-      // Per-file caption takes priority, then fall back to shared caption
       final fileCaption = (captionsByFile != null && i < captionsByFile.length)
           ? captionsByFile[i]
           : caption;
-      await uploadGroupMedia(
-        fileBytes: bytes,
-        fileName: fileName,
-        isVideo: isVideo,
-        caption: fileCaption,
-        taggedDogIds: taggedDogIdsByFile != null && i < taggedDogIdsByFile.length
-            ? taggedDogIdsByFile[i]
-            : null,
-      );
+      final dogIds = taggedDogIdsByFile != null && i < taggedDogIdsByFile.length
+          ? taggedDogIdsByFile[i]
+          : null;
+
+      Object? lastError;
+      for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          await uploadGroupMedia(
+            fileBytes: bytes,
+            fileName: fileName,
+            isVideo: isVideo,
+            caption: fileCaption,
+            taggedDogIds: dogIds,
+          );
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e;
+          if (attempt < maxAttempts - 1) {
+            await Future.delayed(backoffs[attempt]);
+          }
+        }
+      }
+
+      if (lastError != null) {
+        failures.add((index: i, fileName: fileName, error: lastError));
+      }
       onProgress?.call(i + 1, files.length);
     }
+
+    return failures;
   }
 
   @override
@@ -2484,13 +2514,14 @@ class MockDataService implements DataService {
   }) async {}
 
   @override
-  Future<void> uploadMultipleGroupMedia({
+  Future<List<({int index, String fileName, Object error})>>
+      uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
     List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
-  }) async {}
+  }) async => [];
 
   @override
   Future<void> deleteGroupMedia(String mediaId) async {}

@@ -354,37 +354,46 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       ),
     );
 
-    int completed = 0;
     try {
-      await _dataService.uploadMultipleGroupMedia(
+      final failures = await _dataService.uploadMultipleGroupMedia(
         files: fileData,
         captionsByFile: captionsByFile,
         taggedDogIdsByFile: taggedDogIdsByFile,
         onProgress: (done, count) {
-          completed = done;
           progress.value = done;
         },
       );
-      if (mounted) {
-        Navigator.pop(context); // Close progress dialog
+      if (!mounted) return;
+      Navigator.pop(context); // Close progress dialog
+
+      final succeeded = total - failures.length;
+      if (failures.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
             backgroundColor: Colors.green,
           ),
         );
-        _loadFeed();
+      } else {
+        final failedNames = failures.map((f) => f.fileName).join(', ');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 6),
+          ),
+        );
       }
+      if (succeeded > 0) _loadFeed();
     } catch (e) {
       if (mounted) {
         Navigator.pop(context); // Close progress dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Upload failed after $completed/$total: $e'),
+            content: Text('Upload failed: $e'),
             backgroundColor: Colors.red,
           ),
         );
-        if (completed > 0) _loadFeed(); // Refresh to show any that succeeded
       }
     }
   }
