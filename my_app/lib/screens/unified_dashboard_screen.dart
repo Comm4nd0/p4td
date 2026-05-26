@@ -1057,15 +1057,24 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
 
     try {
-      await _dataService.uploadMultipleGroupMedia(
+      final failures = await _dataService.uploadMultipleGroupMedia(
         files: fileData, captionsByFile: captionsByFile,
         taggedDogIdsByFile: taggedDogIdsByFile,
         onProgress: (done, count) => progress.value = done,
       );
-      if (mounted) {
-        Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
+      final succeeded = total - failures.length;
+      if (failures.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green));
+      } else {
+        final failedNames = failures.map((f) => f.fileName).join(', ');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 6),
+        ));
       }
     } catch (e) {
       if (mounted) {
