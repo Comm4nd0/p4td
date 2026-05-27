@@ -1238,6 +1238,147 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
   }
 
+  String _formatAge(DateTime dob) {
+    final now = DateTime.now();
+    int years = now.year - dob.year;
+    int months = now.month - dob.month;
+    if (now.day < dob.day) months -= 1;
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+    if (years > 0 && months > 0) return '$years yr ${months}m';
+    if (years > 0) return years == 1 ? '1 yr' : '$years yrs';
+    return months == 1 ? '1 month' : '$months months';
+  }
+
+  Widget _infoChip({required IconData icon, required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primaryLight.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PhosphorIcon(icon, size: 14, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.primary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoBlock({required IconData icon, required String title, required String body, Color? accent}) {
+    final color = accent ?? AppColors.primary;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PhosphorIcon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(body, style: const TextStyle(fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDogInfoSection() {
+    final chips = <Widget>[];
+    if (_dog.sex != null) {
+      chips.add(_infoChip(
+        icon: PhosphorIconsDuotone.pawPrint,
+        label: _dog.sex == DogSex.male ? 'Male' : 'Female',
+      ));
+    }
+    if (_dog.dateOfBirth != null) {
+      chips.add(_infoChip(
+        icon: PhosphorIconsDuotone.cake,
+        label: _formatAge(_dog.dateOfBirth!),
+      ));
+    }
+    if (_dog.sex != null) {
+      chips.add(_infoChip(
+        icon: PhosphorIconsDuotone.heart,
+        label: _dog.isSpayed
+            ? (_dog.sex == DogSex.male ? 'Neutered' : 'Spayed')
+            : (_dog.sex == DogSex.male ? 'Not neutered' : 'Not spayed'),
+      ));
+    }
+    chips.add(_infoChip(
+      icon: PhosphorIconsDuotone.calendarDots,
+      label: _dog.scheduleType.displayName,
+    ));
+    if (_dog.preferredDropoffTime != null && widget.isStaff) {
+      chips.add(_infoChip(
+        icon: PhosphorIconsDuotone.clock,
+        label: 'Dropoff ${_dog.preferredDropoffTime!.displayName}',
+      ));
+    }
+
+    final transportLines = <String>[];
+    if (widget.isStaff) {
+      if (_dog.ownerBringsDefault) {
+        final t = _dog.ownerBringsDefaultTime;
+        transportLines.add(
+          'Owner brings${t != null ? ' at ${t.format(context)}' : ''}',
+        );
+      }
+      if (_dog.ownerCollectsDefault) {
+        final t = _dog.ownerCollectsDefaultTime;
+        transportLines.add(
+          'Owner collects${t != null ? ' at ${t.format(context)}' : ''}',
+        );
+      }
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(spacing: 6, runSpacing: 6, children: chips),
+          if (_dog.foodInstructions != null && _dog.foodInstructions!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PhosphorIconsDuotone.forkKnife,
+              title: 'Food',
+              body: _dog.foodInstructions!,
+            ),
+          if (_dog.medicalNotes != null && _dog.medicalNotes!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PhosphorIconsDuotone.firstAid,
+              title: 'Medical / Injuries',
+              body: _dog.medicalNotes!,
+              accent: Colors.red[700],
+            ),
+          if (transportLines.isNotEmpty)
+            _infoBlock(
+              icon: PhosphorIconsDuotone.car,
+              title: 'Transport',
+              body: transportLines.join('\n'),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final upcomingDates = _getUpcomingDaycareDates();
@@ -1391,6 +1532,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ],
                       ),
                     ),
+                  ],
+                  _buildDogInfoSection(),
+                  if (_dog.daysInDaycare.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
