@@ -1717,6 +1717,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           icon: PhosphorIconsDuotone.chats,
           label: 'Unresolved Queries',
           count: _unresolvedQueryCount,
+          countColor: _unresolvedQueryCount > 0 ? Colors.red : null,
           onTap: () async {
             await Navigator.push(context, MaterialPageRoute(
               builder: (_) => QueryListScreen(isStaff: widget.isStaff, canReplyQueries: widget.canReplyQueries),
