@@ -10,6 +10,7 @@ import 'services/service_locator.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/notification_service.dart';
+import 'widgets/offline_banner.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -76,6 +77,12 @@ class _MyAppState extends State<MyApp> {
         darkTheme: AppColors.darkTheme(),
         themeMode: _themeService.themeMode,
         navigatorObservers: [routeObserver],
+        builder: (context, child) => Column(
+          children: [
+            const OfflineBanner(),
+            Expanded(child: child ?? const SizedBox.shrink()),
+          ],
+        ),
         home: FutureBuilder<String?>(
           future: _tokenFuture,
           builder: (context, snapshot) {

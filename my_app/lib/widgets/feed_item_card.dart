@@ -135,7 +135,11 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           if (widget.media.isPhoto)
             GestureDetector(
               onTap: () => _openFullScreenImage(context, widget.media.fileUrl),
-              child: CachedNetworkImage(
+              child: Semantics(
+                image: true,
+                button: true,
+                label: _photoSemanticLabel(),
+                child: CachedNetworkImage(
                 imageUrl: widget.media.fileUrl,
                 width: double.infinity,
                 fit: BoxFit.cover,
@@ -149,6 +153,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                   color: Colors.grey[300],
                   child: const Center(child: PhosphorIcon(PhosphorIconsDuotone.warningCircle)),
                 ),
+              ),
               ),
             )
           else
@@ -267,6 +272,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                 ),
               ),
               IconButton(
+                tooltip: 'Send comment',
                 onPressed: () {
                   if (_commentController.text.trim().isNotEmpty) {
                     widget.onComment(widget.media.id, _commentController.text.trim());
@@ -281,6 +287,22 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
         ),
       ],
     );
+  }
+
+  /// Builds a screen-reader description for the feed photo from its caption
+  /// and any tagged dogs. Falls back to a generic description.
+  String _photoSemanticLabel() {
+    final parts = <String>[];
+    final caption = widget.media.caption?.trim();
+    if (caption != null && caption.isNotEmpty) parts.add(caption);
+    if (widget.media.taggedDogs.isNotEmpty) {
+      final names = widget.media.taggedDogs.map((d) => d.name).join(', ');
+      parts.add('Tagged: $names');
+    }
+    final detail = parts.join('. ');
+    return detail.isEmpty
+        ? 'Feed photo. Double tap to view full screen.'
+        : '$detail. Double tap to view full screen.';
   }
 
   void _openFullScreenImage(BuildContext context, String imageUrl) {

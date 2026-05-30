@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'connectivity_status.dart';
+import 'no_connection_exception.dart';
+
 /// A drop-in replacement for the top-level functions of `package:http` that
 /// logs each request/response in debug builds only.
 ///
@@ -20,18 +23,26 @@ Future<http.Response> _log(
   Uri url,
   Future<http.Response> Function() send,
 ) async {
-  if (!kDebugMode) return send();
   final sw = Stopwatch()..start();
   try {
     final response = await send();
     sw.stop();
-    debugPrint('[http] $method ${url.path} -> ${response.statusCode} '
-        '(${sw.elapsedMilliseconds}ms)');
+    // A response (even a 4xx/5xx) means the server is reachable.
+    ConnectivityStatus().reportSuccess();
+    if (kDebugMode) {
+      debugPrint('[http] $method ${url.path} -> ${response.statusCode} '
+          '(${sw.elapsedMilliseconds}ms)');
+    }
     return response;
   } catch (e) {
     sw.stop();
-    debugPrint('[http] $method ${url.path} -> ERROR $e '
-        '(${sw.elapsedMilliseconds}ms)');
+    if (NoConnectionException.isNetworkError(e)) {
+      ConnectivityStatus().reportNetworkFailure();
+    }
+    if (kDebugMode) {
+      debugPrint('[http] $method ${url.path} -> ERROR $e '
+          '(${sw.elapsedMilliseconds}ms)');
+    }
     rethrow;
   }
 }
