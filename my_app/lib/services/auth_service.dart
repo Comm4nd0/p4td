@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'http_client.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'cache_service.dart';
 import 'no_connection_exception.dart';
