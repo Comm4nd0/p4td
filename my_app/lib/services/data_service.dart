@@ -1300,7 +1300,7 @@ class ApiDataService implements DataService {
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       if (kDebugMode) {
-        print('Failed to register device token: ${response.body}');
+        debugPrint('Failed to register device token: ${response.body}');
       }
     }
   }

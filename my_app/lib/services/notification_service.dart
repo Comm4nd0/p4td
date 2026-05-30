@@ -38,7 +38,7 @@ class NotificationService {
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       if (kDebugMode) {
-        print('User granted permission');
+        debugPrint('User granted permission');
       }
     }
 
@@ -58,7 +58,7 @@ class NotificationService {
       settings: initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         if (kDebugMode) {
-          print('Notification tapped with payload: ${response.payload}');
+          debugPrint('Notification tapped with payload: ${response.payload}');
         }
         _handleNotificationTap(response.payload);
       },
@@ -67,7 +67,7 @@ class NotificationService {
     // 3. Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       if (kDebugMode) {
-        print('Got a message whilst in the foreground!');
+        debugPrint('Got a message whilst in the foreground!');
       }
       _showLocalNotification(message);
     });
@@ -75,7 +75,7 @@ class NotificationService {
     // 4. Handle notification taps when app is in background
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       if (kDebugMode) {
-        print('Notification opened app from background: ${message.data}');
+        debugPrint('Notification opened app from background: ${message.data}');
       }
       _handleNotificationTapFromData(message.data);
     });
@@ -84,7 +84,7 @@ class NotificationService {
     RemoteMessage? initialMessage = await _fcm.getInitialMessage();
     if (initialMessage != null) {
       if (kDebugMode) {
-        print('App launched from notification: ${initialMessage.data}');
+        debugPrint('App launched from notification: ${initialMessage.data}');
       }
       // Delay slightly to let the widget tree build
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -95,7 +95,7 @@ class NotificationService {
     // 6. Listen for token refresh and re-register with backend
     _fcm.onTokenRefresh.listen((newToken) {
       if (kDebugMode) {
-        print('FCM token refreshed: $newToken');
+        debugPrint('FCM token refreshed: $newToken');
       }
       updateToken();
     });
@@ -113,24 +113,24 @@ class NotificationService {
       String? apnsToken = await _fcm.getAPNSToken();
       if (apnsToken != null) {
         if (kDebugMode) {
-          print('APNs Token: $apnsToken');
+          debugPrint('APNs Token: $apnsToken');
         }
       } else {
         if (kDebugMode) {
-          print('APNs Token is NULL');
+          debugPrint('APNs Token is NULL');
         }
       }
       String? token = await _fcm.getToken();
       if (token != null) {
         if (kDebugMode) {
-          print('FCM Token: $token');
+          debugPrint('FCM Token: $token');
         }
         String deviceType = Platform.isIOS ? 'IOS' : 'ANDROID';
         await _dataService.registerDeviceToken(token, deviceType);
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error updating FCM token: $e');
+        debugPrint('Error updating FCM token: $e');
       }
     }
   }
@@ -139,7 +139,7 @@ class NotificationService {
   void _handleNotificationTap(String? payload) {
     if (payload == null || payload.isEmpty) return;
     if (kDebugMode) {
-      print('Handling notification tap with payload: $payload');
+      debugPrint('Handling notification tap with payload: $payload');
     }
 
     // Parse the stringified map payload: {type: post_comment, post_id: 123}
@@ -152,7 +152,7 @@ class NotificationService {
   /// Handle tap from FCM message data (already a Map)
   void _handleNotificationTapFromData(Map<String, dynamic> data) {
     if (kDebugMode) {
-      print('Navigating for notification data: $data');
+      debugPrint('Navigating for notification data: $data');
     }
 
     final type = data['type'] as String?;
@@ -241,7 +241,7 @@ class NotificationService {
       return map.isNotEmpty ? map : null;
     } catch (e) {
       if (kDebugMode) {
-        print('Failed to parse notification payload: $e');
+        debugPrint('Failed to parse notification payload: $e');
       }
       return null;
     }
@@ -274,14 +274,14 @@ class NotificationService {
   Future<void> subscribeToTopic(String topic) async {
     await _fcm.subscribeToTopic(topic);
     if (kDebugMode) {
-      print('Subscribed to topic: $topic');
+      debugPrint('Subscribed to topic: $topic');
     }
   }
 
   Future<void> unsubscribeFromTopic(String topic) async {
     await _fcm.unsubscribeFromTopic(topic);
     if (kDebugMode) {
-      print('Unsubscribed from topic: $topic');
+      debugPrint('Unsubscribed from topic: $topic');
     }
   }
 }
