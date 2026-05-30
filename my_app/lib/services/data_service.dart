@@ -227,6 +227,14 @@ abstract class DataService {
 }
 
 class ApiDataService implements DataService {
+  static final ApiDataService _instance = ApiDataService._internal();
+
+  /// Returns the shared singleton instance. Existing `ApiDataService()` call
+  /// sites continue to work and now resolve to the same instance that is
+  /// registered in the service locator (see `service_locator.dart`).
+  factory ApiDataService() => _instance;
+  ApiDataService._internal();
+
   final _authService = AuthService();
 
   Future<Map<String, String>> _getHeaders() async {

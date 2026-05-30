@@ -61,6 +61,14 @@ class Account {
 }
 
 class AuthService {
+  static final AuthService _instance = AuthService._internal();
+
+  /// Returns the shared singleton instance. Existing `AuthService()` call
+  /// sites continue to work and now resolve to the same instance that is
+  /// registered in the service locator (see `service_locator.dart`).
+  factory AuthService() => _instance;
+  AuthService._internal();
+
   final _storage = const FlutterSecureStorage();
 
   static const _kActiveToken = 'auth_token';
