@@ -15,6 +15,13 @@ class UnspayedMaleSummary {
   UnspayedMaleSummary({required this.id, required this.name});
 }
 
+/// One page of feed items plus whether more pages follow.
+class FeedPage {
+  final List<gm.GroupMedia> items;
+  final bool hasMore;
+  const FeedPage({required this.items, required this.hasMore});
+}
+
 class UnspayedMalesResult {
   final int count;
   final List<UnspayedMaleSummary> dogs;

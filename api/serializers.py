@@ -214,17 +214,25 @@ class GroupMediaSerializer(serializers.ModelSerializer):
         return None
 
     def get_reactions(self, obj):
-        from django.db.models import Count
-        reaction_counts = obj.reactions.values('emoji').annotate(count=Count('id'))
-        return {r['emoji']: r['count'] for r in reaction_counts}
+        # Count from the prefetched reactions in Python so a page of items costs
+        # one query for all reactions instead of one COUNT query per item.
+        counts = {}
+        for reaction in obj.reactions.all():
+            counts[reaction.emoji] = counts.get(reaction.emoji, 0) + 1
+        return counts
 
     def get_user_reaction(self, obj):
         request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            reaction = obj.reactions.filter(user=request.user).first()
-            if reaction:
-                return reaction.emoji
-        return None
+        if not (request and request.user.is_authenticated):
+            return None
+        # The viewset prefetches the current user's reactions into `my_reactions`
+        # (see GroupMediaViewSet.get_queryset) to avoid a per-item query.
+        my_reactions = getattr(obj, 'my_reactions', None)
+        if my_reactions is not None:
+            return my_reactions[0].emoji if my_reactions else None
+        # Fallback for callers that didn't prefetch (e.g. single-object actions).
+        reaction = obj.reactions.filter(user=request.user).first()
+        return reaction.emoji if reaction else None
 
     def get_tagged_dogs(self, obj):
         request = self.context.get('request')

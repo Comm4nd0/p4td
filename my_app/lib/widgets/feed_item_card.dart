@@ -140,7 +140,9 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                 button: true,
                 label: _photoSemanticLabel(),
                 child: CachedNetworkImage(
-                imageUrl: widget.media.fileUrl,
+                // Use the lightweight thumbnail in the list; the full-resolution
+                // image is loaded only when opening the full-screen viewer.
+                imageUrl: widget.media.thumbnailUrl ?? widget.media.fileUrl,
                 width: double.infinity,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(

@@ -768,28 +768,59 @@ class ApiDataService implements DataService {
   }
 
   @override
+  /// Backwards-compatible: returns the first page of the feed as a flat list.
+  /// New code should prefer [getFeedPage] for infinite scrolling.
   Future<List<gm.GroupMedia>> getFeed({String? dogId}) async {
+    final page = await getFeedPage(dogId: dogId, page: 1);
+    return page.items;
+  }
+
+  /// Fetch a single page of the feed.
+  ///
+  /// The backend paginates the feed endpoint (`{count, next, previous,
+  /// results}`), but this also tolerates a plain JSON array in case the API is
+  /// unpaginated. Only the first page is cached, for offline warm-start.
+  Future<FeedPage> getFeedPage({String? dogId, int page = 1}) async {
     final cache = CacheService();
     try {
       final headers = await _getHeaders();
-      var url = '${AuthService.baseUrl}/api/feed/';
-      if (dogId != null) url += '?dog_id=$dogId';
-      final response = await http.get(
-        Uri.parse(url),
-        headers: headers,
-      );
+      final params = <String, String>{'page': '$page'};
+      if (dogId != null) params['dog_id'] = dogId;
+      final url = Uri.parse('${AuthService.baseUrl}/api/feed/')
+          .replace(queryParameters: params);
+      final response = await http.get(url, headers: headers);
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        cache.cacheFeed(data.cast<Map<String, dynamic>>());
-        return data.map((json) => gm.GroupMedia.fromJson(json)).toList();
+        final decoded = json.decode(response.body);
+        List<dynamic> results;
+        bool hasMore;
+        if (decoded is Map<String, dynamic> && decoded.containsKey('results')) {
+          results = decoded['results'] as List<dynamic>;
+          hasMore = decoded['next'] != null;
+        } else {
+          // Unpaginated fallback: a plain array is the whole feed.
+          results = decoded as List<dynamic>;
+          hasMore = false;
+        }
+        final items = results.cast<Map<String, dynamic>>();
+        if (page == 1) cache.cacheFeed(items);
+        return FeedPage(
+          items: items.map((j) => gm.GroupMedia.fromJson(j)).toList(),
+          hasMore: hasMore,
+        );
       } else {
         throw Exception('Failed to load feed');
       }
     } catch (e) {
-      final cached = cache.getCachedFeed();
-      if (cached != null && cached.isNotEmpty) {
-        return cached.map((json) => gm.GroupMedia.fromJson(json)).toList();
+      // Offline: fall back to the cached first page only.
+      if (page == 1) {
+        final cached = cache.getCachedFeed();
+        if (cached != null && cached.isNotEmpty) {
+          return FeedPage(
+            items: cached.map((j) => gm.GroupMedia.fromJson(j)).toList(),
+            hasMore: false,
+          );
+        }
       }
       rethrow;
     }

@@ -1606,6 +1606,35 @@ class FeedTests(TestCase):
         resp = self.client.get('/api/feed/')
         self.assertEqual(resp.status_code, 200)
 
+    def test_feed_is_paginated_and_newest_first(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        # Create more items than one page (page_size=5) with known ordering.
+        base = timezone.now()
+        for i in range(7):
+            media = GroupMedia.objects.create(
+                uploaded_by=self.staff, media_type='PHOTO', caption=f'post {i}')
+            # Force distinct, increasing created_at so ordering is deterministic.
+            GroupMedia.objects.filter(pk=media.pk).update(
+                created_at=base + timedelta(minutes=i))
+
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/feed/')
+        self.assertEqual(resp.status_code, 200)
+        # Paginated response shape.
+        self.assertIn('results', resp.data)
+        self.assertIn('count', resp.data)
+        self.assertEqual(resp.data['count'], 7)
+        self.assertEqual(len(resp.data['results']), 5)  # first page
+        self.assertIsNotNone(resp.data['next'])
+        # Newest first: the most recent caption leads the first page.
+        self.assertEqual(resp.data['results'][0]['caption'], 'post 6')
+
+        # Second page holds the remaining items.
+        resp2 = self.client.get('/api/feed/?page=2')
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(len(resp2.data['results']), 2)
+
 
 class PruneFeedMediaTests(TestCase):
     def setUp(self):

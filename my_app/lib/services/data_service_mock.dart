@@ -184,6 +184,9 @@ class MockDataService implements DataService {
   @override
   Future<List<gm.GroupMedia>> getFeed({String? dogId}) async => [];
   @override
+  Future<FeedPage> getFeedPage({String? dogId, int page = 1}) async =>
+      const FeedPage(items: [], hasMore: false);
+  @override
   Future<Map<String, int>> getFeedTodayStats() async => {};
 
   @override

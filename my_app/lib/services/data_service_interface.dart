@@ -20,6 +20,7 @@ abstract class DataService {
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
   Future<List<gm.GroupMedia>> getFeed({String? dogId});
+  Future<FeedPage> getFeedPage({String? dogId, int page = 1});
   Future<void> uploadGroupMedia({
     required Uint8List fileBytes,
     required String fileName,

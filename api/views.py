@@ -5,6 +5,8 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
+from django.db.models import Prefetch
+from .pagination import FeedPagination
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer
 from website.models import ContactInquiry
@@ -911,9 +913,25 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
 class GroupMediaViewSet(viewsets.ModelViewSet):
     serializer_class = GroupMediaSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = FeedPagination
 
     def get_queryset(self):
-        qs = GroupMedia.objects.prefetch_related('tagged_dogs').all()
+        # Prefetch every relation the serializer touches so rendering a page of
+        # feed items stays at a small, constant number of queries instead of
+        # N+1 (uploader profile, comments + their authors, reactions, tags).
+        # The current user's own reactions are prefetched into a separate
+        # attribute so get_user_reaction() needs no extra per-item query.
+        user_reactions = Prefetch(
+            'reactions',
+            queryset=MediaReaction.objects.filter(user=self.request.user),
+            to_attr='my_reactions',
+        )
+        qs = (
+            GroupMedia.objects
+            .select_related('uploaded_by', 'uploaded_by__profile')
+            .prefetch_related('tagged_dogs', 'comments__user', 'reactions', user_reactions)
+            .order_by('-created_at')
+        )
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
             qs = qs.filter(tagged_dogs__id=dog_id).distinct()

@@ -32,6 +32,9 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   List<GroupMedia> _feed = [];
   List<Dog> _allDogs = [];
   bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  int _page = 1;
   bool _hasScrolledToPost = false;
   bool _showFilters = false;
   DateTimeRange? _dateRange;
@@ -65,8 +68,18 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scrollController.addListener(_onScroll);
     _loadFeed();
     _loadDogs();
+  }
+
+  /// Load the next page when the user nears the bottom of the list.
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 600) {
+      _loadMore();
+    }
   }
 
   Future<void> _loadDogs() async {
@@ -87,6 +100,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -106,16 +120,19 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     }
   }
 
+  /// (Re)load the feed from the first page. Resets pagination state.
   Future<void> _loadFeed({bool showLoading = true}) async {
     if (showLoading) {
       setState(() => _loading = true);
     }
-    
+
     try {
-      final feed = await _dataService.getFeed(dogId: _selectedDogId);
+      final result = await _dataService.getFeedPage(dogId: _selectedDogId, page: 1);
       if (mounted) {
         setState(() {
-          _feed = feed;
+          _feed = result.items;
+          _page = 1;
+          _hasMore = result.hasMore;
           _loading = false;
         });
         // Scroll to specific post if requested (e.g. from notification tap)
@@ -135,6 +152,28 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           );
         }
       }
+    }
+  }
+
+  /// Append the next page of the feed for infinite scrolling.
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || _loading) return;
+    setState(() => _loadingMore = true);
+    try {
+      final result =
+          await _dataService.getFeedPage(dogId: _selectedDogId, page: _page + 1);
+      if (mounted) {
+        setState(() {
+          // Guard against duplicates if pages shift between requests.
+          final existingIds = _feed.map((m) => m.id).toSet();
+          _feed.addAll(result.items.where((m) => !existingIds.contains(m.id)));
+          _page += 1;
+          _hasMore = result.hasMore;
+          _loadingMore = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -635,9 +674,13 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                               )
                             : ListView.builder(
                                 controller: _scrollController,
-                                itemCount: filtered.length,
+                                // +1 row for the loading/“end” footer.
+                                itemCount: filtered.length + 1,
                                 itemBuilder: (context, index) {
-                                  return _buildMediaCard(filtered[index]);
+                                  if (index < filtered.length) {
+                                    return _buildMediaCard(filtered[index]);
+                                  }
+                                  return _buildListFooter();
                                 },
                               ),
                   ),
@@ -674,6 +717,19 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       onReaction: (mediaId, emoji) => _toggleReaction(mediaId, emoji),
       onComment: (mediaId, text) => _addComment(mediaId, text),
     );
+  }
+
+  /// Footer row for the feed list: a spinner while the next page loads, and
+  /// otherwise empty. Hidden while filters are active (filtering is client-side
+  /// over already-loaded items, so paging further wouldn't help).
+  Widget _buildListFooter() {
+    if (_loadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return const SizedBox(height: 24);
   }
 
   Future<void> _editMedia(GroupMedia media) async {
