@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'http_client.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'cache_service.dart';
 import 'no_connection_exception.dart';
@@ -61,6 +61,14 @@ class Account {
 }
 
 class AuthService {
+  static final AuthService _instance = AuthService._internal();
+
+  /// Returns the shared singleton instance. Existing `AuthService()` call
+  /// sites continue to work and now resolve to the same instance that is
+  /// registered in the service locator (see `service_locator.dart`).
+  factory AuthService() => _instance;
+  AuthService._internal();
+
   final _storage = const FlutterSecureStorage();
 
   static const _kActiveToken = 'auth_token';
@@ -143,7 +151,9 @@ class AuthService {
     // see stale data from the previous one.
     try {
       await CacheService().clearAll();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('AuthService.logout: failed to clear cache: $e');
+    }
 
     if (remaining.isEmpty) {
       await _storage.delete(key: _kActiveToken);
@@ -166,7 +176,9 @@ class AuthService {
     await _storage.delete(key: _kActiveAccountId);
     try {
       await CacheService().clearAll();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('AuthService.logoutAll: failed to clear cache: $e');
+    }
   }
 
   Future<String?> getToken() async {
@@ -236,7 +248,9 @@ class AuthService {
     if (previousActiveId != null && previousActiveId != userId) {
       try {
         await CacheService().clearAll();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('AuthService.upsertActiveAccount: failed to clear cache: $e');
+      }
     }
   }
 
@@ -254,7 +268,9 @@ class AuthService {
     await _storage.write(key: _kActiveAccountId, value: target.userId.toString());
     try {
       await CacheService().clearAll();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('AuthService.switchAccount: failed to clear cache: $e');
+    }
     return target;
   }
 

@@ -196,6 +196,7 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
               ? 'Tag Dogs (${_currentPage + 1}/${widget.files.length})'
               : 'Tag Dogs'),
           leading: IconButton(
+            tooltip: 'Close',
             icon: const Icon(Icons.close),
             onPressed: () => Navigator.pop(context),
           ),
@@ -625,6 +626,7 @@ class _EnlargedImageView extends StatelessWidget {
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
         leading: IconButton(
+          tooltip: 'Close',
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.of(context).pop(),
         ),
