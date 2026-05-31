@@ -767,7 +767,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
                               ),
                             );
-                            if (result == 'deleted') _refresh();
+                            if (result == 'deleted') {
+                              _refresh();
+                            } else {
+                              // The dog may have been edited on the profile
+                              // screen; reload so the list reflects the latest
+                              // server state (e.g. schedule type / days).
+                              _loadDogs();
+                            }
                           },
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
