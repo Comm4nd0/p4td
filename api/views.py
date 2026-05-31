@@ -820,9 +820,10 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             to_status='APPROVED',
         )
 
-        # When a cancellation is approved, unassign the dog for that date
-        # (mirrors the change_status flow used for owner-created requests).
-        if instance.request_type == 'CANCEL' and instance.original_date:
+        # A CANCEL or a CHANGE frees up the original date, so unassign the dog
+        # there. For a CHANGE the new date is picked up by the roster queries
+        # (which treat an approved CHANGE like an ADD_DAY for new_date).
+        if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
             DailyDogAssignment.objects.filter(
                 dog=instance.dog,
                 date=instance.original_date,
@@ -875,8 +876,10 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         instance.status = new_status
         instance.save()
 
-        # When a cancellation is approved, unassign the dog for that date
-        if new_status == 'APPROVED' and instance.request_type == 'CANCEL' and instance.original_date:
+        # Approving a CANCEL or CHANGE frees up the original date, so unassign
+        # the dog there. For a CHANGE the new date is surfaced by the roster
+        # queries (which treat an approved CHANGE like an ADD_DAY for new_date).
+        if new_status == 'APPROVED' and instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
             DailyDogAssignment.objects.filter(
                 dog=instance.dog,
                 date=instance.original_date,
@@ -1146,6 +1149,40 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return target, None
         return date.today(), None
 
+    @staticmethod
+    def _cancelled_dog_ids_for_date(target_date, dog_ids=None):
+        """Dog ids that should be REMOVED from the roster for ``target_date``.
+
+        A dog is cancelled for a date if it has an APPROVED CANCEL whose
+        original_date matches, OR an APPROVED CHANGE moving *away* from that
+        date (original_date matches) — a CHANGE is a cancel of the old date
+        plus an add of the new date.
+        """
+        from django.db.models import Q
+        qs = DateChangeRequest.objects.filter(
+            status='APPROVED',
+            original_date=target_date,
+        ).filter(Q(request_type='CANCEL') | Q(request_type='CHANGE'))
+        if dog_ids is not None:
+            qs = qs.filter(dog_id__in=dog_ids)
+        return qs.values_list('dog_id', flat=True)
+
+    @staticmethod
+    def _added_dogs_for_date(target_date):
+        """Dogs that should be ADDED to the roster for ``target_date``.
+
+        Covers both APPROVED ADD_DAY requests (new_date matches) and APPROVED
+        CHANGE requests moving *to* that date (new_date matches).
+        """
+        from django.db.models import Q
+        return Dog.objects.filter(
+            date_change_requests__status='APPROVED',
+            date_change_requests__new_date=target_date,
+        ).filter(
+            Q(date_change_requests__request_type='ADD_DAY')
+            | Q(date_change_requests__request_type='CHANGE')
+        )
+
     def _materialize_roster_for_date(self, target_date):
         """Create any missing DailyDogAssignment rows for ``target_date`` from
         the persistent DogWeekdayPickup roster.
@@ -1181,12 +1218,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             .values_list('dog_id', flat=True)
         )
         cancelled_dog_ids = set(
-            DateChangeRequest.objects.filter(
-                request_type='CANCEL',
-                status='APPROVED',
-                original_date=target_date,
-                dog_id__in=[e.dog_id for e in roster_entries],
-            ).values_list('dog_id', flat=True)
+            self._cancelled_dog_ids_for_date(
+                target_date,
+                dog_ids=[e.dog_id for e in roster_entries],
+            )
         )
 
         to_create = []
@@ -1393,20 +1428,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             boarding_requests__end_date__gte=target_date,
         )
 
-        # Dogs with approved additional day requests for the target date
-        # (this covers ad-hoc dogs — they only appear when explicitly booked)
-        add_day_dogs = Dog.objects.filter(
-            date_change_requests__request_type='ADD_DAY',
-            date_change_requests__status='APPROVED',
-            date_change_requests__new_date=target_date,
-        )
+        # Dogs explicitly added for the target date: approved ADD_DAY requests
+        # (covers ad-hoc dogs) and approved CHANGE requests moving to this date.
+        add_day_dogs = self._added_dogs_for_date(target_date)
 
-        # Dogs with approved cancellations for the target date
-        cancelled_dog_ids = DateChangeRequest.objects.filter(
-            request_type='CANCEL',
-            status='APPROVED',
-            original_date=target_date,
-        ).values_list('dog_id', flat=True)
+        # Dogs removed for the target date: approved CANCEL requests and
+        # approved CHANGE requests moving away from this date.
+        cancelled_dog_ids = self._cancelled_dog_ids_for_date(target_date)
 
         # Combine daycare + boarding + additional days, exclude cancelled
         scheduled_dogs = (daycare_dogs | boarding_dogs | add_day_dogs).exclude(
@@ -1837,13 +1865,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             boarding_requests__start_date__lte=target_date,
             boarding_requests__end_date__gte=target_date,
         )
-        cancelled_dog_ids = DateChangeRequest.objects.filter(
-            request_type='CANCEL',
-            status='APPROVED',
-            original_date=target_date,
-        ).values_list('dog_id', flat=True)
+        add_day_dogs = self._added_dogs_for_date(target_date)
+        cancelled_dog_ids = self._cancelled_dog_ids_for_date(target_date)
 
-        scheduled_dogs = (daycare_dogs | boarding_dogs).exclude(
+        scheduled_dogs = (daycare_dogs | boarding_dogs | add_day_dogs).exclude(
             id__in=cancelled_dog_ids
         ).distinct()
 

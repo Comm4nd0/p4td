@@ -403,22 +403,51 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   List<DateTime> _getUpcomingDaycareDates() {
-    final List<DateTime> dates = [];
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final threeMonthsLater = DateTime(now.year, now.month + 3, now.day);
 
     final dayNumbers = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
 
+    DateTime norm(DateTime d) => DateTime(d.year, d.month, d.day);
+    bool isActive(DateChangeRequest r) => r.status != RequestStatus.denied;
+
+    // Dates removed from the schedule: cancellations and the *original* date of
+    // a change (a change moves a day from its original date to its new date).
+    final removedDates = _requests
+        .where((r) =>
+            isActive(r) &&
+            (r.requestType == RequestType.cancel ||
+                r.requestType == RequestType.change) &&
+            r.originalDate != null)
+        .map((r) => norm(r.originalDate!))
+        .toSet();
+
+    // Dates added to the schedule: additional days and the *new* date of a
+    // change. These may fall on non-recurring weekdays, so add them explicitly.
+    final addedDates = _requests
+        .where((r) =>
+            isActive(r) &&
+            (r.requestType == RequestType.addDay ||
+                r.requestType == RequestType.change) &&
+            r.newDate != null)
+        .map((r) => norm(r.newDate!))
+        .where((d) => !d.isBefore(today) && d.isBefore(threeMonthsLater))
+        .toSet();
+
+    final dates = <DateTime>{};
     var current = today;
     while (current.isBefore(threeMonthsLater)) {
       if (dayNumbers.contains(current.weekday)) {
-        dates.add(current);
+        dates.add(norm(current));
       }
       current = current.add(const Duration(days: 1));
     }
+    dates.addAll(addedDates);
+    dates.removeAll(removedDates);
 
-    return dates;
+    final result = dates.toList()..sort();
+    return result;
   }
 
   bool _isConfirmed(DateTime date) {

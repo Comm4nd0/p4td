@@ -106,6 +106,23 @@ class DateChangeRequestCreateTests(TestCase):
         req = DateChangeRequest.objects.get(id=resp.data['id'])
         self.assertEqual(req.status, 'APPROVED')
 
+    def test_staff_change_unassigns_original_date(self):
+        # A staff CHANGE should free up the original date (like a cancel); the
+        # new date is surfaced separately by the roster queries.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date='2026-05-10', status='ASSIGNED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self._post(
+            request_type='CHANGE',
+            original_date='2026-05-10',
+            new_date='2026-05-12',
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date='2026-05-10').exists()
+        )
+
     def test_staff_add_day_auto_approves(self):
         self.client.login(username='staff', password='pw')
         resp = self._post(request_type='ADD_DAY', new_date='2026-05-15')
@@ -462,6 +479,48 @@ class WeekdayRosterTests(TestCase):
         self.assertFalse(DailyDogAssignment.objects.filter(
             dog=self.dog, date=self.today
         ).exists())
+
+    def test_today_skips_dog_with_change_away_from_date(self):
+        # A CHANGE moving away from today should free up today (like a cancel).
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a
+        )
+        DateChangeRequest.objects.create(
+            dog=self.dog,
+            request_type='CHANGE',
+            original_date=self.today,
+            new_date=self.today + timedelta(days=1),
+            status='APPROVED',
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DailyDogAssignment.objects.filter(
+            dog=self.dog, date=self.today
+        ).exists())
+
+    def test_unassigned_includes_dog_changed_to_date(self):
+        # A CHANGE moving *to* a date should surface the dog as scheduled for
+        # that date, even when it's not one of the dog's recurring weekdays.
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            self.skipTest('JSON contains lookup not supported on SQLite')
+        # Pick a target weekday the dog does NOT normally attend.
+        target = self.today + timedelta(days=1)
+        while target.isoweekday() in self.dog.daycare_days:
+            target += timedelta(days=1)
+        DateChangeRequest.objects.create(
+            dog=self.dog,
+            request_type='CHANGE',
+            original_date=self.today,
+            new_date=target,
+            status='APPROVED',
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/unassigned_dogs/?date={target.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.dog.id, [d['id'] for d in resp.data])
 
     def test_today_skips_dropped_weekday(self):
         # Roster entry exists but the dog no longer attends on that weekday.
