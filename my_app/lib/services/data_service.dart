@@ -247,9 +247,11 @@ class ApiDataService implements DataService {
       if (name != null) request.fields['name'] = name;
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
-      if (daysInDaycare != null) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
+      // Always send schedule_type and daycare_days (falling back to the dog's
+      // current values) so they can never be silently dropped from the payload.
+      request.fields['daycare_days'] = json.encode((daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList());
       if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
-      if (scheduleType != null) request.fields['schedule_type'] = scheduleType.apiValue;
+      request.fields['schedule_type'] = (scheduleType ?? dog.scheduleType).apiValue;
       if (ownerBringsDefault != null) request.fields['owner_brings_default'] = ownerBringsDefault.toString();
       if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
       if (ownerBringsDefaultTime != null) request.fields['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
@@ -283,9 +285,12 @@ class ApiDataService implements DataService {
           'name': name ?? dog.name,
           'food_instructions': foodInstructions ?? dog.foodInstructions,
           'medical_notes': medicalNotes ?? dog.medicalNotes,
-          if (daysInDaycare != null) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
+          // Always send schedule_type and daycare_days (falling back to the
+          // dog's current values) so they can never be silently dropped from
+          // the payload when the caller passes null.
+          'daycare_days': (daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList(),
           if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
-          if (scheduleType != null) 'schedule_type': scheduleType.apiValue,
+          'schedule_type': (scheduleType ?? dog.scheduleType).apiValue,
           if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
           if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
           if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),

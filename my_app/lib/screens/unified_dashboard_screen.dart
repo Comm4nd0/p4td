@@ -1705,6 +1705,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           icon: PhosphorIconsDuotone.clockCountdown,
           label: 'Pending Requests',
           count: _pendingRequestCount,
+          countColor: _pendingRequestCount > 0 ? Colors.red : null,
           onTap: () async {
             await Navigator.push(context, MaterialPageRoute(
               builder: (_) => StaffNotificationsScreen(canManageRequests: widget.canManageRequests),
@@ -1731,6 +1732,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             icon: PhosphorIconsDuotone.envelope,
             label: 'Unread Inquiries',
             count: _unreadInquiryCount,
+            countColor: _unreadInquiryCount > 0 ? Colors.red : null,
             onTap: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
               _loadUnreadInquiryCount();
@@ -1755,6 +1757,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           icon: PhosphorIconsDuotone.bed,
           label: 'Boarding Requests',
           count: _pendingBoardingCount,
+          countColor: _pendingBoardingCount > 0 ? Colors.red : null,
           onTap: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()));
             _loadPendingRequestCount();
@@ -1766,6 +1769,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             icon: PhosphorIconsDuotone.warningCircle,
             label: 'Spay status to confirm',
             count: _unspayedMalesCount,
+            countColor: _unspayedMalesCount > 0 ? Colors.red : null,
             onTap: _showUnspayedMalesDialog,
           ),
         ],

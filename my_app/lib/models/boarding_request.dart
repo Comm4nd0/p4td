@@ -1,6 +1,4 @@
 
-import 'dog.dart';
-
 enum BoardingRequestStatus {
   pending,
   approved,

@@ -17,7 +17,6 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
   final DataService _dataService = ApiDataService();
   List<ContactInquiry> _inquiries = [];
   bool _loading = true;
-  bool _loadFailed = false;
   String _filter = 'UNREAD';
 
   @override
@@ -34,14 +33,12 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
         setState(() {
           _inquiries = inquiries;
           _loading = false;
-          _loadFailed = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _loadFailed = true;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load inquiries: $e')),

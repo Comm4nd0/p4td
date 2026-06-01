@@ -25,6 +25,11 @@ class UserProfile(models.Model):
     notify_bookings = models.BooleanField(default=True, help_text='Receive updates on date change and boarding requests.')
     notify_dog_updates = models.BooleanField(default=True, help_text='Receive updates when your dog is picked up, at daycare, or dropped off.')
 
+    # Legal acceptance — recorded when the user agrees to the Privacy Policy at
+    # sign-up. Null for accounts created before this was required (e.g. staff).
+    accepted_privacy_at = models.DateTimeField(null=True, blank=True, help_text='When the user accepted the Privacy Policy.')
+    accepted_privacy_version = models.CharField(max_length=20, blank=True, null=True, help_text='Version/date of the Privacy Policy the user accepted.')
+
     def __str__(self):
         return f"Profile for {self.user.username}"
 
