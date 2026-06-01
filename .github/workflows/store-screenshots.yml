@@ -56,6 +56,29 @@ jobs:
             || curl -fsSL -o fastlane/fonts/Nunito-Bold.ttf \
             https://github.com/google/fonts/raw/main/ofl/nunito/Nunito%5Bwght%5D.ttf
           (cd fastlane && fastlane frameit download_frames || true)
+      - name: Provide GoogleService-Info.plist (Firebase build input)
+        # Screenshots never initialise Firebase, so a stub satisfies the Xcode
+        # build. If you add the real plist as a secret, it's used instead.
+        env:
+          GS_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          if [ -n "$GS_PLIST" ]; then
+            printf '%s' "$GS_PLIST" > ios/Runner/GoogleService-Info.plist
+          else
+            {
+              echo '<?xml version="1.0" encoding="UTF-8"?>'
+              echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+              echo '<plist version="1.0"><dict>'
+              echo '<key>API_KEY</key><string>stub</string>'
+              echo '<key>GCM_SENDER_ID</key><string>000000000000</string>'
+              echo '<key>BUNDLE_ID</key><string>uk.co.paws4thoughtdogs.paws4thoughtdogs</string>'
+              echo '<key>PROJECT_ID</key><string>stub</string>'
+              echo '<key>STORAGE_BUCKET</key><string>stub.appspot.com</string>'
+              echo '<key>GOOGLE_APP_ID</key><string>1:000000000000:ios:0000000000000000</string>'
+              echo '<key>IS_GCM_ENABLED</key><false/>'
+              echo '</dict></plist>'
+            } > ios/Runner/GoogleService-Info.plist
+          fi
       - name: Capture iOS screenshots
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
@@ -106,6 +129,8 @@ jobs:
           gem install fastlane --no-document
       - name: Install dependencies
         run: flutter pub get
+      - name: Create google-services.json (required by Gradle google-services plugin)
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
       - name: Fetch device frames + caption font
         run: |
           mkdir -p fastlane/fonts
