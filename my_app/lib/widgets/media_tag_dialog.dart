@@ -440,7 +440,7 @@ class _LocalVideoPlayerState extends State<_LocalVideoPlayer> {
   void dispose() {
     _hideTimer?.cancel();
     _controller?.dispose();
-    _tempFile?.delete().catchError((_) {});
+    _tempFile?.delete().ignore();
     super.dispose();
   }
 
