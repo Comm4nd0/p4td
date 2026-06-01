@@ -14,8 +14,6 @@
 // NOTE: the widget finders below assume the current owner UI. If the app
 // layout changes, adjust the finders — each capture step is clearly labelled.
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -25,6 +23,7 @@ import 'package:paws4thoughtdogs/services/service_locator.dart';
 import 'package:paws4thoughtdogs/services/cache_service.dart';
 import 'package:paws4thoughtdogs/services/theme_service.dart';
 import 'package:paws4thoughtdogs/services/auth_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 const _demoEmail = String.fromEnvironment('DEMO_EMAIL');
 const _demoPassword = String.fromEnvironment('DEMO_PASSWORD');
@@ -39,24 +38,31 @@ void main() {
       reason: 'Pass --dart-define=DEMO_EMAIL=.. and --dart-define=DEMO_PASSWORD=..',
     );
 
-    // Mirror the essential parts of main() — minus Firebase/notifications,
-    // which we don't need for screenshots.
+    // Mirror the essential parts of main(). We must initialise Firebase
+    // because HomeScreen eagerly builds NotificationService, whose constructor
+    // touches FirebaseMessaging.instance (which requires a [DEFAULT] app).
     setupLocator();
     await getIt<CacheService>().init();
     await getIt<ThemeService>().init();
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      // ignore: avoid_print
+      print('Firebase.initializeApp failed (continuing): $e');
+    }
 
     // Sign in as the demo owner (real network call to the production API).
     final loginError = await AuthService().login(_demoEmail, _demoPassword);
     expect(loginError, isNull, reason: 'Demo login failed: $loginError');
 
-    // iOS needs the Flutter surface converted to an image before screenshots.
-    if (Platform.isIOS) {
-      await binding.convertFlutterSurfaceToImage();
-    }
-
     // Boot the real app; MyApp reads the stored token and lands on HomeScreen.
     await tester.pumpWidget(const MyApp());
     await _waitFor(tester, seconds: 4);
+
+    // Required before screenshots on BOTH Android and iOS — render the live
+    // Flutter surface into an image. Call once, after the first frames.
+    await binding.convertFlutterSurfaceToImage();
+    await tester.pump();
 
     // ── 1. "My Dogs" (home) ────────────────────────────────────────────────
     await binding.takeScreenshot('01_my_dogs');
