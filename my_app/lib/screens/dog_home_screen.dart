@@ -1563,7 +1563,11 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     ),
                   ],
                   _buildDogInfoSection(),
-                  if (_dog.daysInDaycare.isNotEmpty) ...[
+                  // Show upcoming booked dates whenever the dog has any — this
+                  // includes ad-hoc dogs whose dates come from additional-day
+                  // or change requests (they have no recurring daycare_days),
+                  // so owners/staff can still tap a date to edit or cancel it.
+                  if (upcomingDates.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
