@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
 import '../utils/date_formats.dart';
@@ -86,7 +86,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      PhosphorIcon(PhosphorIconsDuotone.envelope, size: 64, color: Colors.grey[400]),
+                                      Picon(PiconsDuotone.envelope, size: 64, color: Colors.grey[400]),
                                       const SizedBox(height: 16),
                                       Text(
                                         _filter == 'UNREAD'
@@ -151,7 +151,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
           color: Colors.red,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.white),
+        child: Picon(PiconsDuotone.trash, color: Colors.white),
       ),
       confirmDismiss: (_) async {
         return await showDialog<bool>(
@@ -191,12 +191,12 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
               children: [
                 Row(
                   children: [
-                    PhosphorIcon(
+                    Picon(
                       inquiry.isReplied
-                          ? PhosphorIconsDuotone.arrowUUpLeft
+                          ? PiconsDuotone.arrowUUpLeft
                           : inquiry.isRead
-                              ? PhosphorIconsDuotone.envelope
-                              : PhosphorIconsDuotone.envelope,
+                              ? PiconsDuotone.envelope
+                              : PiconsDuotone.envelope,
                       size: 20,
                       color: inquiry.isReplied
                           ? Colors.green

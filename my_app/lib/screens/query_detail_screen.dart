@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../models/support_query.dart';
 import '../models/support_message.dart';
 import '../services/data_service.dart';
@@ -195,13 +195,13 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
         actions: [
           if (_query != null && widget.isStaff && _query!.status == QueryStatus.open)
             IconButton(
-              icon: PhosphorIcon(PhosphorIconsRegular.checkCircle),
+              icon: Picon(PiconsRegular.checkCircle),
               tooltip: 'Resolve',
               onPressed: _resolveQuery,
             ),
           if (_query != null && _query!.status == QueryStatus.resolved)
             IconButton(
-              icon: PhosphorIcon(PhosphorIconsDuotone.arrowClockwise),
+              icon: Picon(PiconsDuotone.arrowClockwise),
               tooltip: 'Reopen',
               onPressed: _reopenQuery,
             ),
@@ -298,7 +298,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                                         height: 24,
                                         child: CircularProgressIndicator(strokeWidth: 2),
                                       )
-                                    : PhosphorIcon(PhosphorIconsDuotone.paperPlaneTilt),
+                                    : Picon(PiconsDuotone.paperPlaneTilt),
                                 onPressed: _sending ? null : _sendMessage,
                               ),
                             ],
@@ -352,7 +352,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
               if (message.isStaff)
                 Padding(
                   padding: const EdgeInsets.only(right: 4),
-                  child: PhosphorIcon(PhosphorIconsDuotone.headset, size: 14, color: Theme.of(context).colorScheme.primary),
+                  child: Picon(PiconsDuotone.headset, size: 14, color: Theme.of(context).colorScheme.primary),
                 ),
               Text(
                 message.senderName,

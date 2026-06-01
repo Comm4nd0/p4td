@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
@@ -180,11 +180,11 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     }
   }
 
-  PhosphorIconData _statusIcon(AssignmentStatus status) {
+  PiconDuotoneData _statusIcon(AssignmentStatus status) {
     switch (status) {
-      case AssignmentStatus.assigned: return PhosphorIconsDuotone.clipboardText;
-      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.pawPrint;
-      case AssignmentStatus.droppedOff: return PhosphorIconsFill.checkCircle;
+      case AssignmentStatus.assigned: return PiconsDuotone.clipboardText;
+      case AssignmentStatus.pickedUp: return PiconsDuotone.pawPrint;
+      case AssignmentStatus.droppedOff: return PiconsDuotone.checkCircle;
     }
   }
 
@@ -227,7 +227,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                PhosphorIcon(PhosphorIconsDuotone.info),
+                Picon(PiconsDuotone.info),
                 const SizedBox(width: 8),
                 Text('Pickup Instructions - ${assignment.dogName}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
@@ -415,7 +415,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 if ((brings ?? effectiveBringsAtOpen) == true) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
-                    icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+                    icon: const Picon(PiconsDuotone.clock, size: 18),
                     label: Text(bringsTime == null
                         ? 'Set drop-off time'
                         : 'Drop-off at ${_formatTime(bringsTime!)}'),
@@ -458,7 +458,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 if ((collects ?? effectiveCollectsAtOpen) == true) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
-                    icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+                    icon: const Picon(PiconsDuotone.clock, size: 18),
                     label: Text(collectsTime == null
                         ? 'Set pick-up time'
                         : 'Pick-up at ${_formatTime(collectsTime!)}'),
@@ -584,7 +584,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   return DropdownMenuItem<int>(
                     value: staffId,
                     child: Row(children: [
-                      Icon(PhosphorIconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
+                      Picon(PiconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
                       const SizedBox(width: 8),
                       Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
                       if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
@@ -725,7 +725,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
               : Text('All Dogs — $dateLabel'),
           actions: [
             IconButton(
-              icon: PhosphorIcon(_showSearch ? PhosphorIconsDuotone.x : PhosphorIconsDuotone.magnifyingGlass),
+              icon: Picon(_showSearch ? PiconsDuotone.x : PiconsDuotone.magnifyingGlass),
               tooltip: _showSearch ? 'Close search' : 'Search',
               onPressed: () => setState(() {
                 _showSearch = !_showSearch;
@@ -762,7 +762,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
+                          Picon(PiconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
                           const SizedBox(height: 16),
                           Text(
                             _searchQuery.isNotEmpty ? 'No dogs match your search' : 'No dogs for this date',
@@ -805,7 +805,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
 
   Widget _buildSortButton() {
     return PopupMenuButton<_SortOption>(
-      icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
+      icon: Picon(PiconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
       onSelected: (option) {
         setState(() {
@@ -818,7 +818,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
           .map((option) => PopupMenuItem(
                 value: option,
                 child: Row(children: [
-                  if (_sortOption == option) PhosphorIcon(PhosphorIconsDuotone.check, size: 18) else const SizedBox(width: 18),
+                  if (_sortOption == option) Picon(PiconsDuotone.check, size: 18) else const SizedBox(width: 18),
                   const SizedBox(width: 8),
                   Text(option.label),
                 ]),
@@ -832,7 +832,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       padding: const EdgeInsets.only(top: 4, bottom: 8),
       child: Row(
         children: [
-          PhosphorIcon(PhosphorIconsDuotone.warning, size: 18, color: Colors.red[700]),
+          Picon(PiconsDuotone.warning, size: 18, color: Colors.red[700]),
           const SizedBox(width: 8),
           Text('Unassigned',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -865,7 +865,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
             padding: const EdgeInsets.only(top: 16, bottom: 8),
             child: Row(
               children: [
-                PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18, color: Colors.teal),
+                Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                 const SizedBox(width: 8),
                 Text('Owner Drop-offs',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
@@ -935,7 +935,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   padding: const EdgeInsets.only(top: 8, bottom: 6, left: 4),
                   child: Row(
                     children: [
-                      PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 16, color: Colors.teal),
+                      Picon(PiconsDuotone.houseLine, size: 16, color: Colors.teal),
                       const SizedBox(width: 6),
                       Text('Owner Drop-offs',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal)),
@@ -971,14 +971,14 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   width: 44, height: 44, fit: BoxFit.cover,
                   placeholder: (context, url) => Container(
                     width: 44, height: 44, color: Colors.grey[200],
-                    child: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+                    child: Picon(PiconsDuotone.pawPrint),
                   ),
                   errorWidget: (context, url, error) =>
-                      CircleAvatar(radius: 22, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                      CircleAvatar(radius: 22, child: Picon(PiconsDuotone.pawPrint)),
                 ),
               )
             else
-              CircleAvatar(radius: 22, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+              CircleAvatar(radius: 22, child: Picon(PiconsDuotone.pawPrint)),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -1009,7 +1009,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   PopupMenuItem(
                     value: 'assign_to_me',
                     child: Row(children: [
-                      PhosphorIcon(PhosphorIconsDuotone.userPlus, size: 18, color: AppColors.primary),
+                      Picon(PiconsDuotone.userPlus, size: 18, color: AppColors.primary),
                       const SizedBox(width: 8),
                       const Text('Assign to me'),
                     ]),
@@ -1018,7 +1018,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   PopupMenuItem(
                     value: 'assign_to_staff',
                     child: Row(children: [
-                      PhosphorIcon(PhosphorIconsDuotone.users, size: 18),
+                      Picon(PiconsDuotone.users, size: 18),
                       const SizedBox(width: 8),
                       const Text('Assign to staff…'),
                     ]),
@@ -1028,7 +1028,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   PopupMenuItem(
                     value: 'remove_from_day',
                     child: Row(children: [
-                      PhosphorIcon(PhosphorIconsDuotone.calendarX, size: 18, color: Colors.red[900]),
+                      Picon(PiconsDuotone.calendarX, size: 18, color: Colors.red[900]),
                       const SizedBox(width: 8),
                       Text('Remove from this day', style: TextStyle(color: Colors.red[900])),
                     ]),
@@ -1036,12 +1036,12 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 ],
               ],
               child: Chip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.warning, size: 16, color: Colors.red[700]),
+                avatar: Picon(PiconsDuotone.warning, size: 16, color: Colors.red[700]),
                 label: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('Unassigned', style: TextStyle(color: Colors.red[700], fontSize: 11)),
-                    PhosphorIcon(PhosphorIconsDuotone.caretDown, size: 14, color: Colors.red[700]),
+                    Picon(PiconsDuotone.caretDown, size: 14, color: Colors.red[700]),
                   ],
                 ),
                 backgroundColor: Colors.red.withValues(alpha: 0.1),
@@ -1079,14 +1079,14 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       width: 44, height: 44, fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
                         width: 44, height: 44, color: Colors.grey[200],
-                        child: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+                        child: Picon(PiconsDuotone.pawPrint),
                       ),
                       errorWidget: (context, url, error) =>
-                          CircleAvatar(radius: 22, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                          CircleAvatar(radius: 22, child: Picon(PiconsDuotone.pawPrint)),
                     ),
                   )
                 else
-                  CircleAvatar(radius: 22, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                  CircleAvatar(radius: 22, child: Picon(PiconsDuotone.pawPrint)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -1103,7 +1103,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
                           child: Row(children: [
-                            PhosphorIcon(PhosphorIconsDuotone.house, size: 14, color: Colors.deepPurple),
+                            Picon(PiconsDuotone.house, size: 14, color: Colors.deepPurple),
                             const SizedBox(width: 4),
                             Text('Boarding',
                                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1136,7 +1136,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       PopupMenuItem(
                         value: 'next',
                         child: Row(children: [
-                          PhosphorIcon(_statusIcon(next), size: 18),
+                          Picon(_statusIcon(next), size: 18),
                           const SizedBox(width: 8),
                           Text('Mark ${next.displayName}'),
                         ]),
@@ -1145,7 +1145,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       PopupMenuItem(
                         value: 'previous',
                         child: Row(children: [
-                          PhosphorIcon(_statusIcon(previous), size: 18),
+                          Picon(_statusIcon(previous), size: 18),
                           const SizedBox(width: 8),
                           Text('Revert to ${previous.displayName}'),
                         ]),
@@ -1155,7 +1155,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       PopupMenuItem(
                         value: 'transport',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.car, size: 18),
+                          Picon(PiconsDuotone.car, size: 18),
                           const SizedBox(width: 8),
                           const Text('Transport…'),
                         ]),
@@ -1163,7 +1163,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       PopupMenuItem(
                         value: 'reassign',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight, size: 18),
+                          Picon(PiconsDuotone.arrowsLeftRight, size: 18),
                           const SizedBox(width: 8),
                           const Text('Reassign'),
                         ]),
@@ -1171,7 +1171,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       PopupMenuItem(
                         value: 'unassign',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.userMinus, size: 18, color: Colors.red[700]),
+                          Picon(PiconsDuotone.userMinus, size: 18, color: Colors.red[700]),
                           const SizedBox(width: 8),
                           Text('Unassign', style: TextStyle(color: Colors.red[700])),
                         ]),
@@ -1179,7 +1179,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                       PopupMenuItem(
                         value: 'remove_from_day',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.calendarX, size: 18, color: Colors.red[900]),
+                          Picon(PiconsDuotone.calendarX, size: 18, color: Colors.red[900]),
                           const SizedBox(width: 8),
                           Text('Remove from this day', style: TextStyle(color: Colors.red[900])),
                         ]),
@@ -1187,12 +1187,12 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                     ],
                   ],
                   child: Chip(
-                    avatar: PhosphorIcon(_statusIcon(assignment.status), size: 16, color: statusColor),
+                    avatar: Picon(_statusIcon(assignment.status), size: 16, color: statusColor),
                     label: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(assignment.status.displayName, style: TextStyle(color: statusColor, fontSize: 11)),
-                        PhosphorIcon(PhosphorIconsDuotone.caretDown, size: 14, color: statusColor),
+                        Picon(PiconsDuotone.caretDown, size: 14, color: statusColor),
                       ],
                     ),
                     backgroundColor: statusColor.withValues(alpha: 0.1),
@@ -1220,7 +1220,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                           border: Border.all(color: Colors.teal.withValues(alpha: 0.35)),
                         ),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 14, color: Colors.teal),
+                          const Picon(PiconsDuotone.houseLine, size: 14, color: Colors.teal),
                           const SizedBox(width: 4),
                           Text(
                             assignment.effectiveOwnerBringsTime != null
@@ -1239,7 +1239,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                           border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
                         ),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 14, color: Colors.indigo),
+                          const Picon(PiconsDuotone.houseLine, size: 14, color: Colors.indigo),
                           const SizedBox(width: 4),
                           Text(
                             assignment.effectiveOwnerCollectsTime != null
@@ -1259,7 +1259,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 child: InkWell(
                   onTap: () => _openMaps(assignment.ownerAddress!),
                   child: Row(children: [
-                    PhosphorIcon(PhosphorIconsDuotone.mapPin, size: 16, color: Theme.of(context).colorScheme.primary),
+                    Picon(PiconsDuotone.mapPin, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(assignment.ownerAddress!,
@@ -1275,7 +1275,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 child: InkWell(
                   onTap: () => _callPhone(assignment.ownerPhone!),
                   child: Row(children: [
-                    PhosphorIcon(PhosphorIconsDuotone.phone, size: 16, color: Theme.of(context).colorScheme.primary),
+                    Picon(PiconsDuotone.phone, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 4),
                     Text(assignment.ownerPhone!,
                         style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
@@ -1289,7 +1289,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 child: InkWell(
                   onTap: () => _showPickupInstructions(assignment),
                   child: Row(children: [
-                    PhosphorIcon(PhosphorIconsDuotone.info, size: 16, color: Theme.of(context).colorScheme.primary),
+                    Picon(PiconsDuotone.info, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 4),
                     Text('Pickup Instructions',
                         style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),

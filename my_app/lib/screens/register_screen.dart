@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -226,7 +226,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   border: OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.envelope),
+                  prefixIcon: Picon(PiconsDuotone.envelope),
                   helperText: 'This will be your login',
                 ),
                 keyboardType: TextInputType.emailAddress,
@@ -242,10 +242,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: InputDecoration(
                   labelText: 'Password',
                   border: const OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                  prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
-                    icon: PhosphorIcon(
-                      _obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                    icon: Picon(
+                      _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                     ),
                     onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                   ),
@@ -259,10 +259,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: InputDecoration(
                   labelText: 'Confirm Password',
                   border: const OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                  prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
-                    icon: PhosphorIcon(
-                      _obscureConfirm ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                    icon: Picon(
+                      _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                     ),
                     onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
                   ),
@@ -281,7 +281,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Phone Number',
                   border: OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.phone),
+                  prefixIcon: Picon(PiconsDuotone.phone),
                 ),
                 keyboardType: TextInputType.phone,
               ),
@@ -291,7 +291,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Address',
                   border: OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.house),
+                  prefixIcon: Picon(PiconsDuotone.house),
                 ),
                 maxLines: 2,
               ),

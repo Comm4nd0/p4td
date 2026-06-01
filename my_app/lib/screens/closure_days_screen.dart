@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
 import '../services/data_service.dart';
@@ -98,7 +98,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
       floatingActionButton: widget.isStaff
           ? FloatingActionButton.extended(
               onPressed: _addClosureDay,
-              icon: PhosphorIcon(PhosphorIconsDuotone.plus),
+              icon: Picon(PiconsDuotone.plus),
               label: const Text('Add Closure'),
             )
           : null,
@@ -116,7 +116,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                PhosphorIcon(PhosphorIconsDuotone.calendarCheck, size: 64, color: Colors.grey[400]),
+                                Picon(PiconsDuotone.calendarCheck, size: 64, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
                                 Text('No upcoming closures', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
                               ],
@@ -136,8 +136,8 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                         child: ListTile(
                           leading: CircleAvatar(
                             backgroundColor: isClosed ? AppColors.error.withAlpha(30) : AppColors.warning.withAlpha(30),
-                            child: PhosphorIcon(
-                              isClosed ? PhosphorIconsDuotone.prohibit : PhosphorIconsDuotone.warning,
+                            child: Picon(
+                              isClosed ? PiconsDuotone.prohibit : PiconsDuotone.warning,
                               color: isClosed ? AppColors.error : AppColors.warning,
                             ),
                           ),
@@ -168,7 +168,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                           ),
                           trailing: widget.isStaff
                               ? IconButton(
-                                  icon: PhosphorIcon(PhosphorIconsDuotone.trash, color: AppColors.error),
+                                  icon: Picon(PiconsDuotone.trash, color: AppColors.error),
                                   onPressed: () => _deleteClosureDay(day),
                                 )
                               : null,
@@ -211,7 +211,7 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: PhosphorIcon(PhosphorIconsDuotone.calendar),
+              leading: Picon(PiconsDuotone.calendar),
               title: Text(
                 _selectedDate == null
                     ? 'Select date'
@@ -232,8 +232,8 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
             const SizedBox(height: 4),
             SegmentedButton<ClosureType>(
               segments: const [
-                ButtonSegment(value: ClosureType.closed, label: Text('Closed'), icon: PhosphorIcon(PhosphorIconsDuotone.prohibit)),
-                ButtonSegment(value: ClosureType.reduced, label: Text('Reduced'), icon: PhosphorIcon(PhosphorIconsDuotone.warning)),
+                ButtonSegment(value: ClosureType.closed, label: Text('Closed'), icon: Picon(PiconsDuotone.prohibit)),
+                ButtonSegment(value: ClosureType.reduced, label: Text('Reduced'), icon: Picon(PiconsDuotone.warning)),
               ],
               selected: {_closureType},
               onSelectionChanged: (set) => setState(() => _closureType = set.first),

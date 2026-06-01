@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -531,7 +531,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                           borderRadius: BorderRadius.circular(20),
                           child: CachedNetworkImage(imageUrl: dog.profileImageUrl!, width: 40, height: 40, fit: BoxFit.cover),
                         )
-                      : CircleAvatar(child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                      : CircleAvatar(child: Picon(PiconsDuotone.pawPrint)),
                 );
               },
             ),
@@ -584,7 +584,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               return DropdownMenuItem<int>(
                 value: staffId,
                 child: Row(children: [
-                  Icon(PhosphorIconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
+                  Picon(PiconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
                   const SizedBox(width: 8),
                   Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
                   if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
@@ -799,7 +799,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                           return DropdownMenuItem<int>(
                             value: staffId,
                             child: Row(children: [
-                              Icon(PhosphorIconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
+                              Picon(PiconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
                               const SizedBox(width: 8),
                               Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
                               if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
@@ -816,7 +816,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                       controller: searchController,
                       decoration: InputDecoration(
                         hintText: 'Search by name...',
-                        prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass),
+                        prefixIcon: Picon(PiconsDuotone.magnifyingGlass),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -854,7 +854,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                                           borderRadius: BorderRadius.circular(20),
                                           child: CachedNetworkImage(imageUrl: dog.profileImageUrl!, width: 40, height: 40, fit: BoxFit.cover),
                                         )
-                                      : CircleAvatar(child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                                      : CircleAvatar(child: Picon(PiconsDuotone.pawPrint)),
                                   dense: true,
                                 );
                               },
@@ -916,19 +916,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
+              leading: Picon(PiconsDuotone.camera),
               title: const Text('Take Photos'),
               subtitle: const Text('Capture one or more shots in a row'),
               onTap: () => Navigator.pop(context, 'camera_photo'),
             ),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera),
+              leading: Picon(PiconsDuotone.videoCamera),
               title: const Text('Record Video'),
               onTap: () => Navigator.pop(context, 'camera_video'),
             ),
             const Divider(),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.uploadSimple),
+              leading: Picon(PiconsDuotone.uploadSimple),
               title: const Text('Upload'),
               onTap: () => Navigator.pop(context, 'multiple'),
             ),
@@ -1161,7 +1161,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               border: Border.all(color: Colors.orange.shade200),
             ),
             child: Row(children: [
-              PhosphorIcon(PhosphorIconsDuotone.warning, size: 18, color: Colors.orange[700]),
+              Picon(PiconsDuotone.warning, size: 18, color: Colors.orange[700]),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1315,7 +1315,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           ),
           // Date picker button
           IconButton(
-            icon: PhosphorIcon(PhosphorIconsDuotone.calendarBlank),
+            icon: Picon(PiconsDuotone.calendarBlank),
             tooltip: 'Pick a date',
             onPressed: _showDatePicker,
           ),
@@ -1348,7 +1348,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Row(
                   children: [
-                    PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.white, size: 18),
+                    Picon(PiconsDuotone.warning, color: Colors.white, size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1359,7 +1359,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     AnimatedRotation(
                       turns: _unassignedExpanded ? 0.25 : 0,
                       duration: const Duration(milliseconds: 200),
-                      child: PhosphorIcon(PhosphorIconsDuotone.caretRight, color: Colors.white, size: 16),
+                      child: Picon(PiconsDuotone.caretRight, color: Colors.white, size: 16),
                     ),
                   ],
                 ),
@@ -1386,7 +1386,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           onPressed: _showAssignDogsDialog,
-                          icon: PhosphorIcon(PhosphorIconsDuotone.usersThree, size: 18),
+                          icon: Picon(PiconsDuotone.usersThree, size: 18),
                           label: const Text('Assign All...'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red.shade700,
@@ -1426,7 +1426,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                PhosphorIcon(PhosphorIconsDuotone.warningCircle, color: Colors.white, size: 18),
+                Picon(PiconsDuotone.warningCircle, color: Colors.white, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -1443,7 +1443,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     ],
                   ),
                 ),
-                PhosphorIcon(PhosphorIconsDuotone.caretRight, color: Colors.white, size: 16),
+                Picon(PiconsDuotone.caretRight, color: Colors.white, size: 16),
               ],
             ),
           ),
@@ -1484,7 +1484,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(children: [
-                                    const PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 16),
+                                    const Picon(PiconsDuotone.pawPrint, size: 16),
                                     const SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
@@ -1537,14 +1537,14 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                 width: 36, height: 36, fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   width: 36, height: 36, color: Colors.grey[200],
-                  child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18),
+                  child: Picon(PiconsDuotone.pawPrint, size: 18),
                 ),
                 errorWidget: (context, url, error) =>
-                    CircleAvatar(radius: 18, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18)),
+                    CircleAvatar(radius: 18, child: Picon(PiconsDuotone.pawPrint, size: 18)),
               ),
             )
           else
-            CircleAvatar(radius: 18, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18)),
+            CircleAvatar(radius: 18, child: Picon(PiconsDuotone.pawPrint, size: 18)),
           const SizedBox(width: 10),
           // Dog name + owner
           Expanded(
@@ -1576,7 +1576,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       height: 32,
       child: TextButton.icon(
         onPressed: () => _quickAssignToMe(dog),
-        icon: PhosphorIcon(PhosphorIconsDuotone.userPlus, size: 16, color: AppColors.primary),
+        icon: Picon(PiconsDuotone.userPlus, size: 16, color: AppColors.primary),
         label: Text('Me', style: TextStyle(fontSize: 12, color: AppColors.primary)),
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1592,7 +1592,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       height: 32,
       child: TextButton.icon(
         onPressed: () => _quickAssignToStaff(dog),
-        icon: PhosphorIcon(PhosphorIconsDuotone.users, size: 16, color: AppColors.primaryLight),
+        icon: Picon(PiconsDuotone.users, size: 16, color: AppColors.primaryLight),
         label: Text('Staff', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1661,7 +1661,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     return Row(children: [
       Expanded(child: OverviewCard(
         compact: true,
-        icon: PhosphorIconsDuotone.pawPrint,
+        icon: PiconsDuotone.pawPrint,
         value: '$allDogsCount',
         label: 'All Dogs',
         color: AppColors.primary,
@@ -1670,7 +1670,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       const SizedBox(width: 6),
       Expanded(child: OverviewCard(
         compact: true,
-        icon: PhosphorIconsDuotone.user,
+        icon: PiconsDuotone.user,
         value: '$myDogs',
         label: 'My Dogs',
         color: AppColors.primary,
@@ -1679,7 +1679,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       const SizedBox(width: 6),
       Expanded(child: OverviewCard(
         compact: true,
-        icon: PhosphorIconsDuotone.clipboardText,
+        icon: PiconsDuotone.clipboardText,
         value: '${assignments.length}',
         label: 'Assigned',
         color: AppColors.info,
@@ -1687,7 +1687,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       const SizedBox(width: 6),
       Expanded(child: OverviewCard(
         compact: true,
-        icon: PhosphorIconsDuotone.bed,
+        icon: PiconsDuotone.bed,
         value: '$boardingCount',
         label: 'Boarding',
         color: AppColors.primaryLight,
@@ -1702,7 +1702,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         Text('Action Items', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         ActionItemTile(
-          icon: PhosphorIconsDuotone.clockCountdown,
+          icon: PiconsDuotone.clockCountdown,
           label: 'Pending Requests',
           count: _pendingRequestCount,
           countColor: _pendingRequestCount > 0 ? Colors.red : null,
@@ -1715,7 +1715,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         ),
         const SizedBox(height: 4),
         ActionItemTile(
-          icon: PhosphorIconsDuotone.chats,
+          icon: PiconsDuotone.chats,
           label: 'Unresolved Queries',
           count: _unresolvedQueryCount,
           countColor: _unresolvedQueryCount > 0 ? Colors.red : null,
@@ -1729,7 +1729,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         if (widget.canViewInquiries) ...[
           const SizedBox(height: 4),
           ActionItemTile(
-            icon: PhosphorIconsDuotone.envelope,
+            icon: PiconsDuotone.envelope,
             label: 'Unread Inquiries',
             count: _unreadInquiryCount,
             countColor: _unreadInquiryCount > 0 ? Colors.red : null,
@@ -1742,7 +1742,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         if (widget.canManageRequests) ...[
           const SizedBox(height: 4),
           ActionItemTile(
-            icon: PhosphorIconsDuotone.dog,
+            icon: PiconsDuotone.dog,
             label: 'Profile Changes',
             count: _pendingProfileChangeCount,
             countColor: _pendingProfileChangeCount > 0 ? Colors.red : null,
@@ -1754,7 +1754,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         ],
         const SizedBox(height: 4),
         ActionItemTile(
-          icon: PhosphorIconsDuotone.bed,
+          icon: PiconsDuotone.bed,
           label: 'Boarding Requests',
           count: _pendingBoardingCount,
           countColor: _pendingBoardingCount > 0 ? Colors.red : null,
@@ -1766,7 +1766,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         if (_unspayedMalesCount > 0) ...[
           const SizedBox(height: 4),
           ActionItemTile(
-            icon: PhosphorIconsDuotone.warningCircle,
+            icon: PiconsDuotone.warningCircle,
             label: 'Spay status to confirm',
             count: _unspayedMalesCount,
             countColor: _unspayedMalesCount > 0 ? Colors.red : null,
@@ -1795,7 +1795,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Row(
                     children: [
-                      const PhosphorIcon(PhosphorIconsDuotone.dog, size: 18),
+                      const Picon(PiconsDuotone.dog, size: 18),
                       const SizedBox(width: 8),
                       Expanded(child: Text(d.name)),
                     ],
@@ -1858,7 +1858,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               ]),
               subtitle: hasOwnerTransport
                   ? Row(children: [
-                      const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 13, color: Colors.teal),
+                      const Picon(PiconsDuotone.houseLine, size: 13, color: Colors.teal),
                       const SizedBox(width: 3),
                       Text(
                         [
@@ -1878,7 +1878,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     backgroundColor: AppColors.primary,
                   ),
                   const SizedBox(width: 4),
-                  PhosphorIcon(PhosphorIconsDuotone.caretRight),
+                  Picon(PiconsDuotone.caretRight),
                 ],
               ),
               onTap: () => _navigateToStaffDetail(staff.id, staff.name, staff.assignments),
@@ -1906,7 +1906,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           ...(_boardingTonight.map((request) => Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Row(children: [
-                  PhosphorIcon(PhosphorIconsDuotone.bed, size: 18, color: AppColors.primary),
+                  Picon(PiconsDuotone.bed, size: 18, color: AppColors.primary),
                   const SizedBox(width: 8),
                   Expanded(child: Text('${request.dogNames.join(", ")} (${request.ownerName})', style: const TextStyle(fontSize: 14))),
                 ]),
@@ -1926,25 +1926,25 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           runSpacing: 8,
           children: [
             ActionChip(
-              avatar: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
+              avatar: Picon(PiconsDuotone.uploadSimple, size: 18),
               label: const Text('Upload to Feed'),
               onPressed: _uploadMediaFromDashboard,
             ),
             if (widget.canAssignDogs)
               ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.plusCircle, size: 18),
+                avatar: Picon(PiconsDuotone.plusCircle, size: 18),
                 label: const Text('Add Dog to Day'),
                 onPressed: _showAddDogToDayDialog,
               ),
             if (widget.canAssignDogs)
               ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight, size: 18),
+                avatar: Picon(PiconsDuotone.arrowsLeftRight, size: 18),
                 label: const Text('Swap Staff'),
                 onPressed: _showSwapStaffDialog,
               ),
             if (widget.isSuperuser)
               ActionChip(
-                avatar: PhosphorIcon(PhosphorIconsDuotone.shieldStar, size: 18),
+                avatar: Picon(PiconsDuotone.shieldStar, size: 18),
                 label: const Text('Manage Staff Permissions'),
                 onPressed: () {
                   Navigator.of(context).push(

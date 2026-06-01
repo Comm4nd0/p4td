@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:upgrader/upgrader.dart';
@@ -337,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            PhosphorIcon(PhosphorIconsDuotone.path, color: Colors.orange),
+            Picon(PiconsDuotone.path, color: Colors.orange),
             SizedBox(width: 8),
             Text('Traffic Alert'),
           ],
@@ -364,12 +364,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, 'pickup'),
-            icon: PhosphorIcon(PhosphorIconsDuotone.arrowUp, size: 18),
+            icon: Picon(PiconsDuotone.arrowUp, size: 18),
             label: const Text('Pickup'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, 'dropoff'),
-            icon: PhosphorIcon(PhosphorIconsDuotone.arrowDown, size: 18),
+            icon: Picon(PiconsDuotone.arrowDown, size: 18),
             label: const Text('Drop-off'),
           ),
         ],
@@ -411,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Stack(
               children: [
                 IconButton(
-                  icon: PhosphorIcon(PhosphorIconsDuotone.bell),
+                  icon: Picon(PiconsDuotone.bell),
                   tooltip: 'Date Change Requests',
                   onPressed: () async {
                     await Navigator.push(
@@ -452,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       floatingActionButton: _currentIndex == 0 && _isStaff
           ? FloatingActionButton.extended(
               onPressed: _addDog,
-              icon: PhosphorIcon(PhosphorIconsDuotone.plus),
+              icon: Picon(PiconsDuotone.plus),
               label: const Text('Add Dog'),
             )
           : null,
@@ -478,16 +478,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         },
         items: [
           BottomNavigationBarItem(
-            icon: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+            icon: Picon(PiconsDuotone.pawPrint),
             label: _isStaff ? 'All Dogs' : (_allDogs.length == 1 ? _allDogs.first.name : 'My Dogs'),
           ),
           BottomNavigationBarItem(
-            icon: PhosphorIcon(PhosphorIconsDuotone.images),
+            icon: Picon(PiconsDuotone.images),
             label: 'Feed',
           ),
           if (_isStaff)
             BottomNavigationBarItem(
-              icon: PhosphorIcon(PhosphorIconsDuotone.squaresFour),
+              icon: Picon(PiconsDuotone.squaresFour),
               label: "Dashboard",
             ),
         ],
@@ -530,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             leading: Stack(
               clipBehavior: Clip.none,
               children: [
-                PhosphorIcon(PhosphorIconsDuotone.chats),
+                Picon(PiconsDuotone.chats),
                 if (_unresolvedQueryCount > 0)
                   Positioned(
                     right: -6,
@@ -571,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               leading: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  PhosphorIcon(PhosphorIconsDuotone.envelope),
+                  Picon(PiconsDuotone.envelope),
                   if (_unreadInquiryCount > 0)
                     Positioned(
                       right: -6,
@@ -606,7 +606,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           if (_isStaff)
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.path),
+              leading: Picon(PiconsDuotone.path),
               title: const Text('Traffic Alert'),
               onTap: () {
                 Navigator.pop(context);
@@ -615,7 +615,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           if (_isStaff)
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.clock),
+              leading: Picon(PiconsDuotone.clock),
               title: const Text('My Availability'),
               onTap: () {
                 Navigator.pop(context);
@@ -628,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               },
             ),
           ListTile(
-            leading: PhosphorIcon(PhosphorIconsDuotone.calendarX),
+            leading: Picon(PiconsDuotone.calendarX),
             title: const Text('Holidays & Closures'),
             onTap: () {
               Navigator.pop(context);
@@ -642,7 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           const Divider(),
           ListTile(
-            leading: PhosphorIcon(PhosphorIconsDuotone.user),
+            leading: Picon(PiconsDuotone.user),
             title: const Text('Profile'),
             onTap: () {
               Navigator.pop(context);
@@ -677,7 +677,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
+            Picon(PiconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(
               'No dogs yet!',
@@ -704,7 +704,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   );
                 },
-                icon: PhosphorIcon(PhosphorIconsDuotone.headset),
+                icon: Picon(PiconsDuotone.headset),
                 label: const Text('Contact Staff'),
               ),
             ],
@@ -722,10 +722,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: _isStaff ? 'Search by dog or owner name...' : 'Search dogs...',
-                prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass),
+                prefixIcon: Picon(PiconsDuotone.magnifyingGlass),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
-                        icon: PhosphorIcon(PhosphorIconsDuotone.x),
+                        icon: Picon(PiconsDuotone.x),
                         onPressed: () {
                           _searchController.clear();
                           _filterDogs('');
@@ -792,7 +792,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       child: const Center(child: CircularProgressIndicator()),
                                     ),
                                     errorWidget: (context, url, error) =>
-                                        SizedBox(height: 200, child: Center(child: PhosphorIcon(PhosphorIconsDuotone.warningCircle))),
+                                        SizedBox(height: 200, child: Center(child: Picon(PiconsDuotone.warningCircle))),
                                   ),
                                 ),
                               Padding(

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:video_player/video_player.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
@@ -253,7 +253,7 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                       else
                         FilledButton.icon(
                           onPressed: _submit,
-                          icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
+                          icon: Picon(PiconsDuotone.uploadSimple, size: 18),
                           label: const Text('Upload All'),
                         ),
                     ],
@@ -266,7 +266,7 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed: _submit,
-                      icon: PhosphorIcon(PhosphorIconsDuotone.uploadSimple, size: 18),
+                      icon: Picon(PiconsDuotone.uploadSimple, size: 18),
                       label: const Text('Upload'),
                     ),
                   ),
@@ -347,8 +347,8 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      PhosphorIcon(
-                                        PhosphorIconsDuotone.crop,
+                                      Picon(
+                                        PiconsDuotone.crop,
                                         color: Colors.white,
                                         size: 16,
                                       ),
@@ -508,7 +508,7 @@ class _LocalVideoPlayerState extends State<_LocalVideoPlayer> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              PhosphorIcon(PhosphorIconsDuotone.videoCamera, color: Colors.white, size: 48),
+              Picon(PiconsDuotone.videoCamera, color: Colors.white, size: 48),
               const SizedBox(height: 8),
               Text(
                 widget.fileName,
@@ -553,8 +553,8 @@ class _LocalVideoPlayerState extends State<_LocalVideoPlayer> {
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(50),
                   ),
-                  child: PhosphorIcon(
-                    _isPlaying ? PhosphorIconsDuotone.pause : PhosphorIconsDuotone.play,
+                  child: Picon(
+                    _isPlaying ? PiconsDuotone.pause : PiconsDuotone.play,
                     color: Colors.white,
                     size: 36,
                   ),
