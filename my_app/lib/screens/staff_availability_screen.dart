@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
-import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
 import '../services/data_service.dart';
 

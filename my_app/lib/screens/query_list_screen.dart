@@ -171,7 +171,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
       return;
     }
 
-    if (!mounted || owners == null || owners.isEmpty) return;
+    if (!mounted || owners.isEmpty) return;
 
     _showStaffQueryForm(owners);
   }

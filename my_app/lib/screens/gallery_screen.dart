@@ -336,8 +336,6 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
   late PageController _pageController;
   late int _currentIndex;
   final TextEditingController _commentController = TextEditingController();
-  final DataService _dataService = ApiDataService();
-  bool _showComments = false;
 
   @override
   void initState() {

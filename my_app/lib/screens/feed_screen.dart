@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/group_media.dart';

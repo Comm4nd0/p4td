@@ -45,6 +45,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Lint is informational: report issues but don't block the release on
+      # style warnings/infos. Real compile errors still fail (errors are always
+      # fatal), and `flutter test` below remains a hard gate.
+      - name: Analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test
+
       - name: Build AAB
         run: flutter build appbundle --release
 
