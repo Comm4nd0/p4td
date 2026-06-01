@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../services/auth_service.dart';
 import '../widgets/password_requirements.dart';
 
@@ -93,10 +93,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: InputDecoration(
                 labelText: 'New Password',
                 border: const OutlineInputBorder(),
-                prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
-                  icon: PhosphorIcon(
-                    _obscureNew ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                  icon: Picon(
+                    _obscureNew ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                   ),
                   onPressed: () => setState(() => _obscureNew = !_obscureNew),
                 ),
@@ -111,10 +111,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: InputDecoration(
                 labelText: 'Confirm New Password',
                 border: const OutlineInputBorder(),
-                prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
-                  icon: PhosphorIcon(
-                    _obscureConfirm ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                  icon: Picon(
+                    _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                   ),
                   onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
                 ),

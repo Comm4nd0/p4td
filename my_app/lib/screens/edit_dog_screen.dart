@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
@@ -109,7 +109,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
+              leading: Picon(PiconsDuotone.camera),
               title: const Text('Take Photo'),
               onTap: () {
                 Navigator.pop(context);
@@ -117,7 +117,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               },
             ),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.images),
+              leading: Picon(PiconsDuotone.images),
               title: const Text('Choose from Gallery'),
               onTap: () {
                 Navigator.pop(context);
@@ -126,7 +126,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ),
             if (_currentImageUrl != null || _newImageBytes != null)
               ListTile(
-                leading: PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red),
+                leading: Picon(PiconsDuotone.trash, color: Colors.red),
                 title: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   Navigator.pop(context);
@@ -221,7 +221,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
       imageWidget = Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          PhosphorIcon(PhosphorIconsDuotone.cameraPlus, size: 40, color: Colors.grey[600]),
+          Picon(PiconsDuotone.cameraPlus, size: 40, color: Colors.grey[600]),
           const SizedBox(height: 8),
           Text('Add Photo', style: TextStyle(color: Colors.grey[600])),
         ],
@@ -247,7 +247,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
           width: 150,
           height: 150,
           placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-          errorWidget: (_, __, ___) => PhosphorIcon(PhosphorIconsDuotone.warningCircle, size: 40, color: Colors.grey[600]),
+          errorWidget: (_, __, ___) => Picon(PiconsDuotone.warningCircle, size: 40, color: Colors.grey[600]),
         ),
       );
     } else {
@@ -255,7 +255,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
       imageWidget = Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          PhosphorIcon(PhosphorIconsDuotone.cameraPlus, size: 40, color: Colors.grey[600]),
+          Picon(PiconsDuotone.cameraPlus, size: 40, color: Colors.grey[600]),
           const SizedBox(height: 8),
           Text('Add Photo', style: TextStyle(color: Colors.grey[600])),
         ],
@@ -286,7 +286,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         title: Text('Edit ${widget.dog.name}'),
         actions: [
           IconButton(
-            icon: PhosphorIcon(PhosphorIconsDuotone.floppyDisk),
+            icon: Picon(PiconsDuotone.floppyDisk),
             onPressed: _isSaving ? null : _saveDog,
           ),
         ],
@@ -301,7 +301,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             decoration: const InputDecoration(
               labelText: 'Name',
               border: OutlineInputBorder(),
-              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+              prefixIcon: Picon(PiconsDuotone.pawPrint),
             ),
           ),
           const SizedBox(height: 16),
@@ -313,7 +313,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               labelText: 'Food Instructions',
               hintText: 'e.g. 1 cup dry food twice a day',
               border: OutlineInputBorder(),
-              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.forkKnife),
+              prefixIcon: Picon(PiconsDuotone.forkKnife),
             ),
             maxLines: 3,
           ),
@@ -324,7 +324,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               labelText: 'Medical / Injuries',
               hintText: 'e.g. recovering from surgery, allergic to chicken',
               border: OutlineInputBorder(),
-              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.firstAid),
+              prefixIcon: Picon(PiconsDuotone.firstAid),
             ),
             maxLines: 3,
           ),
@@ -336,7 +336,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             decoration: const InputDecoration(
               labelText: 'Sex',
               border: OutlineInputBorder(),
-              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.dog),
+              prefixIcon: Picon(PiconsDuotone.dog),
             ),
             items: const [
               DropdownMenuItem(value: null, child: Text('Unknown')),
@@ -363,11 +363,11 @@ class _EditDogScreenState extends State<EditDogScreen> {
               decoration: InputDecoration(
                 labelText: 'Date of birth',
                 border: const OutlineInputBorder(),
-                prefixIcon: const PhosphorIcon(PhosphorIconsDuotone.cake),
+                prefixIcon: const Picon(PiconsDuotone.cake),
                 suffixIcon: _selectedDateOfBirth == null
                     ? null
                     : IconButton(
-                        icon: const PhosphorIcon(PhosphorIconsDuotone.x),
+                        icon: const Picon(PiconsDuotone.x),
                         onPressed: () => setState(() => _selectedDateOfBirth = null),
                       ),
               ),
@@ -388,7 +388,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                   : 'View only — ask a staff member to update.',
               style: const TextStyle(fontSize: 12),
             ),
-            secondary: const PhosphorIcon(PhosphorIconsDuotone.heart),
+            secondary: const Picon(PiconsDuotone.heart),
             value: _isSpayed,
             onChanged: _isStaff ? (v) => setState(() => _isSpayed = v) : null,
           ),
@@ -444,7 +444,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               ),
               child: Row(
                 children: [
-                  PhosphorIcon(PhosphorIconsDuotone.clock, color: AppColors.primary, size: 20),
+                  Picon(PiconsDuotone.clock, color: AppColors.primary, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -474,7 +474,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                     });
                   },
                   avatar: isSelected
-                      ? PhosphorIcon(PhosphorIconsFill.checkCircle, size: 18)
+                      ? Picon(PiconsFill.checkCircle, size: 18)
                       : null,
                   backgroundColor: Colors.grey[200],
                   selectedColor: AppColors.primaryLight.withOpacity(0.2),
@@ -510,7 +510,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                     }
                   },
                   avatar: isSelected
-                      ? PhosphorIcon(PhosphorIconsFill.checkCircle, size: 18)
+                      ? Picon(PiconsFill.checkCircle, size: 18)
                       : null,
                   backgroundColor: Colors.grey[200],
                   selectedColor: AppColors.primaryLight.withOpacity(0.2),
@@ -528,7 +528,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 ),
                 child: Row(
                   children: [
-                    PhosphorIcon(PhosphorIconsDuotone.info, color: Colors.orange[700], size: 20),
+                    Picon(PiconsDuotone.info, color: Colors.orange[700], size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -570,7 +570,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                       });
                     },
                     avatar: isSelected
-                        ? PhosphorIcon(PhosphorIconsFill.checkCircle, size: 18)
+                        ? Picon(PiconsFill.checkCircle, size: 18)
                         : null,
                     backgroundColor: Colors.grey[200],
                     selectedColor: AppColors.primaryLight.withOpacity(0.2),
@@ -617,8 +617,8 @@ class _TransportDefaultRow extends StatelessWidget {
         const SizedBox(height: 6),
         SegmentedButton<bool>(
           segments: const [
-            ButtonSegment(value: false, label: Text('Staff'), icon: PhosphorIcon(PhosphorIconsDuotone.van, size: 18)),
-            ButtonSegment(value: true, label: Text('Owner'), icon: PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18)),
+            ButtonSegment(value: false, label: Text('Staff'), icon: Picon(PiconsDuotone.van, size: 18)),
+            ButtonSegment(value: true, label: Text('Owner'), icon: Picon(PiconsDuotone.houseLine, size: 18)),
           ],
           selected: {ownerSelected},
           onSelectionChanged: (s) => onOwnerChanged(s.first),
@@ -627,7 +627,7 @@ class _TransportDefaultRow extends StatelessWidget {
           const SizedBox(height: 8),
           Row(children: [
             OutlinedButton.icon(
-              icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+              icon: const Picon(PiconsDuotone.clock, size: 18),
               label: Text(time == null ? 'Set time (optional)' : _fmt(time!)),
               onPressed: () async {
                 final picked = await showTimePicker(

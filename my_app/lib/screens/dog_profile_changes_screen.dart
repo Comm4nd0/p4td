@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog_profile_change_request.dart';
 import '../services/data_service.dart';
@@ -107,7 +107,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      PhosphorIcon(PhosphorIconsDuotone.warningCircle, size: 48, color: Colors.red),
+                      Picon(PiconsDuotone.warningCircle, size: 48, color: Colors.red),
                       const SizedBox(height: 8),
                       Text(_error!, style: TextStyle(color: Colors.grey[600])),
                       const SizedBox(height: 16),
@@ -120,7 +120,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          PhosphorIcon(PhosphorIconsDuotone.checkCircle, size: 56, color: Colors.green),
+                          Picon(PiconsDuotone.checkCircle, size: 56, color: Colors.green),
                           const SizedBox(height: 12),
                           Text('No pending changes', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
                         ],
@@ -180,7 +180,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () => _reject(cr),
-                    icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
+                    icon: Picon(PiconsDuotone.x, size: 18),
                     label: const Text('Reject'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
@@ -192,7 +192,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: () => _approve(cr),
-                    icon: PhosphorIcon(PhosphorIconsDuotone.check, size: 18),
+                    icon: Picon(PiconsDuotone.check, size: 18),
                     label: const Text('Approve'),
                     style: FilledButton.styleFrom(backgroundColor: Colors.green),
                   ),
@@ -237,7 +237,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
       return CircleAvatar(
         radius: 28,
         backgroundColor: Colors.red[50],
-        child: PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red, size: 24),
+        child: Picon(PiconsDuotone.trash, color: Colors.red, size: 24),
       );
     }
 
@@ -251,7 +251,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
     return CircleAvatar(
       radius: 28,
       backgroundColor: AppColors.primaryLight.withOpacity(0.2),
-      child: PhosphorIcon(PhosphorIconsDuotone.dog, size: 24, color: AppColors.primary),
+      child: Picon(PiconsDuotone.dog, size: 24, color: AppColors.primary),
     );
   }
 
@@ -298,7 +298,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                   ),
                 ),
               ),
-              PhosphorIcon(PhosphorIconsDuotone.arrowRight, size: 16, color: Colors.orange),
+              Picon(PiconsDuotone.arrowRight, size: 16, color: Colors.orange),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -329,7 +329,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                   ),
                 ),
               ),
-              PhosphorIcon(PhosphorIconsDuotone.arrowRight, size: 16, color: Colors.orange),
+              Picon(PiconsDuotone.arrowRight, size: 16, color: Colors.orange),
               const SizedBox(width: 6),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -363,7 +363,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                   ),
                 ),
               ),
-              PhosphorIcon(PhosphorIconsDuotone.arrowRight, size: 16, color: Colors.red),
+              Picon(PiconsDuotone.arrowRight, size: 16, color: Colors.red),
               const SizedBox(width: 6),
               Text('Remove', style: TextStyle(color: Colors.red[700], fontSize: 13)),
             ],

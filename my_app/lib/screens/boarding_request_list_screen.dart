@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
@@ -88,8 +88,8 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
             unselectedLabelColor: AppColors.cream,
             indicatorColor: AppColors.cream,
             tabs: [
-              Tab(icon: PhosphorIcon(PhosphorIconsDuotone.listDashes), text: 'List'),
-              Tab(icon: PhosphorIcon(PhosphorIconsDuotone.calendar), text: 'Calendar'),
+              Tab(icon: Picon(PiconsDuotone.listDashes), text: 'List'),
+              Tab(icon: Picon(PiconsDuotone.calendar), text: 'Calendar'),
             ],
           ),
         ),
@@ -233,10 +233,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                       child: ListTile(
-                        leading: PhosphorIcon(PhosphorIconsDuotone.pawPrint, color: _getStatusColor(request.status)),
+                        leading: Picon(PiconsDuotone.pawPrint, color: _getStatusColor(request.status)),
                         title: Text(request.dogNames.join(', ')),
                         subtitle: Text(request.status.toString().split('.').last.toUpperCase()),
-                        trailing: PhosphorIcon(PhosphorIconsDuotone.caretRight),
+                        trailing: Picon(PiconsDuotone.caretRight),
                         onTap: () {
                            // Could navigate to detail view if needed
                         },

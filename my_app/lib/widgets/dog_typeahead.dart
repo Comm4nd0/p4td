@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 
@@ -192,17 +192,17 @@ class _DogTypeaheadState extends State<DogTypeahead> with WidgetsBindingObserver
         focusNode: _focusNode,
         decoration: InputDecoration(
           hintText: widget.hintText,
-          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.dog, size: 20),
+          prefixIcon: Picon(PiconsDuotone.dog, size: 20),
           suffixIcon: widget.selectedDogId != null
               ? IconButton(
-                  icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
+                  icon: Picon(PiconsDuotone.x, size: 18),
                   onPressed: () {
                     widget.onSelected(null);
                     _controller.clear();
                     _focusNode.unfocus();
                   },
                 )
-              : PhosphorIcon(PhosphorIconsDuotone.caretDown, size: 18),
+              : Picon(PiconsDuotone.caretDown, size: 18),
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -401,7 +401,7 @@ class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> with 
             focusNode: _focusNode,
             decoration: InputDecoration(
               hintText: widget.hintText,
-              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass, size: 20),
+              prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
               suffixIcon: widget.selectedDogIds.isNotEmpty
                   ? Padding(
                       padding: const EdgeInsets.only(right: 8),

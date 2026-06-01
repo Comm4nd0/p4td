@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
@@ -93,7 +93,7 @@ class LandingScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(builder: (_) => const LoginScreen()),
                   ),
-                  icon: const PhosphorIcon(PhosphorIconsDuotone.signIn, size: 20),
+                  icon: const Picon(PiconsDuotone.signIn, size: 20),
                   label: const Text('Log In'),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.white,
@@ -111,7 +111,7 @@ class LandingScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(builder: (_) => const RegisterScreen()),
                   ),
-                  icon: const PhosphorIcon(PhosphorIconsDuotone.userPlus, size: 20),
+                  icon: const Picon(PiconsDuotone.userPlus, size: 20),
                   label: const Text('Register'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
@@ -153,7 +153,7 @@ class LandingScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: _ServiceCard(
-                  icon: PhosphorIconsDuotone.pawPrint,
+                  icon: PiconsDuotone.pawPrint,
                   title: 'Day Care',
                   description: 'Supervised group play across 10 secure, licensed acres',
                   isDark: isDark,
@@ -162,7 +162,7 @@ class LandingScreen extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _ServiceCard(
-                  icon: PhosphorIconsDuotone.graduationCap,
+                  icon: PiconsDuotone.graduationCap,
                   title: 'Training',
                   description: '1-to-1 sessions using positive reinforcement methods',
                   isDark: isDark,
@@ -175,7 +175,7 @@ class LandingScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: _ServiceCard(
-                  icon: PhosphorIconsDuotone.dog,
+                  icon: PiconsDuotone.dog,
                   title: 'Puppy Classes',
                   description: 'Foundation training and socialisation for puppies',
                   isDark: isDark,
@@ -184,7 +184,7 @@ class LandingScreen extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _ServiceCard(
-                  icon: PhosphorIconsDuotone.park,
+                  icon: PiconsDuotone.park,
                   title: 'Field Hire',
                   description: 'Private hire of our secure 10-acre enclosed field',
                   isDark: isDark,
@@ -223,28 +223,28 @@ class LandingScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _TrustRow(
-            icon: PhosphorIconsDuotone.shieldCheck,
+            icon: PiconsDuotone.shieldCheck,
             title: 'Licensed & Insured',
             description: 'Council-licensed facility with full insurance cover',
             isDark: isDark,
           ),
           const SizedBox(height: 14),
           _TrustRow(
-            icon: PhosphorIconsDuotone.users,
+            icon: PiconsDuotone.users,
             title: 'Experienced Staff',
             description: 'Qualified team caring for dogs of all breeds and temperaments',
             isDark: isDark,
           ),
           const SizedBox(height: 14),
           _TrustRow(
-            icon: PhosphorIconsDuotone.tree,
+            icon: PiconsDuotone.tree,
             title: '10 Acres of Space',
             description: 'Fully enclosed, secure outdoor fields for dogs to run and explore',
             isDark: isDark,
           ),
           const SizedBox(height: 14),
           _TrustRow(
-            icon: PhosphorIconsDuotone.heart,
+            icon: PiconsDuotone.heart,
             title: 'Force-Free Training',
             description: 'Positive reinforcement only -- never punishment-based methods',
             isDark: isDark,
@@ -268,25 +268,25 @@ class LandingScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _AppFeatureTile(
-            icon: PhosphorIconsDuotone.camera,
+            icon: PiconsDuotone.camera,
             title: 'Daily Photos & Updates',
             description: 'See what your dog gets up to during their day with us',
             isDark: isDark,
           ),
           _AppFeatureTile(
-            icon: PhosphorIconsDuotone.calendarCheck,
+            icon: PiconsDuotone.calendarCheck,
             title: 'Manage Bookings',
             description: 'View your schedule, request date changes, and book boarding',
             isDark: isDark,
           ),
           _AppFeatureTile(
-            icon: PhosphorIconsDuotone.bell,
+            icon: PiconsDuotone.bell,
             title: 'Instant Notifications',
             description: 'Get notified about pickups, schedule changes, and updates',
             isDark: isDark,
           ),
           _AppFeatureTile(
-            icon: PhosphorIconsDuotone.chatCircle,
+            icon: PiconsDuotone.chatCircle,
             title: 'Direct Support',
             description: 'Message our team directly through the app anytime',
             isDark: isDark,
@@ -310,8 +310,8 @@ class LandingScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          PhosphorIcon(
-            PhosphorIconsDuotone.pawPrint,
+          Picon(
+            PiconsDuotone.pawPrint,
             size: 40,
             color: AppColors.cream.withValues(alpha: 0.7),
           ),
@@ -367,7 +367,7 @@ class LandingScreen extends StatelessWidget {
 // ── Helper widgets ──────────────────────────────────────────────────
 
 class _ServiceCard extends StatelessWidget {
-  final PhosphorIconData icon;
+  final PiconDuotoneData icon;
   final String title;
   final String description;
   final bool isDark;
@@ -400,7 +400,7 @@ class _ServiceCard extends StatelessWidget {
                   : AppColors.primary.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: PhosphorIcon(icon, size: 28, color: AppColors.primaryLight),
+            child: Picon(icon, size: 28, color: AppColors.primaryLight),
           ),
           const SizedBox(height: 10),
           Text(
@@ -426,7 +426,7 @@ class _ServiceCard extends StatelessWidget {
 }
 
 class _TrustRow extends StatelessWidget {
-  final PhosphorIconData icon;
+  final PiconDuotoneData icon;
   final String title;
   final String description;
   final bool isDark;
@@ -451,7 +451,7 @@ class _TrustRow extends StatelessWidget {
                 : AppColors.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: PhosphorIcon(icon, size: 22, color: AppColors.primaryLight),
+          child: Picon(icon, size: 22, color: AppColors.primaryLight),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -481,7 +481,7 @@ class _TrustRow extends StatelessWidget {
 }
 
 class _AppFeatureTile extends StatelessWidget {
-  final PhosphorIconData icon;
+  final PiconDuotoneData icon;
   final String title;
   final String description;
   final bool isDark;
@@ -508,7 +508,7 @@ class _AppFeatureTile extends StatelessWidget {
                 color: isDark ? AppColors.darkSurfaceVariant : AppColors.grey300,
               ),
             ),
-            child: PhosphorIcon(icon, size: 24, color: AppColors.primaryLight),
+            child: Picon(icon, size: 24, color: AppColors.primaryLight),
           ),
           const SizedBox(width: 14),
           Expanded(

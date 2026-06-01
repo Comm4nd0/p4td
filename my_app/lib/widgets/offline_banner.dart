@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 
 import '../services/connectivity_status.dart';
 
@@ -27,7 +27,7 @@ class OfflineBanner extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(PhosphorIconsDuotone.wifiSlash,
+                    Picon(PiconsDuotone.wifiSlash,
                         color: Colors.white, size: 18),
                     const SizedBox(width: 8),
                     const Flexible(

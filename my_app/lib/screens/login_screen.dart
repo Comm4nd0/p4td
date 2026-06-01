@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../services/auth_service.dart';
 import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
@@ -165,7 +165,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   border: OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.envelope),
+                  prefixIcon: Picon(PiconsDuotone.envelope),
                 ),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -176,10 +176,10 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 decoration: InputDecoration(
                   labelText: 'Password',
                   border: const OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                  prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
-                    icon: PhosphorIcon(
-                      _obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                    icon: Picon(
+                      _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                     ),
                     onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                   ),
