@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
@@ -21,7 +22,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
+  bool _acceptedPrivacy = false;
   String? _errorMessage;
+
+  static const _privacyPolicyUrl = 'https://paws4thoughtdogs.com/privacy-policy/';
+
+  Future<void> _openPrivacyPolicy() async {
+    final uri = Uri.parse(_privacyPolicyUrl);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the Privacy Policy')),
+        );
+      }
+    }
+  }
 
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -37,6 +52,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_passwordController.text != _confirmPasswordController.text) {
       setState(() {
         _errorMessage = 'Passwords do not match';
+      });
+      return;
+    }
+
+    if (!_acceptedPrivacy) {
+      setState(() {
+        _errorMessage = 'Please accept the Privacy Policy to continue';
       });
       return;
     }
@@ -60,6 +82,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'password': password,
           'first_name': _firstNameController.text.trim(),
           'last_name': _lastNameController.text.trim(),
+          'accept_privacy': _acceptedPrivacy,
         }),
       );
 
@@ -272,9 +295,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 maxLines: 2,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+              // Privacy Policy acceptance — required to create an account.
+              InkWell(
+                onTap: () => setState(() => _acceptedPrivacy = !_acceptedPrivacy),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Checkbox(
+                      value: _acceptedPrivacy,
+                      onChanged: (v) => setState(() => _acceptedPrivacy = v ?? false),
+                    ),
+                    Expanded(
+                      child: Text.rich(
+                        TextSpan(
+                          text: 'I have read and agree to the ',
+                          style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                          children: [
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: GestureDetector(
+                                onTap: _openPrivacyPolicy,
+                                child: Text(
+                                  'Privacy Policy',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _isLoading ? null : _register,
+                onPressed: (_isLoading || !_acceptedPrivacy) ? null : _register,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),

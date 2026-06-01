@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
 from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest
 
 
@@ -578,3 +579,42 @@ class ContactInquirySerializer(serializers.ModelSerializer):
         model = ContactInquiry
         fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'is_read', 'is_replied', 'created_at']
         read_only_fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'created_at']
+
+
+# Current Privacy Policy version users must accept at sign-up. Bump this when
+# the policy materially changes (matches the "Last updated" date on the page).
+PRIVACY_POLICY_VERSION = '2026-02-02'
+
+
+class UserCreateWithPrivacySerializer(DjoserUserCreateSerializer):
+    """Djoser user-create serializer that also requires Privacy Policy
+    acceptance and records when/which version was accepted on the profile."""
+
+    accept_privacy = serializers.BooleanField(write_only=True, required=True)
+
+    class Meta(DjoserUserCreateSerializer.Meta):
+        # Include first/last name so they're saved at sign-up (djoser's default
+        # create serializer omits them), plus our privacy acceptance flag.
+        fields = tuple(DjoserUserCreateSerializer.Meta.fields) + (
+            'first_name', 'last_name', 'accept_privacy',
+        )
+
+    def validate(self, attrs):
+        # Remove our extra flag before djoser builds the User (User() has no
+        # such kwarg), but require it to be explicitly true.
+        accepted = attrs.pop('accept_privacy', False)
+        if accepted is not True:
+            raise serializers.ValidationError({
+                'accept_privacy': 'You must accept the Privacy Policy to create an account.'
+            })
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        user = super().create(validated_data)
+        # The post_save signal creates the profile; stamp the acceptance on it.
+        from django.utils import timezone
+        profile = user.profile
+        profile.accepted_privacy_at = timezone.now()
+        profile.accepted_privacy_version = PRIVACY_POLICY_VERSION
+        profile.save(update_fields=['accepted_privacy_at', 'accepted_privacy_version'])
+        return user

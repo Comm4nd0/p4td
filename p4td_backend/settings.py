@@ -215,6 +215,14 @@ REST_FRAMEWORK = {
     ),
 }
 
+# Require Privacy Policy acceptance at sign-up via a custom user-create
+# serializer (records when/which version the user accepted).
+DJOSER = {
+    'SERIALIZERS': {
+        'user_create': 'api.serializers.UserCreateWithPrivacySerializer',
+    },
+}
+
 # =============================================================================
 # CORS SETTINGS
 # =============================================================================
