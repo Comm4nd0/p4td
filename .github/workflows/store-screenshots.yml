@@ -155,17 +155,13 @@ jobs:
           profile: pixel_7
           working-directory: my_app
           # Emulator is already running here (device "emulator-5554").
+          # NOTE: keep each command on one line — the action's shell does not
+          # handle backslash line-continuations.
           script: |
-            SCREENSHOT_OUT=build/screenshots/android-phone \
-              flutter drive \
-                --driver=test_driver/integration_test.dart \
-                --target=integration_test/screenshots_test.dart \
-                -d emulator-5554 \
-                --dart-define=DEMO_EMAIL="$DEMO_EMAIL" \
-                --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
+            export SCREENSHOT_OUT=build/screenshots/android-phone
+            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
             mkdir -p "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots"
-            cp build/screenshots/android-phone/*.png \
-              "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots/" || true
+            cp build/screenshots/android-phone/*.png "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots/" || true
       - name: Frame + caption
         run: (cd fastlane && fastlane frame)
       - name: Upload to Play Console
