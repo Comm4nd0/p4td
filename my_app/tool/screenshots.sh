@@ -17,18 +17,29 @@
 # then `fastlane upload_ios` / `fastlane upload_android`.
 #
 # ── EDIT THESE to match the simulators/emulators you have installed ──────────
+# Override at runtime by exporting newline-separated lists, e.g. in CI:
+#   IOS_DEVICES_ENV=$'iPhone 16 Pro Max'  ANDROID_AVDS_ENV='Pixel_7_API_34'
+#
 # iOS: simulator names (xcrun simctl list devices). One per required size.
-IOS_DEVICES=(
-  "iPhone 16 Pro Max"            # App Store 6.9" (required)
-  "iPad Pro 13-inch (M4)"        # App Store iPad 13" (required if you ship iPad)
-)
+if [[ -n "${IOS_DEVICES_ENV:-}" ]]; then
+  IFS=$'\n' read -rd '' -a IOS_DEVICES <<< "$IOS_DEVICES_ENV" || true
+else
+  IOS_DEVICES=(
+    "iPhone 16 Pro Max"          # App Store 6.9" (required)
+    "iPad Pro 13-inch (M4)"      # App Store iPad 13" (required if you ship iPad)
+  )
+fi
 # Android: AVD names you created (emulator -list-avds). Phone + tablets.
-ANDROID_AVDS=(
-  "Pixel_7_API_34"               # phone
-  "Nexus_9_API_34"               # ~10" tablet
-)
+if [[ -n "${ANDROID_AVDS_ENV:-}" ]]; then
+  IFS=$'\n' read -rd '' -a ANDROID_AVDS <<< "$ANDROID_AVDS_ENV" || true
+else
+  ANDROID_AVDS=(
+    "Pixel_7_API_34"             # phone
+    "Nexus_9_API_34"             # ~10" tablet
+  )
+fi
 # Locale folder used by fastlane (App Store + Play locale, e.g. en-GB).
-LOCALE="en-GB"
+LOCALE="${SCREENSHOT_LOCALE:-en-GB}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail

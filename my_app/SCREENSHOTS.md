@@ -12,6 +12,32 @@ seed demo data ──► capture (per device) ──► frame + caption ──�
  (Django cmd)        tool/screenshots.sh      fastlane frame      fastlane upload_*
 ```
 
+## Two ways to run it
+
+- **GitHub Actions (no Mac needed — use this on Windows).** The
+  `Store Screenshots` workflow generates **both** platforms on cloud runners
+  (iOS on macOS, Android on Ubuntu), frames + captions, and uploads. See
+  [§ CI](#ci-github-actions--no-mac-needed) below. iOS *cannot* be generated
+  locally on Windows — it requires macOS — so CI is the way.
+- **Locally** (Mac for iOS; Windows/Mac/Linux for Android via Git Bash/WSL) —
+  §§ 1–5 below.
+
+## CI (GitHub Actions — no Mac needed)
+
+1. Seed the demo account (§2) against your backend.
+2. Add these repository **secrets** (Settings → Secrets and variables → Actions):
+   | Secret | For |
+   |---|---|
+   | `DEMO_EMAIL`, `DEMO_PASSWORD` | the seeded demo owner login |
+   | `PLAY_STORE_SERVICE_ACCOUNT_JSON` | Play upload (you already have this) |
+   | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` | App Store Connect API key — create at App Store Connect → Users and Access → Integrations; `ASC_KEY_P8` is the **contents** of the `.p8` file |
+3. Actions tab → **Store Screenshots** → **Run workflow**. Pick platforms
+   (`both`/`ios`/`android`) and whether to upload (off = downloadable artifacts
+   only). That's it — no local devices, works from Windows.
+
+Everything below is the local/manual path and the reference for what the CI
+does under the hood.
+
 ## 1. One-time setup
 
 **Flutter side**
