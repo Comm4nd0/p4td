@@ -1646,6 +1646,48 @@ class StaffPermissionsManagementTests(TestCase):
         self.assertFalse(resp.data['is_superuser'])
 
 
+class PrivacyAcceptanceTests(TestCase):
+    """Sign-up must require Privacy Policy acceptance and record it."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def _payload(self, **over):
+        payload = {
+            'username': 'newuser@example.com',
+            'email': 'newuser@example.com',
+            'password': 'Str0ngPass!23',
+            'first_name': 'Ann',
+            'last_name': 'Bee',
+            'accept_privacy': True,
+        }
+        payload.update(over)
+        return payload
+
+    def test_signup_rejected_when_not_accepted(self):
+        resp = self.client.post('/auth/users/', self._payload(accept_privacy=False), format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('accept_privacy', resp.data)
+        self.assertFalse(User.objects.filter(username='newuser@example.com').exists())
+
+    def test_signup_rejected_when_flag_missing(self):
+        payload = self._payload()
+        payload.pop('accept_privacy')
+        resp = self.client.post('/auth/users/', payload, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(User.objects.filter(username='newuser@example.com').exists())
+
+    def test_signup_records_acceptance(self):
+        from api.serializers import PRIVACY_POLICY_VERSION
+        resp = self.client.post('/auth/users/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, 201)
+        user = User.objects.get(username='newuser@example.com')
+        self.assertEqual(user.first_name, 'Ann')
+        self.assertEqual(user.last_name, 'Bee')
+        self.assertIsNotNone(user.profile.accepted_privacy_at)
+        self.assertEqual(user.profile.accepted_privacy_version, PRIVACY_POLICY_VERSION)
+
+
 class FeedTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
