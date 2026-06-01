@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 
@@ -54,7 +54,7 @@ class RequestTimeline extends StatelessWidget {
           // Step 1: Submitted (always active)
           _buildStep(
             color: activeColor,
-            icon: PhosphorIconsDuotone.paperPlaneTilt,
+            icon: PiconsDuotone.paperPlaneTilt,
             label: 'Submitted',
             detail: ukDateTime(createdAt),
             labelColor: activeTextColor,
@@ -65,7 +65,7 @@ class RequestTimeline extends StatelessWidget {
           // Step 2: Under Review
           _buildStep(
             color: _isPending ? activeColor : inactiveColor,
-            icon: PhosphorIconsDuotone.hourglass,
+            icon: PiconsDuotone.hourglass,
             label: _isPending ? 'Under Review' : 'Reviewed',
             detail: _isPending ? 'Awaiting review' : '',
             labelColor: _isPending ? activeTextColor : inactiveTextColor,
@@ -82,8 +82,8 @@ class RequestTimeline extends StatelessWidget {
           _buildStep(
             color: step3Color,
             icon: _isDenied
-                ? PhosphorIconsFill.xCircle
-                : (_isApproved ? PhosphorIconsFill.checkCircle : PhosphorIconsDuotone.circle),
+                ? PiconsDuotone.xCircle
+                : (_isApproved ? PiconsDuotone.checkCircle : PiconsDuotone.circle),
             label: _isDenied
                 ? 'Denied'
                 : (_isApproved ? 'Approved' : 'Pending'),
@@ -100,7 +100,7 @@ class RequestTimeline extends StatelessWidget {
 
   Widget _buildStep({
     required Color color,
-    required IconData icon,
+    required PiconDuotoneData icon,
     required String label,
     required String detail,
     required Color labelColor,
@@ -117,7 +117,7 @@ class RequestTimeline extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: color, width: 2),
           ),
-          child: PhosphorIcon(icon, size: 16, color: color),
+          child: Picon(icon, size: 16, color: color),
         ),
         const SizedBox(height: 4),
         Text(

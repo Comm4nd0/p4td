@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
@@ -293,7 +293,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                   return DropdownMenuItem<int>(
                     value: staffId,
                     child: Row(children: [
-                      Icon(PhosphorIconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
+                      Picon(PiconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
                       const SizedBox(width: 8),
                       Text(name.toString(), style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
                       if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
@@ -385,7 +385,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 if ((brings ?? effectiveBringsAtOpen) == true) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
-                    icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+                    icon: const Picon(PiconsDuotone.clock, size: 18),
                     label: Text(bringsTime == null
                         ? 'Set drop-off time'
                         : 'Drop-off at ${_formatTime(bringsTime!)}'),
@@ -428,7 +428,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 if ((collects ?? effectiveCollectsAtOpen) == true) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
-                    icon: const PhosphorIcon(PhosphorIconsDuotone.clock, size: 18),
+                    icon: const Picon(PiconsDuotone.clock, size: 18),
                     label: Text(collectsTime == null
                         ? 'Set pick-up time'
                         : 'Pick-up at ${_formatTime(collectsTime!)}'),
@@ -498,7 +498,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                PhosphorIcon(PhosphorIconsDuotone.info),
+                Picon(PiconsDuotone.info),
                 const SizedBox(width: 8),
                 Text('Pickup Instructions - ${assignment.dogName}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
@@ -546,11 +546,11 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     }
   }
 
-  PhosphorIconData _statusIcon(AssignmentStatus status) {
+  PiconDuotoneData _statusIcon(AssignmentStatus status) {
     switch (status) {
-      case AssignmentStatus.assigned: return PhosphorIconsDuotone.clipboardText;
-      case AssignmentStatus.pickedUp: return PhosphorIconsDuotone.pawPrint;
-      case AssignmentStatus.droppedOff: return PhosphorIconsFill.checkCircle;
+      case AssignmentStatus.assigned: return PiconsDuotone.clipboardText;
+      case AssignmentStatus.pickedUp: return PiconsDuotone.pawPrint;
+      case AssignmentStatus.droppedOff: return PiconsDuotone.checkCircle;
     }
   }
 
@@ -564,7 +564,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
 
   Widget _buildSortButton() {
     return PopupMenuButton<DogSortOption>(
-      icon: PhosphorIcon(PhosphorIconsDuotone.sortAscending),
+      icon: Picon(PiconsDuotone.sortAscending),
       tooltip: 'Sort dogs',
       onSelected: (option) {
         setState(() {
@@ -578,7 +578,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
           .map((option) => PopupMenuItem(
                 value: option,
                 child: Row(children: [
-                  if (_sortOption == option) PhosphorIcon(PhosphorIconsDuotone.check, size: 18) else const SizedBox(width: 18),
+                  if (_sortOption == option) Picon(PiconsDuotone.check, size: 18) else const SizedBox(width: 18),
                   const SizedBox(width: 8),
                   Text(option.label),
                 ]),
@@ -609,7 +609,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
+                    Picon(PiconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
                     const SizedBox(height: 16),
                     Text('No dogs assigned', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
                   ],
@@ -688,7 +688,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Row(
                 children: [
-                  PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 18, color: Colors.teal),
+                  Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                   const SizedBox(width: 8),
                   Text('Owner Drop-offs',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
@@ -738,8 +738,8 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                     index: reorderIndex,
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: PhosphorIcon(
-                        PhosphorIconsDuotone.dotsSixVertical,
+                      child: Picon(
+                        PiconsDuotone.dotsSixVertical,
                         size: 24,
                         color: Colors.grey[400],
                       ),
@@ -753,14 +753,14 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       width: 48, height: 48, fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
                         width: 48, height: 48, color: Colors.grey[200],
-                        child: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+                        child: Picon(PiconsDuotone.pawPrint),
                       ),
                       errorWidget: (context, url, error) =>
-                          CircleAvatar(radius: 24, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                          CircleAvatar(radius: 24, child: Picon(PiconsDuotone.pawPrint)),
                     ),
                   )
                 else
-                  CircleAvatar(radius: 24, child: PhosphorIcon(PhosphorIconsDuotone.pawPrint)),
+                  CircleAvatar(radius: 24, child: Picon(PiconsDuotone.pawPrint)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -773,7 +773,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
                           child: Row(children: [
-                            PhosphorIcon(PhosphorIconsDuotone.house, size: 14, color: Colors.deepPurple),
+                            Picon(PiconsDuotone.house, size: 14, color: Colors.deepPurple),
                             const SizedBox(width: 4),
                             Text('Boarding – No pickup needed',
                                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -809,7 +809,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       PopupMenuItem(
                         value: 'next',
                         child: Row(children: [
-                          PhosphorIcon(_statusIcon(next), size: 18),
+                          Picon(_statusIcon(next), size: 18),
                           const SizedBox(width: 8),
                           Text('Mark ${next.displayName}'),
                         ]),
@@ -818,7 +818,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       PopupMenuItem(
                         value: 'previous',
                         child: Row(children: [
-                          PhosphorIcon(_statusIcon(previous), size: 18),
+                          Picon(_statusIcon(previous), size: 18),
                           const SizedBox(width: 8),
                           Text('Revert to ${previous.displayName}'),
                         ]),
@@ -828,7 +828,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       PopupMenuItem(
                         value: 'transport',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.car, size: 18),
+                          Picon(PiconsDuotone.car, size: 18),
                           const SizedBox(width: 8),
                           const Text('Transport…'),
                         ]),
@@ -836,7 +836,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       PopupMenuItem(
                         value: 'reassign',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.arrowsLeftRight, size: 18),
+                          Picon(PiconsDuotone.arrowsLeftRight, size: 18),
                           const SizedBox(width: 8),
                           const Text('Reassign'),
                         ]),
@@ -844,7 +844,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       PopupMenuItem(
                         value: 'unassign',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.userMinus, size: 18, color: Colors.red[700]),
+                          Picon(PiconsDuotone.userMinus, size: 18, color: Colors.red[700]),
                           const SizedBox(width: 8),
                           Text('Unassign', style: TextStyle(color: Colors.red[700])),
                         ]),
@@ -852,7 +852,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                       PopupMenuItem(
                         value: 'remove_from_day',
                         child: Row(children: [
-                          PhosphorIcon(PhosphorIconsDuotone.calendarX, size: 18, color: Colors.red[900]),
+                          Picon(PiconsDuotone.calendarX, size: 18, color: Colors.red[900]),
                           const SizedBox(width: 8),
                           Text('Remove from this day', style: TextStyle(color: Colors.red[900])),
                         ]),
@@ -860,12 +860,12 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                     ],
                   ],
                   child: Chip(
-                    avatar: PhosphorIcon(_statusIcon(assignment.status), size: 18, color: statusColor),
+                    avatar: Picon(_statusIcon(assignment.status), size: 18, color: statusColor),
                     label: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(assignment.status.displayName, style: TextStyle(color: statusColor, fontSize: 12)),
-                        PhosphorIcon(PhosphorIconsDuotone.caretDown, size: 16, color: statusColor),
+                        Picon(PiconsDuotone.caretDown, size: 16, color: statusColor),
                       ],
                     ),
                     backgroundColor: statusColor.withValues(alpha: 0.1),
@@ -892,7 +892,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                           border: Border.all(color: Colors.teal.withValues(alpha: 0.35)),
                         ),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 14, color: Colors.teal),
+                          const Picon(PiconsDuotone.houseLine, size: 14, color: Colors.teal),
                           const SizedBox(width: 4),
                           Text(
                             assignment.effectiveOwnerBringsTime != null
@@ -911,7 +911,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                           border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
                         ),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const PhosphorIcon(PhosphorIconsDuotone.houseLine, size: 14, color: Colors.indigo),
+                          const Picon(PiconsDuotone.houseLine, size: 14, color: Colors.indigo),
                           const SizedBox(width: 4),
                           Text(
                             assignment.effectiveOwnerCollectsTime != null
@@ -931,7 +931,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 child: InkWell(
                   onTap: () => _openMaps(assignment.ownerAddress!),
                   child: Row(children: [
-                    PhosphorIcon(PhosphorIconsDuotone.mapPin, size: 16, color: Theme.of(context).colorScheme.primary),
+                    Picon(PiconsDuotone.mapPin, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(assignment.ownerAddress!,
@@ -946,7 +946,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 child: InkWell(
                   onTap: () => _callPhone(assignment.ownerPhone!),
                   child: Row(children: [
-                    PhosphorIcon(PhosphorIconsDuotone.phone, size: 16, color: Theme.of(context).colorScheme.primary),
+                    Picon(PiconsDuotone.phone, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 4),
                     Text(assignment.ownerPhone!,
                         style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
@@ -959,7 +959,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 child: InkWell(
                   onTap: () => _showPickupInstructions(assignment),
                   child: Row(children: [
-                    PhosphorIcon(PhosphorIconsDuotone.info, size: 16, color: Theme.of(context).colorScheme.primary),
+                    Picon(PiconsDuotone.info, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 4),
                     Text('Pickup Instructions',
                         style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),

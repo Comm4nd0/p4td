@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 
 /// Overview stat card for the dashboard.
 class OverviewCard extends StatefulWidget {
-  final IconData icon;
+  final PiconDuotoneData icon;
   final String value;
   final String label;
   final Color color;
@@ -59,7 +59,7 @@ class _OverviewCardState extends State<OverviewCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                PhosphorIcon(widget.icon, color: widget.color, size: iconSize),
+                Picon(widget.icon, color: widget.color, size: iconSize),
                 SizedBox(height: gap),
                 Text(widget.value, style: TextStyle(fontSize: valueSize, fontWeight: FontWeight.bold)),
                 Text(
@@ -79,7 +79,7 @@ class _OverviewCardState extends State<OverviewCard> {
 
 /// Action item row tile for the dashboard.
 class ActionItemTile extends StatelessWidget {
-  final IconData icon;
+  final PiconDuotoneData icon;
   final String label;
   final int count;
   final VoidCallback onTap;
@@ -91,7 +91,7 @@ class ActionItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
-        leading: PhosphorIcon(icon),
+        leading: Picon(icon),
         title: Text(label),
         trailing: CircleAvatar(
           radius: 14,

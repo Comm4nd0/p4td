@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../models/staff_permission.dart';
 import '../services/data_service.dart';
 
@@ -135,10 +135,10 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
               backgroundColor: s.isSuperuser
                   ? Theme.of(context).colorScheme.primary
                   : Theme.of(context).colorScheme.secondary,
-              child: PhosphorIcon(
+              child: Picon(
                 s.isSuperuser
-                    ? PhosphorIconsDuotone.crown
-                    : PhosphorIconsDuotone.user,
+                    ? PiconsDuotone.crown
+                    : PiconsDuotone.user,
                 color: Colors.white,
                 size: 20,
               ),
@@ -157,10 +157,10 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : PhosphorIcon(
+                : Picon(
                     _expanded
-                        ? PhosphorIconsDuotone.caretUp
-                        : PhosphorIconsDuotone.caretDown,
+                        ? PiconsDuotone.caretUp
+                        : PiconsDuotone.caretDown,
                     size: 18,
                   ),
             onTap: () => setState(() => _expanded = !_expanded),
@@ -172,8 +172,8 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   children: [
-                    PhosphorIcon(
-                      PhosphorIconsDuotone.info,
+                    Picon(
+                      PiconsDuotone.info,
                       size: 16,
                       color: Theme.of(context).colorScheme.primary,
                     ),
@@ -190,7 +190,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
             _buildSwitch(
               label: 'Manage Requests',
               subtitle: 'Approve/deny date change & boarding requests',
-              icon: PhosphorIconsDuotone.checkSquare,
+              icon: PiconsDuotone.checkSquare,
               value: s.canManageRequests,
               field: 'can_manage_requests',
               setLocal: (v) => s.canManageRequests = v,
@@ -198,7 +198,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
             _buildSwitch(
               label: 'Assign Dogs',
               subtitle: 'Assign dogs to staff members',
-              icon: PhosphorIconsDuotone.pawPrint,
+              icon: PiconsDuotone.pawPrint,
               value: s.canAssignDogs,
               field: 'can_assign_dogs',
               setLocal: (v) => s.canAssignDogs = v,
@@ -206,7 +206,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
             _buildSwitch(
               label: 'Upload to Feed',
               subtitle: 'Add photos & videos to the feed',
-              icon: PhosphorIconsDuotone.uploadSimple,
+              icon: PiconsDuotone.uploadSimple,
               value: s.canAddFeedMedia,
               field: 'can_add_feed_media',
               setLocal: (v) => s.canAddFeedMedia = v,
@@ -214,7 +214,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
             _buildSwitch(
               label: 'Reply to Queries',
               subtitle: 'Respond to support queries',
-              icon: PhosphorIconsDuotone.chatCircleText,
+              icon: PiconsDuotone.chatCircleText,
               value: s.canReplyQueries,
               field: 'can_reply_queries',
               setLocal: (v) => s.canReplyQueries = v,
@@ -222,7 +222,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
             _buildSwitch(
               label: 'Approve Time Off',
               subtitle: 'Approve/deny staff day-off requests',
-              icon: PhosphorIconsDuotone.calendarCheck,
+              icon: PiconsDuotone.calendarCheck,
               value: s.canApproveTimeoff,
               field: 'can_approve_timeoff',
               setLocal: (v) => s.canApproveTimeoff = v,
@@ -230,7 +230,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
             _buildSwitch(
               label: 'View Inquiries',
               subtitle: 'View & respond to website contact inquiries',
-              icon: PhosphorIconsDuotone.envelope,
+              icon: PiconsDuotone.envelope,
               value: s.canViewInquiries,
               field: 'can_view_inquiries',
               setLocal: (v) => s.canViewInquiries = v,
@@ -245,7 +245,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
   Widget _buildSwitch({
     required String label,
     required String subtitle,
-    required IconData icon,
+    required PiconDuotoneData icon,
     required bool value,
     required String field,
     required void Function(bool) setLocal,
@@ -253,7 +253,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
     return SwitchListTile(
       title: Text(label),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-      secondary: PhosphorIcon(icon, size: 22),
+      secondary: Picon(icon, size: 22),
       value: value,
       onChanged: widget.isSaving
           ? null

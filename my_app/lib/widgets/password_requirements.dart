@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 
 class PasswordRequirements extends StatelessWidget {
   final String password;
@@ -30,8 +30,8 @@ class PasswordRequirements extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          PhosphorIcon(
-            met ? PhosphorIconsFill.checkCircle : PhosphorIconsDuotone.circle,
+          Picon(
+            met ? PiconsDuotone.checkCircle : PiconsDuotone.circle,
             size: 16,
             color: met ? Colors.green : Colors.grey,
           ),

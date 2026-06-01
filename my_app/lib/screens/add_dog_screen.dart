@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/data_service.dart';
 import '../models/dog.dart';
@@ -107,7 +107,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
+              leading: Picon(PiconsDuotone.camera),
               title: const Text('Take Photo'),
               onTap: () {
                 Navigator.pop(context);
@@ -115,7 +115,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
               },
             ),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.images),
+              leading: Picon(PiconsDuotone.images),
               title: const Text('Choose from Gallery'),
               onTap: () {
                 Navigator.pop(context);
@@ -179,7 +179,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         title: const Text('Add Dog'),
         actions: [
           IconButton(
-            icon: PhosphorIcon(PhosphorIconsDuotone.floppyDisk),
+            icon: Picon(PiconsDuotone.floppyDisk),
             onPressed: _isSaving ? null : _saveDog,
           ),
         ],
@@ -214,7 +214,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 : Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      PhosphorIcon(PhosphorIconsDuotone.cameraPlus, size: 40, color: Colors.grey[600]),
+                                      Picon(PiconsDuotone.cameraPlus, size: 40, color: Colors.grey[600]),
                                       const SizedBox(height: 8),
                                       Text(
                                         'Add Photo',
@@ -242,7 +242,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Assign Owner',
                               border: OutlineInputBorder(),
-                              prefixIcon: PhosphorIcon(PhosphorIconsDuotone.userFocus),
+                              prefixIcon: Picon(PiconsDuotone.userFocus),
                             ),
                             value: _selectedOwnerId,
                             items: _owners.map((owner) {
@@ -265,7 +265,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Dog Name',
                           border: OutlineInputBorder(),
-                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+                          prefixIcon: Picon(PiconsDuotone.pawPrint),
                         ),
                         textCapitalization: TextCapitalization.words,
                         validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
@@ -282,7 +282,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           labelText: 'Food Instructions',
                           hintText: 'e.g., 1 cup dry food twice a day',
                           border: OutlineInputBorder(),
-                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.forkKnife),
+                          prefixIcon: Picon(PiconsDuotone.forkKnife),
                         ),
                         maxLines: 3,
                       ),
@@ -293,7 +293,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           labelText: 'Medical Notes / Injuries',
                           hintText: 'e.g., recovering from surgery, allergies',
                           border: OutlineInputBorder(),
-                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.firstAid),
+                          prefixIcon: Picon(PiconsDuotone.firstAid),
                         ),
                         maxLines: 3,
                       ),
@@ -308,7 +308,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Sex',
                           border: OutlineInputBorder(),
-                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.dog),
+                          prefixIcon: Picon(PiconsDuotone.dog),
                         ),
                         items: const [
                           DropdownMenuItem(value: null, child: Text('Unknown')),
@@ -335,11 +335,11 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           decoration: InputDecoration(
                             labelText: 'Date of birth',
                             border: const OutlineInputBorder(),
-                            prefixIcon: const PhosphorIcon(PhosphorIconsDuotone.cake),
+                            prefixIcon: const Picon(PiconsDuotone.cake),
                             suffixIcon: _selectedDateOfBirth == null
                                 ? null
                                 : IconButton(
-                                    icon: const PhosphorIcon(PhosphorIconsDuotone.x),
+                                    icon: const Picon(PiconsDuotone.x),
                                     onPressed: () => setState(() => _selectedDateOfBirth = null),
                                   ),
                           ),
@@ -354,7 +354,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Spayed / Neutered'),
-                        secondary: const PhosphorIcon(PhosphorIconsDuotone.heart),
+                        secondary: const Picon(PiconsDuotone.heart),
                         value: _isSpayed,
                         onChanged: (v) => setState(() => _isSpayed = v),
                       ),
@@ -374,7 +374,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           ),
                           child: Row(
                             children: [
-                              PhosphorIcon(PhosphorIconsDuotone.clock, color: AppColors.primary, size: 20),
+                              Picon(PiconsDuotone.clock, color: AppColors.primary, size: 20),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -404,7 +404,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 });
                               },
                               avatar: isSelected
-                                  ? PhosphorIcon(PhosphorIconsFill.checkCircle, size: 18)
+                                  ? Picon(PiconsFill.checkCircle, size: 18)
                                   : null,
                               backgroundColor: Colors.grey[200],
                               selectedColor: AppColors.primaryLight.withOpacity(0.2),
@@ -440,7 +440,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 }
                               },
                               avatar: isSelected
-                                  ? PhosphorIcon(PhosphorIconsFill.checkCircle, size: 18)
+                                  ? Picon(PiconsFill.checkCircle, size: 18)
                                   : null,
                               backgroundColor: Colors.grey[200],
                               selectedColor: AppColors.primaryLight.withOpacity(0.2),
@@ -458,7 +458,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             ),
                             child: Row(
                               children: [
-                                PhosphorIcon(PhosphorIconsDuotone.info, color: Colors.orange[700], size: 20),
+                                Picon(PiconsDuotone.info, color: Colors.orange[700], size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -500,7 +500,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                   });
                                 },
                                 avatar: isSelected
-                                    ? PhosphorIcon(PhosphorIconsFill.checkCircle, size: 18)
+                                    ? Picon(PiconsFill.checkCircle, size: 18)
                                     : null,
                                 backgroundColor: Colors.grey[200],
                                 selectedColor: AppColors.primaryLight.withOpacity(0.2),
@@ -518,7 +518,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                                 height: 20, 
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : PhosphorIcon(PhosphorIconsDuotone.plus),
+                            : Picon(PiconsDuotone.plus),
                         label: Text(_isSaving ? 'Adding...' : 'Add Dog'),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),

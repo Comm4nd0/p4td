@@ -1,6 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 import '../models/dog.dart';
@@ -139,14 +139,14 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
     return note.relatedDogName;
   }
 
-  PhosphorIconData _iconForType(DogNoteType type) {
+  PiconDuotoneData _iconForType(DogNoteType type) {
     switch (type) {
       case DogNoteType.compatibility:
-        return PhosphorIconsDuotone.users;
+        return PiconsDuotone.users;
       case DogNoteType.behavioral:
-        return PhosphorIconsDuotone.brain;
+        return PiconsDuotone.brain;
       case DogNoteType.grouping:
-        return PhosphorIconsDuotone.usersThree;
+        return PiconsDuotone.usersThree;
     }
   }
 
@@ -156,7 +156,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
       appBar: AppBar(title: Text('${widget.dogName} - Notes')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addNote,
-        icon: PhosphorIcon(PhosphorIconsDuotone.plus),
+        icon: Picon(PiconsDuotone.plus),
         label: const Text('Add Note'),
       ),
       body: _loading
@@ -173,7 +173,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                PhosphorIcon(PhosphorIconsDuotone.notePencil, size: 64, color: Colors.grey[400]),
+                                Picon(PiconsDuotone.notePencil, size: 64, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
                                 Text('No notes yet', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
                                 const SizedBox(height: 8),
@@ -201,7 +201,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                             children: [
                               Row(
                                 children: [
-                                  PhosphorIcon(
+                                  Picon(
                                     _iconForType(note.noteType),
                                     size: 20,
                                     color: AppColors.primary,
@@ -219,14 +219,14 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  PhosphorIcon(
-                                    note.isPositive ? PhosphorIconsDuotone.thumbsUp : PhosphorIconsDuotone.thumbsDown,
+                                  Picon(
+                                    note.isPositive ? PiconsDuotone.thumbsUp : PiconsDuotone.thumbsDown,
                                     size: 16,
                                     color: note.isPositive ? AppColors.success : AppColors.error,
                                   ),
                                   const Spacer(),
                                   IconButton(
-                                    icon: PhosphorIcon(PhosphorIconsDuotone.pencilSimple, size: 20),
+                                    icon: Picon(PiconsDuotone.pencilSimple, size: 20),
                                     onPressed: () => _editNote(note),
                                     color: AppColors.primary,
                                     padding: EdgeInsets.zero,
@@ -235,7 +235,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                   ),
                                   const SizedBox(width: 12),
                                   IconButton(
-                                    icon: PhosphorIcon(PhosphorIconsDuotone.trash, size: 20),
+                                    icon: Picon(PiconsDuotone.trash, size: 20),
                                     onPressed: () => _deleteNote(note),
                                     color: AppColors.error,
                                     padding: EdgeInsets.zero,
@@ -248,7 +248,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 16, color: AppColors.grey600),
+                                    Picon(PiconsDuotone.pawPrint, size: 16, color: AppColors.grey600),
                                     const SizedBox(width: 4),
                                     Text(
                                       'With ${_otherDogNameForCurrent(note)}',
@@ -345,8 +345,8 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
             const SizedBox(height: 4),
             SegmentedButton<bool>(
               segments: [
-                ButtonSegment(value: true, label: const Text('Positive'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsUp, size: 16)),
-                ButtonSegment(value: false, label: const Text('Negative'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsDown, size: 16)),
+                ButtonSegment(value: true, label: const Text('Positive'), icon: Picon(PiconsDuotone.thumbsUp, size: 16)),
+                ButtonSegment(value: false, label: const Text('Negative'), icon: Picon(PiconsDuotone.thumbsDown, size: 16)),
               ],
               selected: {_isPositive},
               onSelectionChanged: (set) => setState(() => _isPositive = set.first),
@@ -427,12 +427,12 @@ class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
           decoration: InputDecoration(
             labelText: 'Related Dog (optional)',
             hintText: 'Search by name',
-            prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass, size: 20),
+            prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
             border: const OutlineInputBorder(),
             suffixIcon: controller.text.isEmpty
                 ? null
                 : IconButton(
-                    icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
+                    icon: Picon(PiconsDuotone.x, size: 18),
                     onPressed: () {
                       controller.clear();
                       widget.onSelected(null);
@@ -477,13 +477,13 @@ class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
                               ),
                               errorWidget: (_, __, ___) => CircleAvatar(
                                 radius: 18,
-                                child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18),
+                                child: Picon(PiconsDuotone.pawPrint, size: 18),
                               ),
                             ),
                           )
                         : CircleAvatar(
                             radius: 18,
-                            child: PhosphorIcon(PhosphorIconsDuotone.pawPrint, size: 18),
+                            child: Picon(PiconsDuotone.pawPrint, size: 18),
                           ),
                     title: Text(dog.name),
                     subtitle: dog.ownerDetails != null
@@ -552,8 +552,8 @@ class _EditDogNoteDialogState extends State<_EditDogNoteDialog> {
             const SizedBox(height: 4),
             SegmentedButton<bool>(
               segments: [
-                ButtonSegment(value: true, label: const Text('Positive'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsUp, size: 16)),
-                ButtonSegment(value: false, label: const Text('Negative'), icon: PhosphorIcon(PhosphorIconsDuotone.thumbsDown, size: 16)),
+                ButtonSegment(value: true, label: const Text('Positive'), icon: Picon(PiconsDuotone.thumbsUp, size: 16)),
+                ButtonSegment(value: false, label: const Text('Negative'), icon: Picon(PiconsDuotone.thumbsDown, size: 16)),
               ],
               selected: {_isPositive},
               onSelectionChanged: (set) => setState(() => _isPositive = set.first),

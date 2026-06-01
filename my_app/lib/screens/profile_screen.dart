@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/user_profile.dart';
@@ -237,7 +237,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
+              leading: Picon(PiconsDuotone.camera),
               title: const Text('Take Photo'),
               onTap: () {
                 Navigator.pop(context);
@@ -245,7 +245,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               },
             ),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.images),
+              leading: Picon(PiconsDuotone.images),
               title: const Text('Choose from Gallery'),
               onTap: () {
                 Navigator.pop(context);
@@ -254,7 +254,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             if (_profile?.profilePhotoUrl != null)
               ListTile(
-                leading: PhosphorIcon(PhosphorIconsDuotone.trash, color: Colors.red),
+                leading: Picon(PiconsDuotone.trash, color: Colors.red),
                 title: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   Navigator.pop(context);
@@ -290,7 +290,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            PhosphorIcon(PhosphorIconsDuotone.warning, color: Colors.red, size: 28),
+            Picon(PiconsDuotone.warning, color: Colors.red, size: 28),
             SizedBox(width: 8),
             Expanded(child: Text('Delete Account')),
           ],
@@ -383,10 +383,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: InputDecoration(
                   labelText: 'Password',
                   border: const OutlineInputBorder(),
-                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                  prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
-                    icon: PhosphorIcon(
-                      obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                    icon: Picon(
+                      obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                     ),
                     onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
                   ),
@@ -456,17 +456,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       segments: const [
         ButtonSegment(
           value: ThemeMode.light,
-          icon: PhosphorIcon(PhosphorIconsDuotone.sun),
+          icon: Picon(PiconsDuotone.sun),
           label: Text('Light'),
         ),
         ButtonSegment(
           value: ThemeMode.system,
-          icon: PhosphorIcon(PhosphorIconsDuotone.monitor),
+          icon: Picon(PiconsDuotone.monitor),
           label: Text('System'),
         ),
         ButtonSegment(
           value: ThemeMode.dark,
-          icon: PhosphorIcon(PhosphorIconsDuotone.moon),
+          icon: Picon(PiconsDuotone.moon),
           label: Text('Dark'),
         ),
       ],
@@ -492,7 +492,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? CachedNetworkImageProvider(photoUrl)
                   : null,
               child: photoUrl == null
-                  ? PhosphorIcon(PhosphorIconsDuotone.user, size: 56, color: Colors.grey[600])
+                  ? Picon(PiconsDuotone.user, size: 56, color: Colors.grey[600])
                   : null,
             ),
             if (_isUploadingPhoto)
@@ -514,7 +514,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: const PhosphorIcon(PhosphorIconsDuotone.camera, size: 18, color: Colors.white),
+                  child: const Picon(PiconsDuotone.camera, size: 18, color: Colors.white),
                 ),
               ),
           ],
@@ -541,7 +541,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: Text(label),
         subtitle: Text(a.email),
         trailing: isActive
-            ? PhosphorIcon(PhosphorIconsDuotone.checkCircle,
+            ? Picon(PiconsDuotone.checkCircle,
                 color: Theme.of(context).primaryColor)
             : null,
         onTap: isActive ? null : () => _switchAccount(a),
@@ -556,7 +556,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('My Profile'),
         actions: [
           IconButton(
-            icon: PhosphorIcon(PhosphorIconsDuotone.floppyDisk),
+            icon: Picon(PiconsDuotone.floppyDisk),
             onPressed: (_isLoading || _isSaving) ? null : _saveProfile,
           ),
         ],
@@ -588,7 +588,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       decoration: const InputDecoration(
                         labelText: 'First Name',
                         border: OutlineInputBorder(),
-                        prefixIcon: PhosphorIcon(PhosphorIconsDuotone.identificationCard),
+                        prefixIcon: Picon(PiconsDuotone.identificationCard),
                       ),
                       textCapitalization: TextCapitalization.words,
                     ),
@@ -598,7 +598,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Phone Number',
                         border: OutlineInputBorder(),
-                        prefixIcon: PhosphorIcon(PhosphorIconsDuotone.phone),
+                        prefixIcon: Picon(PiconsDuotone.phone),
                       ),
                       keyboardType: TextInputType.phone,
                     ),
@@ -609,7 +609,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Address',
                           border: OutlineInputBorder(),
-                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.house),
+                          prefixIcon: Picon(PiconsDuotone.house),
                         ),
                         maxLines: 3,
                       ),
@@ -620,7 +620,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           labelText: 'Pickup Instructions',
                           hintText: 'e.g., Key under the mat, Gate code 1234...',
                           border: OutlineInputBorder(),
-                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.info),
+                          prefixIcon: Picon(PiconsDuotone.info),
                         ),
                         maxLines: 4,
                       ),
@@ -634,7 +634,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ..._buildAccountTiles(),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const PhosphorIcon(PhosphorIconsDuotone.userPlus),
+                      leading: const Picon(PiconsDuotone.userPlus),
                       title: const Text('Add another account'),
                       onTap: _addAccount,
                     ),
@@ -647,7 +647,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     SwitchListTile(
                       title: const Text('Feed Activity'),
                       subtitle: const Text('New posts and comments'),
-                      secondary: PhosphorIcon(PhosphorIconsDuotone.rss),
+                      secondary: Picon(PiconsDuotone.rss),
                       value: _notifyFeed,
                       onChanged: (val) => setState(() => _notifyFeed = val),
                       contentPadding: EdgeInsets.zero,
@@ -656,7 +656,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       SwitchListTile(
                         title: const Text('Traffic Alerts'),
                         subtitle: const Text('Pickup and drop-off delay alerts'),
-                        secondary: PhosphorIcon(PhosphorIconsDuotone.path),
+                        secondary: Picon(PiconsDuotone.path),
                         value: _notifyTraffic,
                         onChanged: (val) => setState(() => _notifyTraffic = val),
                         contentPadding: EdgeInsets.zero,
@@ -664,7 +664,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       SwitchListTile(
                         title: const Text('Booking Updates'),
                         subtitle: const Text('Date changes and boarding requests'),
-                        secondary: PhosphorIcon(PhosphorIconsDuotone.calendar),
+                        secondary: Picon(PiconsDuotone.calendar),
                         value: _notifyBookings,
                         onChanged: (val) => setState(() => _notifyBookings = val),
                         contentPadding: EdgeInsets.zero,
@@ -672,7 +672,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       SwitchListTile(
                         title: const Text('Dog Updates'),
                         subtitle: const Text('Picked up, at daycare, dropped off'),
-                        secondary: PhosphorIcon(PhosphorIconsDuotone.pawPrint),
+                        secondary: Picon(PiconsDuotone.pawPrint),
                         value: _notifyDogUpdates,
                         onChanged: (val) => setState(() => _notifyDogUpdates = val),
                         contentPadding: EdgeInsets.zero,
@@ -695,7 +695,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
                           );
                         },
-                        icon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                        icon: Picon(PiconsDuotone.lock),
                         label: const Text('Change Password'),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -710,7 +710,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: _logout,
-                        icon: PhosphorIcon(PhosphorIconsDuotone.signOut, color: Colors.white),
+                        icon: Picon(PiconsDuotone.signOut, color: Colors.white),
                         label: const Text('Log Out', style: TextStyle(color: Colors.white)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,

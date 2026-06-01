@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import '../services/auth_service.dart';
 import '../widgets/password_requirements.dart';
 
@@ -214,7 +214,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Email',
                     border: OutlineInputBorder(),
-                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.envelope),
+                    prefixIcon: Picon(PiconsDuotone.envelope),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   autofocus: true,
@@ -244,7 +244,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Reset Code',
                     border: OutlineInputBorder(),
-                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lockKey),
+                    prefixIcon: Picon(PiconsDuotone.lockKey),
                     hintText: '000000',
                   ),
                   keyboardType: TextInputType.number,
@@ -284,10 +284,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: InputDecoration(
                     labelText: 'New Password',
                     border: const OutlineInputBorder(),
-                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                    prefixIcon: Picon(PiconsDuotone.lock),
                     suffixIcon: IconButton(
-                      icon: PhosphorIcon(
-                        _obscurePassword ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                      icon: Picon(
+                        _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                       ),
                       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
@@ -303,10 +303,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   decoration: InputDecoration(
                     labelText: 'Confirm Password',
                     border: const OutlineInputBorder(),
-                    prefixIcon: PhosphorIcon(PhosphorIconsDuotone.lock),
+                    prefixIcon: Picon(PiconsDuotone.lock),
                     suffixIcon: IconButton(
-                      icon: PhosphorIcon(
-                        _obscureConfirm ? PhosphorIconsDuotone.eye : PhosphorIconsDuotone.eyeSlash,
+                      icon: Picon(
+                        _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                       ),
                       onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
                     ),

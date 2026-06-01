@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import '../utils/date_formats.dart';
 import '../models/dog.dart';
@@ -187,19 +187,19 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.camera),
+              leading: Picon(PiconsDuotone.camera),
               title: const Text('Take Photos'),
               subtitle: const Text('Capture one or more shots in a row'),
               onTap: () => Navigator.pop(context, 'camera_photo'),
             ),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.videoCamera),
+              leading: Picon(PiconsDuotone.videoCamera),
               title: const Text('Record Video'),
               onTap: () => Navigator.pop(context, 'camera_video'),
             ),
             const Divider(),
             ListTile(
-              leading: PhosphorIcon(PhosphorIconsDuotone.uploadSimple),
+              leading: Picon(PiconsDuotone.uploadSimple),
               title: const Text('Upload'),
               onTap: () => Navigator.pop(context, 'multiple'),
             ),
@@ -513,10 +513,10 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                     controller: _searchController,
                     decoration: InputDecoration(
                       hintText: 'Search captions...',
-                      prefixIcon: PhosphorIcon(PhosphorIconsDuotone.magnifyingGlass, size: 20),
+                      prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
                       suffixIcon: _searchController.text.isNotEmpty
                           ? IconButton(
-                              icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 20),
+                              icon: Picon(PiconsDuotone.x, size: 20),
                               onPressed: () {
                                 _searchController.clear();
                                 setState(() {});
@@ -534,7 +534,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                   Row(
                     children: [
                       ActionChip(
-                        avatar: PhosphorIcon(PhosphorIconsDuotone.calendar, size: 16),
+                        avatar: Picon(PiconsDuotone.calendar, size: 16),
                         label: Text(
                           _dateRange != null
                               ? '${ukDate(_dateRange!.start)} – ${ukDate(_dateRange!.end)}'
@@ -545,7 +545,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                       if (_dateRange != null) ...[
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: PhosphorIcon(PhosphorIconsDuotone.x, size: 18),
+                          icon: Picon(PiconsDuotone.x, size: 18),
                           onPressed: () => setState(() => _dateRange = null),
                           visualDensity: VisualDensity.compact,
                         ),
@@ -594,7 +594,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       floatingActionButton: widget.canAddFeedMedia
           ? FloatingActionButton.extended(
               onPressed: _uploadMedia,
-              icon: PhosphorIcon(PhosphorIconsDuotone.plus),
+              icon: Picon(PiconsDuotone.plus),
               label: const Text('Upload'),
             )
           : null,
@@ -609,8 +609,8 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                     child: Row(
                       children: [
                         FilterChip(
-                          avatar: PhosphorIcon(
-                            _showFilters ? PhosphorIconsDuotone.funnelSimple : PhosphorIconsDuotone.funnel,
+                          avatar: Picon(
+                            _showFilters ? PiconsDuotone.funnelSimple : PiconsDuotone.funnel,
                             size: 18,
                           ),
                           label: Text(hasActiveFilters
@@ -636,7 +636,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    PhosphorIcon(PhosphorIconsDuotone.images, size: 64, color: Colors.grey[400]),
+                                    Picon(PiconsDuotone.images, size: 64, color: Colors.grey[400]),
                                     const SizedBox(height: 16),
                                     Text(
                                       'No posts yet',
@@ -660,7 +660,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
-                                        PhosphorIcon(PhosphorIconsDuotone.magnifyingGlassMinus, size: 64, color: Colors.grey[400]),
+                                        Picon(PiconsDuotone.magnifyingGlassMinus, size: 64, color: Colors.grey[400]),
                                         const SizedBox(height: 16),
                                         Text(
                                           'No posts match your filters',
