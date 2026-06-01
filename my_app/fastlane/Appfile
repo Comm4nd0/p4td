@@ -1,0 +1,11 @@
+# iOS (App Store Connect)
+app_identifier("uk.co.paws4thoughtdogs.paws4thoughtdogs")
+# TODO: set your Apple account email and (optionally) team ids.
+apple_id(ENV["FASTLANE_APPLE_ID"] || "you@example.com")
+# team_id("XXXXXXXXXX")        # Developer Portal team id (optional)
+# itc_team_id("123456789")     # App Store Connect team id (optional)
+
+# Android (Play Console) — package name is passed in the Fastfile's supply lane.
+for_platform :android do
+  package_name("uk.co.paws4thoughtdogs.app")
+end

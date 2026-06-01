@@ -1,0 +1,77 @@
+# Fastlane lanes for store screenshots.
+#
+# Pipeline:
+#   1. ../tool/screenshots.sh         # capture raw PNGs into the layout below
+#   2. fastlane frame                 # add device frames + captions (frameit)
+#   3. fastlane upload_ios            # push framed shots to App Store Connect
+#   4. fastlane upload_android        # push framed shots to Play Console
+#
+# Credentials (never commit these):
+#   iOS:     App Store Connect API key — set via the env vars below.
+#   Android: Play service-account JSON — path in SUPPLY_JSON_KEY.
+
+IOS_BUNDLE_ID     = "uk.co.paws4thoughtdogs.paws4thoughtdogs"
+ANDROID_PACKAGE   = "uk.co.paws4thoughtdogs.app"
+LOCALE            = "en-GB"
+
+default_platform(:ios)
+
+# Copy the master captions into a screenshot dir so frameit can pick them up,
+# then frame everything in that dir in place.
+def frame_dir(dir)
+  return unless Dir.exist?(dir)
+  master = File.expand_path("captions.strings", __dir__)
+  FileUtils.cp(master, File.join(dir, "title.strings")) if File.exist?(master)
+  frame_screenshots(path: dir)
+end
+
+lane :frame do
+  # iOS set
+  frame_dir("fastlane/screenshots/#{LOCALE}")
+  # Android sets
+  %w[phoneScreenshots sevenInchScreenshots tenInchScreenshots].each do |kind|
+    frame_dir("fastlane/metadata/android/#{LOCALE}/images/#{kind}")
+  end
+  UI.success("Framed screenshots ready. Framed files end in '_framed.png'.")
+end
+
+platform :ios do
+  lane :upload_ios do
+    # Requires an App Store Connect API key. Provide it via env:
+    #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (path to the .p8)
+    api_key = app_store_connect_api_key(
+      key_id:      ENV.fetch("ASC_KEY_ID"),
+      issuer_id:   ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_PATH"),
+    )
+    deliver(
+      api_key:               api_key,
+      app_identifier:        IOS_BUNDLE_ID,
+      screenshots_path:      "./fastlane/screenshots",
+      skip_binary_upload:    true,
+      skip_metadata:         true,
+      skip_app_version_update: true,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      force:                 true, # no interactive HTML preview
+    )
+  end
+end
+
+platform :android do
+  lane :upload_android do
+    supply(
+      package_name:           ANDROID_PACKAGE,
+      json_key:               ENV.fetch("SUPPLY_JSON_KEY"), # Play service account
+      metadata_path:          "./fastlane/metadata/android",
+      track:                  "alpha",
+      skip_upload_apk:        true,
+      skip_upload_aab:        true,
+      skip_upload_metadata:   true,
+      skip_upload_changelogs: true,
+      skip_upload_images:     true,   # feature graphic / icon — not screenshots
+      skip_upload_screenshots: false,
+      validate_only:          false,
+    )
+  end
+end
