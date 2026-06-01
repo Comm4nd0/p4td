@@ -1,0 +1,10 @@
+/* Marketing captions baked onto each framed screenshot by `fastlane frame`.
+   Keys MUST match the screenshot file names (without extension) produced by the
+   integration test (see integration_test/screenshots_test.dart). The Fastfile
+   copies this file into each screenshots directory as title.strings before
+   running frameit. Edit freely. */
+
+"01_my_dogs"     = "All your dogs, one tap away";
+"02_dog_profile" = "Everything about your pup";
+"03_feed"        = "See their day in photos";
+"04_profile"     = "Your details, always up to date";

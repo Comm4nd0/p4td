@@ -1,0 +1,9 @@
+# Captured + framed screenshots and uploaded metadata (regenerated each run)
+screenshots/
+metadata/
+fonts/
+*_framed.png
+# fastlane run artifacts
+report.xml
+Preview.html
+README.md
