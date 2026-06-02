@@ -2,9 +2,13 @@
 #
 # Pipeline:
 #   1. ../tool/screenshots.sh         # capture raw PNGs into the layout below
-#   2. fastlane frame                 # add device frames + captions (frameit)
-#   3. fastlane upload_ios            # push framed shots to App Store Connect
-#   4. fastlane upload_android        # push framed shots to Play Console
+#   2. fastlane upload_ios            # push the shots to App Store Connect
+#   3. fastlane upload_android        # push the shots to Play Console
+#
+# Screenshots are uploaded plain (no device frames / no burned-in captions):
+# frameit has no bezels for the captured emulator/simulator resolutions, so
+# framing was removed. captions.strings is kept only as suggested store-listing
+# copy you can paste into App Store Connect / Play Console by hand.
 #
 # Credentials (never commit these):
 #   iOS:     App Store Connect API key — set via the env vars below.
@@ -15,29 +19,6 @@ ANDROID_PACKAGE   = "uk.co.paws4thoughtdogs.app"
 LOCALE            = "en-GB"
 
 default_platform(:ios)
-
-# Copy the master captions into a screenshot dir so frameit can pick them up,
-# then frame everything in that dir in place. The path is resolved relative to
-# this fastlane/ directory (__dir__), so framing works no matter which directory
-# `fastlane frame` is invoked from (CI runs it via `cd fastlane`); a bare
-# relative path like "fastlane/screenshots" would otherwise miss the captures.
-def frame_dir(rel)
-  dir = File.expand_path(rel, __dir__)
-  return UI.message("No screenshots in #{dir} — skipping") unless Dir.exist?(dir)
-  master = File.expand_path("captions.strings", __dir__)
-  FileUtils.cp(master, File.join(dir, "title.strings")) if File.exist?(master)
-  frame_screenshots(path: dir)
-end
-
-lane :frame do
-  # iOS set
-  frame_dir("screenshots/#{LOCALE}")
-  # Android sets
-  %w[phoneScreenshots sevenInchScreenshots tenInchScreenshots].each do |kind|
-    frame_dir("metadata/android/#{LOCALE}/images/#{kind}")
-  end
-  UI.success("Framed screenshots ready. Framed files end in '_framed.png'.")
-end
 
 platform :ios do
   lane :upload_ios do
