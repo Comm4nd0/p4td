@@ -172,6 +172,12 @@ jobs:
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+          # Where the host-side flutter_driver writes the captured PNGs. This
+          # MUST be a step-level env var, not an `export` inside `script:` — the
+          # emulator-runner action runs each script line in its own `sh -c`, so
+          # an export wouldn't survive to the `flutter drive` line (the driver
+          # would fall back to build/screenshots/raw and the copy below misses).
+          SCREENSHOT_OUT: build/screenshots/android-phone
         with:
           api-level: 34
           arch: x86_64
@@ -181,7 +187,6 @@ jobs:
           # NOTE: keep each command on one line — the action's shell does not
           # handle backslash line-continuations.
           script: |
-            export SCREENSHOT_OUT=build/screenshots/android-phone
             flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
             mkdir -p "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots"
             cp build/screenshots/android-phone/*.png "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots/" || true
