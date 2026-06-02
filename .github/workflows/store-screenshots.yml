@@ -31,6 +31,7 @@ jobs:
   ios:
     if: ${{ inputs.platforms == 'both' || inputs.platforms == 'ios' }}
     runs-on: macos-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: my_app
@@ -79,14 +80,35 @@ jobs:
               echo '</dict></plist>'
             } > ios/Runner/GoogleService-Info.plist
           fi
+      - name: Boot iOS simulator (maintained action — reliable full boot)
+        uses: futureware-tech/simulator-action@v3
+        with:
+          model: "iPhone 16 Pro Max"
       - name: Capture iOS screenshots
+        timeout-minutes: 14
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+          # The simulator-action step above already booted the device, so the
+          # script must not try to boot/poll it again.
+          IOS_SKIP_BOOT: "1"
+          # Verbose flutter drive output, tee'd to a log we upload even on
+          # timeout — so a silent hang still leaves a readable trace.
+          SCREENSHOT_VERBOSE: "1"
           # Only the 6.9" iPhone is required; add an iPad line if you ship iPad.
           IOS_DEVICES_ENV: |
             iPhone 16 Pro Max
-        run: ./tool/screenshots.sh ios
+        run: |
+          mkdir -p build
+          set -o pipefail
+          ./tool/screenshots.sh ios 2>&1 | tee build/ios-drive.log
+      - name: Upload iOS drive log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-drive-log
+          path: my_app/build/ios-drive.log
+          if-no-files-found: ignore
       - name: Frame + caption
         run: (cd fastlane && fastlane frame)
       - name: Upload to App Store Connect
@@ -108,6 +130,7 @@ jobs:
   android:
     if: ${{ inputs.platforms == 'both' || inputs.platforms == 'android' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: my_app
