@@ -4,7 +4,8 @@
    copies this file into each screenshots directory as title.strings before
    running frameit. Edit freely. */
 
-"01_my_dogs"     = "All your dogs, one tap away";
-"02_dog_profile" = "Everything about your pup";
-"03_feed"        = "See their day in photos";
-"04_profile"     = "Your details, always up to date";
+"01_feed"        = "See their day in photos";
+"02_dog_profile" = "Everything about your pup, in one place";
+"03_gallery"     = "Every photo, saved for you";
+"04_booking"     = "Book extra days & boarding in seconds";
+"05_profile"     = "Your details & alerts, always up to date";

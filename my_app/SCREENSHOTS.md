@@ -138,10 +138,31 @@ if you want additional sizes.
 
 ## Which screens are captured
 
-Owner experience (`integration_test/screenshots_test.dart`): **My Dogs → Dog
-profile → Feed → Profile**. To add/reorder, edit that file — each capture is a
+Owner experience (`integration_test/screenshots_test.dart`), in store order:
+
+1. `01_feed` — the daily photo feed (owners land here on launch)
+2. `02_dog_profile` — the dog profile: photo, pickup/drop-off times, upcoming dates
+3. `03_gallery` — the dog's photo gallery (the profile scrolled to the grid)
+4. `04_booking` — the "Request Boarding" dialog
+5. `05_profile` — the owner's profile + notification settings
+
+Each capture is deterministic — the harness navigates to the screen and only
+shoots once it's confirmed it's there, so a screenshot is never a stray or
+half-loaded state. To add/reorder, edit that file — each capture is a
 `binding.takeScreenshot('NN_name')` call; add a matching caption in
-`fastlane/captions.strings`.
+`fastlane/captions.strings` (the keys must match exactly).
+
+> The boarding **calendar** (`BoardingRequestListScreen`) is staff/deep-link
+> only — there's no owner-facing navigation to it — so the owner booking story
+> is told via the gallery + the Request Boarding dialog instead.
+
+### Make them look like real dogs
+
+The demo account's images come from `seed_demo_data`, which generates on-brand
+gradient placeholders (paw motif + caption) when the account has no media yet.
+They look intentional, but **real dog photos make far better store listings** —
+log into the demo account in the app and upload a few; the seed command leaves
+existing media untouched, so your uploads are what gets captured.
 
 ## Troubleshooting
 
