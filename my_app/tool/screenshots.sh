@@ -65,24 +65,25 @@ run_ios() {
   for name in "${IOS_DEVICES[@]}"; do
     local key; key="ios-$(slugify "$name")"
     echo "▶  iOS: $name"
-    xcrun simctl boot "$name" 2>/dev/null || true
-    # A headless `simctl boot` often doesn't bring SpringBoard up on CI runners,
-    # which leaves the device half-booted so app install/launch hangs forever.
-    # Launching Simulator.app forces a full boot. Then poll for the real
-    # "Booted" state (bootstatus -b is unreliable here — it can exit -1).
-    open -a Simulator >/dev/null 2>&1 || true
-    echo "   waiting for $name to finish booting…"
-    for _ in $(seq 1 90); do
-      if xcrun simctl list devices | grep -F "$name" | grep -q "Booted"; then
-        break
-      fi
-      sleep 2
-    done
-    # Settle a few seconds so SpringBoard is fully ready before install.
-    sleep 5
+    # In CI the simulator is booted by a dedicated action beforehand
+    # (IOS_SKIP_BOOT=1). Locally we boot it ourselves: a headless `simctl boot`
+    # often doesn't bring SpringBoard up, so also launch Simulator.app and poll
+    # for the real "Booted" state (bootstatus -b is unreliable — can exit -1).
+    if [[ -z "${IOS_SKIP_BOOT:-}" ]]; then
+      xcrun simctl boot "$name" 2>/dev/null || true
+      open -a Simulator >/dev/null 2>&1 || true
+      echo "   waiting for $name to finish booting…"
+      for _ in $(seq 1 90); do
+        if xcrun simctl list devices | grep -F "$name" | grep -q "Booted"; then
+          break
+        fi
+        sleep 2
+      done
+      sleep 5
+    fi
     SCREENSHOT_OUT="build/screenshots/$key" \
       "${DRIVE[@]}" -d "$name"
-    xcrun simctl shutdown "$name" 2>/dev/null || true
+    [[ -z "${IOS_SKIP_BOOT:-}" ]] && xcrun simctl shutdown "$name" 2>/dev/null || true
   done
 }
 

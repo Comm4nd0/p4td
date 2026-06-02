@@ -80,10 +80,18 @@ jobs:
               echo '</dict></plist>'
             } > ios/Runner/GoogleService-Info.plist
           fi
+      - name: Boot iOS simulator (maintained action — reliable full boot)
+        uses: futureware-tech/simulator-action@v3
+        with:
+          model: "iPhone 16 Pro Max"
       - name: Capture iOS screenshots
+        timeout-minutes: 20
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+          # The simulator-action step above already booted the device, so the
+          # script must not try to boot/poll it again.
+          IOS_SKIP_BOOT: "1"
           # Only the 6.9" iPhone is required; add an iPad line if you ship iPad.
           IOS_DEVICES_ENV: |
             iPhone 16 Pro Max
