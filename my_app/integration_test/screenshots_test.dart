@@ -14,8 +14,6 @@
 // NOTE: the widget finders below assume the current owner UI. If the app
 // layout changes, adjust the finders — each capture step is clearly labelled.
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -25,6 +23,7 @@ import 'package:paws4thoughtdogs/services/service_locator.dart';
 import 'package:paws4thoughtdogs/services/cache_service.dart';
 import 'package:paws4thoughtdogs/services/theme_service.dart';
 import 'package:paws4thoughtdogs/services/auth_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 const _demoEmail = String.fromEnvironment('DEMO_EMAIL');
 const _demoPassword = String.fromEnvironment('DEMO_PASSWORD');
@@ -33,49 +32,68 @@ void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('owner store screenshots', (tester) async {
+    _log('test started');
     expect(
       _demoEmail.isNotEmpty && _demoPassword.isNotEmpty,
       isTrue,
       reason: 'Pass --dart-define=DEMO_EMAIL=.. and --dart-define=DEMO_PASSWORD=..',
     );
 
-    // Mirror the essential parts of main() — minus Firebase/notifications,
-    // which we don't need for screenshots.
+    // Mirror the essential parts of main(). We must initialise Firebase
+    // because HomeScreen eagerly builds NotificationService, whose constructor
+    // touches FirebaseMessaging.instance (which requires a [DEFAULT] app).
     setupLocator();
+    _log('locator ready');
     await getIt<CacheService>().init();
     await getIt<ThemeService>().init();
+    _log('cache+theme ready');
+    try {
+      await Firebase.initializeApp().timeout(const Duration(seconds: 30));
+      _log('firebase initialised');
+    } catch (e) {
+      _log('firebase init FAILED (continuing): $e');
+    }
 
     // Sign in as the demo owner (real network call to the production API).
+    _log('logging in…');
     final loginError = await AuthService().login(_demoEmail, _demoPassword);
+    _log('login returned: ${loginError ?? "OK"}');
     expect(loginError, isNull, reason: 'Demo login failed: $loginError');
-
-    // iOS needs the Flutter surface converted to an image before screenshots.
-    if (Platform.isIOS) {
-      await binding.convertFlutterSurfaceToImage();
-    }
 
     // Boot the real app; MyApp reads the stored token and lands on HomeScreen.
     await tester.pumpWidget(const MyApp());
+    _log('pumped MyApp');
     await _waitFor(tester, seconds: 4);
+
+    // Required before screenshots on BOTH Android and iOS — render the live
+    // Flutter surface into an image. Call once, after the first frames.
+    await binding.convertFlutterSurfaceToImage();
+    await tester.pump();
+    _log('surface converted');
 
     // ── 1. "My Dogs" (home) ────────────────────────────────────────────────
     await binding.takeScreenshot('01_my_dogs');
+    _log('shot 01_my_dogs');
 
     // ── 2. Dog profile — open the first dog card ───────────────────────────
     final dogCards = find.byType(InkWell);
+    _log('dog cards found: ${dogCards.evaluate().length}');
     if (dogCards.evaluate().isNotEmpty) {
       await tester.tap(dogCards.first);
       await _waitFor(tester, seconds: 4);
       await binding.takeScreenshot('02_dog_profile');
+      _log('shot 02_dog_profile');
       await _goBack(tester);
     }
 
     // ── 3. Feed ────────────────────────────────────────────────────────────
     final feedTab = find.text('Feed');
+    _log('feed tab found: ${feedTab.evaluate().length}');
     if (feedTab.evaluate().isNotEmpty) {
       await tester.tap(feedTab.first);
       await _waitFor(tester, seconds: 4);
       await binding.takeScreenshot('03_feed');
+      _log('shot 03_feed');
     }
 
     // ── 4. Profile — open the menu, then the Profile item ──────────────────
@@ -86,13 +104,22 @@ void main() {
       await tester.tap(menuButton.last);
       await _waitFor(tester, seconds: 2);
       final profileItem = find.text('Profile');
+      _log('profile item found: ${profileItem.evaluate().length}');
       if (profileItem.evaluate().isNotEmpty) {
         await tester.tap(profileItem.first);
         await _waitFor(tester, seconds: 3);
         await binding.takeScreenshot('04_profile');
+        _log('shot 04_profile');
       }
     }
-  });
+    _log('test finished');
+  }, timeout: const Timeout(Duration(minutes: 8)));
+}
+
+void _log(String message) {
+  // Prefixed so it's easy to grep in the flutter drive output.
+  // ignore: avoid_print
+  print('SS> $message');
 }
 
 /// Pumps frames in real time for [seconds], letting real async work (network
