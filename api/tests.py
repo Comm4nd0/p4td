@@ -322,6 +322,40 @@ class DailyAssignmentTests(TestCase):
             dog=self.dog, staff_member=self.staff, date=date.today()
         ).exists())
 
+    def test_assign_far_in_the_future(self):
+        """Staff can edit the daycare calendar well beyond the old 14-day
+        window — there is no upper bound on how far ahead a day can be set."""
+        self.client.login(username='staff', password='pw')
+        far_date = date.today() + timedelta(days=400)
+        resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id],
+            'date': far_date.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            dog=self.dog, staff_member=self.staff, date=far_date
+        ).exists())
+
+    def test_view_roster_far_in_the_future(self):
+        """The roster can be viewed arbitrarily far ahead (no 14-day cap)."""
+        self.client.login(username='staff', password='pw')
+        far_date = (date.today() + timedelta(days=400)).isoformat()
+        resp = self.client.get(f'/api/daily-assignments/today/?date={far_date}')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_mark_removed_far_in_the_future(self):
+        """Staff can mark a dog as not attending a far-future day."""
+        self.client.login(username='staff', password='pw')
+        far_date = date.today() + timedelta(days=400)
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': far_date.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            dog=self.dog, date=far_date, status='REMOVED'
+        ).exists())
+
     def test_update_assignment_status(self):
         assignment = DailyDogAssignment.objects.create(
             dog=self.dog, staff_member=self.staff, date=date.today()
