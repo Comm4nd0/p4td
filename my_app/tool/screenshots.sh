@@ -57,6 +57,9 @@ DRIVE=(flutter drive
   --dart-define=DEMO_EMAIL="$DEMO_EMAIL"
   --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
 )
+# SCREENSHOT_VERBOSE=1 adds flutter's verbose output (granular launch/connect
+# logging) — useful for diagnosing CI hangs.
+[[ -n "${SCREENSHOT_VERBOSE:-}" ]] && DRIVE+=(--verbose)
 
 slugify() { echo "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-'; }
 
