@@ -19,6 +19,7 @@ points at — run it against the same backend the screenshot build talks to.
 """
 
 import io
+import os
 from datetime import date, datetime, timedelta
 
 from django.contrib.auth.models import User
@@ -32,23 +33,96 @@ from api.models import Dog, Photo, GroupMedia
 # Brand-ish palette for the generated placeholder images.
 _BG_COLORS = ["#6C5CE7", "#00B894", "#0984E3", "#E17055", "#FD79A8"]
 
+# Candidate fonts for the placeholder caption — the app uses Nunito, so prefer
+# it if the screenshot tooling has fetched it; otherwise fall back gracefully.
+_FONT_CANDIDATES = [
+    "my_app/fastlane/fonts/Nunito-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+]
+
+
+def _hex_to_rgb(value):
+    value = value.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _shade(rgb, factor):
+    """Lighten (factor>1) or darken (factor<1) an RGB tuple, clamped to 0-255."""
+    return tuple(max(0, min(255, int(c * factor))) for c in rgb)
+
+
+def _load_font(size):
+    from PIL import ImageFont
+
+    for path in _FONT_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    # Pillow >= 10 can scale the bundled font; older versions return a tiny one.
+    try:
+        return ImageFont.load_default(size=size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _draw_paw(draw, cx, cy, scale, fill):
+    """Draw a simple paw print (one pad + four toes) centred on (cx, cy)."""
+    pad_w, pad_h = scale * 1.15, scale * 0.95
+    draw.ellipse(
+        [cx - pad_w / 2, cy - pad_h / 2 + scale * 0.25,
+         cx + pad_w / 2, cy + pad_h / 2 + scale * 0.25],
+        fill=fill,
+    )
+    toe = scale * 0.42
+    offsets = [(-0.62, -0.78), (-0.2, -1.02), (0.2, -1.02), (0.62, -0.78)]
+    for dx, dy in offsets:
+        tx, ty = cx + dx * scale, cy + dy * scale
+        draw.ellipse([tx - toe / 2, ty - toe / 2, tx + toe / 2, ty + toe / 2], fill=fill)
+
 
 def _make_image(text, color, size=(1080, 1080)):
-    """Generate a simple branded placeholder PNG (so screens aren't empty).
-    Replace these with real photos any time by uploading via the app."""
+    """Generate an on-brand placeholder PNG (vertical gradient + paw + caption)
+    so demo screens look intentional rather than empty. Replace these with real
+    photos any time by uploading via the app — far nicer for store listings."""
     from PIL import Image, ImageDraw
 
-    img = Image.new("RGB", size, color)
+    w, h = size
+    base = _hex_to_rgb(color)
+    top, bottom = _shade(base, 1.18), _shade(base, 0.72)
+
+    # Vertical gradient background.
+    img = Image.new("RGB", size, top)
     draw = ImageDraw.Draw(img)
-    # Centre the text without depending on a bundled font.
-    try:
-        from PIL import ImageFont
-        font = ImageFont.load_default()
-    except Exception:
-        font = None
+    for y in range(h):
+        t = y / max(1, h - 1)
+        row = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
+        draw.line([(0, y), (w, y)], fill=row)
+
+    # Soft translucent paw motif in the upper third.
+    overlay = Image.new("RGBA", size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    _draw_paw(odraw, w / 2, h * 0.36, scale=w * 0.22, fill=(255, 255, 255, 60))
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    # Large, centred caption near the lower third — shrink to fit the width.
+    font_size = int(h * 0.085)
+    font = _load_font(font_size)
     bbox = draw.textbbox((0, 0), text, font=font)
+    while (bbox[2] - bbox[0]) > w * 0.9 and font_size > 18:
+        font_size = int(font_size * 0.9)
+        font = _load_font(font_size)
+        bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text(((size[0] - tw) / 2, (size[1] - th) / 2), text, fill="white", font=font)
+    tx, ty = (w - tw) / 2 - bbox[0], h * 0.62
+    # Subtle shadow for legibility on any backdrop.
+    draw.text((tx + 3, ty + 3), text, fill=(0, 0, 0, 90), font=font)
+    draw.text((tx, ty), text, fill="white", font=font)
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()

@@ -1,7 +1,9 @@
 name: Store Screenshots
 
-# Generate framed, captioned App Store + Play Store screenshots and upload them —
-# no local Mac required. Manually triggered.
+# Generate plain App Store + Play Store screenshots and upload them — no local
+# Mac required. Manually triggered. (Screenshots are uploaded as-is, without
+# device frames or burned-in captions; frameit has no bezels for the captured
+# emulator/simulator resolutions, so framing is intentionally not used.)
 #
 # Required repository secrets:
 #   DEMO_EMAIL, DEMO_PASSWORD                     - the seeded demo owner account
@@ -43,20 +45,12 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
-      - name: Tooling (fastlane + ImageMagick for frameit)
+      - name: Tooling (fastlane + coreutils for gtimeout)
         run: |
-          brew install imagemagick || true
+          brew install coreutils || true
           gem install fastlane --no-document
       - name: Install dependencies
         run: flutter pub get
-      - name: Fetch device frames + caption font
-        run: |
-          mkdir -p fastlane/fonts
-          curl -fsSL -o fastlane/fonts/Nunito-Bold.ttf \
-            https://raw.githubusercontent.com/google/fonts/main/ofl/nunito/static/Nunito-Bold.ttf \
-            || curl -fsSL -o fastlane/fonts/Nunito-Bold.ttf \
-            https://github.com/google/fonts/raw/main/ofl/nunito/Nunito%5Bwght%5D.ttf
-          (cd fastlane && fastlane frameit download_frames || true)
       - name: Provide GoogleService-Info.plist (Firebase build input)
         # Screenshots never initialise Firebase, so a stub satisfies the Xcode
         # build. If you add the real plist as a secret, it's used instead.
@@ -85,7 +79,7 @@ jobs:
         with:
           model: "iPhone 16 Pro Max"
       - name: Capture iOS screenshots
-        timeout-minutes: 14
+        timeout-minutes: 24
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
@@ -101,7 +95,11 @@ jobs:
         run: |
           mkdir -p build
           set -o pipefail
-          ./tool/screenshots.sh ios 2>&1 | tee build/ios-drive.log
+          # The simulator <-> flutter VM-service handshake is intermittently
+          # flaky (can hang on "Waiting for VM Service port"). Cap each attempt
+          # with gtimeout and retry once so a single bad handshake isn't fatal.
+          attempt() { gtimeout 660 ./tool/screenshots.sh ios 2>&1 | tee -a build/ios-drive.log; }
+          attempt || { echo "SS> iOS capture attempt 1 failed/timed out — retrying once"; attempt; }
       - name: Upload iOS drive log
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,8 +107,6 @@ jobs:
           name: ios-drive-log
           path: my_app/build/ios-drive.log
           if-no-files-found: ignore
-      - name: Frame + caption
-        run: (cd fastlane && fastlane frame)
       - name: Upload to App Store Connect
         if: ${{ inputs.upload }}
         env:
@@ -120,7 +116,7 @@ jobs:
           mkdir -p fastlane/keys
           printf '%s' "${{ secrets.ASC_KEY_P8 }}" > fastlane/keys/asc.p8
           export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
-          (cd fastlane && fastlane upload_ios)
+          (cd fastlane && fastlane ios upload_ios)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -146,22 +142,12 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
-      - name: Tooling (fastlane + ImageMagick for frameit)
-        run: |
-          sudo apt-get update && sudo apt-get install -y imagemagick
-          gem install fastlane --no-document
+      - name: Tooling (fastlane)
+        run: gem install fastlane --no-document
       - name: Install dependencies
         run: flutter pub get
       - name: Create google-services.json (required by Gradle google-services plugin)
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
-      - name: Fetch device frames + caption font
-        run: |
-          mkdir -p fastlane/fonts
-          curl -fsSL -o fastlane/fonts/Nunito-Bold.ttf \
-            https://raw.githubusercontent.com/google/fonts/main/ofl/nunito/static/Nunito-Bold.ttf \
-            || curl -fsSL -o fastlane/fonts/Nunito-Bold.ttf \
-            https://github.com/google/fonts/raw/main/ofl/nunito/Nunito%5Bwght%5D.ttf
-          (cd fastlane && fastlane frameit download_frames || true)
       - name: Enable KVM (emulator acceleration)
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -172,6 +158,12 @@ jobs:
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+          # Where the host-side flutter_driver writes the captured PNGs. This
+          # MUST be a step-level env var, not an `export` inside `script:` — the
+          # emulator-runner action runs each script line in its own `sh -c`, so
+          # an export wouldn't survive to the `flutter drive` line (the driver
+          # would fall back to build/screenshots/raw and the copy below misses).
+          SCREENSHOT_OUT: build/screenshots/android-phone
         with:
           api-level: 34
           arch: x86_64
@@ -181,18 +173,15 @@ jobs:
           # NOTE: keep each command on one line — the action's shell does not
           # handle backslash line-continuations.
           script: |
-            export SCREENSHOT_OUT=build/screenshots/android-phone
             flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
             mkdir -p "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots"
             cp build/screenshots/android-phone/*.png "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots/" || true
-      - name: Frame + caption
-        run: (cd fastlane && fastlane frame)
       - name: Upload to Play Console
         if: ${{ inputs.upload }}
         run: |
           printf '%s' '${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}' > fastlane/play.json
           export SUPPLY_JSON_KEY="$PWD/fastlane/play.json"
-          (cd fastlane && fastlane upload_android)
+          (cd fastlane && fastlane android upload_android)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
