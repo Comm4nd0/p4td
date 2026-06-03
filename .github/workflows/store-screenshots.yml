@@ -116,7 +116,7 @@ jobs:
           mkdir -p fastlane/keys
           printf '%s' "${{ secrets.ASC_KEY_P8 }}" > fastlane/keys/asc.p8
           export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
-          (cd fastlane && fastlane upload_ios)
+          (cd fastlane && fastlane ios upload_ios)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -181,7 +181,7 @@ jobs:
         run: |
           printf '%s' '${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}' > fastlane/play.json
           export SUPPLY_JSON_KEY="$PWD/fastlane/play.json"
-          (cd fastlane && fastlane upload_android)
+          (cd fastlane && fastlane android upload_android)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
