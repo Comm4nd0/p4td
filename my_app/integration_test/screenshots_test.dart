@@ -125,9 +125,12 @@ void main() {
     }
     final String? dogName = dogs.isNotEmpty ? dogs.first.name : null;
 
-    // Re-boot the app: a fresh MyApp reads the now-stored token and lands on
-    // the owner HomeScreen (the Feed tab).
-    await tester.pumpWidget(const MyApp());
+    // Re-boot the app so it re-reads the now-stored token and lands on the
+    // owner HomeScreen. The UniqueKey is essential: pumping `const MyApp()`
+    // again would reuse the existing _MyAppState (same runtimeType + null key),
+    // so initState/getToken never re-runs and we'd stay on the logged-out tree.
+    // A new key forces a fresh State → getToken() sees the token → HomeScreen.
+    await tester.pumpWidget(MyApp(key: UniqueKey()));
     _log('re-pumped MyApp (logged in)');
     await _waitFor(tester, seconds: 5);
 
