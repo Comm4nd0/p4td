@@ -2,12 +2,13 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from django.utils.html import format_html
+from django.utils import timezone
 from datetime import date
 from .models import (
     Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
     DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
-    ClosureDay, DogNote, StaffAvailability, DogProfileChangeRequest,
+    ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
 )
 
 
@@ -662,6 +663,111 @@ class StaffAvailabilityAdmin(admin.ModelAdmin):
             return format_html('<span style="color: #198754;">Available</span>')
         return format_html('<span style="color: #dc3545;">Unavailable</span>')
     availability_display.short_description = 'Status'
+
+
+@admin.register(DayOffRequest)
+class DayOffRequestAdmin(admin.ModelAdmin):
+    """Staff holiday / day-off requests. Managers approve or deny them here;
+    the requesting staff member is notified automatically on status change."""
+    list_display = ('staff_name', 'date', 'reason_preview', 'status_display', 'reviewed_by_name', 'created_at')
+    list_filter = ('status', 'staff_member', 'date')
+    search_fields = ('staff_member__username', 'staff_member__first_name', 'staff_member__last_name', 'reason')
+    date_hierarchy = 'date'
+    readonly_fields = ('staff_member', 'date', 'reason', 'reviewed_by', 'reviewed_at', 'created_at')
+    list_per_page = 30
+    ordering = ['-date']
+    actions = ['approve_requests', 'deny_requests']
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if request.user.is_superuser:
+            return readonly
+        if hasattr(request.user, 'profile') and request.user.profile.can_approve_timeoff:
+            return readonly
+        # Without permission, status cannot be changed either.
+        return readonly + ('status',)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if request.user.is_superuser:
+            return actions
+        if hasattr(request.user, 'profile') and request.user.profile.can_approve_timeoff:
+            return actions
+        if 'approve_requests' in actions:
+            del actions['approve_requests']
+        if 'deny_requests' in actions:
+            del actions['deny_requests']
+        return actions
+
+    def staff_name(self, obj):
+        return obj.staff_member.get_full_name() or obj.staff_member.username
+    staff_name.short_description = 'Staff Member'
+    staff_name.admin_order_field = 'staff_member__first_name'
+
+    def reason_preview(self, obj):
+        if not obj.reason:
+            return format_html('<span style="color: #999;">&mdash;</span>')
+        return obj.reason[:60] + '...' if len(obj.reason) > 60 else obj.reason
+    reason_preview.short_description = 'Reason'
+
+    def reviewed_by_name(self, obj):
+        if obj.reviewed_by:
+            return obj.reviewed_by.get_full_name() or obj.reviewed_by.username
+        return '-'
+    reviewed_by_name.short_description = 'Reviewed By'
+
+    def status_display(self, obj):
+        colors = {
+            'PENDING': '#ffc107',
+            'APPROVED': '#198754',
+            'DENIED': '#dc3545',
+        }
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display()
+        )
+    status_display.short_description = 'Status'
+    status_display.admin_order_field = 'status'
+
+    def save_model(self, request, obj, form, change):
+        # Stamp reviewer/timestamp when a manager changes the status via the form.
+        if 'status' in form.changed_data:
+            if obj.status in ('APPROVED', 'DENIED'):
+                obj.reviewed_by = request.user
+                obj.reviewed_at = timezone.now()
+            else:
+                obj.reviewed_by = None
+                obj.reviewed_at = None
+        super().save_model(request, obj, form, change)
+
+    def approve_requests(self, request, queryset):
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_approve_timeoff):
+            self.message_user(request, "You do not have permission to review time-off requests.", level='ERROR')
+            return
+        count = 0
+        for req in queryset.filter(status='PENDING'):
+            req.status = 'APPROVED'
+            req.reviewed_by = request.user
+            req.reviewed_at = timezone.now()
+            req.save()  # fires signals -> notifies the staff member
+            count += 1
+        self.message_user(request, f'{count} request(s) approved.')
+    approve_requests.short_description = 'Approve selected requests'
+
+    def deny_requests(self, request, queryset):
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_approve_timeoff):
+            self.message_user(request, "You do not have permission to review time-off requests.", level='ERROR')
+            return
+        count = 0
+        for req in queryset.filter(status='PENDING'):
+            req.status = 'DENIED'
+            req.reviewed_by = request.user
+            req.reviewed_at = timezone.now()
+            req.save()
+            count += 1
+        self.message_user(request, f'{count} request(s) denied.')
+    deny_requests.short_description = 'Deny selected requests'
 
 
 @admin.register(DogProfileChangeRequest)

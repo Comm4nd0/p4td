@@ -127,6 +127,9 @@ abstract class DataService {
   Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability);
   Future<Map<String, dynamic>> getStaffCoverage();
   Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date);
+  /// Approved staff time off in [start]..[end], grouped by date (names only).
+  /// Visible to all staff for the shared team calendar.
+  Future<Map<DateTime, List<String>>> getTeamTimeOff({required DateTime start, required DateTime end});
 
   // Day Off Requests
   Future<List<DayOffRequest>> getMyDayOffRequests();

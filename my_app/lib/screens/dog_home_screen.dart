@@ -576,13 +576,22 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     );
   }
 
+  /// Latest date selectable on the dog's daycare calendar.
+  ///
+  /// Staff can edit which days a dog is at (or not at) daycare effectively
+  /// without limit — years into the future. Owners are still capped a few
+  /// months ahead, since their changes are *requests* that staff must approve.
+  DateTime _calendarLastDay(DateTime now) => widget.isStaff
+      ? DateTime(now.year + 5, now.month, now.day)
+      : DateTime(now.year, now.month + 3, now.day);
+
   Future<void> _showDatePicker(DateTime originalDate, bool isConfirmed) async {
     final now = DateTime.now();
     final newDate = await showDatePicker(
       context: context,
       initialDate: originalDate.add(const Duration(days: 7)),
       firstDate: now,
-      lastDate: DateTime(now.year, now.month + 3, now.day),
+      lastDate: _calendarLastDay(now),
       helpText: 'Select new date',
     );
 
@@ -755,7 +764,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     height: 350,
                     child: TableCalendar(
                       firstDay: today,
-                      lastDay: DateTime(now.year, now.month + 3, now.day),
+                      lastDay: _calendarLastDay(now),
                       focusedDay: today,
                       startingDayOfWeek: StartingDayOfWeek.monday,
                       calendarFormat: CalendarFormat.month,

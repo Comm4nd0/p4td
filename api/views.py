@@ -1134,18 +1134,18 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def _parse_date(self, request):
-        """Parse a date from query params, defaulting to today."""
-        from datetime import date, timedelta
+        """Parse a date from query params, defaulting to today.
+
+        The daycare calendar can be viewed/edited arbitrarily far into the
+        future, so no upper bound is enforced on the requested date.
+        """
+        from datetime import date
         date_str = request.query_params.get('date')
         if date_str:
             try:
                 target = date.fromisoformat(date_str)
             except ValueError:
                 return None, Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            # Only allow up to 14 days in the future
-            max_date = date.today() + timedelta(days=14)
-            if target > max_date:
-                return None, Response({'detail': 'Cannot view assignments more than 14 days in advance.'}, status=400)
             return target, None
         return date.today(), None
 
@@ -1463,16 +1463,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         member, only the single-day assignment is created and the roster is
         left alone (use ``reassign`` with scope=from_now_on to change it).
         """
-        from datetime import date, timedelta
+        from datetime import date
         date_str = request.data.get('date')
         if date_str:
             try:
                 target_date = date.fromisoformat(date_str)
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            max_date = date.today() + timedelta(days=14)
-            if target_date > max_date:
-                return Response({'detail': 'Cannot assign more than 14 days in advance.'}, status=400)
         else:
             target_date = date.today()
 
@@ -1540,16 +1537,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date, timedelta
+        from datetime import date
         date_str = request.data.get('date')
         if date_str:
             try:
                 target_date = date.fromisoformat(date_str)
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            max_date = date.today() + timedelta(days=14)
-            if target_date > max_date:
-                return Response({'detail': 'Cannot assign more than 14 days in advance.'}, status=400)
         else:
             target_date = date.today()
 
@@ -1630,7 +1624,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date as date_cls, timedelta
+        from datetime import date as date_cls
         dog_id = request.data.get('dog_id')
         date_str = request.data.get('date')
         if not dog_id:
@@ -1641,9 +1635,6 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             target_date = date_cls.fromisoformat(date_str)
         except ValueError:
             return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        max_date = date_cls.today() + timedelta(days=14)
-        if target_date > max_date:
-            return Response({'detail': 'Cannot modify days more than 14 days in advance.'}, status=400)
 
         try:
             dog = Dog.objects.get(id=dog_id)
@@ -1836,7 +1827,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date, timedelta
+        from datetime import date
         from django.db.models import Count
         from django.db.models.functions import ExtractIsoWeekDay
 
@@ -1846,9 +1837,6 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 target_date = date.fromisoformat(date_str)
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-            max_date = date.today() + timedelta(days=14)
-            if target_date > max_date:
-                return Response({'detail': 'Cannot assign more than 14 days in advance.'}, status=400)
         else:
             target_date = date.today()
 
@@ -2404,6 +2392,50 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
                 available.append({'id': s.id, 'name': name, 'username': s.username})
 
         return Response(available)
+
+    @action(detail=False, methods=['get'])
+    def team_off(self, request):
+        """Approved staff time off within a date range, grouped by date.
+
+        Visible to all staff (read-only) for the shared team calendar. Only
+        approved day-off requests are returned, names only — pending/denied
+        requests and reasons are never exposed here.
+
+        Query params: start, end (YYYY-MM-DD).
+        Returns: {"2026-06-14": ["Alice", "Bob"], ...}
+        Dates with nobody off are omitted."""
+        from .models import DayOffRequest
+        from datetime import datetime, timedelta
+
+        start_str = request.query_params.get('start')
+        end_str = request.query_params.get('end')
+        try:
+            start = datetime.strptime(start_str, '%Y-%m-%d').date()
+            end = datetime.strptime(end_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return Response(
+                {'detail': 'start and end query params are required (YYYY-MM-DD).'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        if end < start:
+            return Response({'detail': 'end must be on or after start.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if (end - start) > timedelta(days=100):
+            return Response({'detail': 'Date range too large (max 100 days).'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        requests = (
+            DayOffRequest.objects
+            .filter(status='APPROVED', date__gte=start, date__lte=end)
+            .select_related('staff_member')
+            .order_by('date', 'staff_member__first_name')
+        )
+
+        result = {}
+        for req in requests:
+            name = req.staff_member.first_name or req.staff_member.username
+            result.setdefault(req.date.isoformat(), []).append(name)
+
+        return Response(result)
 
 
 class DayOffRequestViewSet(viewsets.ModelViewSet):

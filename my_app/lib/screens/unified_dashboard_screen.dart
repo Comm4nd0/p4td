@@ -348,7 +348,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime.now().subtract(const Duration(days: 7)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      // Staff can manage the daycare calendar effectively without limit —
+      // years into the future, not just the next couple of weeks.
+      lastDate: DateTime(DateTime.now().year + 5, DateTime.now().month, DateTime.now().day),
       selectableDayPredicate: (date) =>
           date.weekday >= DateTime.monday && date.weekday <= DateTime.friday,
     );
