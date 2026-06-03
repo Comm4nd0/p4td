@@ -26,6 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'package:paws4thoughtdogs/main.dart';
+import 'package:paws4thoughtdogs/screens/home_screen.dart';
 import 'package:paws4thoughtdogs/models/dog.dart';
 import 'package:paws4thoughtdogs/services/service_locator.dart';
 import 'package:paws4thoughtdogs/services/cache_service.dart';
@@ -125,13 +126,16 @@ void main() {
     }
     final String? dogName = dogs.isNotEmpty ? dogs.first.name : null;
 
-    // Re-boot the app so it re-reads the now-stored token and lands on the
-    // owner HomeScreen. The UniqueKey is essential: pumping `const MyApp()`
-    // again would reuse the existing _MyAppState (same runtimeType + null key),
-    // so initState/getToken never re-runs and we'd stay on the logged-out tree.
-    // A new key forces a fresh State → getToken() sees the token → HomeScreen.
-    await tester.pumpWidget(MyApp(key: UniqueKey()));
-    _log('re-pumped MyApp (logged in)');
+    // The token is now stored. Swap the logged-out tree for the owner
+    // HomeScreen using the app's REAL navigator (the one MyApp installed via
+    // the global navigatorKey), clearing the landing/login/register routes.
+    // We navigate explicitly rather than re-pumping MyApp: re-pumping does not
+    // reliably re-run MyApp's startup token check, so it left us logged out.
+    navigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (route) => false,
+    );
+    _log('navigated to HomeScreen');
     await _waitFor(tester, seconds: 5);
 
     // ── 01. Feed ───────────────────────────────────────────────────────────
