@@ -1600,6 +1600,43 @@ class StaffAvailabilityTests(TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    # ── available_staff: only approved time off greys staff out ──────────
+
+    def test_available_staff_ignores_weekly_working_pattern(self):
+        """A regular non-working weekday must NOT make a staff member
+        unavailable to assign — only approved time off does."""
+        today = date.today()
+        StaffAvailability.objects.create(
+            staff_member=self.staff, day_of_week=today.isoweekday(),
+            is_available=False, is_available_daycare=False,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/staff-availability/available_staff/{today.isoformat()}/')
+        self.assertEqual(resp.status_code, 200)
+        ids = [s['id'] for s in resp.data]
+        self.assertIn(self.staff.id, ids)
+
+    def test_available_staff_excludes_approved_day_off(self):
+        today = date.today()
+        DayOffRequest.objects.create(staff_member=self.staff, date=today, status='APPROVED')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/staff-availability/available_staff/{today.isoformat()}/')
+        self.assertEqual(resp.status_code, 200)
+        ids = [s['id'] for s in resp.data]
+        self.assertNotIn(self.staff.id, ids)
+        self.assertIn(self.staff2.id, ids)
+
+    def test_available_staff_ignores_pending_or_denied_day_off(self):
+        today = date.today()
+        DayOffRequest.objects.create(staff_member=self.staff, date=today, status='PENDING')
+        DayOffRequest.objects.create(staff_member=self.staff2, date=today, status='DENIED')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/staff-availability/available_staff/{today.isoformat()}/')
+        self.assertEqual(resp.status_code, 200)
+        ids = [s['id'] for s in resp.data]
+        self.assertIn(self.staff.id, ids)
+        self.assertIn(self.staff2.id, ids)
+
 
 class UserProfileTests(TestCase):
     def setUp(self):
