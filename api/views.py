@@ -2360,9 +2360,16 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path=r'available_staff/(?P<date_str>[0-9-]+)')
     def available_staff(self, request, date_str=None):
-        """Get staff members available on a specific date.
-        Considers day-of-week availability and approved day-off requests."""
-        from .models import StaffAvailability, DayOffRequest
+        """Get staff members available for dog assignment on a specific date.
+
+        "Available" here means *not on approved time off*. A staff member is
+        excluded only if they have an APPROVED day-off request for the date.
+        The weekly working-days pattern (StaffAvailability) deliberately does
+        NOT grey staff out here — it only feeds the Team Coverage view and
+        notification filtering. (A regular non-working day is not the same as
+        booked time off, so it should not mark someone unavailable to assign.)
+        """
+        from .models import DayOffRequest
         from datetime import datetime
 
         try:
@@ -2370,24 +2377,16 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
         except (ValueError, TypeError):
             return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=drf_status.HTTP_400_BAD_REQUEST)
 
-        dow = target_date.isoweekday()  # 1=Mon..7=Sun
-        staff = User.objects.filter(is_staff=True)
-
-        # Get day-of-week availability
-        avail_map = {}
-        for a in StaffAvailability.objects.filter(day_of_week=dow):
-            avail_map[a.staff_member_id] = a.is_available_daycare
-
-        # Get approved day-off requests for this date
+        # Staff with an approved day-off request for this date are unavailable;
+        # everyone else is available regardless of their weekly pattern.
         approved_off = set(
             DayOffRequest.objects.filter(date=target_date, status='APPROVED')
             .values_list('staff_member_id', flat=True)
         )
 
         available = []
-        for s in staff:
-            is_avail = avail_map.get(s.id, True)  # Default available if no record
-            if is_avail and s.id not in approved_off:
+        for s in User.objects.filter(is_staff=True):
+            if s.id not in approved_off:
                 name = s.first_name or s.username
                 available.append({'id': s.id, 'name': name, 'username': s.username})
 
