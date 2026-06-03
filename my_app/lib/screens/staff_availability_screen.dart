@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 import '../models/day_off_request.dart';
@@ -33,22 +34,31 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   Map<String, dynamic> _coverage = {};
   bool _loadingCoverage = true;
 
+  // Team Calendar tab (visible to all staff)
+  Map<DateTime, List<String>> _teamOff = {};
+  bool _loadingTeamOff = true;
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
+
   static const _dayNames = {
     1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday',
     5: 'Friday',
   };
 
   int get _tabCount {
-    if (widget.canAssignDogs) return 3; // My Availability, Time Off, Team Coverage
-    return 2; // My Availability, Time Off
+    // Everyone sees: My Availability, Time Off, Team Calendar.
+    // Managers also get Team Coverage.
+    return widget.canAssignDogs ? 4 : 3;
   }
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabCount, vsync: this);
+    _selectedDay = _focusedDay;
     _loadMyAvailability();
     _loadDayOffRequests();
+    _loadTeamOff(_focusedDay);
     if (widget.canAssignDogs) _loadCoverage();
   }
 
@@ -172,6 +182,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           tabs: [
             const Tab(text: 'My Availability'),
             const Tab(text: 'Time Off'),
+            const Tab(text: 'Team Calendar'),
             if (widget.canAssignDogs) const Tab(text: 'Team Coverage'),
           ],
         ),
@@ -181,6 +192,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         children: [
           _buildMyAvailabilityTab(),
           _buildDayOffTab(),
+          _buildTeamCalendarTab(),
           if (widget.canAssignDogs) _buildCoverageTab(),
         ],
       ),
@@ -650,6 +662,177 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         );
       }
     }
+  }
+
+  // ── Team Calendar Tab (all staff) ───────────────────────────────────
+
+  Future<void> _loadTeamOff(DateTime month, {bool showSpinner = true}) async {
+    // On month swipes we skip the spinner (and the synchronous setState that
+    // would fight table_calendar's page animation) — markers just refresh when
+    // the data arrives.
+    if (showSpinner) setState(() => _loadingTeamOff = true);
+    try {
+      // Fetch the focused month plus a month of padding on each side so the
+      // adjacent-month days in the grid (and a quick swipe) already have data.
+      final start = DateTime(month.year, month.month - 1, 1);
+      final end = DateTime(month.year, month.month + 2, 0);
+      final data = await _dataService.getTeamTimeOff(start: start, end: end);
+      if (mounted) {
+        setState(() {
+          _teamOff = data;
+          _loadingTeamOff = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingTeamOff = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load team calendar: $e')),
+        );
+      }
+    }
+  }
+
+  List<String> _getOffForDay(DateTime day) {
+    return _teamOff[DateTime(day.year, day.month, day.day)] ?? const [];
+  }
+
+  Widget _buildTeamCalendarTab() {
+    final selectedOff = _selectedDay == null ? const <String>[] : _getOffForDay(_selectedDay!);
+
+    return Column(
+      children: [
+        Card(
+          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: TableCalendar<String>(
+              firstDay: DateTime.utc(2020, 1, 1),
+              lastDay: DateTime.utc(2030, 12, 31),
+              focusedDay: _focusedDay,
+              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+              startingDayOfWeek: StartingDayOfWeek.monday,
+              calendarFormat: CalendarFormat.month,
+              availableCalendarFormats: const {CalendarFormat.month: 'Month'},
+              eventLoader: _getOffForDay,
+              onDaySelected: (selectedDay, focusedDay) {
+                setState(() {
+                  _selectedDay = selectedDay;
+                  _focusedDay = focusedDay;
+                });
+              },
+              onPageChanged: (focusedDay) {
+                _focusedDay = focusedDay;
+                _loadTeamOff(focusedDay, showSpinner: false);
+              },
+              calendarStyle: CalendarStyle(
+                outsideDaysVisible: false,
+                todayDecoration: BoxDecoration(
+                  color: AppColors.primaryLight.withAlpha(120),
+                  shape: BoxShape.circle,
+                ),
+                selectedDecoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              calendarBuilders: CalendarBuilders(
+                markerBuilder: (context, day, events) {
+                  if (events.isEmpty) return null;
+                  return Positioned(
+                    bottom: 1,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      decoration: const BoxDecoration(
+                        color: AppColors.error,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${events.length}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Number of staff on approved time off',
+                  style: TextStyle(fontSize: 12, color: AppColors.grey600),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 16),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => _loadTeamOff(_focusedDay),
+            child: _buildSelectedDayOffPanel(selectedOff),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectedDayOffPanel(List<String> names) {
+    final dateStr = _selectedDay == null ? '' : ukDateWithDay(_selectedDay!);
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(dateStr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 12),
+        if (_loadingTeamOff && _teamOff.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (names.isEmpty)
+          Row(
+            children: [
+              Picon(PiconsFill.checkCircle, color: AppColors.success, size: 20),
+              const SizedBox(width: 8),
+              const Text('All staff available', style: TextStyle(color: AppColors.grey600, fontSize: 14)),
+            ],
+          )
+        else ...[
+          Text(
+            '${names.length} ${names.length == 1 ? 'person' : 'people'} off',
+            style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: names
+                .map((n) => Chip(
+                      avatar: Picon(PiconsDuotone.user, size: 16, color: AppColors.warning),
+                      label: Text(n, style: const TextStyle(fontSize: 13)),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ))
+                .toList(),
+          ),
+        ],
+      ],
+    );
   }
 
   // ── Team Coverage Tab ───────────────────────────────────────────────

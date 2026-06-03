@@ -2393,6 +2393,50 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
 
         return Response(available)
 
+    @action(detail=False, methods=['get'])
+    def team_off(self, request):
+        """Approved staff time off within a date range, grouped by date.
+
+        Visible to all staff (read-only) for the shared team calendar. Only
+        approved day-off requests are returned, names only — pending/denied
+        requests and reasons are never exposed here.
+
+        Query params: start, end (YYYY-MM-DD).
+        Returns: {"2026-06-14": ["Alice", "Bob"], ...}
+        Dates with nobody off are omitted."""
+        from .models import DayOffRequest
+        from datetime import datetime, timedelta
+
+        start_str = request.query_params.get('start')
+        end_str = request.query_params.get('end')
+        try:
+            start = datetime.strptime(start_str, '%Y-%m-%d').date()
+            end = datetime.strptime(end_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return Response(
+                {'detail': 'start and end query params are required (YYYY-MM-DD).'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        if end < start:
+            return Response({'detail': 'end must be on or after start.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if (end - start) > timedelta(days=100):
+            return Response({'detail': 'Date range too large (max 100 days).'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        requests = (
+            DayOffRequest.objects
+            .filter(status='APPROVED', date__gte=start, date__lte=end)
+            .select_related('staff_member')
+            .order_by('date', 'staff_member__first_name')
+        )
+
+        result = {}
+        for req in requests:
+            name = req.staff_member.first_name or req.staff_member.username
+            result.setdefault(req.date.isoformat(), []).append(name)
+
+        return Response(result)
+
 
 class DayOffRequestViewSet(viewsets.ModelViewSet):
     """ViewSet for day-off requests.

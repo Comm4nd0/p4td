@@ -1989,6 +1989,27 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<Map<DateTime, List<String>>> getTeamTimeOff({required DateTime start, required DateTime end}) async {
+    final headers = await _getHeaders();
+    String fmt(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final uri = Uri.parse('${AuthService.baseUrl}/api/staff-availability/team_off/')
+        .replace(queryParameters: {'start': fmt(start), 'end': fmt(end)});
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> data = json.decode(response.body);
+      final result = <DateTime, List<String>>{};
+      data.forEach((key, value) {
+        final parts = key.split('-');
+        final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+        result[date] = (value as List).map((e) => e.toString()).toList();
+      });
+      return result;
+    }
+    throw Exception('Failed to load team time off: ${response.statusCode}');
+  }
+
+  @override
   Future<List<DayOffRequest>> getMyDayOffRequests() async {
     final headers = await _getHeaders();
     final response = await http.get(

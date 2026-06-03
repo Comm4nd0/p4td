@@ -398,6 +398,8 @@ class MockDataService implements DataService {
   @override
   Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date) async => [];
   @override
+  Future<Map<DateTime, List<String>>> getTeamTimeOff({required DateTime start, required DateTime end}) async => {};
+  @override
   Future<List<DayOffRequest>> getMyDayOffRequests() async => [];
   @override
   Future<DayOffRequest> requestDayOff({required DateTime date, String? reason}) async =>

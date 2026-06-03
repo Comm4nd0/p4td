@@ -6,7 +6,7 @@ from .models import (
     Dog, DateChangeRequest, DateChangeRequestHistory,
     BoardingRequest, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
-    ClosureDay, DogNote, StaffAvailability,
+    ClosureDay, DogNote, StaffAvailability, DayOffRequest,
     GroupMedia,
 )
 from django.utils import timezone
@@ -1559,6 +1559,46 @@ class StaffAvailabilityTests(TestCase):
         available_ids = [s['id'] for s in monday['available']]
         self.assertIn(self.staff.id, available_ids)
         self.assertIn(self.staff2.id, available_ids)
+
+    def test_team_off_lists_approved_time_off_for_all_staff(self):
+        """Any staff member can see approved time off (no approval permission needed),
+        grouped by date, names only."""
+        today = date.today()
+        DayOffRequest.objects.create(staff_member=self.staff2, date=today, status='APPROVED')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(
+            '/api/staff-availability/team_off/',
+            {'start': today.isoformat(), 'end': (today + timedelta(days=7)).isoformat()},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(today.isoformat(), resp.data)
+        self.assertEqual(resp.data[today.isoformat()], [self.staff2.first_name or self.staff2.username])
+
+    def test_team_off_excludes_pending_and_denied(self):
+        today = date.today()
+        DayOffRequest.objects.create(staff_member=self.staff, date=today, status='PENDING')
+        DayOffRequest.objects.create(staff_member=self.staff2, date=today, status='DENIED')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(
+            '/api/staff-availability/team_off/',
+            {'start': today.isoformat(), 'end': today.isoformat()},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {})
+
+    def test_team_off_requires_valid_params(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/staff-availability/team_off/')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_team_off_forbidden_for_non_staff(self):
+        today = date.today()
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(
+            '/api/staff-availability/team_off/',
+            {'start': today.isoformat(), 'end': today.isoformat()},
+        )
+        self.assertEqual(resp.status_code, 403)
 
 
 class UserProfileTests(TestCase):
