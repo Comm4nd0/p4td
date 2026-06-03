@@ -24,6 +24,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:paws4thoughtdogs/main.dart';
 import 'package:paws4thoughtdogs/screens/home_screen.dart';
@@ -175,11 +176,32 @@ void main() {
         _log('booking dialog did not open — skipped 04_booking');
       }
 
-      // ── 03. Gallery — scroll the profile down to the embedded grid ───────
-      await _scrollDown(tester, by: 1500, times: 3);
-      await _waitFor(tester, seconds: 2);
+      // ── 03. Gallery — open a photo FULL-SCREEN so this shot is clearly
+      //        distinct from the dog profile. Previously we just scrolled the
+      //        profile to its embedded grid, which looked like a second copy of
+      //        the profile. Tapping a thumbnail opens the full-screen viewer
+      //        (a large photo on black) — a real, reachable user flow.
+      await _scrollDown(tester, by: 1200, times: 3);
+      await _waitFor(tester, seconds: 1);
+      final galleryPhoto = find.descendant(
+        of: find.byType(GridView),
+        matching: find.byType(CachedNetworkImage),
+      );
+      if (galleryPhoto.evaluate().isNotEmpty) {
+        await _ensureVisible(tester, galleryPhoto.first);
+        await tester.tap(galleryPhoto.first);
+        await _waitFor(tester, seconds: 2);
+      } else {
+        _log('no gallery photo found — capturing the embedded grid instead');
+      }
       await binding.takeScreenshot('03_gallery');
-      _log('shot 03_gallery');
+      final onFullScreen = find.byType(PageView).evaluate().isNotEmpty;
+      _log('shot 03_gallery (fullscreen=$onFullScreen)');
+
+      // Pop the full-screen viewer (if it opened) back to the dog profile.
+      if (onFullScreen) {
+        await _goBack(tester);
+      }
 
       // Return to the home scaffold for the drawer step.
       await _goBack(tester);
