@@ -63,6 +63,52 @@ void main() {
       _log('firebase init FAILED (continuing): $e');
     }
 
+    // Start LOGGED OUT so MyApp shows the landing/login UI we want to shoot.
+    try {
+      await AuthService().logoutAll();
+      _log('logged out');
+    } catch (e) {
+      _log('logoutAll failed (continuing): $e');
+    }
+
+    // Boot the real app; with no stored token MyApp lands on the LandingScreen.
+    await tester.pumpWidget(const MyApp());
+    _log('pumped MyApp (logged out)');
+    await _waitFor(tester, seconds: 4);
+
+    // Required before screenshots on BOTH Android and iOS — render the live
+    // Flutter surface into an image. Call once, after the first frames; it
+    // persists across the later pumpWidget call in this test.
+    await binding.convertFlutterSurfaceToImage();
+    await tester.pump();
+    _log('surface converted');
+
+    // ── 06. Login ────────────────────────────────────────────────────────────
+    // LandingScreen → "Log In" opens the LoginScreen (logo + email/password).
+    // Captured here (logged out) but numbered after the feature screens so the
+    // store listing leads with the app's value, not its sign-in form.
+    await _tapText(tester, 'Log In');
+    await _waitFor(tester, seconds: 2);
+    final onLogin = find.text('LOGIN').evaluate().isNotEmpty;
+    _log('on login screen: $onLogin');
+    if (onLogin) {
+      await binding.takeScreenshot('06_login');
+      _log('shot 06_login');
+
+      // ── 07. Sign up ──────────────────────────────────────────────────────
+      // LoginScreen → "Create one" opens the RegisterScreen (Create Account).
+      await _tapText(tester, "Don't have an account? Create one");
+      await _waitFor(tester, seconds: 2);
+      if (find.text('Create Account').evaluate().isNotEmpty) {
+        await binding.takeScreenshot('07_signup');
+        _log('shot 07_signup');
+      } else {
+        _log('register screen not reached — skipped 07_signup');
+      }
+    } else {
+      _log('login screen not reached — skipped 06_login/07_signup');
+    }
+
     // Sign in as the demo owner (real network call to the production API).
     _log('logging in…');
     final loginError = await AuthService().login(_demoEmail, _demoPassword);
@@ -79,16 +125,11 @@ void main() {
     }
     final String? dogName = dogs.isNotEmpty ? dogs.first.name : null;
 
-    // Boot the real app; MyApp reads the stored token and lands on HomeScreen.
+    // Re-boot the app: a fresh MyApp reads the now-stored token and lands on
+    // the owner HomeScreen (the Feed tab).
     await tester.pumpWidget(const MyApp());
-    _log('pumped MyApp');
+    _log('re-pumped MyApp (logged in)');
     await _waitFor(tester, seconds: 5);
-
-    // Required before screenshots on BOTH Android and iOS — render the live
-    // Flutter surface into an image. Call once, after the first frames.
-    await binding.convertFlutterSurfaceToImage();
-    await tester.pump();
-    _log('surface converted');
 
     // ── 01. Feed ───────────────────────────────────────────────────────────
     // Owners land on the Feed tab by default, so it's already on screen.
@@ -157,6 +198,18 @@ void _log(String message) {
   // Prefixed so it's easy to grep in the flutter drive output.
   // ignore: avoid_print
   print('SS> $message');
+}
+
+/// Tap a widget found by its exact visible text, logging (rather than failing)
+/// if it isn't on screen — keeps the harness resilient to small UI changes.
+Future<void> _tapText(WidgetTester tester, String text) async {
+  final finder = find.text(text);
+  if (finder.evaluate().isEmpty) {
+    _log('tap target not found: "$text"');
+    return;
+  }
+  await tester.tap(finder.first);
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 /// Pumps frames in real time for [seconds], letting real async work (network

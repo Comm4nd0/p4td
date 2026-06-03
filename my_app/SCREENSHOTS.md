@@ -138,6 +138,14 @@ Owner experience (`integration_test/screenshots_test.dart`), in store order:
 3. `03_gallery` — the dog's photo gallery (the profile scrolled to the grid)
 4. `04_booking` — the "Request Boarding" dialog
 5. `05_profile` — the owner's profile + notification settings
+6. `06_login` — the login screen
+7. `07_signup` — the create-account screen
+
+The harness shoots **06/07 first**, while logged out (the landing/login UI only
+appears before sign-in), then signs in as the demo owner and re-boots the app to
+capture 01–05. The numbering keeps the store listing leading with the app's
+value (feed, profile) rather than its sign-in form — reorder the keys if you'd
+rather lead with login.
 
 Each capture is deterministic — the harness navigates to the screen and only
 shoots once it's confirmed it's there, so a screenshot is never a stray or

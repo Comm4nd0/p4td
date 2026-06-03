@@ -1,11 +1,13 @@
-/* Marketing captions baked onto each framed screenshot by `fastlane frame`.
-   Keys MUST match the screenshot file names (without extension) produced by the
-   integration test (see integration_test/screenshots_test.dart). The Fastfile
-   copies this file into each screenshots directory as title.strings before
-   running frameit. Edit freely. */
+/* Suggested marketing copy for each screenshot, keyed by the screenshot file
+   name (without extension) produced by the integration test (see
+   integration_test/screenshots_test.dart). These are NOT burned onto the
+   images (screenshots ship plain) — keep them here as ready-made store-listing
+   copy you can paste into App Store Connect / Play Console. Edit freely. */
 
 "01_feed"        = "See their day in photos";
 "02_dog_profile" = "Everything about your pup, in one place";
 "03_gallery"     = "Every photo, saved for you";
 "04_booking"     = "Book extra days & boarding in seconds";
 "05_profile"     = "Your details & alerts, always up to date";
+"06_login"       = "Sign in to manage your dog's day";
+"07_signup"      = "New here? Create your account in minutes";
