@@ -1,26 +1,32 @@
 # Store screenshots — automated
 
 Generate App Store **and** Play Store screenshots from one Flutter integration
-test, framed with captions, and upload them — no manual capturing on each device.
+test and upload them — no manual capturing on each device.
 
 How it works: the test signs in as a **demo owner account** on the real backend
 and walks the key owner screens, taking a screenshot at each. A script runs that
-test across the required device sizes; fastlane then frames + captions + uploads.
+test across the required device sizes; fastlane then uploads them.
 
 ```
-seed demo data ──► capture (per device) ──► frame + caption ──► upload
- (Django cmd)        tool/screenshots.sh      fastlane frame      fastlane upload_*
+seed demo data ──► capture (per device) ──► upload
+ (Django cmd)        tool/screenshots.sh      fastlane upload_*
 ```
+
+> **Plain screenshots, no framing.** The shots are uploaded as captured — no
+> device bezels and no captions burned onto the image. `frameit` has no frames
+> for the emulator/simulator resolutions we capture at, so framing was removed.
+> `fastlane/captions.strings` is kept only as suggested store-listing copy you
+> can paste into App Store Connect / Play Console by hand.
 
 ## Two ways to run it
 
 - **GitHub Actions (no Mac needed — use this on Windows).** The
   `Store Screenshots` workflow generates **both** platforms on cloud runners
-  (iOS on macOS, Android on Ubuntu), frames + captions, and uploads. See
+  (iOS on macOS, Android on Ubuntu) and uploads them. See
   [§ CI](#ci-github-actions--no-mac-needed) below. iOS *cannot* be generated
   locally on Windows — it requires macOS — so CI is the way.
 - **Locally** (Mac for iOS; Windows/Mac/Linux for Android via Git Bash/WSL) —
-  §§ 1–5 below.
+  §§ 1–4 below.
 
 ## CI (GitHub Actions — no Mac needed)
 
@@ -46,13 +52,9 @@ cd my_app
 flutter pub get        # pulls in integration_test (added to dev_dependencies)
 ```
 
-**fastlane** (for framing + upload)
+**fastlane** (for upload)
 ```bash
 gem install fastlane
-# Device frames for `frameit` (Apple + Google bezels):
-cd my_app/fastlane && fastlane frameit download_frames
-# Put a TTF at my_app/fastlane/fonts/Nunito-Bold.ttf (matches the app font),
-# or edit Framefile.json to point at any font you have.
 ```
 
 **Simulators / emulators** — edit the device lists at the top of
@@ -95,16 +97,7 @@ layout:
 - iOS → `fastlane/screenshots/en-GB/` (deliver maps device by pixel size)
 - Android → `fastlane/metadata/android/en-GB/images/{phone,sevenInch,tenInch}Screenshots/`
 
-## 4. Frame + caption
-
-```bash
-cd my_app/fastlane
-fastlane frame
-```
-Captions live in `fastlane/captions.strings` (keyed by screenshot name). Framed
-files are written alongside the originals ending in `_framed.png`.
-
-## 5. Upload
+## 4. Upload
 
 **Android** (uses your Play service-account JSON):
 ```bash
@@ -138,10 +131,40 @@ if you want additional sizes.
 
 ## Which screens are captured
 
-Owner experience (`integration_test/screenshots_test.dart`): **My Dogs → Dog
-profile → Feed → Profile**. To add/reorder, edit that file — each capture is a
-`binding.takeScreenshot('NN_name')` call; add a matching caption in
-`fastlane/captions.strings`.
+Owner experience (`integration_test/screenshots_test.dart`), in store order:
+
+1. `01_feed` — the daily photo feed (owners land here on launch)
+2. `02_dog_profile` — the dog profile: photo, pickup/drop-off times, upcoming dates
+3. `03_gallery` — the dog's photo gallery (the profile scrolled to the grid)
+4. `04_booking` — the "Request Boarding" dialog
+5. `05_profile` — the owner's profile + notification settings
+6. `06_login` — the login screen
+7. `07_signup` — the create-account screen
+
+The harness shoots **06/07 first**, while logged out (the landing/login UI only
+appears before sign-in), then signs in as the demo owner and re-boots the app to
+capture 01–05. The numbering keeps the store listing leading with the app's
+value (feed, profile) rather than its sign-in form — reorder the keys if you'd
+rather lead with login.
+
+Each capture is deterministic — the harness navigates to the screen and only
+shoots once it's confirmed it's there, so a screenshot is never a stray or
+half-loaded state. To add/reorder, edit that file — each capture is a
+`binding.takeScreenshot('NN_name')` call. `fastlane/captions.strings` holds
+optional store-listing copy keyed by the same names — it's not burned onto the
+images (see the note at the top), just a handy place to keep the captions.
+
+> The boarding **calendar** (`BoardingRequestListScreen`) is staff/deep-link
+> only — there's no owner-facing navigation to it — so the owner booking story
+> is told via the gallery + the Request Boarding dialog instead.
+
+### Make them look like real dogs
+
+The demo account's images come from `seed_demo_data`, which generates on-brand
+gradient placeholders (paw motif + caption) when the account has no media yet.
+They look intentional, but **real dog photos make far better store listings** —
+log into the demo account in the app and upload a few; the seed command leaves
+existing media untouched, so your uploads are what gets captured.
 
 ## Troubleshooting
 
@@ -156,5 +179,7 @@ profile → Feed → Profile**. To add/reorder, edit that file — each capture 
 - **`pumpAndSettle` timeouts** — we deliberately pump in real time
   (`_waitFor`) instead, to tolerate the offline banner / feed polling. Bump the
   `seconds:` values if a screen needs longer to load over the network.
-- **fastlane `frame` does nothing** — run `fastlane frameit download_frames`
-  first and make sure the font path in `Framefile.json` exists.
+- **iOS capture hangs on "Waiting for VM Service port"** — the
+  simulator ↔ flutter handshake is intermittently flaky. CI caps each attempt
+  with `gtimeout` and retries once; locally, just re-run `./tool/screenshots.sh
+  ios`.
