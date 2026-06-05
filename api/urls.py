@@ -7,7 +7,7 @@ from .views import (
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     DogProfileChangeRequestViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
-    delete_account,
+    delete_account, postcode_lookup,
 )
 
 router = DefaultRouter()
@@ -35,4 +35,5 @@ urlpatterns = [
     path('password/reset/confirm/', reset_password, name='password-reset-confirm'),
     path('password/change/', change_password, name='password-change'),
     path('account/delete/', delete_account, name='account-delete'),
+    path('postcode/lookup/', postcode_lookup, name='postcode-lookup'),
 ]

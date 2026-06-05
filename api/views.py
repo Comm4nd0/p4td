@@ -359,7 +359,7 @@ class DogViewSet(viewsets.ModelViewSet):
     def _create_change_request(self, request, dog):
         """Build a DogProfileChangeRequest from the incoming PATCH data."""
         # Fields an owner may propose to change
-        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
+        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
 
         proposed_changes = {}
         for field in ALLOWED_FIELDS:
@@ -748,7 +748,51 @@ class PhotoViewSet(viewsets.ModelViewSet):
                 thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
                 serializer.validated_data['thumbnail'] = thumbnail
 
-        serializer.save()
+        instance = serializer.save()
+        self._notify_owners_of_new_photo(instance)
+
+    def _notify_owners_of_new_photo(self, instance):
+        """Notify the dog's owner(s) when a new photo/video is added to their
+        dog's gallery.
+
+        The uploader is never notified about their own upload, and bulk uploads
+        are de-duplicated: only the first item within a short window triggers a
+        notification so owners are not spammed when staff add several photos at
+        once (the gallery has no batch endpoint — each photo posts separately).
+        """
+        dog = instance.dog
+
+        # Skip if another photo for this dog was added very recently — assume it
+        # is part of the same batch and the owner has already been notified.
+        recent_cutoff = timezone.now() - timezone.timedelta(minutes=30)
+        if Photo.objects.filter(dog=dog, created_at__gte=recent_cutoff).exclude(id=instance.id).exists():
+            return
+
+        uploader_id = self.request.user.id
+        recipients = []
+        if dog.owner and dog.owner_id != uploader_id:
+            recipients.append(dog.owner)
+        for additional_owner in dog.additional_owners.all():
+            if additional_owner.id != uploader_id:
+                recipients.append(additional_owner)
+        if not recipients:
+            return
+
+        word = 'video' if instance.media_type == 'VIDEO' else 'photo'
+        title = f"New {word} of {dog.name}"
+        body = f"A new {word} of {dog.name} has been added to their profile."
+        data = {
+            'type': 'dog_photo',
+            'dog_id': str(dog.id),
+            'photo_id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        try:
+            from .notifications import send_push_notification
+            for recipient in recipients:
+                send_push_notification(recipient, title, body, data, category='dog_updates')
+        except Exception as e:
+            print(f"Failed to send photo notification: {e}")
 
     @action(detail=True, methods=['post'])
     def comment(self, request, pk=None):
@@ -1198,6 +1242,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             pickup is needed
         """
         from .models import ClosureDay
+        from datetime import date as date_cls
+
+        # Never fabricate roster history for past dates. Staff can now scroll
+        # back on the dashboard to review earlier days, and those should show
+        # the assignments that actually existed — not new ones materialized
+        # retroactively from the current weekday roster.
+        if target_date < date_cls.today():
+            return 0
 
         if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
             return 0
@@ -2716,6 +2768,124 @@ def delete_account(request):
         {'detail': 'Account deleted successfully.'},
         status=drf_status.HTTP_200_OK,
     )
+
+
+# =============================================================================
+# POSTCODE -> ADDRESS LOOKUP
+# =============================================================================
+
+class PostcodeLookupError(Exception):
+    """A provider error we should surface to the client."""
+
+
+class PostcodeNotFound(PostcodeLookupError):
+    """The postcode had no matching addresses."""
+
+
+def _getaddress_io_lookup(postcode, api_key):
+    """Query getAddress.io's ``/find`` endpoint and normalise the result.
+
+    Docs: https://getaddress.io/Documentation — ``/find/{postcode}?expand=true``
+    returns an ``addresses`` array of objects with line_1..line_4, locality,
+    town_or_city and county fields. Uses the standard library only so no extra
+    dependency is needed.
+    """
+    import json as _json
+    import urllib.parse
+    import urllib.request
+    import urllib.error
+
+    pc = urllib.parse.quote(postcode.replace(' ', ''))
+    url = (
+        f'https://api.getAddress.io/find/{pc}'
+        f'?api-key={urllib.parse.quote(api_key)}&expand=true&sort=true'
+    )
+    req = urllib.request.Request(url, headers={'User-Agent': 'p4td-backend'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = _json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise PostcodeNotFound()
+        if exc.code == 400:
+            raise PostcodeLookupError('That does not look like a valid postcode.')
+        if exc.code in (401, 403):
+            raise PostcodeLookupError('Postcode lookup is misconfigured (auth failed).')
+        if exc.code == 429:
+            raise PostcodeLookupError('Postcode lookup limit reached. Please try again later.')
+        raise PostcodeLookupError('Address lookup service error.')
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        raise PostcodeLookupError('Could not reach the address lookup service.')
+
+    normalised_pc = (payload.get('postcode') or postcode).upper()
+    results = []
+    for addr in payload.get('addresses', []) or []:
+        if isinstance(addr, dict):
+            parts = [
+                addr.get('line_1'), addr.get('line_2'), addr.get('line_3'),
+                addr.get('line_4'), addr.get('locality'),
+                addr.get('town_or_city'), addr.get('county'),
+            ]
+        else:
+            # Non-expanded form: a single comma-separated string.
+            parts = str(addr).split(',')
+        lines = [p.strip() for p in parts if p and p.strip()]
+        if not lines:
+            continue
+        formatted = ', '.join(lines + [normalised_pc])
+        results.append({'formatted': formatted, 'lines': lines, 'postcode': normalised_pc})
+    if not results:
+        raise PostcodeNotFound()
+    return results
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def postcode_lookup(request):
+    """Look up UK addresses for a postcode so the app can autofill a dog's
+    registered-vet details.
+
+    The provider API key lives server-side and is never shipped in the app: the
+    Flutter client calls this endpoint, which proxies to the configured
+    provider. Returns 503 when no key is configured, so the vet field degrades
+    gracefully to a plain text box.
+
+    Query param: ``postcode``.
+    Response: ``{"postcode": "RG1 1AA", "addresses": [{"formatted": "...",
+    "lines": [...], "postcode": "RG1 1AA"}, ...]}``.
+    """
+    postcode = (request.query_params.get('postcode') or '').strip()
+    if not postcode:
+        return Response(
+            {'detail': 'A postcode query parameter is required.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    api_key = getattr(settings, 'POSTCODE_LOOKUP_API_KEY', '')
+    if not api_key:
+        return Response(
+            {'detail': 'Postcode lookup is not configured on the server.'},
+            status=drf_status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    provider = getattr(settings, 'POSTCODE_LOOKUP_PROVIDER', 'getaddress').lower()
+    try:
+        if provider == 'getaddress':
+            addresses = _getaddress_io_lookup(postcode, api_key)
+        else:
+            return Response(
+                {'detail': f'Unsupported postcode provider "{provider}".'},
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    except PostcodeNotFound:
+        return Response(
+            {'detail': 'No addresses found for that postcode.'},
+            status=drf_status.HTTP_404_NOT_FOUND,
+        )
+    except PostcodeLookupError as exc:
+        return Response({'detail': str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+    return Response({'postcode': postcode.upper(), 'addresses': addresses})
 
 
 class ContactInquiryViewSet(viewsets.ModelViewSet):

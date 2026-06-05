@@ -42,10 +42,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
     is_staff = serializers.BooleanField(source='user.is_staff', read_only=True)
     is_superuser = serializers.BooleanField(source='user.is_superuser', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
+    # Whether the server has a postcode-lookup provider configured, so the app
+    # can show/hide the "look up postcode" button on the vet field accordingly.
+    postcode_lookup_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled']
+
+    def get_postcode_lookup_enabled(self, obj):
+        from django.conf import settings
+        return bool(getattr(settings, 'POSTCODE_LOOKUP_API_KEY', ''))
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
@@ -100,7 +107,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'created_at']
         read_only_fields = ['created_at']
         extra_kwargs = {
             'owner': {'required': False},

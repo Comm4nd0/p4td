@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from django.test import TestCase
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from rest_framework.test import APIClient
 from .models import (
@@ -2087,3 +2087,78 @@ class AssignmentTransportTests(TestCase):
         resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
+
+
+# Use non-manifest static storage so admin templates render in tests without a
+# collectstatic-built manifest (production uses whitenoise's manifest storage).
+@override_settings(STORAGES={
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+})
+class AdminNullOwnerTests(TestCase):
+    """Regression: admin change-list pages must not 500 when a dog has no owner.
+
+    Deleting an owner account sets Dog.owner to NULL (on_delete=SET_NULL). The
+    Dog / Daily Assignment / Date Change admin pages previously crashed because
+    their "owner" column dereferenced a None user.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(username='admin', password='pw')
+        # A dog whose owner has been removed (owner is NULL), plus related rows
+        # whose admin pages also surface the owner.
+        self.orphan_dog = Dog.objects.create(owner=None, name='Orphan')
+        self.staff = User.objects.create_user(username='walker', password='pw', is_staff=True)
+        DailyDogAssignment.objects.create(
+            dog=self.orphan_dog, staff_member=self.staff, date=date.today())
+        DateChangeRequest.objects.create(
+            dog=self.orphan_dog, request_type='CANCEL', original_date=date.today())
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_dog_changelist_ok_with_null_owner(self):
+        resp = self.client.get('/admin/api/dog/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_daily_assignment_changelist_ok_with_null_owner(self):
+        resp = self.client.get('/admin/api/dailydogassignment/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_date_change_changelist_ok_with_null_owner(self):
+        resp = self.client.get('/admin/api/datechangerequest/')
+        self.assertEqual(resp.status_code, 200)
+
+
+class DogAssignOwnerTests(TestCase):
+    """The /assign/ endpoint must be able to clear a dog's primary owner.
+
+    The app sends an explicit ``{"owner": null}`` to remove the owner; omitting
+    the key entirely must leave the existing owner untouched.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client = APIClient()
+
+    def test_staff_can_clear_primary_owner(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/dogs/{self.dog.id}/assign/', {'owner': None}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertIsNone(self.dog.owner)
+
+    def test_omitting_owner_leaves_it_unchanged(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/dogs/{self.dog.id}/assign/', {'additional_owners': []}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.owner, self.owner)
+
+    def test_non_staff_cannot_assign(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post(f'/api/dogs/{self.dog.id}/assign/', {'owner': None}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.owner, self.owner)

@@ -22,6 +22,10 @@ class UserProfile {
   final bool notifyBookings;
   final bool notifyDogUpdates;
 
+  /// Whether the server has a postcode-lookup provider configured (controls
+  /// whether the "look up postcode" button shows on the vet field).
+  final bool postcodeLookupEnabled;
+
   UserProfile({
     this.userId,
     required this.username,
@@ -43,6 +47,7 @@ class UserProfile {
     this.notifyTraffic = true,
     this.notifyBookings = true,
     this.notifyDogUpdates = true,
+    this.postcodeLookupEnabled = false,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -67,6 +72,7 @@ class UserProfile {
       notifyTraffic: json['notify_traffic'] ?? true,
       notifyBookings: json['notify_bookings'] ?? true,
       notifyDogUpdates: json['notify_dog_updates'] ?? true,
+      postcodeLookupEnabled: json['postcode_lookup_enabled'] ?? false,
     );
   }
 

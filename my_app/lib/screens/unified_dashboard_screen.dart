@@ -108,6 +108,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadAssignmentsForDate(_selectedDate);
     _loadClosureDays();
     _loadDashboardData();
+    // Today now sits mid-strip (past weekdays precede it), so scroll it into
+    // view once the list is laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final idx = _dateOptions.indexWhere((d) => _isSameDay(d, _selectedDate));
+      if (idx >= 0) _scrollToDateChip(idx);
+    });
   }
 
   @override
@@ -119,15 +125,33 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // ─── Date generation ──────────────────────────────────────────────
 
   List<DateTime> _generateWeekdays(DateTime centerDate) {
-    var start = DateTime(centerDate.year, centerDate.month, centerDate.day);
-    if (start.weekday == DateTime.saturday) {
-      start = start.add(const Duration(days: 2));
-    } else if (start.weekday == DateTime.sunday) {
-      start = start.add(const Duration(days: 1));
+    // Build the strip with a handful of past weekdays (so staff can scroll back
+    // to review earlier days) through to a couple of weeks ahead. Weekends are
+    // skipped — daycare runs Mon–Fri.
+    const pastWeekdays = 5;   // ~1 working week back
+    const totalWeekdays = 20; // overall strip length
+
+    var anchor = DateTime(centerDate.year, centerDate.month, centerDate.day);
+    // Snap a weekend anchor forward to Monday so "today" lands on a weekday.
+    if (anchor.weekday == DateTime.saturday) {
+      anchor = anchor.add(const Duration(days: 2));
+    } else if (anchor.weekday == DateTime.sunday) {
+      anchor = anchor.add(const Duration(days: 1));
     }
+
+    // Walk back from the anchor to find the start, counting weekdays only.
+    var start = anchor;
+    var stepped = 0;
+    while (stepped < pastWeekdays) {
+      start = start.subtract(const Duration(days: 1));
+      if (start.weekday >= DateTime.monday && start.weekday <= DateTime.friday) {
+        stepped++;
+      }
+    }
+
     final List<DateTime> weekdays = [];
     var current = start;
-    while (weekdays.length < 10) {
+    while (weekdays.length < totalWeekdays) {
       if (current.weekday >= DateTime.monday && current.weekday <= DateTime.friday) {
         weekdays.add(current);
       }
@@ -347,9 +371,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 7)),
-      // Staff can manage the daycare calendar effectively without limit —
-      // years into the future, not just the next couple of weeks.
+      // Staff can look back over the past year to review history, and manage the
+      // daycare calendar years into the future.
+      firstDate: DateTime(DateTime.now().year - 1, DateTime.now().month, DateTime.now().day),
       lastDate: DateTime(DateTime.now().year + 5, DateTime.now().month, DateTime.now().day),
       selectableDayPredicate: (date) =>
           date.weekday >= DateTime.monday && date.weekday <= DateTime.friday,

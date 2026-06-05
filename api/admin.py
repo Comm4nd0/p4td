@@ -69,7 +69,7 @@ class DogAdmin(admin.ModelAdmin):
             'description': 'Owner-perspective defaults. Per-day overrides live on each Daily Dog Assignment.',
         }),
         ('Care Instructions', {
-            'fields': ('food_instructions', 'medical_notes'),
+            'fields': ('food_instructions', 'medical_notes', 'registered_vet'),
         }),
         ('Metadata', {
             'fields': ('created_at',),
@@ -77,6 +77,8 @@ class DogAdmin(admin.ModelAdmin):
     )
 
     def owner_name(self, obj):
+        if obj.owner is None:
+            return format_html('<span style="color: #999;">No owner</span>')
         name = obj.owner.get_full_name() or obj.owner.username
         return name
     owner_name.short_description = 'Owner'
@@ -181,7 +183,7 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
     dog_name.admin_order_field = 'dog__name'
 
     def owner_name(self, obj):
-        return obj.dog.owner.username
+        return obj.dog.owner.username if obj.dog.owner else '—'
     owner_name.short_description = 'Owner'
     owner_name.admin_order_field = 'dog__owner__username'
 
@@ -258,7 +260,7 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
         return actions
 
     def owner_name(self, obj):
-        return obj.dog.owner.username
+        return obj.dog.owner.username if obj.dog.owner else '—'
     owner_name.short_description = 'Owner'
 
     def request_type_display(self, obj):
