@@ -286,6 +286,19 @@ RECAPTCHA_PRIVATE_KEY = os.environ.get('RECAPTCHA_PRIVATE_KEY', '')
 RECAPTCHA_REQUIRED_SCORE = float(os.environ.get('RECAPTCHA_REQUIRED_SCORE', '0.5'))
 
 # =============================================================================
+# POSTCODE -> ADDRESS LOOKUP (optional)
+# =============================================================================
+
+# Powers the in-app "look up postcode" button on a dog's Registered Vet field.
+# The key is kept server-side; the app calls /api/postcode/lookup/ which proxies
+# to the provider. Leave POSTCODE_LOOKUP_API_KEY blank to disable the feature
+# (the vet field then works as a plain text box).
+# Default provider is getAddress.io (https://getaddress.io). Sign up, create an
+# API key, then set POSTCODE_LOOKUP_API_KEY in the environment / .env file.
+POSTCODE_LOOKUP_API_KEY = os.environ.get('POSTCODE_LOOKUP_API_KEY', '')
+POSTCODE_LOOKUP_PROVIDER = os.environ.get('POSTCODE_LOOKUP_PROVIDER', 'getaddress')
+
+# =============================================================================
 # LOGGING
 # =============================================================================
 

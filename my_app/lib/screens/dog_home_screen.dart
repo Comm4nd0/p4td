@@ -385,6 +385,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       final updatedDog = await _dataService.assignDogToUser(
         _dog.id,
         owner: result['owner'] as int?,
+        removeOwner: result['owner'] == null,
         additionalOwners: (result['additional_owners'] as List<int>),
       );
       if (mounted) {
@@ -1405,6 +1406,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               title: 'Medical / Injuries',
               body: _dog.medicalNotes!,
               accent: Colors.red[700],
+            ),
+          if (_dog.registeredVet != null && _dog.registeredVet!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.stethoscope,
+              title: 'Registered Vet',
+              body: _dog.registeredVet!,
             ),
           if (transportLines.isNotEmpty)
             _infoBlock(

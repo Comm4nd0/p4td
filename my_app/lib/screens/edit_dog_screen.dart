@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../constants/app_colors.dart';
+import '../widgets/postcode_lookup_dialog.dart';
 
 class EditDogScreen extends StatefulWidget {
   final Dog dog;
@@ -25,6 +26,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
   late TextEditingController _nameController;
   late TextEditingController _foodController;
   late TextEditingController _medicalController;
+  late TextEditingController _vetController;
 
   // Photo state
   String? _currentImageUrl;
@@ -42,6 +44,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
   DogSex? _selectedSex;
   DateTime? _selectedDateOfBirth;
   bool _isSpayed = false;
+  bool _postcodeLookupEnabled = false;
 
   @override
   void initState() {
@@ -49,6 +52,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _nameController = TextEditingController(text: widget.dog.name);
     _foodController = TextEditingController(text: widget.dog.foodInstructions ?? '');
     _medicalController = TextEditingController(text: widget.dog.medicalNotes ?? '');
+    _vetController = TextEditingController(text: widget.dog.registeredVet ?? '');
     _currentImageUrl = widget.dog.profileImageUrl;
     _selectedDays = Set.from(widget.dog.daysInDaycare);
     _selectedDropoffTime = widget.dog.preferredDropoffTime;
@@ -66,14 +70,23 @@ class _EditDogScreenState extends State<EditDogScreen> {
   Future<void> _checkUserRole() async {
     try {
       final profile = await _dataService.getProfile();
-      if (profile.isStaff && mounted) {
-        setState(() {
-          _isStaff = true;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isStaff = profile.isStaff;
+        _postcodeLookupEnabled = profile.postcodeLookupEnabled;
+      });
     } catch (e) {
       debugPrint('Error checking user role: $e');
     }
+  }
+
+  Future<void> _lookUpVetPostcode() async {
+    final address = await showPostcodeLookup(context, _dataService);
+    if (address == null || !mounted) return;
+    final existing = _vetController.text.trimRight();
+    setState(() {
+      _vetController.text = existing.isEmpty ? address : '$existing\n$address';
+    });
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -154,6 +167,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         name: _nameController.text,
         foodInstructions: _foodController.text,
         medicalNotes: _medicalController.text,
+        registeredVet: _vetController.text,
         imageBytes: _newImageBytes,
         imageName: _newImageName,
         deletePhoto: _deletePhoto,
@@ -328,6 +342,27 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ),
             maxLines: 3,
           ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _vetController,
+            decoration: const InputDecoration(
+              labelText: 'Registered Vet',
+              hintText: 'Practice name, address and phone number',
+              border: OutlineInputBorder(),
+              prefixIcon: Picon(PiconsDuotone.stethoscope),
+            ),
+            textCapitalization: TextCapitalization.words,
+            maxLines: 3,
+          ),
+          if (_postcodeLookupEnabled)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _lookUpVetPostcode,
+                icon: const Picon(PiconsDuotone.mapPin, size: 18),
+                label: const Text('Look up postcode'),
+              ),
+            ),
           const SizedBox(height: 24),
           const Text('About', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),

@@ -6,6 +6,7 @@ import '../services/data_service.dart';
 import '../models/dog.dart';
 import '../models/owner_profile.dart';
 import '../constants/app_colors.dart';
+import '../widgets/postcode_lookup_dialog.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -34,10 +35,12 @@ class _AddDogScreenState extends State<AddDogScreen> {
   DogSex? _selectedSex;
   DateTime? _selectedDateOfBirth;
   bool _isSpayed = false;
+  bool _postcodeLookupEnabled = false;
 
   final _nameController = TextEditingController();
   final _foodController = TextEditingController();
   final _medicalController = TextEditingController();
+  final _vetController = TextEditingController();
 
   @override
   void initState() {
@@ -48,6 +51,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
   Future<void> _checkUserRole() async {
     try {
       final profile = await _dataService.getProfile();
+      if (mounted) setState(() => _postcodeLookupEnabled = profile.postcodeLookupEnabled);
       if (profile.isStaff) {
         setState(() {
           _isStaff = true;
@@ -58,6 +62,15 @@ class _AddDogScreenState extends State<AddDogScreen> {
     } catch (e) {
       debugPrint('Error checking user role: $e');
     }
+  }
+
+  Future<void> _lookUpVetPostcode() async {
+    final address = await showPostcodeLookup(context, _dataService);
+    if (address == null || !mounted) return;
+    final existing = _vetController.text.trimRight();
+    setState(() {
+      _vetController.text = existing.isEmpty ? address : '$existing\n$address';
+    });
   }
 
   Future<void> _fetchOwners() async {
@@ -140,6 +153,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         name: _nameController.text.trim(),
         foodInstructions: _foodController.text.trim().isEmpty ? null : _foodController.text.trim(),
         medicalNotes: _medicalController.text.trim().isEmpty ? null : _medicalController.text.trim(),
+        registeredVet: _vetController.text.trim().isEmpty ? null : _vetController.text.trim(),
         imageBytes: _imageBytes,
         imageName: _selectedImage?.name,
         daysInDaycare: _selectedDays.toList(),
@@ -297,6 +311,27 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         ),
                         maxLines: 3,
                       ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _vetController,
+                        decoration: const InputDecoration(
+                          labelText: 'Registered Vet (Optional)',
+                          hintText: 'Practice name, address and phone number',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Picon(PiconsDuotone.stethoscope),
+                        ),
+                        textCapitalization: TextCapitalization.words,
+                        maxLines: 3,
+                      ),
+                      if (_postcodeLookupEnabled)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _lookUpVetPostcode,
+                            icon: const Picon(PiconsDuotone.mapPin, size: 18),
+                            label: const Text('Look up postcode'),
+                          ),
+                        ),
                       const SizedBox(height: 24),
                       const Text(
                         'About',
