@@ -2162,3 +2162,340 @@ class DogAssignOwnerTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         self.dog.refresh_from_db()
         self.assertEqual(self.dog.owner, self.owner)
+
+
+class VaccinationRecordTests(TestCase):
+    def setUp(self):
+        from .models import VaccinationRecord  # noqa: F401 (model import sanity)
+        self.owner = User.objects.create_user(username='vaxowner', password='pw')
+        self.other = User.objects.create_user(username='vaxother', password='pw')
+        self.staff = User.objects.create_user(username='vaxstaff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.other_dog = Dog.objects.create(owner=self.other, name='Rex')
+        self.client = APIClient()
+
+    def _payload(self, **kwargs):
+        base = {
+            'dog': self.dog.id,
+            'name': 'DHP',
+            'date_administered': (date.today() - timedelta(days=10)).isoformat(),
+            'expiry_date': (date.today() + timedelta(days=355)).isoformat(),
+        }
+        base.update(kwargs)
+        return base
+
+    def test_staff_can_create_record(self):
+        self.client.login(username='vaxstaff', password='pw')
+        resp = self.client.post('/api/vaccinations/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'up_to_date')
+
+    def test_owner_cannot_create_record(self):
+        self.client.login(username='vaxowner', password='pw')
+        resp = self.client.post('/api/vaccinations/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_owner_sees_only_own_dogs_records(self):
+        from .models import VaccinationRecord
+        VaccinationRecord.objects.create(
+            dog=self.dog, name='DHP',
+            date_administered=date.today() - timedelta(days=10),
+            expiry_date=date.today() + timedelta(days=355),
+        )
+        VaccinationRecord.objects.create(
+            dog=self.other_dog, name='Rabies',
+            date_administered=date.today() - timedelta(days=10),
+            expiry_date=date.today() + timedelta(days=355),
+        )
+        self.client.login(username='vaxowner', password='pw')
+        resp = self.client.get('/api/vaccinations/')
+        self.assertEqual(resp.status_code, 200)
+        names = {r['name'] for r in resp.data}
+        self.assertEqual(names, {'DHP'})
+
+    def test_expiry_must_be_after_administered(self):
+        self.client.login(username='vaxstaff', password='pw')
+        resp = self.client.post(
+            '/api/vaccinations/',
+            self._payload(expiry_date=(date.today() - timedelta(days=20)).isoformat()),
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_status_property(self):
+        from .models import VaccinationRecord
+        expired = VaccinationRecord.objects.create(
+            dog=self.dog, name='A',
+            date_administered=date.today() - timedelta(days=400),
+            expiry_date=date.today() - timedelta(days=1),
+        )
+        soon = VaccinationRecord.objects.create(
+            dog=self.dog, name='B',
+            date_administered=date.today() - timedelta(days=350),
+            expiry_date=date.today() + timedelta(days=10),
+        )
+        fine = VaccinationRecord.objects.create(
+            dog=self.dog, name='C',
+            date_administered=date.today() - timedelta(days=10),
+            expiry_date=date.today() + timedelta(days=200),
+        )
+        self.assertEqual(expired.status, 'expired')
+        self.assertEqual(soon.status, 'expiring_soon')
+        self.assertEqual(fine.status, 'up_to_date')
+
+    def test_reminder_command_sends_once(self):
+        import io
+        from django.core.management import call_command
+        from .models import VaccinationRecord
+        VaccinationRecord.objects.create(
+            dog=self.dog, name='Expired',
+            date_administered=date.today() - timedelta(days=400),
+            expiry_date=date.today() - timedelta(days=2),
+        )
+        VaccinationRecord.objects.create(
+            dog=self.dog, name='Soon',
+            date_administered=date.today() - timedelta(days=350),
+            expiry_date=date.today() + timedelta(days=5),
+        )
+        VaccinationRecord.objects.create(
+            dog=self.dog, name='Fine',
+            date_administered=date.today() - timedelta(days=10),
+            expiry_date=date.today() + timedelta(days=300),
+        )
+        out = io.StringIO()
+        call_command('send_vaccination_reminders', stdout=out)
+        self.assertIn('Sent 2', out.getvalue())
+        out = io.StringIO()
+        call_command('send_vaccination_reminders', stdout=out)
+        self.assertIn('Sent 0', out.getvalue())
+
+    def test_editing_expiry_rearms_reminders(self):
+        from .models import VaccinationRecord
+        record = VaccinationRecord.objects.create(
+            dog=self.dog, name='DHP',
+            date_administered=date.today() - timedelta(days=400),
+            expiry_date=date.today() - timedelta(days=2),
+            reminder_30_sent=True, reminder_7_sent=True, expired_notice_sent=True,
+        )
+        self.client.login(username='vaxstaff', password='pw')
+        resp = self.client.patch(
+            f'/api/vaccinations/{record.id}/',
+            {
+                'date_administered': date.today().isoformat(),
+                'expiry_date': (date.today() + timedelta(days=365)).isoformat(),
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        record.refresh_from_db()
+        self.assertFalse(record.reminder_30_sent)
+        self.assertFalse(record.reminder_7_sent)
+        self.assertFalse(record.expired_notice_sent)
+
+
+class OwnerCalendarTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='calowner', password='pw')
+        self.other = User.objects.create_user(username='calother', password='pw')
+        self.target = date.today() + timedelta(days=14)
+        self.weekday = self.target.isoweekday()
+        self.dog = Dog.objects.create(
+            owner=self.owner, name='Fido', daycare_days=[self.weekday],
+        )
+        self.other_dog = Dog.objects.create(
+            owner=self.other, name='Rex', daycare_days=[self.weekday],
+        )
+        self.client = APIClient()
+        self.client.login(username='calowner', password='pw')
+
+    def _day(self):
+        resp = self.client.get(
+            f'/api/dogs/calendar/?start={self.target}&end={self.target}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.data['days'][0]
+
+    def test_weekly_dog_appears_on_scheduled_day(self):
+        day = self._day()
+        self.assertEqual([d['name'] for d in day['dogs']], ['Fido'])
+
+    def test_only_own_dogs_listed(self):
+        day = self._day()
+        names = [d['name'] for d in day['dogs']]
+        self.assertNotIn('Rex', names)
+
+    def test_cancelled_day_removed(self):
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL',
+            original_date=self.target, status='APPROVED',
+        )
+        day = self._day()
+        self.assertEqual(day['dogs'], [])
+
+    def test_add_day_appears(self):
+        extra = self.target + timedelta(days=1)
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY',
+            new_date=extra, status='APPROVED',
+        )
+        resp = self.client.get(f'/api/dogs/calendar/?start={extra}&end={extra}')
+        day = resp.data['days'][0]
+        self.assertEqual([d['name'] for d in day['dogs']], ['Fido'])
+
+    def test_closure_marked_and_no_dogs(self):
+        ClosureDay.objects.create(date=self.target, closure_type='CLOSED', reason='Bank Holiday')
+        day = self._day()
+        self.assertEqual(day['closure']['closure_type'], 'CLOSED')
+        self.assertEqual(day['dogs'], [])
+
+    def test_full_day_marked(self):
+        from .models import DaycareSettings
+        settings_obj = DaycareSettings.load()
+        settings_obj.default_daily_capacity = 1
+        settings_obj.save()
+        day = self._day()  # two dogs scheduled, capacity 1
+        self.assertTrue(day['is_full'])
+        self.assertEqual(day['capacity'], 1)
+        self.assertEqual(day['spots_left'], 0)
+
+
+class CapacityEnforcementTests(TestCase):
+    def setUp(self):
+        from .models import DaycareSettings
+        self.owner = User.objects.create_user(username='capowner', password='pw')
+        self.staff = User.objects.create_user(username='capstaff', password='pw', is_staff=True)
+        self.target = date.today() + timedelta(days=14)
+        self.weekday = self.target.isoweekday()
+        # dog1 fills the single slot via its weekly schedule
+        self.dog1 = Dog.objects.create(owner=self.owner, name='Fido', daycare_days=[self.weekday])
+        self.dog2 = Dog.objects.create(owner=self.owner, name='Rex', schedule_type='ad_hoc')
+        settings_obj = DaycareSettings.load()
+        settings_obj.default_daily_capacity = 1
+        settings_obj.save()
+        self.client = APIClient()
+
+    def test_staff_add_day_blocked_when_full(self):
+        self.client.login(username='capstaff', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog2.id, 'request_type': 'ADD_DAY', 'new_date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('full', str(resp.data).lower())
+
+    def test_staff_add_day_with_override(self):
+        self.client.login(username='capstaff', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog2.id, 'request_type': 'ADD_DAY',
+            'new_date': self.target.isoformat(), 'override_capacity': True,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'APPROVED')
+
+    def test_approval_blocked_when_full_then_override(self):
+        req = DateChangeRequest.objects.create(
+            dog=self.dog2, request_type='ADD_DAY', new_date=self.target,
+        )
+        self.client.login(username='capstaff', password='pw')
+        url = f'/api/date-change-requests/{req.id}/change_status/'
+        resp = self.client.post(url, {'status': 'APPROVED'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data.get('code'), 'capacity_full')
+        resp = self.client.post(url, {'status': 'APPROVED', 'override_capacity': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'APPROVED')
+
+    def test_owner_request_not_capacity_checked_at_creation(self):
+        self.client.login(username='capowner', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog2.id, 'request_type': 'ADD_DAY', 'new_date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'PENDING')
+
+    def test_reduced_closure_capacity_override(self):
+        from .models import DaycareSettings
+        settings_obj = DaycareSettings.load()
+        settings_obj.default_daily_capacity = None  # unlimited by default
+        settings_obj.save()
+        ClosureDay.objects.create(
+            date=self.target, closure_type='REDUCED', capacity_override=1,
+        )
+        self.client.login(username='capstaff', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog2.id, 'request_type': 'ADD_DAY', 'new_date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+
+class WaitlistTests(TestCase):
+    def setUp(self):
+        from .models import DaycareSettings
+        self.owner1 = User.objects.create_user(username='wlowner1', password='pw')
+        self.owner2 = User.objects.create_user(username='wlowner2', password='pw')
+        self.staff = User.objects.create_user(username='wlstaff', password='pw', is_staff=True)
+        self.target = date.today() + timedelta(days=14)
+        self.weekday = self.target.isoweekday()
+        self.dog1 = Dog.objects.create(owner=self.owner1, name='Fido', daycare_days=[self.weekday])
+        self.dog2 = Dog.objects.create(owner=self.owner2, name='Rex', schedule_type='ad_hoc')
+        settings_obj = DaycareSettings.load()
+        settings_obj.default_daily_capacity = 1
+        settings_obj.save()
+        self.client = APIClient()
+
+    def test_owner_joins_waitlist(self):
+        self.client.login(username='wlowner2', password='pw')
+        resp = self.client.post('/api/waitlist/', {
+            'dog': self.dog2.id, 'date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'WAITING')
+        # joining again is idempotent
+        resp = self.client.post('/api/waitlist/', {
+            'dog': self.dog2.id, 'date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_cannot_join_for_others_dog(self):
+        self.client.login(username='wlowner2', password='pw')
+        resp = self.client.post('/api/waitlist/', {
+            'dog': self.dog1.id, 'date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_already_booked_rejected(self):
+        self.client.login(username='wlowner1', password='pw')
+        resp = self.client.post('/api/waitlist/', {
+            'dog': self.dog1.id, 'date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_cancel_approval_notifies_waitlist(self):
+        from .models import WaitlistEntry
+        entry = WaitlistEntry.objects.create(
+            dog=self.dog2, date=self.target, requested_by=self.owner2,
+        )
+        cancel = DateChangeRequest.objects.create(
+            dog=self.dog1, request_type='CANCEL', original_date=self.target,
+        )
+        self.client.login(username='wlstaff', password='pw')
+        resp = self.client.post(
+            f'/api/date-change-requests/{cancel.id}/change_status/',
+            {'status': 'APPROVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, 'NOTIFIED')
+        self.assertIsNotNone(entry.notified_at)
+
+    def test_leave_waitlist(self):
+        from .models import WaitlistEntry
+        entry = WaitlistEntry.objects.create(
+            dog=self.dog2, date=self.target, requested_by=self.owner2,
+        )
+        self.client.login(username='wlowner2', password='pw')
+        resp = self.client.delete(f'/api/waitlist/{entry.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(WaitlistEntry.objects.filter(id=entry.id).exists())

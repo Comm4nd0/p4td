@@ -350,6 +350,10 @@ class ClosureDay(models.Model):
     date = models.DateField(unique=True)
     closure_type = models.CharField(max_length=10, choices=CLOSURE_TYPE_CHOICES, default='CLOSED')
     reason = models.CharField(max_length=255, blank=True, default='')
+    capacity_override = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='For REDUCED days: maximum number of dogs that can attend. Empty = use the default daily capacity.',
+    )
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_closures')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -825,3 +829,101 @@ def notify_staff_dayoff_request_status(sender, instance, created, **kwargs):
         }
 
         send_push_notification(instance.staff_member, title, body, data)
+
+
+class VaccinationRecord(models.Model):
+    """A single vaccination (e.g. DHP, Leptospirosis) recorded for a dog.
+
+    Staff create and maintain these; owners get read-only access plus expiry
+    reminders via push notification (the send_vaccination_reminders command,
+    run daily from cron).
+    """
+    EXPIRING_SOON_DAYS = 30
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='vaccinations')
+    name = models.CharField(max_length=100, help_text='Vaccine name, e.g. DHP, Leptospirosis, Kennel Cough, Rabies')
+    date_administered = models.DateField()
+    expiry_date = models.DateField()
+    notes = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='created_vaccinations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Reminder bookkeeping so the daily command never notifies twice for the
+    # same milestone. Re-armed when the expiry date changes (renewal recorded).
+    reminder_30_sent = models.BooleanField(default=False)
+    reminder_7_sent = models.BooleanField(default=False)
+    expired_notice_sent = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-expiry_date']
+        indexes = [models.Index(fields=['expiry_date'])]
+
+    @property
+    def status(self):
+        from datetime import date, timedelta
+        today = date.today()
+        if self.expiry_date < today:
+            return 'expired'
+        if self.expiry_date <= today + timedelta(days=self.EXPIRING_SOON_DAYS):
+            return 'expiring_soon'
+        return 'up_to_date'
+
+    def __str__(self):
+        return f"{self.dog.name} - {self.name} (expires {self.expiry_date})"
+
+
+class DaycareSettings(models.Model):
+    """Facility-wide settings singleton (always pk=1)."""
+    default_daily_capacity = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Maximum number of dogs per day (daycare + boarding). Empty = unlimited.',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Daycare settings'
+        verbose_name_plural = 'Daycare settings'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        capacity = self.default_daily_capacity or 'unlimited'
+        return f"Daycare settings (daily capacity: {capacity})"
+
+
+class WaitlistEntry(models.Model):
+    """A dog waiting for a spot on a full day.
+
+    When something frees a spot (cancellation approved, dog removed from the
+    day, closure lifted) the longest-waiting owners are notified and the entry
+    flips to NOTIFIED — the owner still requests the day through the normal
+    flow. Owners leave the waitlist by deleting the entry.
+    """
+    STATUS_CHOICES = [
+        ('WAITING', 'Waiting'),
+        ('NOTIFIED', 'Notified'),
+    ]
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='waitlist_entries')
+    date = models.DateField()
+    requested_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='waitlist_entries')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='WAITING')
+    created_at = models.DateTimeField(auto_now_add=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('dog', 'date')
+        ordering = ['date', 'created_at']
+        indexes = [models.Index(fields=['date', 'status'])]
+        verbose_name_plural = 'Waitlist entries'
+
+    def __str__(self):
+        return f"{self.dog.name} waitlisted for {self.date} ({self.status})"

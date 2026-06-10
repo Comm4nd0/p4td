@@ -41,6 +41,10 @@ $SSH_CMD "$HETZNER_HOST" "
     CRON_CMD='0 3 * * 0 cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py prune_feed_media --include-orphans >> /var/log/p4td-prune.log 2>&1'
     ( crontab -l 2>/dev/null | grep -v 'prune_feed_media'; echo \"\$CRON_CMD\" ) | crontab -
 
+    echo '>>> Setting up vaccination reminder cron job...'
+    VAX_CRON='0 8 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_vaccination_reminders >> /var/log/p4td-vaccinations.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'send_vaccination_reminders'; echo \"\$VAX_CRON\" ) | crontab -
+
     echo '=== Deployment complete ==='
 "
 
