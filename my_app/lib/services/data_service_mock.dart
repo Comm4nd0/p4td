@@ -87,12 +87,16 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     return Dog(
       id: '99',
       name: name,
       ownerId: 'user1',
       registeredVet: registeredVet,
+      ownerBringsDefault: ownerBringsDefault ?? false,
+      ownerCollectsDefault: ownerCollectsDefault ?? false,
+      ownerBringsDefaultTime: ownerBringsDefaultTime,
+      ownerCollectsDefaultTime: ownerCollectsDefaultTime,
       sex: sex,
       dateOfBirth: dateOfBirth,
       isSpayed: isSpayed ?? false,
