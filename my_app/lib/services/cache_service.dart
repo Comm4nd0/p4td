@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// Lightweight local cache using Hive for stale-while-revalidate patterns.
@@ -28,6 +29,14 @@ class CacheService {
     if (_isInitialized) return;
     await Hive.initFlutter();
     _box = await Hive.openBox(_boxName);
+    _isInitialized = true;
+  }
+
+  /// Test hook: inject an already-open box instead of [init], which needs
+  /// platform channels for the documents directory.
+  @visibleForTesting
+  void initWithBox(Box box) {
+    _box = box;
     _isInitialized = true;
   }
 
@@ -95,6 +104,27 @@ class CacheService {
   String? getCachedSortPreference(String screenKey) {
     if (_box == null) return null;
     return _box!.get('$_sortPrefPrefix$screenKey') as String?;
+  }
+
+  // ── Recent reaction emojis ──────────────────────────────────────
+
+  static const _recentReactionsKey = 'recent_reaction_emojis';
+  static const _recentReactionsCap = 16;
+
+  /// Record an emoji as the most recently used reaction (MRU order,
+  /// deduplicated, capped at [_recentReactionsCap]).
+  Future<void> recordRecentReactionEmoji(String emoji) async {
+    final recents = getRecentReactionEmojis();
+    recents.remove(emoji);
+    recents.insert(0, emoji);
+    await _put(_recentReactionsKey, recents.take(_recentReactionsCap).toList());
+  }
+
+  /// Recently used reaction emojis, most recent first.
+  List<String> getRecentReactionEmojis() {
+    final data = _get(_recentReactionsKey);
+    if (data == null) return [];
+    return (data as List).cast<String>();
   }
 
   // ── Utilities ───────────────────────────────────────────────────
