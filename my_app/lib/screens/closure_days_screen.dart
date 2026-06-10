@@ -54,6 +54,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
         date: result['date'],
         closureType: result['closure_type'],
         reason: result['reason'] ?? '',
+        capacityOverride: result['capacity_override'],
       );
       _load();
     } catch (e) {
@@ -98,7 +99,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
       floatingActionButton: widget.isStaff
           ? FloatingActionButton.extended(
               onPressed: _addClosureDay,
-              icon: Picon(PiconsDuotone.plus),
+              icon: const Picon(PiconsDuotone.plus),
               label: const Text('Add Closure'),
             )
           : null,
@@ -156,7 +157,9 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
-                                  day.closureType.displayName,
+                                  day.capacityOverride != null
+                                      ? '${day.closureType.displayName} · max ${day.capacityOverride}'
+                                      : day.closureType.displayName,
                                   style: const TextStyle(color: Colors.white, fontSize: 12),
                                 ),
                               ),
@@ -168,7 +171,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                           ),
                           trailing: widget.isStaff
                               ? IconButton(
-                                  icon: Picon(PiconsDuotone.trash, color: AppColors.error),
+                                  icon: const Picon(PiconsDuotone.trash, color: AppColors.error),
                                   onPressed: () => _deleteClosureDay(day),
                                 )
                               : null,
@@ -193,10 +196,12 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
   DateTime? _selectedDate;
   ClosureType _closureType = ClosureType.closed;
   final _reasonController = TextEditingController();
+  final _capacityController = TextEditingController();
 
   @override
   void dispose() {
     _reasonController.dispose();
+    _capacityController.dispose();
     super.dispose();
   }
 
@@ -211,7 +216,7 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Picon(PiconsDuotone.calendar),
+              leading: const Picon(PiconsDuotone.calendar),
               title: Text(
                 _selectedDate == null
                     ? 'Select date'
@@ -238,6 +243,17 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
               selected: {_closureType},
               onSelectionChanged: (set) => setState(() => _closureType = set.first),
             ),
+            if (_closureType == ClosureType.reduced) ...[
+              const SizedBox(height: 16),
+              TextField(
+                controller: _capacityController,
+                decoration: const InputDecoration(
+                  labelText: 'Max dogs that day (optional)',
+                  hintText: 'Leave empty to use the default capacity',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ],
             const SizedBox(height: 16),
             TextField(
               controller: _reasonController,
@@ -260,6 +276,9 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
                     'date': _selectedDate,
                     'closure_type': _closureType,
                     'reason': _reasonController.text.trim(),
+                    'capacity_override': _closureType == ClosureType.reduced
+                        ? int.tryParse(_capacityController.text.trim())
+                        : null,
                   });
                 },
           child: const Text('Add'),

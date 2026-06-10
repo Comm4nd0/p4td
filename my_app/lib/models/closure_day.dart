@@ -35,6 +35,9 @@ class ClosureDay {
   final DateTime date;
   final ClosureType closureType;
   final String reason;
+
+  /// For REDUCED days: maximum dogs allowed. Null = default capacity.
+  final int? capacityOverride;
   final String? createdByName;
 
   ClosureDay({
@@ -42,6 +45,7 @@ class ClosureDay {
     required this.date,
     required this.closureType,
     this.reason = '',
+    this.capacityOverride,
     this.createdByName,
   });
 
@@ -51,6 +55,7 @@ class ClosureDay {
       date: DateTime.parse(json['date']),
       closureType: ClosureType.fromApi(json['closure_type'] ?? 'CLOSED'),
       reason: json['reason'] ?? '',
+      capacityOverride: json['capacity_override'],
       createdByName: json['created_by_name'],
     );
   }

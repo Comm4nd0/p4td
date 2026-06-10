@@ -22,6 +22,7 @@ import 'boarding_request_list_screen.dart';
 import 'unified_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
+import 'my_calendar_screen.dart';
 import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 
@@ -647,6 +648,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     );
                   },
                 ),
+              ListTile(
+                leading: Picon(PiconsDuotone.calendarCheck),
+                title: const Text('My Calendar'),
+                trailing: _drawerChevron(),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MyCalendarScreen(),
+                    ),
+                  );
+                },
+              ),
               ListTile(
                 leading: Picon(PiconsDuotone.calendarX),
                 title: const Text('Holidays & Closures'),

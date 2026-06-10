@@ -379,9 +379,27 @@ class MockDataService implements DataService {
   @override
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate}) async => [];
   @override
-  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = ''}) async => throw UnimplementedError();
+  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = '', int? capacityOverride}) async => throw UnimplementedError();
   @override
   Future<void> deleteClosureDay(int id) async {}
+
+  // Vaccinations
+  @override
+  Future<List<VaccinationRecord>> getVaccinations(String dogId) async => [];
+  @override
+  Future<VaccinationRecord> createVaccination({required String dogId, required String name, required DateTime dateAdministered, required DateTime expiryDate, String? notes}) async => throw UnimplementedError();
+  @override
+  Future<VaccinationRecord> updateVaccination(int id, {String? name, DateTime? dateAdministered, DateTime? expiryDate, String? notes}) async => throw UnimplementedError();
+  @override
+  Future<void> deleteVaccination(int id) async {}
+
+  // Owner calendar & waitlist
+  @override
+  Future<OwnerCalendar> getOwnerCalendar({DateTime? start, DateTime? end}) async => throw UnimplementedError();
+  @override
+  Future<WaitlistEntry> joinWaitlist({required String dogId, required DateTime date}) async => throw UnimplementedError();
+  @override
+  Future<void> leaveWaitlist(int entryId) async {}
 
   // Dog Notes
   @override

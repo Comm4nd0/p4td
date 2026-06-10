@@ -21,6 +21,8 @@ import '../models/contact_inquiry.dart';
 import '../models/dog_profile_change_request.dart';
 import '../models/staff_permission.dart';
 import '../models/postcode_address.dart';
+import '../models/vaccination_record.dart';
+import '../models/owner_calendar.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 
@@ -1874,7 +1876,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = ''}) async {
+  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = '', int? capacityOverride}) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/closure-days/'),
@@ -1883,12 +1885,147 @@ class ApiDataService implements DataService {
         'date': date.toIso8601String().split('T').first,
         'closure_type': closureType.apiValue,
         'reason': reason,
+        'capacity_override': capacityOverride,
       }),
     );
     if (response.statusCode == 201) {
       return ClosureDay.fromJson(json.decode(response.body));
     }
     throw Exception('Failed to create closure day: ${response.body}');
+  }
+
+  // ── Vaccinations ───────────────────────────────────────────────────
+
+  @override
+  Future<List<VaccinationRecord>> getVaccinations(String dogId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vaccinations/?dog=$dogId'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => VaccinationRecord.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load vaccinations: ${response.statusCode}');
+  }
+
+  @override
+  Future<VaccinationRecord> createVaccination({
+    required String dogId,
+    required String name,
+    required DateTime dateAdministered,
+    required DateTime expiryDate,
+    String? notes,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/vaccinations/'),
+      headers: headers,
+      body: json.encode({
+        'dog': dogId,
+        'name': name,
+        'date_administered': dateAdministered.toIso8601String().split('T').first,
+        'expiry_date': expiryDate.toIso8601String().split('T').first,
+        'notes': notes,
+      }),
+    );
+    if (response.statusCode == 201) {
+      return VaccinationRecord.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add vaccination: ${response.body}');
+  }
+
+  @override
+  Future<VaccinationRecord> updateVaccination(
+    int id, {
+    String? name,
+    DateTime? dateAdministered,
+    DateTime? expiryDate,
+    String? notes,
+  }) async {
+    final headers = await _getHeaders();
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    if (dateAdministered != null) {
+      body['date_administered'] = dateAdministered.toIso8601String().split('T').first;
+    }
+    if (expiryDate != null) {
+      body['expiry_date'] = expiryDate.toIso8601String().split('T').first;
+    }
+    if (notes != null) body['notes'] = notes;
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/vaccinations/$id/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode == 200) {
+      return VaccinationRecord.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to update vaccination: ${response.body}');
+  }
+
+  @override
+  Future<void> deleteVaccination(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/vaccinations/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete vaccination: ${response.statusCode}');
+    }
+  }
+
+  // ── Owner calendar & waitlist ──────────────────────────────────────
+
+  @override
+  Future<OwnerCalendar> getOwnerCalendar({DateTime? start, DateTime? end}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (start != null) params['start'] = start.toIso8601String().split('T').first;
+    if (end != null) params['end'] = end.toIso8601String().split('T').first;
+    final uri = Uri.parse('${AuthService.baseUrl}/api/dogs/calendar/')
+        .replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      return OwnerCalendar.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load calendar: ${response.statusCode}');
+  }
+
+  @override
+  Future<WaitlistEntry> joinWaitlist({required String dogId, required DateTime date}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/waitlist/'),
+      headers: headers,
+      body: json.encode({
+        'dog': dogId,
+        'date': date.toIso8601String().split('T').first,
+      }),
+    );
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return WaitlistEntry.fromJson(json.decode(response.body));
+    }
+    String message = 'Failed to join waitlist';
+    try {
+      final data = json.decode(response.body);
+      if (data is Map && data['detail'] != null) message = data['detail'];
+    } catch (_) {}
+    throw Exception(message);
+  }
+
+  @override
+  Future<void> leaveWaitlist(int entryId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/waitlist/$entryId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to leave waitlist: ${response.statusCode}');
+    }
   }
 
   @override

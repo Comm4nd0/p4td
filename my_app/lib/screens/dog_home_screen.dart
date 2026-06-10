@@ -14,6 +14,7 @@ import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
 import 'query_detail_screen.dart';
 import 'dog_notes_screen.dart';
+import 'vaccinations_screen.dart';
 import '../constants/app_colors.dart';
 
 class DogHomeScreen extends StatefulWidget {
@@ -1701,6 +1702,25 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         foregroundColor: Colors.deepPurple,
                         side: BorderSide(color: Colors.deepPurple[200]!),
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => VaccinationsScreen(
+                              dog: _dog,
+                              isStaff: widget.isStaff,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: Picon(PiconsDuotone.syringe),
+                      label: const Text('Vaccinations'),
                     ),
                   ),
                   _buildRequestsSection(),

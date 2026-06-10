@@ -114,8 +114,19 @@ abstract class DataService {
 
   // Closure Days
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate});
-  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = ''});
+  Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = '', int? capacityOverride});
   Future<void> deleteClosureDay(int id);
+
+  // Vaccinations
+  Future<List<VaccinationRecord>> getVaccinations(String dogId);
+  Future<VaccinationRecord> createVaccination({required String dogId, required String name, required DateTime dateAdministered, required DateTime expiryDate, String? notes});
+  Future<VaccinationRecord> updateVaccination(int id, {String? name, DateTime? dateAdministered, DateTime? expiryDate, String? notes});
+  Future<void> deleteVaccination(int id);
+
+  // Owner calendar & waitlist
+  Future<OwnerCalendar> getOwnerCalendar({DateTime? start, DateTime? end});
+  Future<WaitlistEntry> joinWaitlist({required String dogId, required DateTime date});
+  Future<void> leaveWaitlist(int entryId);
 
   // Dog Notes
   Future<List<DogNote>> getDogNotes({int? dogId, String? noteType});
