@@ -188,9 +188,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: const TextStyle(color: Colors.red),
                   ),
                 ),
-              const Text(
+              Text(
                 'Your Details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 16),
               Row(
@@ -200,7 +200,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       controller: _firstNameController,
                       decoration: const InputDecoration(
                         labelText: 'First Name',
-                        border: OutlineInputBorder(),
                       ),
                       textCapitalization: TextCapitalization.words,
                       validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
@@ -212,7 +211,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       controller: _lastNameController,
                       decoration: const InputDecoration(
                         labelText: 'Last Name',
-                        border: OutlineInputBorder(),
                       ),
                       textCapitalization: TextCapitalization.words,
                       validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
@@ -225,7 +223,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _emailController,
                 decoration: const InputDecoration(
                   labelText: 'Email',
-                  border: OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.envelope),
                   helperText: 'This will be your login',
                 ),
@@ -241,7 +238,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _passwordController,
                 decoration: InputDecoration(
                   labelText: 'Password',
-                  border: const OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
                     icon: Picon(
@@ -258,7 +254,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _confirmPasswordController,
                 decoration: InputDecoration(
                   labelText: 'Confirm Password',
-                  border: const OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
                     icon: Picon(
@@ -271,16 +266,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
               ),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'Contact Details (Optional)',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _phoneController,
                 decoration: const InputDecoration(
                   labelText: 'Phone Number',
-                  border: OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.phone),
                 ),
                 keyboardType: TextInputType.phone,
@@ -290,7 +284,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _addressController,
                 decoration: const InputDecoration(
                   labelText: 'Address',
-                  border: OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.house),
                 ),
                 maxLines: 2,

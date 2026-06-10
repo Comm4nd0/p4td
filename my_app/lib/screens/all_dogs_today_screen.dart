@@ -292,7 +292,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       await _dataService.unassignDog(assignment.id, scope: scope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${assignment.dogName} has been unassigned'), backgroundColor: Colors.green),
+          SnackBar(content: Text('${assignment.dogName} has been unassigned'), backgroundColor: AppColors.success),
         );
       }
       await _reloadAll();
@@ -326,7 +326,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       await _dataService.unassignDog(assignment.id, scope: AssignmentScope.justThisDay);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${assignment.dogName} removed from $dateLabel'), backgroundColor: Colors.green),
+          SnackBar(content: Text('${assignment.dogName} removed from $dateLabel'), backgroundColor: AppColors.success),
         );
       }
       await _reloadAll();
@@ -356,7 +356,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       await _dataService.reassignDog(assignment.id, picked, scope: scope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Dog reassigned successfully'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Dog reassigned successfully'), backgroundColor: AppColors.success),
         );
       }
       await _reloadAll();
@@ -504,7 +504,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
           _dataChanged = true;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Transport updated for ${assignment.dogName}'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Transport updated for ${assignment.dogName}'), backgroundColor: AppColors.success),
         );
       }
     } catch (e) {
@@ -574,7 +574,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 const SizedBox(height: 12),
               ],
               DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'Staff member', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Staff member'),
                 value: picked,
                 items: staffMembers.map((s) {
                   final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
@@ -611,11 +611,11 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       if (mounted) {
         if (result.hasSkipped) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: Colors.orange),
+            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: AppColors.warning),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name} assigned to you'), backgroundColor: Colors.green),
+            SnackBar(content: Text('${dog.name} assigned to you'), backgroundColor: AppColors.success),
           );
         }
       }
@@ -638,11 +638,11 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       if (mounted) {
         if (result.hasSkipped) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: Colors.orange),
+            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: AppColors.warning),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name} assigned'), backgroundColor: Colors.green),
+            SnackBar(content: Text('${dog.name} assigned'), backgroundColor: AppColors.success),
           );
         }
       }
@@ -677,7 +677,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       await _dataService.removeDogFromDay(int.parse(dog.id), widget.date);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${dog.name} removed from $dateLabel'), backgroundColor: Colors.green),
+          SnackBar(content: Text('${dog.name} removed from $dateLabel'), backgroundColor: AppColors.success),
         );
       }
       await _reloadAll();
@@ -771,7 +771,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                         ],
                       ),
                     )
-                  : RefreshIndicator(
+                  : RefreshIndicator.adaptive(
                       onRefresh: _reloadAll,
                       child: _sortOption == _SortOption.staffMember
                           ? _buildGroupedByStaffList(filteredAssignments, filteredUnassigned)
@@ -953,7 +953,6 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
 
   Widget _buildUnassignedCard(Dog dog) {
     return Card(
-      elevation: 2,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         side: BorderSide(color: Colors.red.shade200, width: 1),
@@ -1061,7 +1060,6 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     final statusColor = _statusColor(assignment.status);
 
     return Card(
-      elevation: 2,
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.all(12),

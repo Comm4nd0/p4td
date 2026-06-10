@@ -104,7 +104,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
           : null,
       body: _loading
           ? const ListTileSkeletonList()
-          : RefreshIndicator(
+          : RefreshIndicator.adaptive(
               onRefresh: _load,
               child: _closureDays.isEmpty
                   ? ListView(
@@ -244,7 +244,6 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
               decoration: const InputDecoration(
                 labelText: 'Reason (optional)',
                 hintText: 'e.g. Bank Holiday, Christmas',
-                border: OutlineInputBorder(),
               ),
               textCapitalization: TextCapitalization.sentences,
             ),

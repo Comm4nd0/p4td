@@ -151,8 +151,11 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
               const SizedBox(height: 32),
               if (_errorMessage != null)
                 Container(
-                  padding: const EdgeInsets.all(8),
-                  color: Colors.red.shade100,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                   child: Text(
                     _errorMessage!,
                     style: TextStyle(color: Colors.red.shade800),
@@ -164,7 +167,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 controller: _emailController,
                 decoration: const InputDecoration(
                   labelText: 'Email',
-                  border: OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.envelope),
                 ),
                 keyboardType: TextInputType.emailAddress,
@@ -175,7 +177,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 obscureText: _obscurePassword,
                 decoration: InputDecoration(
                   labelText: 'Password',
-                  border: const OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
                     icon: Picon(
@@ -204,8 +205,12 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : const Text('LOGIN'),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Log In'),
               ),
               const SizedBox(height: 16),
               TextButton(

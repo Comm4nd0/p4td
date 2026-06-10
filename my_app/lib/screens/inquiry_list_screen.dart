@@ -74,7 +74,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
           Expanded(
             child: _loading
                 ? const ListTileSkeletonList()
-                : RefreshIndicator(
+                : RefreshIndicator.adaptive(
                     onRefresh: _loadInquiries,
                     child: _filteredInquiries.isEmpty
                         ? ListView(

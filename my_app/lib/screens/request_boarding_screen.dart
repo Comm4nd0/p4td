@@ -183,7 +183,6 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                     onTap: _selectDateRange,
                     child: InputDecorator(
                       decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
                         prefixIcon: Picon(PiconsDuotone.calendarDots),
                         labelText: 'Boarding Dates',
                       ),
@@ -208,7 +207,6 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                     controller: _instructionsController,
                     decoration: const InputDecoration(
                       hintText: 'Any special care instructions, feeding, meds, etc.',
-                      border: OutlineInputBorder(),
                     ),
                     maxLines: 4,
                   ),

@@ -313,9 +313,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
           TextField(
             controller: _nameController,
             decoration: const InputDecoration(
-              labelText: 'Name',
-              border: OutlineInputBorder(),
-              prefixIcon: Picon(PiconsDuotone.pawPrint),
+              labelText: 'Name',              prefixIcon: Picon(PiconsDuotone.pawPrint),
             ),
           ),
           const SizedBox(height: 16),
@@ -325,9 +323,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             controller: _foodController,
             decoration: const InputDecoration(
               labelText: 'Food Instructions',
-              hintText: 'e.g. 1 cup dry food twice a day',
-              border: OutlineInputBorder(),
-              prefixIcon: Picon(PiconsDuotone.forkKnife),
+              hintText: 'e.g. 1 cup dry food twice a day',              prefixIcon: Picon(PiconsDuotone.forkKnife),
             ),
             maxLines: 3,
           ),
@@ -336,9 +332,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             controller: _medicalController,
             decoration: const InputDecoration(
               labelText: 'Medical / Injuries',
-              hintText: 'e.g. recovering from surgery, allergic to chicken',
-              border: OutlineInputBorder(),
-              prefixIcon: Picon(PiconsDuotone.firstAid),
+              hintText: 'e.g. recovering from surgery, allergic to chicken',              prefixIcon: Picon(PiconsDuotone.firstAid),
             ),
             maxLines: 3,
           ),
@@ -347,9 +341,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             controller: _vetController,
             decoration: const InputDecoration(
               labelText: 'Registered Vet',
-              hintText: 'Practice name, address and phone number',
-              border: OutlineInputBorder(),
-              prefixIcon: Picon(PiconsDuotone.stethoscope),
+              hintText: 'Practice name, address and phone number',              prefixIcon: Picon(PiconsDuotone.stethoscope),
             ),
             textCapitalization: TextCapitalization.words,
             maxLines: 3,
@@ -369,9 +361,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
           DropdownButtonFormField<DogSex?>(
             value: _selectedSex,
             decoration: const InputDecoration(
-              labelText: 'Sex',
-              border: OutlineInputBorder(),
-              prefixIcon: Picon(PiconsDuotone.dog),
+              labelText: 'Sex',              prefixIcon: Picon(PiconsDuotone.dog),
             ),
             items: const [
               DropdownMenuItem(value: null, child: Text('Unknown')),
@@ -396,9 +386,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             },
             child: InputDecorator(
               decoration: InputDecoration(
-                labelText: 'Date of birth',
-                border: const OutlineInputBorder(),
-                prefixIcon: const Picon(PiconsDuotone.cake),
+                labelText: 'Date of birth',                prefixIcon: const Picon(PiconsDuotone.cake),
                 suffixIcon: _selectedDateOfBirth == null
                     ? null
                     : IconButton(
@@ -414,7 +402,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          SwitchListTile(
+          SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             title: const Text('Spayed / Neutered'),
             subtitle: Text(

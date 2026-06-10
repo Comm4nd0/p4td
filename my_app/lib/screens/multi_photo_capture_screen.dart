@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
+import '../constants/app_colors.dart';
 
 /// Full-screen camera that lets the user capture multiple photos in one
 /// session. Returns a `List<(Uint8List, String)>` of (jpegBytes, fileName)
@@ -155,7 +156,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Capture failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Capture failed: $e'), backgroundColor: AppColors.error),
         );
       }
     } finally {
@@ -182,7 +183,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
             content: Text(
               'Photo library permission denied. Enable it in your device settings to save photos.',
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
         return;
@@ -193,7 +194,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not enable saving: ${e.type.message}'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
         ),
       );
     }
@@ -225,7 +226,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
               content: Text(
                 'Photo library permission denied. Enable it in your device settings to save photos.',
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.error,
             ),
           );
         }
@@ -310,7 +311,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
 
     if (errorMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        SnackBar(content: Text(errorMessage), backgroundColor: AppColors.error),
       );
       // If at least one saved, let the upload proceed; otherwise stay put.
       return saved > 0;

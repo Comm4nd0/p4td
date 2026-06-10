@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
+import '../constants/app_colors.dart';
 import '../models/support_query.dart';
 import '../models/support_message.dart';
 import '../services/data_service.dart';
@@ -152,7 +153,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
       if (mounted) {
         setState(() => _query = updated);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Conversation resolved'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Conversation resolved'), backgroundColor: AppColors.success),
         );
       }
     } catch (e) {
@@ -280,9 +281,6 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                                   controller: _messageController,
                                   decoration: InputDecoration(
                                     hintText: 'Type a message...',
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                    ),
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                                   ),
                                   maxLines: null,

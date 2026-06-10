@@ -581,7 +581,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         if (mounted && assignResult.hasSkipped) {
           final names = assignResult.skipped.map((s) => s.dogName).join(', ');
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Already assigned: $names'), backgroundColor: Colors.orange, duration: const Duration(seconds: 4)),
+            SnackBar(content: Text('Already assigned: $names'), backgroundColor: AppColors.warning, duration: const Duration(seconds: 4)),
           );
         }
         await _loadAssignments();
@@ -601,7 +601,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Select Staff Member'),
           content: DropdownButtonFormField<int>(
-            decoration: const InputDecoration(labelText: 'Assign to', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Assign to'),
             items: _staffMembers.map((s) {
               final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
                   ? s['first_name'].toString() : s['username'].toString();
@@ -685,14 +685,14 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(labelText: 'From staff', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'From staff'),
                   value: fromStaffId,
                   items: staffMembers.map((s) => DropdownMenuItem<int>(value: s['id'] as int, child: Text(staffLabel(s)))).toList(),
                   onChanged: (v) { setDialogState(() => fromStaffId = v); refreshPreview(setDialogState); },
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(labelText: 'To staff', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'To staff'),
                   value: toStaffId,
                   items: staffMembers.where((s) => s['id'] != fromStaffId)
                       .map((s) => DropdownMenuItem<int>(value: s['id'] as int, child: Text(staffLabel(s)))).toList(),
@@ -749,7 +749,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       if (mounted) {
         final updated = result['assignment_rows_updated'] ?? 0;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Swapped $updated assignment(s).'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Swapped $updated assignment(s).'), backgroundColor: AppColors.success),
         );
       }
       await _loadAssignments();
@@ -815,7 +815,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   children: [
                     if (widget.canAssignDogs) ...[
                       DropdownButtonFormField<int>(
-                        decoration: const InputDecoration(labelText: 'Assign to staff', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Assign to staff'),
                         value: selectedStaffId,
                         items: sortedStaff.map((s) {
                           final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
@@ -843,7 +843,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                       decoration: InputDecoration(
                         hintText: 'Search by name...',
                         prefixIcon: Picon(PiconsDuotone.magnifyingGlass),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                       ),
@@ -916,11 +915,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           if (assignResult.hasSkipped) {
             final reason = assignResult.skipped.first.reason;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('${assignResult.skipped.first.dogName} - $reason'), backgroundColor: Colors.orange),
+              SnackBar(content: Text('${assignResult.skipped.first.dogName} - $reason'), backgroundColor: AppColors.warning),
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Dog added to day'), backgroundColor: Colors.green),
+              const SnackBar(content: Text('Dog added to day'), backgroundColor: AppColors.success),
             );
           }
         }
@@ -1022,12 +1021,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       );
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: AppColors.success));
           }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error));
       }
     }
   }
@@ -1102,19 +1101,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       final succeeded = total - failures.length;
       if (failures.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: Colors.green));
+          content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: AppColors.success));
       } else {
         final failedNames = failures.map((f) => f.fileName).join(', ');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
-          backgroundColor: Colors.orange,
+          backgroundColor: AppColors.warning,
           duration: const Duration(seconds: 6),
         ));
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error));
       }
     }
   }
@@ -1198,7 +1197,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             ]),
           ),
         Expanded(
-          child: RefreshIndicator(
+          child: RefreshIndicator.adaptive(
             onRefresh: () async {
               await _loadAssignmentsForDate(_selectedDate, forceReload: true);
               await _loadDashboardData();
@@ -1635,11 +1634,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       if (mounted) {
         if (result.hasSkipped) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: Colors.orange),
+            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: AppColors.warning),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name} assigned to you'), backgroundColor: Colors.green),
+            SnackBar(content: Text('${dog.name} assigned to you'), backgroundColor: AppColors.success),
           );
         }
       }
@@ -1659,11 +1658,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       if (mounted) {
         if (result.hasSkipped) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: Colors.orange),
+            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: AppColors.warning),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name} assigned'), backgroundColor: Colors.green),
+            SnackBar(content: Text('${dog.name} assigned'), backgroundColor: AppColors.success),
           );
         }
       }

@@ -254,9 +254,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         else
                           DropdownButtonFormField<String>(
                             decoration: const InputDecoration(
-                              labelText: 'Assign Owner',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Picon(PiconsDuotone.userFocus),
+                              labelText: 'Assign Owner',                              prefixIcon: Picon(PiconsDuotone.userFocus),
                             ),
                             value: _selectedOwnerId,
                             items: _owners.map((owner) {
@@ -277,9 +275,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       TextFormField(
                         controller: _nameController,
                         decoration: const InputDecoration(
-                          labelText: 'Dog Name',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.pawPrint),
+                          labelText: 'Dog Name',                          prefixIcon: Picon(PiconsDuotone.pawPrint),
                         ),
                         textCapitalization: TextCapitalization.words,
                         validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
@@ -294,9 +290,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         controller: _foodController,
                         decoration: const InputDecoration(
                           labelText: 'Food Instructions',
-                          hintText: 'e.g., 1 cup dry food twice a day',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.forkKnife),
+                          hintText: 'e.g., 1 cup dry food twice a day',                          prefixIcon: Picon(PiconsDuotone.forkKnife),
                         ),
                         maxLines: 3,
                       ),
@@ -305,9 +299,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         controller: _medicalController,
                         decoration: const InputDecoration(
                           labelText: 'Medical Notes / Injuries',
-                          hintText: 'e.g., recovering from surgery, allergies',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.firstAid),
+                          hintText: 'e.g., recovering from surgery, allergies',                          prefixIcon: Picon(PiconsDuotone.firstAid),
                         ),
                         maxLines: 3,
                       ),
@@ -316,9 +308,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         controller: _vetController,
                         decoration: const InputDecoration(
                           labelText: 'Registered Vet (Optional)',
-                          hintText: 'Practice name, address and phone number',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.stethoscope),
+                          hintText: 'Practice name, address and phone number',                          prefixIcon: Picon(PiconsDuotone.stethoscope),
                         ),
                         textCapitalization: TextCapitalization.words,
                         maxLines: 3,
@@ -341,9 +331,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       DropdownButtonFormField<DogSex?>(
                         value: _selectedSex,
                         decoration: const InputDecoration(
-                          labelText: 'Sex',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.dog),
+                          labelText: 'Sex',                          prefixIcon: Picon(PiconsDuotone.dog),
                         ),
                         items: const [
                           DropdownMenuItem(value: null, child: Text('Unknown')),
@@ -368,9 +356,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         },
                         child: InputDecorator(
                           decoration: InputDecoration(
-                            labelText: 'Date of birth',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Picon(PiconsDuotone.cake),
+                            labelText: 'Date of birth',                            prefixIcon: const Picon(PiconsDuotone.cake),
                             suffixIcon: _selectedDateOfBirth == null
                                 ? null
                                 : IconButton(
@@ -386,7 +372,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      SwitchListTile(
+                      SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Spayed / Neutered'),
                         secondary: const Picon(PiconsDuotone.heart),

@@ -83,7 +83,7 @@ class _StaffPermissionsScreenState extends State<StaffPermissionsScreen> {
       appBar: AppBar(title: const Text('Staff Permissions')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+          : RefreshIndicator.adaptive(
               onRefresh: _load,
               child: ListView.builder(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -250,7 +250,7 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
     required String field,
     required void Function(bool) setLocal,
   }) {
-    return SwitchListTile(
+    return SwitchListTile.adaptive(
       title: Text(label),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
       secondary: Picon(icon, size: 22),

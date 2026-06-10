@@ -175,9 +175,6 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         title: const Text('Staff Availability'),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: AppColors.cream,
-          unselectedLabelColor: AppColors.cream.withAlpha(180),
-          indicatorColor: AppColors.cream,
           isScrollable: _tabCount > 2,
           tabs: [
             const Tab(text: 'My Availability'),
@@ -249,7 +246,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                               onPressed: () => _editNote(day),
                               tooltip: 'Edit note',
                             ),
-                            Switch(
+                            Switch.adaptive(
                               value: isAvailable,
                               onChanged: (val) {
                                 setState(() => _myAvailability[day] = val);
@@ -295,7 +292,6 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           controller: controller,
           decoration: const InputDecoration(
             hintText: 'e.g. Available mornings only',
-            border: OutlineInputBorder(),
           ),
           textCapitalization: TextCapitalization.sentences,
         ),
@@ -315,7 +311,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   Widget _buildDayOffTab() {
     if (_loadingDayOff) return const Center(child: CircularProgressIndicator());
 
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: _loadDayOffRequests,
       child: ListView(
         padding: const EdgeInsets.all(16),
@@ -550,7 +546,6 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           controller: reasonController,
           decoration: const InputDecoration(
             hintText: 'Reason (optional)',
-            border: OutlineInputBorder(),
           ),
           textCapitalization: TextCapitalization.sentences,
           maxLines: 2,
@@ -781,7 +776,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         ),
         const Divider(height: 16),
         Expanded(
-          child: RefreshIndicator(
+          child: RefreshIndicator.adaptive(
             onRefresh: () => _loadTeamOff(_focusedDay),
             child: _buildSelectedDayOffPanel(selectedOff),
           ),
@@ -840,7 +835,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   Widget _buildCoverageTab() {
     if (_loadingCoverage) return const Center(child: CircularProgressIndicator());
 
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: _loadCoverage,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
