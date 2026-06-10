@@ -1,7 +1,8 @@
 from rest_framework import viewsets, mixins, status as drf_status
 from rest_framework.response import Response
-from rest_framework.decorators import action, api_view, permission_classes as perm_classes
+from rest_framework.decorators import action, api_view, permission_classes as perm_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
@@ -225,7 +226,6 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        serializer.save()
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -235,8 +235,7 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can view owner list")
 
-        profiles = UserProfile.objects.all()
-        # You might want to filter this later, e.g. .select_related('user')
+        profiles = UserProfile.objects.select_related('user').all()
         from .serializers import UserSummarySerializer
         serializer = UserSummarySerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)
@@ -717,10 +716,11 @@ class PhotoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        base = Photo.objects.select_related('dog').prefetch_related('comments__user')
         if self.request.user.is_staff:
-            return Photo.objects.all()
+            return base.all()
         from django.db.models import Q
-        return Photo.objects.filter(
+        return base.filter(
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
         ).distinct()
 
@@ -830,10 +830,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        base = DateChangeRequest.objects.select_related('dog', 'dog__owner', 'approved_by')
         if self.request.user.is_staff:
-            return DateChangeRequest.objects.all()
+            return base.all()
         from django.db.models import Q
-        return DateChangeRequest.objects.filter(
+        return base.filter(
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
         ).distinct()
 
@@ -1102,9 +1103,12 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        base = BoardingRequest.objects.select_related('owner', 'approved_by').prefetch_related(
+            'dogs', 'history__changed_by'
+        )
         if self.request.user.is_staff:
-            return BoardingRequest.objects.all()
-        return BoardingRequest.objects.filter(owner=self.request.user)
+            return base.all()
+        return base.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
         # Ensure owner is set to current user (unless staff specifying owner)
@@ -2618,7 +2622,18 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
 # PASSWORD RESET & CHANGE VIEWS
 # =============================================================================
 
+class PasswordResetRequestThrottle(AnonRateThrottle):
+    """Limits OTP emails per client IP (rate set in DEFAULT_THROTTLE_RATES)."""
+    scope = 'password_reset'
+
+
+class PasswordResetConfirmThrottle(AnonRateThrottle):
+    """Limits OTP/token verification attempts per client IP."""
+    scope = 'password_reset_confirm'
+
+
 @api_view(['POST'])
+@throttle_classes([PasswordResetRequestThrottle])
 @perm_classes([AllowAny])
 def request_password_reset(request):
     """Step 1: User provides email, receives a 6-digit OTP."""
@@ -2653,6 +2668,7 @@ def request_password_reset(request):
 
 
 @api_view(['POST'])
+@throttle_classes([PasswordResetConfirmThrottle])
 @perm_classes([AllowAny])
 def verify_otp(request):
     """Step 2: User provides email + OTP, receives a temporary reset token."""
@@ -2680,6 +2696,7 @@ def verify_otp(request):
 
 
 @api_view(['POST'])
+@throttle_classes([PasswordResetConfirmThrottle])
 @perm_classes([AllowAny])
 def reset_password(request):
     """Step 3: User provides reset_token + new_password to set their new password."""

@@ -168,6 +168,10 @@ class DateChangeRequest(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'original_date']),
+            models.Index(fields=['status', 'new_date']),
+        ]
 
     def __str__(self):
         if self.request_type == 'CANCEL':
@@ -290,6 +294,10 @@ class DailyDogAssignment(models.Model):
     class Meta:
         unique_together = ('dog', 'date')
         ordering = ['sort_order', 'dog__name']
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['date', 'staff_member']),
+        ]
 
     def __str__(self):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
