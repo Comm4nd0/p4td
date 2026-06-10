@@ -1537,8 +1537,16 @@ class StaffAvailabilityTests(TestCase):
         self.assertEqual(avail.note, 'Updated')
 
     def test_coverage_endpoint(self):
-        StaffAvailability.objects.create(staff_member=self.staff, day_of_week=1, is_available=True)
-        StaffAvailability.objects.create(staff_member=self.staff2, day_of_week=1, is_available=False)
+        # The coverage endpoint reads is_available_daycare; set it alongside
+        # is_available, mirroring what set_my_availability writes.
+        StaffAvailability.objects.create(
+            staff_member=self.staff, day_of_week=1,
+            is_available=True, is_available_daycare=True,
+        )
+        StaffAvailability.objects.create(
+            staff_member=self.staff2, day_of_week=1,
+            is_available=False, is_available_daycare=False,
+        )
         self.client.login(username='staff', password='pw')
         resp = self.client.get('/api/staff-availability/coverage/')
         self.assertEqual(resp.status_code, 200)
