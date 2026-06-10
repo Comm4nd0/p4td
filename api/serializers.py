@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -104,10 +104,11 @@ class StaffPermissionsSerializer(serializers.ModelSerializer):
 class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
     additional_owners_details = serializers.SerializerMethodField()
+    vaccination_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'created_at']
         read_only_fields = ['created_at']
         extra_kwargs = {
             'owner': {'required': False},
@@ -130,6 +131,18 @@ class DogSerializer(serializers.ModelSerializer):
             except:
                 pass
         return details
+
+    def get_vaccination_summary(self, obj):
+        records = list(obj.vaccinations.all())
+        if not records:
+            return None
+        statuses = [r.status for r in records]
+        return {
+            'count': len(records),
+            'expired': statuses.count('expired'),
+            'expiring_soon': statuses.count('expiring_soon'),
+            'next_expiry': min(r.expiry_date for r in records).isoformat(),
+        }
 
     def validate_daycare_days(self, value):
         if isinstance(value, str):
@@ -469,13 +482,45 @@ class ClosureDaySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ClosureDay
-        fields = ['id', 'date', 'closure_type', 'reason', 'created_by', 'created_by_name', 'created_at']
+        fields = ['id', 'date', 'closure_type', 'reason', 'capacity_override', 'created_by', 'created_by_name', 'created_at']
         read_only_fields = ['id', 'created_by', 'created_by_name', 'created_at']
 
     def get_created_by_name(self, obj):
         if obj.created_by:
             return obj.created_by.first_name or obj.created_by.username
         return None
+
+
+class VaccinationRecordSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    status = serializers.CharField(read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VaccinationRecord
+        fields = ['id', 'dog', 'dog_name', 'name', 'date_administered', 'expiry_date', 'notes', 'status', 'created_by_name', 'created_at']
+        read_only_fields = ['id', 'created_by_name', 'created_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return None
+
+    def validate(self, attrs):
+        administered = attrs.get('date_administered', getattr(self.instance, 'date_administered', None))
+        expiry = attrs.get('expiry_date', getattr(self.instance, 'expiry_date', None))
+        if administered and expiry and expiry <= administered:
+            raise serializers.ValidationError({'expiry_date': 'Expiry date must be after the date administered.'})
+        return attrs
+
+
+class WaitlistEntrySerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+
+    class Meta:
+        model = WaitlistEntry
+        fields = ['id', 'dog', 'dog_name', 'date', 'status', 'created_at', 'notified_at']
+        read_only_fields = ['id', 'status', 'created_at', 'notified_at']
 
 
 class DogNoteSerializer(serializers.ModelSerializer):

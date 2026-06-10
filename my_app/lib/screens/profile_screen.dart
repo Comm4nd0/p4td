@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../constants/app_colors.dart';
 import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/auth_service.dart';
 import '../services/theme_service.dart';
+import '../widgets/app_sheets.dart';
+import '../widgets/grouped_section.dart';
 
 import 'login_screen.dart';
 import 'home_screen.dart';
@@ -229,42 +232,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _showPhotoOptions() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Picon(PiconsDuotone.camera),
-              title: const Text('Take Photo'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: Picon(PiconsDuotone.images),
-              title: const Text('Choose from Gallery'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-            if (_profile?.profilePhotoUrl != null)
-              ListTile(
-                leading: Picon(PiconsDuotone.trash, color: Colors.red),
-                title: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _deleteProfilePhoto();
-                },
-              ),
-          ],
-        ),
-      ),
+  Future<void> _showPhotoOptions() async {
+    final choice = await showAppActionSheet<String>(
+      context,
+      title: 'Profile Photo',
+      actions: [
+        const AppSheetAction(label: 'Take Photo', value: 'camera'),
+        const AppSheetAction(label: 'Choose from Gallery', value: 'gallery'),
+        if (_profile?.profilePhotoUrl != null)
+          const AppSheetAction(
+              label: 'Remove Photo', value: 'remove', isDestructive: true),
+      ],
     );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'camera':
+        _pickImage(ImageSource.camera);
+      case 'gallery':
+        _pickImage(ImageSource.gallery);
+      case 'remove':
+        _deleteProfilePhoto();
+    }
   }
 
   Future<void> _logout() async {
@@ -382,7 +370,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 enabled: !isDeleting,
                 decoration: InputDecoration(
                   labelText: 'Password',
-                  border: const OutlineInputBorder(),
                   prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
                     icon: Picon(
@@ -471,6 +458,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ],
       selected: {themeService.themeMode},
+      showSelectedIcon: false,
       onSelectionChanged: (selected) {
         themeService.setThemeMode(selected.first);
       },
@@ -529,7 +517,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final isActive = a.userId == _activeAccountId;
       final label = (a.displayName?.isNotEmpty ?? false) ? a.displayName! : a.username;
       return ListTile(
-        contentPadding: EdgeInsets.zero,
         leading: CircleAvatar(
           backgroundImage: (a.profilePhotoUrl != null && a.profilePhotoUrl!.isNotEmpty)
               ? CachedNetworkImageProvider(a.profilePhotoUrl!)
@@ -555,9 +542,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         title: const Text('My Profile'),
         actions: [
-          IconButton(
-            icon: Picon(PiconsDuotone.floppyDisk),
+          TextButton(
             onPressed: (_isLoading || _isSaving) ? null : _saveProfile,
+            child: Text(_isSaving ? 'Saving…' : 'Save'),
           ),
         ],
       ),
@@ -566,10 +553,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           : _error != null
               ? Center(child: Text('Error: $_error'))
               : ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   children: [
                     _buildProfilePhoto(),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Center(
                       child: Text(
                         _profile!.username,
@@ -579,156 +566,150 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Center(
                       child: Text(
                         _profile!.email,
-                        style: Theme.of(context).textTheme.bodySmall,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
                       ),
-                    ),
-                    const Divider(height: 32),
-                    TextField(
-                      controller: _firstNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'First Name',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Picon(PiconsDuotone.identificationCard),
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _phoneController,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone Number',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Picon(PiconsDuotone.phone),
-                      ),
-                      keyboardType: TextInputType.phone,
-                    ),
-                    if (!_profile!.isStaff) ...[
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _addressController,
-                        decoration: const InputDecoration(
-                          labelText: 'Address',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.house),
-                        ),
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _pickupController,
-                        decoration: const InputDecoration(
-                          labelText: 'Pickup Instructions',
-                          hintText: 'e.g., Key under the mat, Gate code 1234...',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Picon(PiconsDuotone.info),
-                        ),
-                        maxLines: 4,
-                      ),
-                    ],
-                    const Divider(height: 32),
-                    Text(
-                      'Accounts',
-                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-                    ..._buildAccountTiles(),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Picon(PiconsDuotone.userPlus),
-                      title: const Text('Add another account'),
-                      onTap: _addAccount,
-                    ),
-                    const Divider(height: 32),
-                    Text(
-                      'Notifications',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      title: const Text('Feed Activity'),
-                      subtitle: const Text('New posts and comments'),
-                      secondary: Picon(PiconsDuotone.rss),
-                      value: _notifyFeed,
-                      onChanged: (val) => setState(() => _notifyFeed = val),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    if (!_profile!.isStaff) ...[
-                      SwitchListTile(
-                        title: const Text('Traffic Alerts'),
-                        subtitle: const Text('Pickup and drop-off delay alerts'),
-                        secondary: Picon(PiconsDuotone.path),
-                        value: _notifyTraffic,
-                        onChanged: (val) => setState(() => _notifyTraffic = val),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      SwitchListTile(
-                        title: const Text('Booking Updates'),
-                        subtitle: const Text('Date changes and boarding requests'),
-                        secondary: Picon(PiconsDuotone.calendar),
-                        value: _notifyBookings,
-                        onChanged: (val) => setState(() => _notifyBookings = val),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      SwitchListTile(
-                        title: const Text('Dog Updates'),
-                        subtitle: const Text('Picked up, at daycare, dropped off'),
-                        secondary: Picon(PiconsDuotone.pawPrint),
-                        value: _notifyDogUpdates,
-                        onChanged: (val) => setState(() => _notifyDogUpdates = val),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
-                    const Divider(height: 32),
-                    Text(
-                      'Appearance',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildThemeSelector(),
-                    const SizedBox(height: 32),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
-                          );
-                        },
-                        icon: Picon(PiconsDuotone.lock),
-                        label: const Text('Change Password'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                    GroupedSection(
+                      header: 'Details',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              TextField(
+                                controller: _firstNameController,
+                                decoration: const InputDecoration(
+                                  labelText: 'First Name',
+                                  prefixIcon: Picon(PiconsDuotone.identificationCard),
+                                ),
+                                textCapitalization: TextCapitalization.words,
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _phoneController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Phone Number',
+                                  prefixIcon: Picon(PiconsDuotone.phone),
+                                ),
+                                keyboardType: TextInputType.phone,
+                              ),
+                              if (!_profile!.isStaff) ...[
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _addressController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Address',
+                                    prefixIcon: Picon(PiconsDuotone.house),
+                                  ),
+                                  maxLines: 3,
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _pickupController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Pickup Instructions',
+                                    hintText: 'e.g., Key under the mat, Gate code 1234...',
+                                    prefixIcon: Picon(PiconsDuotone.info),
+                                  ),
+                                  maxLines: 4,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _logout,
-                        icon: Picon(PiconsDuotone.signOut, color: Colors.white),
-                        label: const Text('Log Out', style: TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                    GroupedSection(
+                      header: 'Accounts',
+                      children: [
+                        ..._buildAccountTiles(),
+                        ListTile(
+                          leading: const Picon(PiconsDuotone.userPlus),
+                          title: const Text('Add another account'),
+                          onTap: _addAccount,
                         ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 32),
-                    const Divider(),
+                    GroupedSection(
+                      header: 'Notifications',
+                      children: [
+                        SwitchListTile.adaptive(
+                          title: const Text('Feed Activity'),
+                          subtitle: const Text('New posts and comments'),
+                          secondary: Picon(PiconsDuotone.rss),
+                          value: _notifyFeed,
+                          onChanged: (val) => setState(() => _notifyFeed = val),
+                        ),
+                        if (!_profile!.isStaff) ...[
+                          SwitchListTile.adaptive(
+                            title: const Text('Traffic Alerts'),
+                            subtitle: const Text('Pickup and drop-off delay alerts'),
+                            secondary: Picon(PiconsDuotone.path),
+                            value: _notifyTraffic,
+                            onChanged: (val) => setState(() => _notifyTraffic = val),
+                          ),
+                          SwitchListTile.adaptive(
+                            title: const Text('Booking Updates'),
+                            subtitle: const Text('Date changes and boarding requests'),
+                            secondary: Picon(PiconsDuotone.calendar),
+                            value: _notifyBookings,
+                            onChanged: (val) => setState(() => _notifyBookings = val),
+                          ),
+                          SwitchListTile.adaptive(
+                            title: const Text('Dog Updates'),
+                            subtitle: const Text('Picked up, at daycare, dropped off'),
+                            secondary: Picon(PiconsDuotone.pawPrint),
+                            value: _notifyDogUpdates,
+                            onChanged: (val) => setState(() => _notifyDogUpdates = val),
+                          ),
+                        ],
+                      ],
+                    ),
+                    GroupedSection(
+                      header: 'Appearance',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Center(child: _buildThemeSelector()),
+                        ),
+                      ],
+                    ),
+                    GroupedSection(
+                      children: [
+                        ListTile(
+                          leading: Picon(PiconsDuotone.lock),
+                          title: const Text('Change Password'),
+                          trailing: Picon(
+                            PiconsDuotone.caretRight,
+                            size: 16,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+                            );
+                          },
+                        ),
+                        ListTile(
+                          title: const Text(
+                            'Log Out',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.error),
+                          ),
+                          onTap: _logout,
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     Center(
                       child: TextButton(
                         onPressed: _showDeleteAccountDialog,
                         style: TextButton.styleFrom(
-                          foregroundColor: Colors.grey,
+                          foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                         child: const Text('Delete Account'),
                       ),

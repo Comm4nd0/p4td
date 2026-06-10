@@ -5,9 +5,9 @@ from .views import (
     GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet,
     DailyDogAssignmentViewSet, SupportQueryViewSet, ContactInquiryViewSet,
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
-    DogProfileChangeRequestViewSet,
+    DogProfileChangeRequestViewSet, VaccinationRecordViewSet, WaitlistEntryViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
-    delete_account, postcode_lookup,
+    delete_account, postcode_lookup, daycare_settings,
 )
 
 router = DefaultRouter()
@@ -27,9 +27,12 @@ router.register(r'staff-availability', StaffAvailabilityViewSet, basename='staff
 router.register(r'day-off-requests', DayOffRequestViewSet, basename='day-off-requests')
 router.register(r'contact-inquiries', ContactInquiryViewSet, basename='contact-inquiries')
 router.register(r'dog-profile-changes', DogProfileChangeRequestViewSet, basename='dog-profile-changes')
+router.register(r'vaccinations', VaccinationRecordViewSet, basename='vaccinations')
+router.register(r'waitlist', WaitlistEntryViewSet, basename='waitlist')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('daycare-settings/', daycare_settings, name='daycare-settings'),
     path('password/reset/request/', request_password_reset, name='password-reset-request'),
     path('password/reset/verify/', verify_otp, name='password-reset-verify'),
     path('password/reset/confirm/', reset_password, name='password-reset-confirm'),

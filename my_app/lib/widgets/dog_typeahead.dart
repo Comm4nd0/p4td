@@ -204,9 +204,7 @@ class _DogTypeaheadState extends State<DogTypeahead> with WidgetsBindingObserver
                 )
               : Picon(PiconsDuotone.caretDown, size: 18),
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),        ),
         onChanged: _filterDogs,
       ),
     );
@@ -415,9 +413,7 @@ class _DogMultiSelectTypeaheadState extends State<DogMultiSelectTypeahead> with 
                     )
                   : null,
               isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),            ),
             onChanged: _filterDogs,
           ),
         ),

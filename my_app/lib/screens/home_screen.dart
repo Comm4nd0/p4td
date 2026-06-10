@@ -10,6 +10,7 @@ import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
+import '../widgets/grouped_section.dart';
 import '../widgets/no_connection_widget.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'dog_home_screen.dart';
@@ -21,6 +22,7 @@ import 'boarding_request_list_screen.dart';
 import 'unified_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
+import 'my_calendar_screen.dart';
 import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 
@@ -204,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           setState(() => _isOffline = true);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to check staff status: $e'), backgroundColor: Colors.red),
+            SnackBar(content: Text('Failed to check staff status: $e'), backgroundColor: AppColors.error),
           );
         }
       }
@@ -353,7 +355,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               decoration: const InputDecoration(
                 labelText: 'Additional detail (optional)',
                 hintText: 'e.g. Accident on M1, expect 20 min delay',
-                border: OutlineInputBorder(),
               ),
               maxLines: 2,
               textCapitalization: TextCapitalization.sentences,
@@ -384,7 +385,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Traffic alert sent to all owners for ${result == 'pickup' ? 'pickup' : 'drop-off'}'),
-              backgroundColor: Colors.green,
+              backgroundColor: AppColors.success,
             ),
           );
         }
@@ -456,7 +457,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               label: const Text('Add Dog'),
             )
           : null,
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).bottomNavigationBarTheme.backgroundColor,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).dividerTheme.color ?? AppColors.iosSeparator,
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) async {
           // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
@@ -491,6 +502,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               label: "Dashboard",
             ),
         ],
+        ),
       ),
       body: _isOffline
           ? NoConnectionWidget(onRetry: _refresh)
@@ -515,142 +527,172 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _drawerChevron() => Picon(
+        PiconsDuotone.caretRight,
+        size: 16,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      );
+
+  Widget _drawerBadge(int count) => Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: AppColors.error,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+        child: Text(
+          '$count',
+          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+      );
+
   Widget _buildDrawer() {
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           DrawerHeader(
-            decoration: const BoxDecoration(color: AppColors.primary),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).dividerTheme.color ?? AppColors.iosSeparator,
+                  width: 0.5,
+                ),
+              ),
+            ),
             child: Center(
               child: Image.asset('assets/logo.png', height: 48),
             ),
           ),
-          ListTile(
-            leading: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Picon(PiconsDuotone.chats),
-                if (_unresolvedQueryCount > 0)
-                  Positioned(
-                    right: -6,
-                    top: -6,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(10),
+          GroupedSection(
+            children: [
+              ListTile(
+                leading: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Picon(PiconsDuotone.chats),
+                    if (_unresolvedQueryCount > 0)
+                      Positioned(
+                        right: -6,
+                        top: -6,
+                        child: _drawerBadge(_unresolvedQueryCount),
                       ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                      child: Text(
-                        '$_unresolvedQueryCount',
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            title: const Text('Contact Staff'),
-            onTap: () async {
-              Navigator.pop(context); // close drawer
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => QueryListScreen(
-                    isStaff: _isStaff,
-                    canReplyQueries: _canReplyQueries,
-                  ),
+                  ],
                 ),
-              );
-              _loadUnresolvedQueryCount();
-            },
-          ),
-          if (_isStaff && _canViewInquiries)
-            ListTile(
-              leading: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Picon(PiconsDuotone.envelope),
-                  if (_unreadInquiryCount > 0)
-                    Positioned(
-                      right: -6,
-                      top: -4,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                        child: Text(
-                          '$_unreadInquiryCount',
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center,
-                        ),
+                title: const Text('Contact Staff'),
+                trailing: _drawerChevron(),
+                onTap: () async {
+                  Navigator.pop(context); // close drawer
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => QueryListScreen(
+                        isStaff: _isStaff,
+                        canReplyQueries: _canReplyQueries,
                       ),
                     ),
-                ],
+                  );
+                  _loadUnresolvedQueryCount();
+                },
               ),
-              title: const Text('Website Inquiries'),
-              onTap: () async {
-                Navigator.pop(context);
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const InquiryListScreen(),
+              if (_isStaff && _canViewInquiries)
+                ListTile(
+                  leading: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Picon(PiconsDuotone.envelope),
+                      if (_unreadInquiryCount > 0)
+                        Positioned(
+                          right: -6,
+                          top: -4,
+                          child: _drawerBadge(_unreadInquiryCount),
+                        ),
+                    ],
                   ),
-                );
-                _loadUnreadInquiryCount();
-              },
-            ),
-          if (_isStaff)
-            ListTile(
-              leading: Picon(PiconsDuotone.path),
-              title: const Text('Traffic Alert'),
-              onTap: () {
-                Navigator.pop(context);
-                _showTrafficAlertDialog();
-              },
-            ),
-          if (_isStaff)
-            ListTile(
-              leading: Picon(PiconsDuotone.clock),
-              title: const Text('My Availability'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canApproveTimeoff: _canApproveTimeoff),
-                  ),
-                );
-              },
-            ),
-          ListTile(
-            leading: Picon(PiconsDuotone.calendarX),
-            title: const Text('Holidays & Closures'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ClosureDaysScreen(isStaff: _isStaff),
+                  title: const Text('Website Inquiries'),
+                  trailing: _drawerChevron(),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const InquiryListScreen(),
+                      ),
+                    );
+                    _loadUnreadInquiryCount();
+                  },
                 ),
-              );
-            },
+              if (_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.path),
+                  title: const Text('Traffic Alert'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showTrafficAlertDialog();
+                  },
+                ),
+              if (_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.clock),
+                  title: const Text('My Availability'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canApproveTimeoff: _canApproveTimeoff),
+                      ),
+                    );
+                  },
+                ),
+              ListTile(
+                leading: Picon(PiconsDuotone.calendarCheck),
+                title: const Text('My Calendar'),
+                trailing: _drawerChevron(),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MyCalendarScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Picon(PiconsDuotone.calendarX),
+                title: const Text('Holidays & Closures'),
+                trailing: _drawerChevron(),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ClosureDaysScreen(isStaff: _isStaff),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
-          const Divider(),
-          ListTile(
-            leading: Picon(PiconsDuotone.user),
-            title: const Text('Profile'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfileScreen()),
-              );
-            },
+          GroupedSection(
+            children: [
+              ListTile(
+                leading: Picon(PiconsDuotone.user),
+                title: const Text('Profile'),
+                trailing: _drawerChevron(),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                  );
+                },
+              ),
+            ],
           ),
           if (_appVersion.isNotEmpty)
             Padding(
@@ -658,7 +700,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Text(
                 _appVersion,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ),
         ],
@@ -732,9 +776,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         },
                       )
                     : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
                 contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
               ),
               onChanged: _filterDogs,
@@ -749,7 +790,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     style: TextStyle(color: Colors.grey[600]),
                   ),
                 )
-              : RefreshIndicator(
+              : RefreshIndicator.adaptive(
                   onRefresh: () async => _loadDogs(),
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -757,7 +798,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     itemBuilder: (context, index) {
                       final dog = _filteredDogs[index];
                       return Card(
-                        elevation: 4,
                         margin: const EdgeInsets.only(bottom: 16),
                         child: InkWell(
                           onTap: () async {
@@ -781,7 +821,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             children: [
                               if (dog.profileImageUrl != null)
                                 ClipRRect(
-                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                                   child: CachedNetworkImage(
                                     imageUrl: dog.profileImageUrl!,
                                     height: 200,

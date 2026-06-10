@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
+import '../constants/app_colors.dart';
 import '../models/support_query.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
@@ -99,9 +100,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                 controller: subjectController,
                 decoration: const InputDecoration(
                   labelText: 'Subject',
-                  hintText: 'Brief summary',
-                  border: OutlineInputBorder(),
-                ),
+                  hintText: 'Brief summary',                ),
                 validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
               ),
               const SizedBox(height: 16),
@@ -109,9 +108,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                 controller: messageController,
                 decoration: const InputDecoration(
                   labelText: 'Message',
-                  hintText: 'Your message',
-                  border: OutlineInputBorder(),
-                ),
+                  hintText: 'Your message',                ),
                 maxLines: 4,
                 validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
               ),
@@ -143,7 +140,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Message sent'), backgroundColor: AppColors.success),
           );
         }
         _loadQueries();
@@ -196,9 +193,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                   if (preselectedOwner == null)
                     DropdownButtonFormField<OwnerProfile>(
                       decoration: const InputDecoration(
-                        labelText: 'Owner',
-                        border: OutlineInputBorder(),
-                      ),
+                        labelText: 'Owner',                      ),
                       value: selectedOwner,
                       items: owners.map((owner) => DropdownMenuItem(
                         value: owner,
@@ -220,9 +215,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                     controller: subjectController,
                     decoration: const InputDecoration(
                       labelText: 'Subject',
-                      hintText: 'Brief summary',
-                      border: OutlineInputBorder(),
-                    ),
+                      hintText: 'Brief summary',                    ),
                     validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                   ),
                   const SizedBox(height: 16),
@@ -230,9 +223,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                     controller: messageController,
                     decoration: const InputDecoration(
                       labelText: 'Message',
-                      hintText: 'Your message to the owner',
-                      border: OutlineInputBorder(),
-                    ),
+                      hintText: 'Your message to the owner',                    ),
                     maxLines: 4,
                     validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                   ),
@@ -267,7 +258,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Message sent'), backgroundColor: AppColors.success),
           );
           // Navigate directly into the new query
           await Navigator.push(
@@ -321,7 +312,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
           Expanded(
             child: _loading
                 ? const ListTileSkeletonList()
-                : RefreshIndicator(
+                : RefreshIndicator.adaptive(
                     onRefresh: _loadQueries,
                     child: _filteredQueries.isEmpty
                     ? ListView(

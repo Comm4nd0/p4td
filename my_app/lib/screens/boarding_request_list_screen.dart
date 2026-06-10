@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
-import '../constants/app_colors.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -84,9 +83,6 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
         appBar: AppBar(
           title: const Text('My Boarding Requests'),
           bottom: const TabBar(
-            labelColor: AppColors.cream,
-            unselectedLabelColor: AppColors.cream,
-            indicatorColor: AppColors.cream,
             tabs: [
               Tab(icon: Picon(PiconsDuotone.listDashes), text: 'List'),
               Tab(icon: Picon(PiconsDuotone.calendar), text: 'Calendar'),
@@ -101,7 +97,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
             } else if (snapshot.hasError) {
               return Center(child: Text('Error: ${snapshot.error}'));
             } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return RefreshIndicator(
+              return RefreshIndicator.adaptive(
                 onRefresh: _loadRequests,
                 child: ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -130,7 +126,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
   }
 
   Widget _buildListView(List<BoardingRequest> requests) {
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: () async => _loadRequests(),
       child: ListView.builder(
         itemCount: requests.length,

@@ -1,7 +1,8 @@
 from rest_framework import viewsets, mixins, status as drf_status
 from rest_framework.response import Response
-from rest_framework.decorators import action, api_view, permission_classes as perm_classes
+from rest_framework.decorators import action, api_view, permission_classes as perm_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
@@ -225,7 +226,6 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        serializer.save()
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -235,8 +235,7 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can view owner list")
 
-        profiles = UserProfile.objects.all()
-        # You might want to filter this later, e.g. .select_related('user')
+        profiles = UserProfile.objects.select_related('user').all()
         from .serializers import UserSummarySerializer
         serializer = UserSummarySerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)
@@ -290,12 +289,105 @@ class DogViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Staff can see all dogs, Clients see dogs they own or co-own
+        base = Dog.objects.prefetch_related('vaccinations')
         if self.request.user.is_staff:
-            return Dog.objects.all()
+            return base.all()
         from django.db.models import Q
-        return Dog.objects.filter(
+        return base.filter(
             Q(owner=self.request.user) | Q(additional_owners=self.request.user)
         ).distinct()
+
+    @action(detail=False, methods=['get'])
+    def calendar(self, request):
+        """Owner self-serve calendar.
+
+        GET /api/dogs/calendar/?start=YYYY-MM-DD&end=YYYY-MM-DD
+
+        For each day in the range: which of the caller's dogs attend (daycare
+        or boarding), closures, capacity/fullness, plus the caller's pending
+        requests and waitlist entries. Range defaults to today -> today+60
+        and is capped at 92 days.
+        """
+        from collections import defaultdict
+        from datetime import date as date_cls, timedelta
+        from django.db.models import Q
+        from .models import WaitlistEntry
+        from .scheduling import ScheduleIndex, daterange
+
+        today = date_cls.today()
+        try:
+            start = (
+                date_cls.fromisoformat(request.query_params['start'])
+                if 'start' in request.query_params else today
+            )
+            end = (
+                date_cls.fromisoformat(request.query_params['end'])
+                if 'end' in request.query_params else start + timedelta(days=60)
+            )
+        except ValueError:
+            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        if end < start:
+            return Response({'detail': 'end must not be before start.'}, status=400)
+        if (end - start).days > 92:
+            return Response({'detail': 'Date range too large (max 92 days).'}, status=400)
+
+        my_dogs = list(
+            Dog.objects.filter(Q(owner=request.user) | Q(additional_owners=request.user))
+            .distinct().values('id', 'name')
+        )
+        my_dog_ids = {d['id'] for d in my_dogs}
+        name_by_id = {d['id']: d['name'] for d in my_dogs}
+
+        index = ScheduleIndex(start, end)
+
+        pending_by_date = defaultdict(list)
+        pending_rows = DateChangeRequest.objects.filter(
+            dog_id__in=my_dog_ids, status='PENDING',
+        ).filter(
+            Q(original_date__range=(start, end)) | Q(new_date__range=(start, end))
+        ).values('id', 'dog_id', 'request_type', 'original_date', 'new_date')
+        for row in pending_rows:
+            marker = {'id': row['id'], 'dog_id': row['dog_id'], 'request_type': row['request_type']}
+            if row['original_date'] and start <= row['original_date'] <= end:
+                pending_by_date[row['original_date']].append(marker)
+            if row['new_date'] and start <= row['new_date'] <= end and row['new_date'] != row['original_date']:
+                pending_by_date[row['new_date']].append(marker)
+
+        waitlist_by_date = defaultdict(list)
+        for entry in WaitlistEntry.objects.filter(dog_id__in=my_dog_ids, date__range=(start, end)):
+            waitlist_by_date[entry.date].append(
+                {'id': entry.id, 'dog_id': entry.dog_id, 'status': entry.status}
+            )
+
+        days = []
+        for day in daterange(start, end):
+            attending = index.attending_dog_ids(day)
+            boarding = index.boarding_dog_ids(day)
+            closure = index.closure(day)
+            info = index.capacity_info(day)
+            days.append({
+                'date': day.isoformat(),
+                'dogs': [
+                    {'id': dog_id, 'name': name_by_id[dog_id], 'boarding': dog_id in boarding}
+                    for dog_id in sorted(my_dog_ids & attending)
+                ],
+                'closure': (
+                    {'closure_type': closure.closure_type, 'reason': closure.reason}
+                    if closure else None
+                ),
+                'is_full': info['is_full'],
+                'spots_left': info['spots_left'],
+                'capacity': info['capacity'],
+                'pending_requests': pending_by_date.get(day, []),
+                'waitlist': waitlist_by_date.get(day, []),
+            })
+
+        return Response({
+            'start': start.isoformat(),
+            'end': end.isoformat(),
+            'dogs': my_dogs,
+            'days': days,
+        })
 
     @action(detail=False, methods=['post'])
     def bulk_import(self, request):
@@ -717,10 +809,11 @@ class PhotoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        base = Photo.objects.select_related('dog').prefetch_related('comments__user')
         if self.request.user.is_staff:
-            return Photo.objects.all()
+            return base.all()
         from django.db.models import Q
-        return Photo.objects.filter(
+        return base.filter(
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
         ).distinct()
 
@@ -830,10 +923,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        base = DateChangeRequest.objects.select_related('dog', 'dog__owner', 'approved_by')
         if self.request.user.is_staff:
-            return DateChangeRequest.objects.all()
+            return base.all()
         from django.db.models import Q
-        return DateChangeRequest.objects.filter(
+        return base.filter(
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
         ).distinct()
 
@@ -849,6 +943,24 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if not self.request.user.is_staff:
             serializer.save()
             return
+
+        # Staff auto-approval puts the dog straight onto new_date, so enforce
+        # the daily capacity here. override_capacity=true skips the check.
+        request_type = serializer.validated_data.get('request_type')
+        new_date = serializer.validated_data.get('new_date')
+        if request_type in ('ADD_DAY', 'CHANGE') and new_date:
+            from .scheduling import capacity_check
+            override = str(self.request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
+            fits, info = capacity_check(new_date, dog_id=dog.id)
+            if not fits and not override:
+                from rest_framework import serializers as drf_serializers
+                raise drf_serializers.ValidationError({
+                    'detail': (
+                        f"{new_date} is full ({info['booked']}/{info['capacity']} dogs). "
+                        "Send override_capacity=true to add anyway."
+                    ),
+                    'code': 'capacity_full',
+                })
 
         instance = serializer.save(
             status='APPROVED',
@@ -872,6 +984,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 dog=instance.dog,
                 date=instance.original_date,
             ).delete()
+            try:
+                from .scheduling import process_waitlist_for_date
+                process_waitlist_for_date(instance.original_date)
+            except Exception as e:
+                print(f"Failed to process waitlist: {e}")
 
         # Notify dog owners
         try:
@@ -912,6 +1029,21 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if old_status == new_status:
             return Response({'detail': 'Status unchanged'}, status=200)
 
+        # Approving a request that puts the dog onto new_date must respect the
+        # daily capacity. override_capacity=true skips the check.
+        if new_status == 'APPROVED' and instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date:
+            from .scheduling import capacity_check
+            override = str(request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
+            fits, info = capacity_check(instance.new_date, dog_id=instance.dog_id)
+            if not fits and not override:
+                return Response({
+                    'detail': (
+                        f"{instance.new_date} is full ({info['booked']}/{info['capacity']} dogs). "
+                        "Send override_capacity=true to approve anyway."
+                    ),
+                    'code': 'capacity_full',
+                }, status=400)
+
         # Update approved metadata
         from django.utils import timezone
         if new_status == 'APPROVED':
@@ -928,6 +1060,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 dog=instance.dog,
                 date=instance.original_date,
             ).delete()
+            try:
+                from .scheduling import process_waitlist_for_date
+                process_waitlist_for_date(instance.original_date)
+            except Exception as e:
+                print(f"Failed to process waitlist: {e}")
 
         # Send push notification to all owners
         try:
@@ -1102,9 +1239,12 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        base = BoardingRequest.objects.select_related('owner', 'approved_by').prefetch_related(
+            'dogs', 'history__changed_by'
+        )
         if self.request.user.is_staff:
-            return BoardingRequest.objects.all()
-        return BoardingRequest.objects.filter(owner=self.request.user)
+            return base.all()
+        return base.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
         # Ensure owner is set to current user (unless staff specifying owner)
@@ -1701,6 +1841,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if assignment.status != 'REMOVED':
             assignment.status = 'REMOVED'
             assignment.save(update_fields=['status', 'updated_at'])
+
+        # Removing a dog frees a spot — let the waitlist know.
+        try:
+            from .scheduling import process_waitlist_for_date
+            process_waitlist_for_date(target_date)
+        except Exception as e:
+            print(f"Failed to process waitlist: {e}")
         return Response(status=204)
 
     @action(detail=True, methods=['post'])
@@ -2286,6 +2433,127 @@ class ClosureDayViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    def perform_destroy(self, instance):
+        target_date = instance.date
+        instance.delete()
+        # Lifting a closure can free spots (or the whole day) — let the
+        # waitlist know.
+        try:
+            from .scheduling import process_waitlist_for_date
+            process_waitlist_for_date(target_date)
+        except Exception as e:
+            print(f"Failed to process waitlist: {e}")
+
+
+class VaccinationRecordViewSet(viewsets.ModelViewSet):
+    """Vaccination records for dogs. Staff write; owners read their dogs'.
+
+    Filter with ?dog=<id>. Expiry reminders are sent by the daily
+    send_vaccination_reminders management command.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        from .serializers import VaccinationRecordSerializer
+        return VaccinationRecordSerializer
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        from .models import VaccinationRecord
+        from django.db.models import Q
+        base = VaccinationRecord.objects.select_related('dog', 'created_by')
+        dog_id = self.request.query_params.get('dog')
+        if dog_id:
+            base = base.filter(dog_id=dog_id)
+        if self.request.user.is_staff:
+            return base
+        return base.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        old_expiry = serializer.instance.expiry_date
+        instance = serializer.save()
+        if instance.expiry_date != old_expiry:
+            # Renewal recorded — re-arm the reminder flags.
+            instance.reminder_30_sent = False
+            instance.reminder_7_sent = False
+            instance.expired_notice_sent = False
+            instance.save(update_fields=['reminder_30_sent', 'reminder_7_sent', 'expired_notice_sent'])
+
+
+class WaitlistEntryViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
+                           mixins.DestroyModelMixin, viewsets.GenericViewSet):
+    """Waitlist for full days. Owners join/leave for their own dogs;
+    staff can list everything (filter with ?date=YYYY-MM-DD)."""
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        from .serializers import WaitlistEntrySerializer
+        return WaitlistEntrySerializer
+
+    def get_queryset(self):
+        from .models import WaitlistEntry
+        from django.db.models import Q
+        base = WaitlistEntry.objects.select_related('dog')
+        date_param = self.request.query_params.get('date')
+        if date_param:
+            base = base.filter(date=date_param)
+        if self.request.user.is_staff:
+            return base
+        return base.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
+
+    def create(self, request, *args, **kwargs):
+        from datetime import date as date_cls
+        from .models import WaitlistEntry
+        from .scheduling import ScheduleIndex
+
+        dog_id = request.data.get('dog')
+        date_str = request.data.get('date')
+        if not dog_id or not date_str:
+            return Response({'detail': 'dog and date are required.'}, status=400)
+        try:
+            target_date = date_cls.fromisoformat(str(date_str))
+        except ValueError:
+            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        if target_date <= date_cls.today():
+            return Response({'detail': 'You can only join the waitlist for future dates.'}, status=400)
+
+        try:
+            dog = Dog.objects.get(id=dog_id)
+        except Dog.DoesNotExist:
+            return Response({'detail': 'Dog not found.'}, status=404)
+        is_owner = (
+            dog.owner_id == request.user.id
+            or dog.additional_owners.filter(id=request.user.id).exists()
+        )
+        if not is_owner and not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('You can only join the waitlist for your own dogs.')
+
+        index = ScheduleIndex(target_date, target_date)
+        closure = index.closure(target_date)
+        if closure and closure.closure_type == 'CLOSED':
+            return Response({'detail': 'The daycare is closed on that day.'}, status=400)
+        if dog.id in index.attending_dog_ids(target_date):
+            return Response({'detail': f'{dog.name} is already booked for that day.'}, status=400)
+
+        entry, created = WaitlistEntry.objects.update_or_create(
+            dog=dog, date=target_date,
+            defaults={'requested_by': request.user, 'status': 'WAITING', 'notified_at': None},
+        )
+        serializer = self.get_serializer(entry)
+        return Response(serializer.data, status=201 if created else 200)
+
 
 class DogNoteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
@@ -2614,11 +2882,57 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+@api_view(['GET', 'PATCH'])
+@perm_classes([IsAuthenticated])
+def daycare_settings(request):
+    """Facility-wide settings.
+
+    GET: any authenticated user (the app needs the capacity to render the
+    calendar). PATCH: superusers or staff with can_manage_requests; accepts
+    {"default_daily_capacity": <int or null>} where null/0 means unlimited.
+    """
+    from .models import DaycareSettings
+
+    settings_obj = DaycareSettings.load()
+    if request.method == 'PATCH':
+        profile = getattr(request.user, 'profile', None)
+        allowed = request.user.is_superuser or (
+            request.user.is_staff and profile and profile.can_manage_requests
+        )
+        if not allowed:
+            return Response({'detail': 'Not authorized to change settings.'}, status=403)
+        if 'default_daily_capacity' in request.data:
+            value = request.data['default_daily_capacity']
+            if value in (None, '', 0, '0'):
+                settings_obj.default_daily_capacity = None
+            else:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    return Response({'default_daily_capacity': 'Must be a positive number or null.'}, status=400)
+                if value < 1:
+                    return Response({'default_daily_capacity': 'Must be a positive number or null.'}, status=400)
+                settings_obj.default_daily_capacity = value
+            settings_obj.save()
+    return Response({'default_daily_capacity': settings_obj.default_daily_capacity})
+
+
 # =============================================================================
 # PASSWORD RESET & CHANGE VIEWS
 # =============================================================================
 
+class PasswordResetRequestThrottle(AnonRateThrottle):
+    """Limits OTP emails per client IP (rate set in DEFAULT_THROTTLE_RATES)."""
+    scope = 'password_reset'
+
+
+class PasswordResetConfirmThrottle(AnonRateThrottle):
+    """Limits OTP/token verification attempts per client IP."""
+    scope = 'password_reset_confirm'
+
+
 @api_view(['POST'])
+@throttle_classes([PasswordResetRequestThrottle])
 @perm_classes([AllowAny])
 def request_password_reset(request):
     """Step 1: User provides email, receives a 6-digit OTP."""
@@ -2653,6 +2967,7 @@ def request_password_reset(request):
 
 
 @api_view(['POST'])
+@throttle_classes([PasswordResetConfirmThrottle])
 @perm_classes([AllowAny])
 def verify_otp(request):
     """Step 2: User provides email + OTP, receives a temporary reset token."""
@@ -2680,6 +2995,7 @@ def verify_otp(request):
 
 
 @api_view(['POST'])
+@throttle_classes([PasswordResetConfirmThrottle])
 @perm_classes([AllowAny])
 def reset_password(request):
     """Step 3: User provides reset_token + new_password to set their new password."""

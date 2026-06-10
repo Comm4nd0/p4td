@@ -192,7 +192,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       await _dataService.unassignDog(assignment.id, scope: scope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${assignment.dogName} has been unassigned'), backgroundColor: Colors.green),
+          SnackBar(content: Text('${assignment.dogName} has been unassigned'), backgroundColor: AppColors.success),
         );
       }
       await _reloadAssignments();
@@ -226,7 +226,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       await _dataService.unassignDog(assignment.id, scope: AssignmentScope.justThisDay);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${assignment.dogName} removed from $dateLabel'), backgroundColor: Colors.green),
+          SnackBar(content: Text('${assignment.dogName} removed from $dateLabel'), backgroundColor: AppColors.success),
         );
       }
       await _reloadAssignments();
@@ -283,7 +283,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
               Text('Currently assigned to ${assignment.staffMemberName}', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'Reassign to', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Reassign to'),
                 value: selectedStaffId,
                 items: staffMembers.map((staff) {
                   final name = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
@@ -324,7 +324,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
         await _dataService.reassignDog(assignment.id, selectedStaffId!, scope: scope);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Dog reassigned successfully'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Dog reassigned successfully'), backgroundColor: AppColors.success),
           );
         }
         await _reloadAssignments();
@@ -474,7 +474,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
           _dataChanged = true;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Transport updated for ${assignment.dogName}'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Transport updated for ${assignment.dogName}'), backgroundColor: AppColors.success),
         );
       }
     } catch (e) {
@@ -722,7 +722,6 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
 
     return Card(
       key: key,
-      elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(12),

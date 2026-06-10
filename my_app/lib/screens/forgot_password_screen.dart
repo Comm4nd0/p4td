@@ -212,9 +212,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 TextField(
                   controller: _emailController,
                   decoration: const InputDecoration(
-                    labelText: 'Email',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Picon(PiconsDuotone.envelope),
+                    labelText: 'Email',                    prefixIcon: Picon(PiconsDuotone.envelope),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   autofocus: true,
@@ -242,9 +240,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 TextField(
                   controller: _otpController,
                   decoration: const InputDecoration(
-                    labelText: 'Reset Code',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Picon(PiconsDuotone.lockKey),
+                    labelText: 'Reset Code',                    prefixIcon: Picon(PiconsDuotone.lockKey),
                     hintText: '000000',
                   ),
                   keyboardType: TextInputType.number,
@@ -282,9 +278,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
-                    labelText: 'New Password',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: Picon(PiconsDuotone.lock),
+                    labelText: 'New Password',                    prefixIcon: Picon(PiconsDuotone.lock),
                     suffixIcon: IconButton(
                       icon: Picon(
                         _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
@@ -301,9 +295,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirm,
                   decoration: InputDecoration(
-                    labelText: 'Confirm Password',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: Picon(PiconsDuotone.lock),
+                    labelText: 'Confirm Password',                    prefixIcon: Picon(PiconsDuotone.lock),
                     suffixIcon: IconButton(
                       icon: Picon(
                         _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,

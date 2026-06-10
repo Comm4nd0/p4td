@@ -14,6 +14,7 @@ import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
 import 'query_detail_screen.dart';
 import 'dog_notes_screen.dart';
+import 'vaccinations_screen.dart';
 import '../constants/app_colors.dart';
 
 class DogHomeScreen extends StatefulWidget {
@@ -164,9 +165,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 TextFormField(
                   controller: subjectController,
                   decoration: const InputDecoration(
-                    labelText: 'Subject',
-                    border: OutlineInputBorder(),
-                  ),
+                    labelText: 'Subject',                  ),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
@@ -174,9 +173,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   controller: messageController,
                   decoration: const InputDecoration(
                     labelText: 'Message',
-                    hintText: 'Your message to the owner',
-                    border: OutlineInputBorder(),
-                  ),
+                    hintText: 'Your message to the owner',                  ),
                   maxLines: 4,
                   validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
@@ -210,7 +207,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Message sent'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Message sent'), backgroundColor: AppColors.success),
           );
           Navigator.push(
             context,
@@ -265,7 +262,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${_dog.name} has been deleted'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
         Navigator.pop(context, 'deleted');
@@ -273,7 +270,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete dog: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed to delete dog: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -316,9 +313,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   DropdownButtonFormField<int?>(
                     value: selectedOwnerId,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: const InputDecoration(                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     ),
                     items: [
                       const DropdownMenuItem<int?>(
@@ -391,13 +386,13 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       if (mounted) {
         setState(() => _dog = updatedDog);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Owner updated'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Owner updated'), backgroundColor: AppColors.success),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to assign owner: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed to assign owner: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -691,7 +686,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             content: Text(newDate == null
               ? 'Cancellation request submitted'
               : 'Date change request submitted'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
         _loadRequests(); // Refresh the requests list
@@ -701,7 +696,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to submit request: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -928,14 +923,14 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             content: Text(successCount == 1
                 ? 'Additional day request submitted'
                 : '$successCount additional day requests submitted'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$successCount submitted, $failCount failed'),
-            backgroundColor: Colors.orange,
+            backgroundColor: AppColors.warning,
           ),
         );
       }
@@ -1000,9 +995,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       }
                     },
                     child: InputDecorator(
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        prefixIcon: Picon(PiconsDuotone.calendarDots),
+                      decoration: const InputDecoration(                        prefixIcon: Picon(PiconsDuotone.calendarDots),
                         labelText: 'Boarding Dates',
                         isDense: true,
                       ),
@@ -1032,9 +1025,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   TextField(
                     controller: instructionsController,
                     decoration: const InputDecoration(
-                      hintText: 'Feeding, meds, special care...',
-                      border: OutlineInputBorder(),
-                      isDense: true,
+                      hintText: 'Feeding, meds, special care...',                      isDense: true,
                     ),
                     maxLines: 3,
                   ),
@@ -1080,7 +1071,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Boarding request submitted'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
         _loadBoardingRequests();
@@ -1090,7 +1081,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -1110,9 +1101,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
 
     return Card(
-      margin: const EdgeInsets.only(top: 8),
-      elevation: 0,
-      color: Colors.white.withOpacity(0.5),
+      margin: const EdgeInsets.only(top: 8),      color: Colors.white.withOpacity(0.5),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: ExpansionTile(
         title: Text(
@@ -1128,7 +1117,6 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         children: _boardingRequests.map((request) {
           final nights = request.endDate.difference(request.startDate).inDays;
           return Card(
-            elevation: 1,
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               dense: true,
@@ -1194,9 +1182,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
 
     return Card(
-      margin: const EdgeInsets.only(top: 16),
-      elevation: 0,
-      color: Colors.white.withOpacity(0.5),
+      margin: const EdgeInsets.only(top: 16),      color: Colors.white.withOpacity(0.5),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: ExpansionTile(
         title: Text(
@@ -1210,7 +1196,6 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         initiallyExpanded: false,
         childrenPadding: const EdgeInsets.all(8),
         children: _requests.map((request) => Card(
-          elevation: 1,
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             dense: true,
@@ -1717,6 +1702,25 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         foregroundColor: Colors.deepPurple,
                         side: BorderSide(color: Colors.deepPurple[200]!),
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => VaccinationsScreen(
+                              dog: _dog,
+                              isStaff: widget.isStaff,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: Picon(PiconsDuotone.syringe),
+                      label: const Text('Vaccinations'),
                     ),
                   ),
                   _buildRequestsSection(),

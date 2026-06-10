@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:picons/picons.dart';
 import 'package:video_player/video_player.dart';
+import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 import 'dog_typeahead.dart';
@@ -174,7 +175,7 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not crop image: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Could not crop image: $e'), backgroundColor: AppColors.error),
       );
     } finally {
       final cleanup = tempInput;
@@ -374,7 +375,6 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
             controller: _captionControllers[fileIndex],
             decoration: const InputDecoration(
               hintText: 'Write a caption (optional)',
-              border: OutlineInputBorder(),
               isDense: true,
             ),
             maxLines: 2,

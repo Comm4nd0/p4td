@@ -80,7 +80,6 @@ class _PostcodeLookupDialogState extends State<_PostcodeLookupDialog> {
               decoration: InputDecoration(
                 labelText: 'Postcode',
                 hintText: 'e.g. RG1 1AA',
-                border: const OutlineInputBorder(),
                 prefixIcon: const Picon(PiconsDuotone.mapPin),
                 suffixIcon: IconButton(
                   icon: const Picon(PiconsDuotone.magnifyingGlass),

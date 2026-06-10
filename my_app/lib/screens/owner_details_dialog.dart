@@ -104,7 +104,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
                   controller: _addressController,
                   decoration: const InputDecoration(
                     labelText: 'Address',
-                    border: OutlineInputBorder(),
                   ),
                   maxLines: 2,
                 ),
@@ -113,7 +112,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
                   controller: _phoneController,
                   decoration: const InputDecoration(
                     labelText: 'Phone Number',
-                    border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -121,7 +119,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
                   controller: _pickupController,
                   decoration: const InputDecoration(
                     labelText: 'Pickup Instructions',
-                    border: OutlineInputBorder(),
                   ),
                   maxLines: 3,
                 ),

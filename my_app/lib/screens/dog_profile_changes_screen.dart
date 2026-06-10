@@ -42,7 +42,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Changes to ${cr.dogName} approved'),
-            backgroundColor: Colors.green[700],
+            backgroundColor: AppColors.success,
           ),
         );
         _loadRequests();
@@ -80,7 +80,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Changes to ${cr.dogName} rejected'),
-            backgroundColor: Colors.orange[700],
+            backgroundColor: AppColors.warning,
           ),
         );
         _loadRequests();
@@ -126,7 +126,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                         ],
                       ),
                     )
-                  : RefreshIndicator(
+                  : RefreshIndicator.adaptive(
                       onRefresh: _loadRequests,
                       child: ListView.builder(
                         padding: const EdgeInsets.all(16),

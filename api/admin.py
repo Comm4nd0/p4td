@@ -9,6 +9,7 @@ from .models import (
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
     DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
+    VaccinationRecord, WaitlistEntry, DaycareSettings,
 )
 
 
@@ -584,7 +585,7 @@ class BoardingRequestAdmin(admin.ModelAdmin):
 
 @admin.register(ClosureDay)
 class ClosureDayAdmin(admin.ModelAdmin):
-    list_display = ('date', 'closure_type_display', 'reason', 'created_by_name', 'created_at')
+    list_display = ('date', 'closure_type_display', 'reason', 'capacity_override', 'created_by_name', 'created_at')
     list_filter = ('closure_type', 'date')
     search_fields = ('reason',)
     ordering = ['-date']
@@ -813,3 +814,66 @@ class DogProfileChangeRequestAdmin(admin.ModelAdmin):
             obj.get_status_display()
         )
     status_display.short_description = 'Status'
+
+
+@admin.register(VaccinationRecord)
+class VaccinationRecordAdmin(admin.ModelAdmin):
+    list_display = ('dog_name', 'name', 'date_administered', 'expiry_date', 'status_display', 'created_by_name', 'created_at')
+    list_filter = ('name', 'expiry_date')
+    search_fields = ('dog__name', 'name')
+    raw_id_fields = ('dog', 'created_by')
+    ordering = ['expiry_date']
+    list_per_page = 30
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return '-'
+    created_by_name.short_description = 'Recorded By'
+
+    def status_display(self, obj):
+        colors = {'expired': '#dc3545', 'expiring_soon': '#ffc107', 'up_to_date': '#198754'}
+        labels = {'expired': 'Expired', 'expiring_soon': 'Expiring soon', 'up_to_date': 'Up to date'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            labels.get(obj.status, obj.status),
+        )
+    status_display.short_description = 'Status'
+
+
+@admin.register(WaitlistEntry)
+class WaitlistEntryAdmin(admin.ModelAdmin):
+    list_display = ('dog_name', 'date', 'status', 'requested_by_name', 'created_at', 'notified_at')
+    list_filter = ('status', 'date')
+    search_fields = ('dog__name', 'requested_by__username')
+    raw_id_fields = ('dog', 'requested_by')
+    ordering = ['date', 'created_at']
+    list_per_page = 30
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def requested_by_name(self, obj):
+        if obj.requested_by:
+            return obj.requested_by.first_name or obj.requested_by.username
+        return '-'
+    requested_by_name.short_description = 'Requested By'
+
+
+@admin.register(DaycareSettings)
+class DaycareSettingsAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'default_daily_capacity', 'updated_at')
+
+    def has_add_permission(self, request):
+        return not DaycareSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

@@ -47,7 +47,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
       if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load requests: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed to load requests: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -94,14 +94,14 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   void _showSuccess(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.green),
+      SnackBar(content: Text(message), backgroundColor: AppColors.success),
     );
   }
 
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
   }
 
@@ -116,9 +116,6 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
         appBar: AppBar(
           title: const Text('Staff Dashboard'),
           bottom: TabBar(
-            labelColor: AppColors.cream,
-            unselectedLabelColor: AppColors.cream,
-            indicatorColor: AppColors.cream,
             tabs: [
               Tab(
                 child: Row(
@@ -218,7 +215,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     
     if (filtered.isEmpty) return _buildEmptyState();
 
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: _loadRequests,
       child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 16),
@@ -233,7 +230,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
 
     if (filtered.isEmpty) return _buildEmptyState();
 
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: _loadRequests,
       child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 16),
@@ -244,7 +241,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: _loadRequests,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),

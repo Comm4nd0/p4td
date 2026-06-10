@@ -91,9 +91,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               controller: _newPasswordController,
               obscureText: _obscureNew,
               decoration: InputDecoration(
-                labelText: 'New Password',
-                border: const OutlineInputBorder(),
-                prefixIcon: Picon(PiconsDuotone.lock),
+                labelText: 'New Password',                prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
                   icon: Picon(
                     _obscureNew ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
@@ -109,9 +107,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               controller: _confirmPasswordController,
               obscureText: _obscureConfirm,
               decoration: InputDecoration(
-                labelText: 'Confirm New Password',
-                border: const OutlineInputBorder(),
-                prefixIcon: Picon(PiconsDuotone.lock),
+                labelText: 'Confirm New Password',                prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
                   icon: Picon(
                     _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,

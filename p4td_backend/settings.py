@@ -213,6 +213,19 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Damp brute-force attempts on anonymous endpoints (login, registration,
+    # password reset). Authenticated app traffic is never anon-throttled.
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/min',
+        'password_reset': '5/hour',
+        'password_reset_confirm': '10/hour',
+    },
+    # One reverse proxy (Caddy) in front of gunicorn — throttle the real
+    # client IP from X-Forwarded-For, not the proxy's.
+    'NUM_PROXIES': 1,
 }
 
 # Require Privacy Policy acceptance at sign-up via a custom user-create

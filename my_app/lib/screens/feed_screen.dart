@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
+import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/group_media.dart';
@@ -147,7 +148,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         // or if the feed is empty (initial load failed)
         if (showLoading || _feed.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to load feed: $e'), backgroundColor: Colors.red),
+            SnackBar(content: Text('Failed to load feed: $e'), backgroundColor: AppColors.error),
           );
         }
       }
@@ -272,7 +273,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       if (mounted) {
         Navigator.pop(context); // Close uploading dialog
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Upload successful!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Upload successful!'), backgroundColor: AppColors.success),
         );
         _loadFeed();
       }
@@ -280,7 +281,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       if (mounted) {
         Navigator.pop(context); // Close uploading dialog
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -409,7 +410,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
       } else {
@@ -417,7 +418,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
-            backgroundColor: Colors.orange,
+            backgroundColor: AppColors.warning,
             duration: const Duration(seconds: 6),
           ),
         );
@@ -429,7 +430,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Upload failed: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -477,12 +478,12 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     try {
       await _dataService.deleteGroupMedia(media.id);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Deleted'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('Deleted'), backgroundColor: AppColors.success),
       );
       _loadFeed();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Failed to delete: $e'), backgroundColor: AppColors.error),
       );
     }
   }
@@ -524,9 +525,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                             )
                           : null,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),                    ),
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 8),
@@ -625,7 +624,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                 _buildFilterBar(),
                 // Feed list
                 Expanded(
-                  child: RefreshIndicator(
+                  child: RefreshIndicator.adaptive(
                     onRefresh: _loadFeed,
                     child: _feed.isEmpty
                         ? SingleChildScrollView(
@@ -756,13 +755,13 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Updated successfully'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Updated successfully'), backgroundColor: AppColors.success),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed to update: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -898,9 +897,7 @@ class _EditMediaSheetState extends State<_EditMediaSheet> {
                   TextField(
                     controller: _captionController,
                     decoration: const InputDecoration(
-                      hintText: 'Write a caption (optional)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
+                      hintText: 'Write a caption (optional)',                      isDense: true,
                     ),
                     maxLines: 3,
                     textCapitalization: TextCapitalization.sentences,

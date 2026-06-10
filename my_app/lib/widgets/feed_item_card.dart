@@ -268,6 +268,7 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
                     ),
                   ),
                   maxLines: null,
@@ -521,7 +522,7 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
             content: Text(
               'Photo library permission denied. Enable it in your device settings to save photos.',
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
         return;
@@ -533,7 +534,7 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
       messenger.showSnackBar(
         const SnackBar(
           content: Text('Saved to your photos'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
     } on GalException catch (e) {
@@ -541,7 +542,7 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
       messenger.showSnackBar(
         SnackBar(
           content: Text('Could not save: ${e.type.message}'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
         ),
       );
     } catch (e) {
@@ -549,7 +550,7 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
       messenger.showSnackBar(
         SnackBar(
           content: Text('Could not save: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
         ),
       );
     } finally {

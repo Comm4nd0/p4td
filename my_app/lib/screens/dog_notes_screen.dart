@@ -161,7 +161,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
       ),
       body: _loading
           ? const ListTileSkeletonList()
-          : RefreshIndicator(
+          : RefreshIndicator.adaptive(
               onRefresh: _load,
               child: _notes.isEmpty
                   ? ListView(
@@ -364,9 +364,7 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
               controller: _textController,
               decoration: const InputDecoration(
                 labelText: 'Note',
-                hintText: 'e.g. Gets along great with Buddy during playtime',
-                border: OutlineInputBorder(),
-              ),
+                hintText: 'e.g. Gets along great with Buddy during playtime',              ),
               maxLines: 3,
               textCapitalization: TextCapitalization.sentences,
             ),
@@ -427,9 +425,7 @@ class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
           decoration: InputDecoration(
             labelText: 'Related Dog (optional)',
             hintText: 'Search by name',
-            prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
-            border: const OutlineInputBorder(),
-            suffixIcon: controller.text.isEmpty
+            prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),            suffixIcon: controller.text.isEmpty
                 ? null
                 : IconButton(
                     icon: Picon(PiconsDuotone.x, size: 18),
@@ -562,9 +558,7 @@ class _EditDogNoteDialogState extends State<_EditDogNoteDialog> {
             TextField(
               controller: _textController,
               decoration: const InputDecoration(
-                labelText: 'Note',
-                border: OutlineInputBorder(),
-              ),
+                labelText: 'Note',              ),
               maxLines: 3,
               textCapitalization: TextCapitalization.sentences,
             ),
