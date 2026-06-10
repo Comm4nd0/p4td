@@ -435,7 +435,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     final token = await _authService.getToken();
 
     if (imageBytes != null) {
@@ -451,6 +451,10 @@ class ApiDataService implements DataService {
       if (ownerId != null) request.fields['owner'] = ownerId;
       if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
       if (scheduleType != null) request.fields['schedule_type'] = scheduleType.apiValue;
+      if (ownerBringsDefault != null) request.fields['owner_brings_default'] = ownerBringsDefault.toString();
+      if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
+      if (ownerBringsDefaultTime != null) request.fields['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
+      if (ownerCollectsDefaultTime != null) request.fields['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
       if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
       if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
       if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
@@ -523,6 +527,10 @@ class ApiDataService implements DataService {
           if (ownerId != null) 'owner': int.parse(ownerId),
           if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
           if (scheduleType != null) 'schedule_type': scheduleType.apiValue,
+          if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
+          if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
+          if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
+          if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
           if (sex != null) 'sex': dogSexToApi(sex),
           if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
           if (isSpayed != null) 'is_spayed': isSpayed,

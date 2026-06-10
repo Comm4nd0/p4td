@@ -8,6 +8,7 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
+import '../widgets/transport_default_row.dart';
 
 class EditDogScreen extends StatefulWidget {
   final Dog dog;
@@ -427,7 +428,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 12),
-            _TransportDefaultRow(
+            TransportDefaultRow(
               label: 'Drop-off (morning)',
               ownerSelected: _ownerBringsDefault,
               time: _ownerBringsDefaultTime,
@@ -440,7 +441,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               onTimeCleared: () => setState(() => _ownerBringsDefaultTime = null),
             ),
             const SizedBox(height: 12),
-            _TransportDefaultRow(
+            TransportDefaultRow(
               label: 'Pick-up (evening)',
               ownerSelected: _ownerCollectsDefault,
               time: _ownerCollectsDefaultTime,
@@ -605,68 +606,6 @@ class _EditDogScreenState extends State<EditDogScreen> {
           const SizedBox(height: 32),
         ],
       ),
-    );
-  }
-}
-
-class _TransportDefaultRow extends StatelessWidget {
-  final String label;
-  final bool ownerSelected;
-  final TimeOfDay? time;
-  final TimeOfDay initialTimeIfUnset;
-  final ValueChanged<bool> onOwnerChanged;
-  final ValueChanged<TimeOfDay> onTimeChanged;
-  final VoidCallback onTimeCleared;
-
-  const _TransportDefaultRow({
-    required this.label,
-    required this.ownerSelected,
-    required this.time,
-    required this.initialTimeIfUnset,
-    required this.onOwnerChanged,
-    required this.onTimeChanged,
-    required this.onTimeCleared,
-  });
-
-  String _fmt(TimeOfDay t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
-        const SizedBox(height: 6),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: false, label: Text('Staff'), icon: Picon(PiconsDuotone.van, size: 18)),
-            ButtonSegment(value: true, label: Text('Owner'), icon: Picon(PiconsDuotone.houseLine, size: 18)),
-          ],
-          selected: {ownerSelected},
-          onSelectionChanged: (s) => onOwnerChanged(s.first),
-        ),
-        if (ownerSelected) ...[
-          const SizedBox(height: 8),
-          Row(children: [
-            OutlinedButton.icon(
-              icon: const Picon(PiconsDuotone.clock, size: 18),
-              label: Text(time == null ? 'Set time (optional)' : _fmt(time!)),
-              onPressed: () async {
-                final picked = await showTimePicker(
-                  context: context,
-                  initialTime: time ?? initialTimeIfUnset,
-                );
-                if (picked != null) onTimeChanged(picked);
-              },
-            ),
-            if (time != null) ...[
-              const SizedBox(width: 8),
-              TextButton(onPressed: onTimeCleared, child: const Text('Clear')),
-            ],
-          ]),
-        ],
-      ],
     );
   }
 }
