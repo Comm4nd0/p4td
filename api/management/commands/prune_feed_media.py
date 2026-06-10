@@ -72,26 +72,29 @@ class Command(BaseCommand):
     def _clean_orphans(self, dry_run):
         media_root = str(settings.MEDIA_ROOT)
 
-        # Collect all file paths referenced by GroupMedia records
+        # Collect all file paths referenced by GroupMedia records.
+        # FileField names use forward slashes regardless of OS; normalize
+        # both sides of the comparison so referenced files are recognised
+        # on Windows too.
         referenced = set()
         for item in GroupMedia.objects.all().iterator():
             if item.file:
-                referenced.add(item.file.name)
+                referenced.add(item.file.name.replace('\\', '/'))
             if item.thumbnail:
-                referenced.add(item.thumbnail.name)
+                referenced.add(item.thumbnail.name.replace('\\', '/'))
 
         orphan_count = 0
-        dirs_to_scan = ['group_media', os.path.join('group_media', 'thumbnails')]
+        dirs_to_scan = ['group_media', 'group_media/thumbnails']
 
         for rel_dir in dirs_to_scan:
-            abs_dir = os.path.join(media_root, rel_dir)
+            abs_dir = os.path.normpath(os.path.join(media_root, rel_dir))
             if not os.path.isdir(abs_dir):
                 continue
             for filename in os.listdir(abs_dir):
                 filepath = os.path.join(abs_dir, filename)
                 if not os.path.isfile(filepath):
                     continue
-                rel_path = os.path.join(rel_dir, filename)
+                rel_path = f'{rel_dir}/{filename}'
                 if rel_path not in referenced:
                     if not dry_run:
                         os.remove(filepath)
