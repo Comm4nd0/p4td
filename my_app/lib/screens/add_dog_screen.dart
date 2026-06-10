@@ -7,6 +7,7 @@ import '../models/dog.dart';
 import '../models/owner_profile.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
+import '../widgets/transport_default_row.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -26,6 +27,10 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final Set<Weekday> _selectedDays = {};
   DropoffTime? _selectedDropoffTime;
   ScheduleType _selectedScheduleType = ScheduleType.weekly;
+  bool _ownerBringsDefault = false;
+  bool _ownerCollectsDefault = false;
+  TimeOfDay? _ownerBringsDefaultTime;
+  TimeOfDay? _ownerCollectsDefaultTime;
 
   bool _isStaff = false;
   List<OwnerProfile> _owners = [];
@@ -160,6 +165,10 @@ class _AddDogScreenState extends State<AddDogScreen> {
         ownerId: _selectedOwnerId,
         preferredDropoffTime: _selectedDropoffTime,
         scheduleType: _selectedScheduleType,
+        ownerBringsDefault: _isStaff ? _ownerBringsDefault : null,
+        ownerCollectsDefault: _isStaff ? _ownerCollectsDefault : null,
+        ownerBringsDefaultTime: _isStaff ? _ownerBringsDefaultTime : null,
+        ownerCollectsDefaultTime: _isStaff ? _ownerCollectsDefaultTime : null,
         sex: _selectedSex,
         dateOfBirth: _selectedDateOfBirth,
         isSpayed: _isSpayed,
@@ -380,6 +389,42 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         onChanged: (v) => setState(() => _isSpayed = v),
                       ),
                       if (_isStaff) ...[
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Transport defaults',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Who usually handles drop-off and pick-up for this dog? Staff-only; per-day exceptions can be set on each assignment.',
+                          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 12),
+                        TransportDefaultRow(
+                          label: 'Drop-off (morning)',
+                          ownerSelected: _ownerBringsDefault,
+                          time: _ownerBringsDefaultTime,
+                          initialTimeIfUnset: const TimeOfDay(hour: 8, minute: 0),
+                          onOwnerChanged: (value) => setState(() {
+                            _ownerBringsDefault = value;
+                            if (!value) _ownerBringsDefaultTime = null;
+                          }),
+                          onTimeChanged: (t) => setState(() => _ownerBringsDefaultTime = t),
+                          onTimeCleared: () => setState(() => _ownerBringsDefaultTime = null),
+                        ),
+                        const SizedBox(height: 12),
+                        TransportDefaultRow(
+                          label: 'Pick-up (evening)',
+                          ownerSelected: _ownerCollectsDefault,
+                          time: _ownerCollectsDefaultTime,
+                          initialTimeIfUnset: const TimeOfDay(hour: 17, minute: 0),
+                          onOwnerChanged: (value) => setState(() {
+                            _ownerCollectsDefault = value;
+                            if (!value) _ownerCollectsDefaultTime = null;
+                          }),
+                          onTimeChanged: (t) => setState(() => _ownerCollectsDefaultTime = t),
+                          onTimeCleared: () => setState(() => _ownerCollectsDefaultTime = null),
+                        ),
                         const SizedBox(height: 24),
                         const Text(
                           'Pickup & Drop-off',
