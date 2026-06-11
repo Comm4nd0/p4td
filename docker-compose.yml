@@ -9,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: p4td
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: devpassword
+      POSTGRES_PASSWORD: CuIPpvG1ENqLQDvu7Vn8xJ4r
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -27,11 +27,11 @@ services:
     environment:
       - DJANGO_SECRET_KEY=dev-secret-key-for-local-docker-only
       - DJANGO_DEBUG=True
-      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+      - DJANGO_ALLOWED_HOSTS=paws4thoughtdogs.com,www.paws4thoughtdogs.com,localhost,127.0.0.1
       - RDS_HOSTNAME=db
       - RDS_DB_NAME=p4td
       - RDS_USERNAME=postgres
-      - RDS_PASSWORD=devpassword
+      # - RDS_PASSWORD from .env
       - RDS_PORT=5432
     depends_on:
       db:
