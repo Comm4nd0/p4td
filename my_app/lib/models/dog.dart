@@ -75,18 +75,31 @@ class OwnerDetails {
   final int userId;
   final String username;
   final String email;
+  final String? firstName;
+  final String? phoneNumber;
+  final String? pickupInstructions;
 
   OwnerDetails({
     required this.userId,
     required this.username,
     required this.email,
+    this.firstName,
+    this.phoneNumber,
+    this.pickupInstructions,
   });
+
+  /// Friendly display name: first name when set, otherwise username.
+  String get displayName =>
+      (firstName != null && firstName!.isNotEmpty) ? firstName! : username;
 
   factory OwnerDetails.fromJson(Map<String, dynamic> json) {
     return OwnerDetails(
       userId: json['user_id'] ?? 0,
       username: json['username'] ?? '',
       email: json['email'] ?? '',
+      firstName: json['first_name'],
+      phoneNumber: json['phone_number'],
+      pickupInstructions: json['pickup_instructions'],
     );
   }
 }
@@ -176,6 +189,7 @@ class Dog {
   final String? foodInstructions;
   final String? medicalNotes;
   final String? registeredVet;
+  final String? address;
   final List<Weekday> daysInDaycare;
   final OwnerDetails? ownerDetails;
   final List<OwnerDetails> additionalOwners;
@@ -197,6 +211,7 @@ class Dog {
     this.foodInstructions,
     this.medicalNotes,
     this.registeredVet,
+    this.address,
     this.daysInDaycare = const [],
     this.ownerDetails,
     this.additionalOwners = const [],
@@ -234,6 +249,7 @@ class Dog {
     String? foodInstructions,
     String? medicalNotes,
     String? registeredVet,
+    String? address,
     List<Weekday>? daysInDaycare,
     OwnerDetails? ownerDetails,
     List<OwnerDetails>? additionalOwners,
@@ -255,6 +271,7 @@ class Dog {
       foodInstructions: foodInstructions ?? this.foodInstructions,
       medicalNotes: medicalNotes ?? this.medicalNotes,
       registeredVet: registeredVet ?? this.registeredVet,
+      address: address ?? this.address,
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
       ownerDetails: ownerDetails ?? this.ownerDetails,
       additionalOwners: additionalOwners ?? this.additionalOwners,

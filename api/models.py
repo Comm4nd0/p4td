@@ -99,6 +99,7 @@ class Dog(models.Model):
     food_instructions = models.TextField(blank=True, null=True)
     medical_notes = models.TextField(blank=True, null=True)
     registered_vet = models.TextField(blank=True, null=True, help_text="Owner's registered vet — typically the practice name, address and phone number.")
+    address = models.TextField(blank=True, null=True, help_text="Home address used for pickups/drop-offs of this dog.")
     daycare_days = models.JSONField(default=list, blank=True, help_text='List of day numbers (1-7) for daycare attendance')
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='weekly', help_text='How often the dog attends: weekly, fortnightly, or ad hoc')
     owner_brings_default = models.BooleanField(default=False, help_text='Owner usually drops this dog off at daycare (no staff pickup).')

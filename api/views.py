@@ -451,7 +451,7 @@ class DogViewSet(viewsets.ModelViewSet):
     def _create_change_request(self, request, dog):
         """Build a DogProfileChangeRequest from the incoming PATCH data."""
         # Fields an owner may propose to change
-        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
+        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
 
         proposed_changes = {}
         for field in ALLOWED_FIELDS:

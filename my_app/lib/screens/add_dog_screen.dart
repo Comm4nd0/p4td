@@ -46,6 +46,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final _foodController = TextEditingController();
   final _medicalController = TextEditingController();
   final _vetController = TextEditingController();
+  final _addressController = TextEditingController();
 
   @override
   void initState() {
@@ -75,6 +76,14 @@ class _AddDogScreenState extends State<AddDogScreen> {
     final existing = _vetController.text.trimRight();
     setState(() {
       _vetController.text = existing.isEmpty ? address : '$existing\n$address';
+    });
+  }
+
+  Future<void> _lookUpHomeAddressPostcode() async {
+    final address = await showPostcodeLookup(context, _dataService);
+    if (address == null || !mounted) return;
+    setState(() {
+      _addressController.text = address;
     });
   }
 
@@ -159,6 +168,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         foodInstructions: _foodController.text.trim().isEmpty ? null : _foodController.text.trim(),
         medicalNotes: _medicalController.text.trim().isEmpty ? null : _medicalController.text.trim(),
         registeredVet: _vetController.text.trim().isEmpty ? null : _vetController.text.trim(),
+        address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
         imageBytes: _imageBytes,
         imageName: _selectedImage?.name,
         daysInDaycare: _selectedDays.toList(),
@@ -327,6 +337,25 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           alignment: Alignment.centerLeft,
                           child: TextButton.icon(
                             onPressed: _lookUpVetPostcode,
+                            icon: const Picon(PiconsDuotone.mapPin, size: 18),
+                            label: const Text('Look up postcode'),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'Address (Optional)',
+                          hintText: 'Home address for pickups and drop-offs',                          prefixIcon: Picon(PiconsDuotone.mapPin),
+                        ),
+                        textCapitalization: TextCapitalization.words,
+                        maxLines: 3,
+                      ),
+                      if (_postcodeLookupEnabled)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _lookUpHomeAddressPostcode,
                             icon: const Picon(PiconsDuotone.mapPin, size: 18),
                             label: const Text('Look up postcode'),
                           ),

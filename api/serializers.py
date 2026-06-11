@@ -109,7 +109,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'created_at']
         read_only_fields = ['created_at']
         extra_kwargs = {
             'owner': {'required': False},
@@ -359,10 +359,8 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
         return user.username
 
     def get_owner_address(self, obj):
-        try:
-            return obj.dog.owner.profile.address
-        except Exception:
-            return None
+        # Pickup address lives on the dog, not the owner profile.
+        return obj.dog.address or None
 
     def get_owner_phone(self, obj):
         try:

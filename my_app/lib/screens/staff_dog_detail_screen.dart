@@ -7,6 +7,8 @@ import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
 import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
+import '../widgets/dog_quick_info_sheet.dart';
+import 'dog_home_screen.dart';
 
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
@@ -121,6 +123,18 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
         );
       }
     }
+  }
+
+  /// Single tap on a dog card: quick-info sheet, with optional follow-on
+  /// navigation to the full profile.
+  Future<void> _openQuickInfo(DailyDogAssignment assignment) async {
+    final dog = await DogQuickInfoSheet.show(context, assignment: assignment);
+    if (dog == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DogHomeScreen(dog: dog, isStaff: true)),
+    );
+    if (mounted) _reloadAssignments();
   }
 
   Future<void> _updateStatus(DailyDogAssignment assignment, AssignmentStatus newStatus) async {
@@ -723,7 +737,10 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     return Card(
       key: key,
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openQuickInfo(assignment),
+        child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -966,6 +983,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 ),
               ),
           ],
+        ),
         ),
       ),
     );

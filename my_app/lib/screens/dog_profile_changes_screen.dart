@@ -261,6 +261,8 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
       'name': 'Name',
       'food_instructions': 'Food Instructions',
       'medical_notes': 'Medical / Injuries',
+      'registered_vet': 'Registered Vet',
+      'address': 'Address',
       'daycare_days': 'Daycare Days',
       'schedule_type': 'Schedule Type',
     };

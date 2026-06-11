@@ -291,6 +291,82 @@ class DogSpayStatusTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class DogAddressTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.client = APIClient()
+
+    def test_staff_can_set_dog_address(self):
+        dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/dogs/{dog.id}/', {'address': '12 High St, Reading'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['address'], '12 High St, Reading')
+        dog.refresh_from_db()
+        self.assertEqual(dog.address, '12 High St, Reading')
+
+    def test_owner_address_change_requires_approval(self):
+        dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{dog.id}/', {'address': '5 New Road, Slough'}, format='json')
+        self.assertEqual(resp.status_code, 202)
+        dog.refresh_from_db()
+        self.assertIsNone(dog.address)
+        from .models import DogProfileChangeRequest
+        cr = DogProfileChangeRequest.objects.filter(dog=dog, status='PENDING').first()
+        self.assertIsNotNone(cr)
+        self.assertEqual(cr.proposed_changes.get('address'), '5 New Road, Slough')
+
+    def test_approving_address_change_applies_it(self):
+        dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client.login(username='owner', password='pw')
+        self.client.patch(f'/api/dogs/{dog.id}/', {'address': '5 New Road, Slough'}, format='json')
+        from .models import DogProfileChangeRequest
+        cr = DogProfileChangeRequest.objects.get(dog=dog, status='PENDING')
+
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        dog.refresh_from_db()
+        self.assertEqual(dog.address, '5 New Road, Slough')
+        cr.refresh_from_db()
+        self.assertEqual(cr.status, 'APPROVED')
+
+    def test_address_in_dog_list(self):
+        Dog.objects.create(owner=self.owner, name='Rex', address='1 Park Lane')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/dogs/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('address', resp.data[0])
+        self.assertEqual(resp.data[0]['address'], '1 Park Lane')
+
+    def test_assignment_owner_address_sources_dog_address(self):
+        """The pickup list's owner_address comes from the dog, not the owner profile."""
+        self.owner.profile.address = 'Profile Addr'
+        self.owner.profile.save()
+        dog = Dog.objects.create(owner=self.owner, name='Rex', address='Dog Addr')
+        DailyDogAssignment.objects.create(dog=dog, staff_member=self.staff, date=date.today())
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/daily-assignments/')
+        self.assertEqual(resp.status_code, 200)
+        record = next(a for a in resp.data if a['dog'] == dog.id)
+        self.assertEqual(record['owner_address'], 'Dog Addr')
+
+    def test_assignment_owner_address_no_profile_fallback(self):
+        """A dog without an address yields no address, even if the owner profile has one."""
+        self.owner.profile.address = 'Profile Addr'
+        self.owner.profile.save()
+        dog = Dog.objects.create(owner=self.owner, name='Rex')
+        DailyDogAssignment.objects.create(dog=dog, staff_member=self.staff, date=date.today())
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/daily-assignments/')
+        self.assertEqual(resp.status_code, 200)
+        record = next(a for a in resp.data if a['dog'] == dog.id)
+        self.assertIsNone(record['owner_address'])
+
+
 class DailyAssignmentTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

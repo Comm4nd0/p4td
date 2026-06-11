@@ -78,6 +78,7 @@ class ApiDataService implements DataService {
         foodInstructions: json['food_instructions'],
         medicalNotes: json['medical_notes'],
         registeredVet: json['registered_vet'],
+        address: json['address'],
         daysInDaycare: daysInDaycare,
         ownerDetails: ownerDetails,
         additionalOwners: additionalOwners,
@@ -117,6 +118,19 @@ class ApiDataService implements DataService {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<Dog> getDogById(String dogId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return _parseDogsList([json.decode(response.body)]).first;
+    }
+    throw Exception('Failed to load dog');
   }
 
   @override
@@ -243,7 +257,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -256,6 +270,7 @@ class ApiDataService implements DataService {
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
+      if (address != null) request.fields['address'] = address;
       // Always send schedule_type and daycare_days (falling back to the dog's
       // current values) so they can never be silently dropped from the payload.
       request.fields['daycare_days'] = json.encode((daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList());
@@ -295,6 +310,7 @@ class ApiDataService implements DataService {
           'food_instructions': foodInstructions ?? dog.foodInstructions,
           'medical_notes': medicalNotes ?? dog.medicalNotes,
           'registered_vet': registeredVet ?? dog.registeredVet,
+          'address': address ?? dog.address,
           // Always send schedule_type and daycare_days (falling back to the
           // dog's current values) so they can never be silently dropped from
           // the payload when the caller passes null.
@@ -348,6 +364,7 @@ class ApiDataService implements DataService {
       foodInstructions: data['food_instructions'],
       medicalNotes: data['medical_notes'],
       registeredVet: data['registered_vet'],
+      address: data['address'],
       daysInDaycare: updatedDaysInDaycare,
       ownerDetails: ownerDetails,
       additionalOwners: additionalOwners,
@@ -362,8 +379,6 @@ class ApiDataService implements DataService {
       isSpayed: data['is_spayed'] ?? false,
     );
   }
-
-  @override
 
   @override
   Future<List<Photo>> getPhotos(String dogId) async {
@@ -439,7 +454,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     final token = await _authService.getToken();
 
     if (imageBytes != null) {
@@ -451,6 +466,7 @@ class ApiDataService implements DataService {
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
+      if (address != null) request.fields['address'] = address;
       if (daysInDaycare != null && daysInDaycare.isNotEmpty) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
       if (ownerId != null) request.fields['owner'] = ownerId;
       if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
@@ -500,6 +516,7 @@ class ApiDataService implements DataService {
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
           registeredVet: data['registered_vet'],
+          address: data['address'],
           daysInDaycare: daysInDaycareResult,
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
@@ -527,6 +544,7 @@ class ApiDataService implements DataService {
           'food_instructions': foodInstructions,
           'medical_notes': medicalNotes,
           'registered_vet': registeredVet,
+          'address': address,
           if (daysInDaycare != null && daysInDaycare.isNotEmpty) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
           if (ownerId != null) 'owner': int.parse(ownerId),
           if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
@@ -565,6 +583,7 @@ class ApiDataService implements DataService {
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
           registeredVet: data['registered_vet'],
+          address: data['address'],
           daysInDaycare: daysInDaycareResult,
           ownerDetails: ownerDetails,
           additionalOwners: additionalOwners,
@@ -704,6 +723,7 @@ class ApiDataService implements DataService {
       foodInstructions: data['food_instructions'],
       medicalNotes: data['medical_notes'],
       registeredVet: data['registered_vet'],
+      address: data['address'],
       daysInDaycare: daysInDaycare,
       ownerDetails: ownerDetails,
       additionalOwners: additionalOwnersList,
@@ -1269,39 +1289,7 @@ class ApiDataService implements DataService {
     );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
-      return data.map((j) {
-        final daysInDaycare = (j['daycare_days'] as List<dynamic>?)
-            ?.map((day) => Weekday.values.firstWhere(
-                  (w) => w.dayNumber == day,
-                  orElse: () => Weekday.monday,
-                ))
-            .toList() ?? [];
-        OwnerDetails? ownerDetails;
-        if (j['owner_details'] != null) {
-          ownerDetails = OwnerDetails.fromJson(j['owner_details']);
-        }
-        final additionalOwners = (j['additional_owners_details'] as List<dynamic>?)
-            ?.map((o) => OwnerDetails.fromJson(o))
-            .toList() ?? [];
-        return Dog(
-          id: j['id'].toString(),
-          name: j['name'],
-          ownerId: (j['owner'] ?? '').toString(),
-          profileImageUrl: j['profile_image'],
-          foodInstructions: j['food_instructions'],
-          medicalNotes: j['medical_notes'],
-          registeredVet: j['registered_vet'],
-          daysInDaycare: daysInDaycare,
-          ownerDetails: ownerDetails,
-          additionalOwners: additionalOwners,
-          preferredDropoffTime: DropoffTimeExtension.fromApiValue(j['preferred_dropoff_time']),
-          scheduleType: ScheduleTypeExtension.fromApiValue(j['schedule_type']),
-          ownerBringsDefault: j['owner_brings_default'] ?? false,
-          ownerCollectsDefault: j['owner_collects_default'] ?? false,
-          ownerBringsDefaultTime: parseApiTime(j['owner_brings_default_time']),
-          ownerCollectsDefaultTime: parseApiTime(j['owner_collects_default_time']),
-        );
-      }).toList();
+      return _parseDogsList(data);
     } else {
       throw Exception('Failed to load unassigned dogs');
     }

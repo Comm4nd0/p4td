@@ -21,7 +21,15 @@ class MockDataService implements DataService {
     await Future.delayed(const Duration(milliseconds: 500)); // Simulate network
     return _dogs;
   }
-  
+
+  @override
+  Future<Dog> getDogById(String dogId) async {
+    final index = _dogs.indexWhere((d) => d.id == dogId);
+    if (index == -1) throw Exception('Dog not found');
+    return _dogs[index];
+  }
+
+
   @override
   Future<UserProfile> getProfile() async {
     return UserProfile(username: 'test', email: 'test@example.com');
@@ -65,7 +73,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
     await Future.delayed(const Duration(milliseconds: 300)); // Simulate network
     final index = _dogs.indexWhere((d) => d.id == dog.id);
     if (index == -1) {
@@ -76,6 +84,7 @@ class MockDataService implements DataService {
       foodInstructions: foodInstructions,
       medicalNotes: medicalNotes,
       registeredVet: registeredVet,
+      address: address,
       daysInDaycare: daysInDaycare,
       profileImageUrl: deletePhoto ? null : _dogs[index].profileImageUrl,
       sex: sex,
@@ -87,12 +96,13 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     return Dog(
       id: '99',
       name: name,
       ownerId: 'user1',
       registeredVet: registeredVet,
+      address: address,
       ownerBringsDefault: ownerBringsDefault ?? false,
       ownerCollectsDefault: ownerCollectsDefault ?? false,
       ownerBringsDefaultTime: ownerBringsDefaultTime,

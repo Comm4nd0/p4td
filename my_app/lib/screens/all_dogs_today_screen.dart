@@ -8,6 +8,8 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
+import '../widgets/dog_quick_info_sheet.dart';
+import 'dog_home_screen.dart';
 
 enum _SortOption {
   nameAsc('Name (A-Z)'),
@@ -141,6 +143,18 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
         );
       }
     }
+  }
+
+  /// Single tap on a dog card: quick-info sheet, with optional follow-on
+  /// navigation to the full profile.
+  Future<void> _openQuickInfo({Dog? dog, DailyDogAssignment? assignment}) async {
+    final fullDog = await DogQuickInfoSheet.show(context, dog: dog, assignment: assignment);
+    if (fullDog == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DogHomeScreen(dog: fullDog, isStaff: true)),
+    );
+    if (mounted) _reloadAll();
   }
 
   Future<void> _updateStatus(DailyDogAssignment assignment, AssignmentStatus newStatus) async {
@@ -958,7 +972,10 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
         side: BorderSide(color: Colors.red.shade200, width: 1),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Padding(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openQuickInfo(dog: dog),
+        child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
@@ -1050,6 +1067,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -1061,7 +1079,10 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openQuickInfo(assignment: assignment),
+        child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1295,6 +1316,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 ),
               ),
           ],
+        ),
         ),
       ),
     );

@@ -1398,6 +1398,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               title: 'Registered Vet',
               body: _dog.registeredVet!,
             ),
+          if (_dog.address != null && _dog.address!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.mapPin,
+              title: 'Address',
+              body: _dog.address!,
+            ),
           if (transportLines.isNotEmpty)
             _infoBlock(
               icon: PiconsDuotone.car,

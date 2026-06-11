@@ -10,6 +10,7 @@ import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
+import '../widgets/dog_quick_info_sheet.dart';
 import '../widgets/grouped_section.dart';
 import '../widgets/no_connection_widget.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -820,10 +821,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         margin: const EdgeInsets.only(bottom: 16),
                         child: InkWell(
                           onTap: () async {
+                            // Staff get a quick-info popup first; owners go
+                            // straight to the full profile.
+                            Dog dogForProfile = dog;
+                            if (_isStaff) {
+                              final picked = await DogQuickInfoSheet.show(context, dog: dog);
+                              if (picked == null || !context.mounted) return;
+                              dogForProfile = picked;
+                            }
                             final result = await Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
+                                builder: (_) => DogHomeScreen(dog: dogForProfile, isStaff: _isStaff),
                               ),
                             );
                             if (result == 'deleted') {

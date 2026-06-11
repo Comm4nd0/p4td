@@ -36,7 +36,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int? _activeAccountId;
 
   final _firstNameController = TextEditingController();
-  final _addressController = TextEditingController();
   final _phoneController = TextEditingController();
   final _pickupController = TextEditingController();
 
@@ -71,7 +70,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _profile = profile;
         _firstNameController.text = profile.firstName ?? '';
-        _addressController.text = profile.address ?? '';
         _phoneController.text = profile.phoneNumber ?? '';
         _pickupController.text = profile.pickupInstructions ?? '';
         _notifyFeed = profile.notifyFeed;
@@ -120,7 +118,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         username: _profile!.username,
         email: _profile!.email,
         firstName: _firstNameController.text,
-        address: _addressController.text,
+        // The dog profile now owns the pickup address; round-trip the stored
+        // profile value so saving here never wipes what older app builds use.
+        address: _profile!.address,
         phoneNumber: _phoneController.text,
         pickupInstructions: _pickupController.text,
         notifyFeed: _notifyFeed,
@@ -597,15 +597,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 keyboardType: TextInputType.phone,
                               ),
                               if (!_profile!.isStaff) ...[
-                                const SizedBox(height: 12),
-                                TextField(
-                                  controller: _addressController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Address',
-                                    prefixIcon: Picon(PiconsDuotone.house),
-                                  ),
-                                  maxLines: 3,
-                                ),
                                 const SizedBox(height: 12),
                                 TextField(
                                   controller: _pickupController,

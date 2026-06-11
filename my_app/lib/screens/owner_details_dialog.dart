@@ -21,7 +21,6 @@ class OwnerDetailsDialog extends StatefulWidget {
 }
 
 class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
-  late TextEditingController _addressController;
   late TextEditingController _phoneController;
   late TextEditingController _pickupController;
   bool _isEditing = false;
@@ -31,14 +30,12 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
   @override
   void initState() {
     super.initState();
-    _addressController = TextEditingController(text: widget.ownerProfile.address ?? '');
     _phoneController = TextEditingController(text: widget.ownerProfile.phoneNumber ?? '');
     _pickupController = TextEditingController(text: widget.ownerProfile.pickupInstructions ?? '');
   }
 
   @override
   void dispose() {
-    _addressController.dispose();
     _phoneController.dispose();
     _pickupController.dispose();
     super.dispose();
@@ -49,7 +46,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
     try {
       await _dataService.updateOwnerProfile(
         widget.ownerId,
-        address: _addressController.text.isEmpty ? null : _addressController.text,
         phoneNumber: _phoneController.text.isEmpty ? null : _phoneController.text,
         pickupInstructions: _pickupController.text.isEmpty ? null : _pickupController.text,
       );
@@ -101,14 +97,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
             if (_isEditing)
               ...[
                 TextField(
-                  controller: _addressController,
-                  decoration: const InputDecoration(
-                    labelText: 'Address',
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                TextField(
                   controller: _phoneController,
                   decoration: const InputDecoration(
                     labelText: 'Phone Number',
@@ -125,12 +113,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
               ]
             else
               ...[
-                Text(
-                  'Address',
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-                Text(widget.ownerProfile.address ?? 'Not provided'),
-                const SizedBox(height: 12),
                 Text(
                   'Phone Number',
                   style: Theme.of(context).textTheme.labelMedium,
