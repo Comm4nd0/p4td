@@ -107,6 +107,8 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/day-off-requests/` | Staff day-off requests |
 | `api/device-tokens/` | Push notification tokens |
 | `api/contact-inquiries/` | Website contact form |
+| `api/vehicles/` | Fleet vehicles (MOT/service tracking) |
+| `api/vehicle-defects/` | Vehicle defect reports with photos |
 
 Additional non-router endpoints: password reset/change, account deletion.
 
@@ -166,6 +168,7 @@ See `.env.example` for required variables. Key ones:
 | Command | Purpose |
 |---|---|
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files |
+| `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` (daily 8:05am cron) |
 
 ### Feed Media Pruning
 

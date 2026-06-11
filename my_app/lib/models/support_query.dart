@@ -17,6 +17,7 @@ class SupportQuery {
   final int messageCount;
   final DateTime? lastMessageAt;
   final bool hasUnreadReply;
+  final bool staffHasUnread;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -32,6 +33,7 @@ class SupportQuery {
     this.messageCount = 0,
     this.lastMessageAt,
     this.hasUnreadReply = false,
+    this.staffHasUnread = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -56,6 +58,7 @@ class SupportQuery {
           : [],
       messageCount: json['message_count'] ?? 0,
       hasUnreadReply: json['has_unread_reply'] ?? false,
+      staffHasUnread: json['staff_has_unread'] ?? false,
       lastMessageAt: json['last_message_at'] != null
           ? DateTime.parse(json['last_message_at'])
           : null,

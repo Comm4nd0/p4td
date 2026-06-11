@@ -25,6 +25,7 @@ import 'closure_days_screen.dart';
 import 'my_calendar_screen.dart';
 import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
+import 'fleet_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
@@ -62,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canReplyQueries = false;
   bool _canApproveTimeoff = false;
   bool _canViewInquiries = false;
+  bool _canManageVehicles = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -181,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canReplyQueries = profile.canReplyQueries;
           _canApproveTimeoff = profile.canApproveTimeoff;
           _canViewInquiries = profile.canViewInquiries;
+          _canManageVehicles = profile.canManageVehicles;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -631,6 +634,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onTap: () {
                     Navigator.pop(context);
                     _showTrafficAlertDialog();
+                  },
+                ),
+              if (_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.van),
+                  title: const Text('Fleet'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FleetScreen(canManageVehicles: _canManageVehicles),
+                      ),
+                    );
                   },
                 ),
               if (_isStaff)

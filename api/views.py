@@ -1,7 +1,7 @@
 from rest_framework import viewsets, mixins, status as drf_status
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes as perm_classes, throttle_classes
-from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny, BasePermission, SAFE_METHODS
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
@@ -1189,8 +1189,10 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             MediaReaction.objects.filter(media=media, user=request.user).delete()
             # Add the new reaction
             MediaReaction.objects.create(media=media, user=request.user, emoji=emoji)
-            
-            
+
+        # Re-fetch so the response reflects the toggle instead of the stale
+        # prefetched reactions on the original instance.
+        media = self.get_queryset().get(pk=media.pk)
         return Response(self.get_serializer(media).data)
 
     @action(detail=True, methods=['post'])
@@ -1209,6 +1211,9 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Failed to send comment notification: {e}")
 
+        # Re-fetch so the response includes the new comment instead of the
+        # stale prefetched comments on the original instance.
+        media = self.get_queryset().get(pk=media.pk)
         return Response(self.get_serializer(media).data)
 
     @action(detail=False, methods=['get'])
@@ -2317,6 +2322,11 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
                 query=query, sender=self.request.user, text=initial_message
             )
 
+        # A new query from an owner is unread for staff
+        if not self.request.user.is_staff:
+            query.staff_has_unread = True
+            query.save()
+
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):
         """Add a message to a query thread."""
@@ -2337,10 +2347,13 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
 
         SupportMessage.objects.create(query=query, sender=user, text=text)
         # Mark unread for the owner when staff replies, clear when owner replies
+        # (and vice versa for the staff-side unread flag)
         if user.is_staff:
             query.has_unread_reply = True
+            query.staff_has_unread = False
         else:
             query.has_unread_reply = False
+            query.staff_has_unread = True
         query.save()  # Update updated_at timestamp
         # Refresh from DB to clear prefetch cache and include the new message
         query.refresh_from_db()
@@ -2349,11 +2362,17 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def mark_read(self, request, pk=None):
-        """Mark a query as read by the owner."""
+        """Mark a query as read by the owner and/or staff."""
         from .serializers import SupportQuerySerializer
         query = self.get_object()
+        changed = False
         if request.user == query.owner:
             query.has_unread_reply = False
+            changed = True
+        if request.user.is_staff:
+            query.staff_has_unread = False
+            changed = True
+        if changed:
             query.save()
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
@@ -2400,7 +2419,7 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         """Get count of queries with unread replies for badge display."""
         from .models import SupportQuery
         if request.user.is_staff:
-            count = SupportQuery.objects.filter(status='OPEN').count()
+            count = SupportQuery.objects.filter(status='OPEN', staff_has_unread=True).count()
         else:
             count = SupportQuery.objects.filter(owner=request.user, has_unread_reply=True).count()
         return Response({'count': count})
@@ -3245,3 +3264,188 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
             return Response({'count': 0})
         count = ContactInquiry.objects.filter(is_read=False).count()
         return Response({'count': count})
+
+
+class IsStaffReadOrVehicleManager(BasePermission):
+    """All staff can read; writes require profile.can_manage_vehicles
+    (superusers always allowed)."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user.is_authenticated and user.is_staff):
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+        if user.is_superuser:
+            return True
+        return getattr(getattr(user, 'profile', None), 'can_manage_vehicles', False)
+
+
+def _user_can_manage_vehicles(user):
+    if user.is_superuser:
+        return True
+    return getattr(getattr(user, 'profile', None), 'can_manage_vehicles', False)
+
+
+class VehicleViewSet(viewsets.ModelViewSet):
+    """Fleet vehicles. All staff can view; users with can_manage_vehicles
+    add/edit vehicles and update MOT/service due dates. Date changes are
+    recorded as maintenance history and re-arm the reminder flags (reminders
+    are sent by the daily send_fleet_reminders management command)."""
+    permission_classes = [IsStaffReadOrVehicleManager]
+
+    def get_serializer_class(self):
+        from .serializers import VehicleSerializer
+        return VehicleSerializer
+
+    def get_queryset(self):
+        from .models import Vehicle
+        return Vehicle.objects.prefetch_related('defects')
+
+    def perform_create(self, serializer):
+        image_file = serializer.validated_data.get('image')
+        if image_file:
+            serializer.validated_data['image'] = process_image(image_file, max_size=(1280, 1280))
+        serializer.save()
+
+    def perform_update(self, serializer):
+        from .models import VehicleMaintenanceRecord
+
+        image_file = serializer.validated_data.get('image')
+        if image_file:
+            serializer.validated_data['image'] = process_image(image_file, max_size=(1280, 1280))
+
+        old_mot = serializer.instance.mot_due_date
+        old_service = serializer.instance.service_due_date
+        instance = serializer.save()
+
+        maintenance_notes = self.request.data.get('maintenance_notes')
+        rearm_fields = []
+        if instance.mot_due_date != old_mot:
+            VehicleMaintenanceRecord.objects.create(
+                vehicle=instance, event_type='MOT',
+                previous_due_date=old_mot, new_due_date=instance.mot_due_date,
+                notes=maintenance_notes, created_by=self.request.user,
+            )
+            instance.mot_reminder_30_sent = False
+            instance.mot_reminder_7_sent = False
+            instance.mot_overdue_notice_sent = False
+            rearm_fields += ['mot_reminder_30_sent', 'mot_reminder_7_sent', 'mot_overdue_notice_sent']
+        if instance.service_due_date != old_service:
+            VehicleMaintenanceRecord.objects.create(
+                vehicle=instance, event_type='SERVICE',
+                previous_due_date=old_service, new_due_date=instance.service_due_date,
+                notes=maintenance_notes, created_by=self.request.user,
+            )
+            instance.service_reminder_30_sent = False
+            instance.service_reminder_7_sent = False
+            instance.service_overdue_notice_sent = False
+            rearm_fields += ['service_reminder_30_sent', 'service_reminder_7_sent', 'service_overdue_notice_sent']
+        if rearm_fields:
+            instance.save(update_fields=rearm_fields)
+
+    @action(detail=True, methods=['get'])
+    def history(self, request, pk=None):
+        from .serializers import VehicleMaintenanceRecordSerializer
+        vehicle = self.get_object()
+        records = vehicle.maintenance_records.select_related('created_by')
+        return Response(VehicleMaintenanceRecordSerializer(records, many=True).data)
+
+
+class VehicleDefectViewSet(viewsets.ModelViewSet):
+    """Vehicle defect reports. Any staff member can report a defect (with
+    photos) and attach more photos; only vehicle managers can edit, delete
+    or change defect status."""
+    permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        from .serializers import VehicleDefectSerializer
+        return VehicleDefectSerializer
+
+    def get_permissions(self):
+        if self.action in ('update', 'partial_update', 'destroy'):
+            return [IsStaffReadOrVehicleManager()]
+        return [IsAdminUser()]
+
+    def get_queryset(self):
+        from .models import VehicleDefect
+        qs = VehicleDefect.objects.select_related('vehicle', 'reported_by', 'resolved_by').prefetch_related('images')
+        vehicle_id = self.request.query_params.get('vehicle')
+        if vehicle_id:
+            qs = qs.filter(vehicle_id=vehicle_id)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        return qs
+
+    def _attach_images(self, defect):
+        from .models import VehicleDefectImage
+        for image_file in self.request.FILES.getlist('images'):
+            VehicleDefectImage.objects.create(
+                defect=defect,
+                image=process_image(image_file, max_size=(1280, 1280)),
+                thumbnail=process_image(image_file, max_size=(400, 400), quality=70),
+            )
+
+    def perform_create(self, serializer):
+        defect = serializer.save(reported_by=self.request.user)
+        self._attach_images(defect)
+
+        try:
+            from .notifications import send_staff_notification
+            reporter = self.request.user.first_name or self.request.user.username
+            send_staff_notification(
+                f"New defect: {defect.vehicle.name}",
+                f"{reporter} reported '{defect.title}' ({defect.get_severity_display()} severity)",
+                {'type': 'vehicle_defect', 'id': str(defect.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                permission='can_manage_vehicles',
+            )
+        except Exception as e:
+            print(f"Failed to send defect notification: {e}")
+
+    @action(detail=True, methods=['post'])
+    def add_images(self, request, pk=None):
+        defect = self.get_object()
+        self._attach_images(defect)
+        defect = self.get_queryset().get(pk=defect.pk)
+        return Response(self.get_serializer(defect).data)
+
+    @action(detail=True, methods=['post'])
+    def change_status(self, request, pk=None):
+        from .models import VehicleDefect
+        from rest_framework.exceptions import PermissionDenied
+
+        if not _user_can_manage_vehicles(request.user):
+            raise PermissionDenied("Only vehicle managers can change defect status")
+
+        defect = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(VehicleDefect.STATUS_CHOICES).keys():
+            return Response({'detail': 'Invalid status'}, status=400)
+
+        old_status = defect.status
+        if old_status == new_status:
+            return Response(self.get_serializer(defect).data)
+
+        defect.status = new_status
+        if new_status == 'RESOLVED':
+            defect.resolved_by = request.user
+            defect.resolved_at = timezone.now()
+        else:
+            defect.resolved_by = None
+            defect.resolved_at = None
+        defect.save()
+
+        if defect.reported_by and defect.reported_by != request.user:
+            try:
+                from .notifications import send_push_notification
+                send_push_notification(
+                    defect.reported_by,
+                    "Defect update",
+                    f"'{defect.title}' on {defect.vehicle.name} is now {defect.get_status_display()}.",
+                    {'type': 'vehicle_defect', 'id': str(defect.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                )
+            except Exception as e:
+                print(f"Failed to send defect status notification: {e}")
+
+        return Response(self.get_serializer(defect).data)

@@ -363,7 +363,8 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
 
   Widget _buildQueryCard(SupportQuery query) {
     final isOpen = query.status == QueryStatus.open;
-    final hasUnread = query.hasUnreadReply && !widget.isStaff;
+    final hasUnread =
+        widget.isStaff ? query.staffHasUnread : query.hasUnreadReply;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: InkWell(
