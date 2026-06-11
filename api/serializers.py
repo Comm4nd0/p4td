@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -48,7 +48,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled']
 
     def get_postcode_lookup_enabled(self, obj):
         from django.conf import settings
@@ -99,6 +99,7 @@ class StaffPermissionsSerializer(serializers.ModelSerializer):
             'user_id', 'username', 'first_name', 'email', 'is_superuser',
             'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests',
             'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries',
+            'can_manage_vehicles',
         ]
 
 class DogSerializer(serializers.ModelSerializer):
@@ -428,11 +429,11 @@ class SupportQuerySerializer(serializers.ModelSerializer):
         model = SupportQuery
         fields = [
             'id', 'owner', 'owner_name', 'subject', 'status',
-            'has_unread_reply', 'resolved_by_name', 'resolved_at',
+            'has_unread_reply', 'staff_has_unread', 'resolved_by_name', 'resolved_at',
             'messages', 'message_count', 'last_message_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'staff_has_unread', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
         if obj.owner.first_name:
@@ -457,10 +458,10 @@ class SupportQueryListSerializer(serializers.ModelSerializer):
         model = SupportQuery
         fields = [
             'id', 'owner', 'owner_name', 'subject', 'status',
-            'has_unread_reply', 'message_count', 'last_message_at',
+            'has_unread_reply', 'staff_has_unread', 'message_count', 'last_message_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'staff_has_unread', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
         if obj.owner.first_name:
@@ -670,3 +671,88 @@ class UserCreateWithPrivacySerializer(DjoserUserCreateSerializer):
         profile.accepted_privacy_version = PRIVACY_POLICY_VERSION
         profile.save(update_fields=['accepted_privacy_at', 'accepted_privacy_version'])
         return user
+
+
+class VehicleMaintenanceRecordSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VehicleMaintenanceRecord
+        fields = ['id', 'vehicle', 'event_type', 'previous_due_date', 'new_due_date', 'notes', 'created_by_name', 'created_at']
+        read_only_fields = ['id', 'created_by_name', 'created_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.first_name or obj.created_by.username
+        return None
+
+
+class VehicleDefectImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleDefectImage
+        fields = ['id', 'image', 'thumbnail', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request:
+            if instance.image:
+                data['image'] = request.build_absolute_uri(instance.image.url)
+            if instance.thumbnail:
+                data['thumbnail'] = request.build_absolute_uri(instance.thumbnail.url)
+        return data
+
+
+class VehicleDefectSerializer(serializers.ModelSerializer):
+    vehicle_name = serializers.CharField(source='vehicle.name', read_only=True)
+    reported_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    images = VehicleDefectImageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = VehicleDefect
+        fields = [
+            'id', 'vehicle', 'vehicle_name', 'title', 'description', 'severity',
+            'status', 'reported_by_name', 'resolved_by_name', 'resolved_at',
+            'images', 'created_at', 'updated_at',
+        ]
+        # Status changes only happen through the change_status action so they
+        # always stamp resolved_by/resolved_at and notify the reporter.
+        read_only_fields = ['id', 'status', 'resolved_at', 'created_at', 'updated_at']
+
+    def get_reported_by_name(self, obj):
+        if obj.reported_by:
+            return obj.reported_by.first_name or obj.reported_by.username
+        return None
+
+    def get_resolved_by_name(self, obj):
+        if obj.resolved_by:
+            return obj.resolved_by.first_name or obj.resolved_by.username
+        return None
+
+
+class VehicleSerializer(serializers.ModelSerializer):
+    mot_status = serializers.CharField(read_only=True)
+    service_status = serializers.CharField(read_only=True)
+    open_defect_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Vehicle
+        fields = [
+            'id', 'name', 'registration', 'make', 'model', 'notes', 'image',
+            'status', 'mot_due_date', 'service_due_date', 'mot_status',
+            'service_status', 'open_defect_count', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_open_defect_count(self, obj):
+        # Count in Python from the prefetched defects to avoid a per-vehicle query
+        return sum(1 for d in obj.defects.all() if d.status != 'RESOLVED')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request and instance.image:
+            data['image'] = request.build_absolute_uri(instance.image.url)
+        return data
