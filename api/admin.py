@@ -61,8 +61,11 @@ class DogAdmin(admin.ModelAdmin):
         (None, {
             'fields': ('name', 'owner', 'additional_owners', 'profile_image', 'profile_image_preview_large'),
         }),
+        ('About', {
+            'fields': ('sex', 'date_of_birth', 'is_spayed'),
+        }),
         ('Daycare', {
-            'fields': ('daycare_days',),
+            'fields': ('daycare_days', 'schedule_type'),
         }),
         ('Transport', {
             'fields': (

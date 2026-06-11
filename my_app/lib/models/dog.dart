@@ -190,6 +190,9 @@ class Dog {
   final String? medicalNotes;
   final String? registeredVet;
   final String? address;
+  final String? accessInstructions;
+  final String? vanPlacement;
+  final String? generalNotes;
   final List<Weekday> daysInDaycare;
   final OwnerDetails? ownerDetails;
   final List<OwnerDetails> additionalOwners;
@@ -212,6 +215,9 @@ class Dog {
     this.medicalNotes,
     this.registeredVet,
     this.address,
+    this.accessInstructions,
+    this.vanPlacement,
+    this.generalNotes,
     this.daysInDaycare = const [],
     this.ownerDetails,
     this.additionalOwners = const [],
@@ -250,6 +256,9 @@ class Dog {
     String? medicalNotes,
     String? registeredVet,
     String? address,
+    String? accessInstructions,
+    String? vanPlacement,
+    String? generalNotes,
     List<Weekday>? daysInDaycare,
     OwnerDetails? ownerDetails,
     List<OwnerDetails>? additionalOwners,
@@ -272,6 +281,9 @@ class Dog {
       medicalNotes: medicalNotes ?? this.medicalNotes,
       registeredVet: registeredVet ?? this.registeredVet,
       address: address ?? this.address,
+      accessInstructions: accessInstructions ?? this.accessInstructions,
+      vanPlacement: vanPlacement ?? this.vanPlacement,
+      generalNotes: generalNotes ?? this.generalNotes,
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
       ownerDetails: ownerDetails ?? this.ownerDetails,
       additionalOwners: additionalOwners ?? this.additionalOwners,

@@ -1404,6 +1404,24 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               title: 'Address',
               body: _dog.address!,
             ),
+          if (widget.isStaff && _dog.accessInstructions != null && _dog.accessInstructions!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.key,
+              title: 'Home Access',
+              body: _dog.accessInstructions!,
+            ),
+          if (widget.isStaff && _dog.vanPlacement != null && _dog.vanPlacement!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.van,
+              title: 'Van Placement',
+              body: _dog.vanPlacement!,
+            ),
+          if (widget.isStaff && _dog.generalNotes != null && _dog.generalNotes!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.notePencil,
+              title: 'Notes',
+              body: _dog.generalNotes!,
+            ),
           if (transportLines.isNotEmpty)
             _infoBlock(
               icon: PiconsDuotone.car,

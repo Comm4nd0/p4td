@@ -47,6 +47,9 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final _medicalController = TextEditingController();
   final _vetController = TextEditingController();
   final _addressController = TextEditingController();
+  final _accessController = TextEditingController();
+  final _vanPlacementController = TextEditingController();
+  final _generalNotesController = TextEditingController();
 
   @override
   void initState() {
@@ -169,6 +172,9 @@ class _AddDogScreenState extends State<AddDogScreen> {
         medicalNotes: _medicalController.text.trim().isEmpty ? null : _medicalController.text.trim(),
         registeredVet: _vetController.text.trim().isEmpty ? null : _vetController.text.trim(),
         address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
+        accessInstructions: _isStaff && _accessController.text.trim().isNotEmpty ? _accessController.text.trim() : null,
+        vanPlacement: _isStaff && _vanPlacementController.text.trim().isNotEmpty ? _vanPlacementController.text.trim() : null,
+        generalNotes: _isStaff && _generalNotesController.text.trim().isNotEmpty ? _generalNotesController.text.trim() : null,
         imageBytes: _imageBytes,
         imageName: _selectedImage?.name,
         daysInDaycare: _selectedDays.toList(),
@@ -418,6 +424,46 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         onChanged: (v) => setState(() => _isSpayed = v),
                       ),
                       if (_isStaff) ...[
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Staff Notes',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Only visible to staff.',
+                          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _accessController,
+                          decoration: const InputDecoration(
+                            labelText: 'Home Access',
+                            hintText: 'Keys, codes, gates, where the dog is kept',
+                            prefixIcon: Picon(PiconsDuotone.key),
+                          ),
+                          maxLines: 4,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _vanPlacementController,
+                          decoration: const InputDecoration(
+                            labelText: 'Van Placement',
+                            hintText: 'Where the dog sits in the van, who with',
+                            prefixIcon: Picon(PiconsDuotone.van),
+                          ),
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _generalNotesController,
+                          decoration: const InputDecoration(
+                            labelText: 'Notes',
+                            hintText: 'General behaviour and handling notes',
+                            prefixIcon: Picon(PiconsDuotone.notePencil),
+                          ),
+                          maxLines: 4,
+                        ),
                         const SizedBox(height: 24),
                         const Text(
                           'Transport defaults',

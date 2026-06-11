@@ -317,6 +317,14 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
     if (_pickupInstructions != null) {
       rows.add(_infoRow(context, PiconsDuotone.info, _pickupInstructions!));
     }
+    final access = _dog?.accessInstructions;
+    if (access != null && access.trim().isNotEmpty) {
+      rows.add(_infoRow(context, PiconsDuotone.key, access));
+    }
+    final van = _dog?.vanPlacement;
+    if (van != null && van.trim().isNotEmpty) {
+      rows.add(_infoRow(context, PiconsDuotone.van, van));
+    }
     if (rows.isEmpty) return [];
     return [
       _sectionLabel(context, 'Pickup'),
@@ -358,6 +366,10 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
     final vet = _dog?.registeredVet;
     if (vet != null && vet.trim().isNotEmpty) {
       rows.add(_infoRow(context, PiconsDuotone.stethoscope, vet));
+    }
+    final notes = _dog?.generalNotes;
+    if (notes != null && notes.trim().isNotEmpty) {
+      rows.add(_infoRow(context, PiconsDuotone.notePencil, notes));
     }
     if (rows.isEmpty) return [];
     return [
