@@ -1066,3 +1066,50 @@ class VehicleDefectImage(models.Model):
 
     def __str__(self):
         return f"Image for defect #{self.defect_id}"
+
+
+class FacilityDefect(models.Model):
+    """A general site/facility defect (e.g. a broken gate). Any staff member
+    can report one and change its status."""
+    STATUS_CHOICES = [
+        ('REPORTED', 'Reported'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('RESOLVED', 'Resolved'),
+    ]
+
+    SEVERITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'),
+        ('HIGH', 'High'),
+    ]
+
+    title = models.CharField(max_length=200)
+    location = models.CharField(max_length=200, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='MEDIUM')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='REPORTED')
+    reported_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reported_facility_defects')
+    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_facility_defects')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.status})"
+
+
+class FacilityDefectImage(models.Model):
+    """A photo attached to a facility defect report."""
+    defect = models.ForeignKey(FacilityDefect, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to='facility_defects/', max_length=150)
+    thumbnail = models.ImageField(upload_to='facility_defects/thumbnails/', max_length=150, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Image for facility defect #{self.defect_id}"

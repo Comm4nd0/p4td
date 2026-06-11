@@ -11,6 +11,7 @@ from .models import (
     ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
     VaccinationRecord, WaitlistEntry, DaycareSettings,
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
+    FacilityDefect, FacilityDefectImage,
 )
 
 
@@ -973,6 +974,47 @@ class VehicleDefectAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
     list_per_page = 30
     inlines = [VehicleDefectImageInline]
+
+    def reported_by_name(self, obj):
+        if obj.reported_by:
+            return obj.reported_by.first_name or obj.reported_by.username
+        return '-'
+    reported_by_name.short_description = 'Reported By'
+
+    def status_display(self, obj):
+        colors = {'REPORTED': '#dc3545', 'IN_PROGRESS': '#ffc107', 'RESOLVED': '#198754'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display(),
+        )
+    status_display.short_description = 'Status'
+
+
+class FacilityDefectImageInline(admin.TabularInline):
+    model = FacilityDefectImage
+    extra = 0
+    fields = ('image', 'thumbnail_preview', 'created_at')
+    readonly_fields = ('thumbnail_preview', 'created_at')
+
+    def thumbnail_preview(self, obj):
+        if obj.thumbnail:
+            return format_html('<img src="{}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;" />', obj.thumbnail.url)
+        if obj.image:
+            return format_html('<img src="{}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;" />', obj.image.url)
+        return 'No image'
+    thumbnail_preview.short_description = 'Preview'
+
+
+@admin.register(FacilityDefect)
+class FacilityDefectAdmin(admin.ModelAdmin):
+    list_display = ('title', 'location', 'severity', 'status_display', 'reported_by_name', 'created_at')
+    list_filter = ('status', 'severity')
+    search_fields = ('title', 'description', 'location')
+    raw_id_fields = ('reported_by', 'resolved_by')
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 30
+    inlines = [FacilityDefectImageInline]
 
     def reported_by_name(self, obj):
         if obj.reported_by:

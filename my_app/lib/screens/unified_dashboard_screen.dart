@@ -22,6 +22,8 @@ import 'boarding_request_list_screen.dart';
 import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'dog_profile_changes_screen.dart';
+import 'facility_defects_screen.dart';
+import 'fleet_screen.dart';
 import 'staff_permissions_screen.dart';
 import 'multi_photo_capture_screen.dart';
 
@@ -31,6 +33,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
   final bool canReplyQueries;
   final bool canViewInquiries;
   final bool canAddFeedMedia;
+  final bool canManageVehicles;
   final bool isStaff;
   final bool isSuperuser;
   final int? myUserId;
@@ -45,6 +48,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.canReplyQueries = false,
     this.canViewInquiries = false,
     this.canAddFeedMedia = false,
+    this.canManageVehicles = false,
     this.isStaff = false,
     this.isSuperuser = false,
     this.myUserId,
@@ -92,6 +96,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
   int _pendingProfileChangeCount = 0;
+  int _unresolvedDefectCount = 0;
+  int _unresolvedVehicleDefectCount = 0;
   int _unspayedMalesCount = 0;
   List<UnspayedMaleSummary> _unspayedMales = [];
   List<BoardingRequest> _boardingTonight = [];
@@ -283,6 +289,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (widget.canViewInquiries) _loadUnreadInquiryCount();
     _loadBoardingTonight();
     if (widget.canManageRequests) _loadPendingProfileChangeCount();
+    _loadUnresolvedDefectCount();
+    _loadUnresolvedVehicleDefectCount();
     _loadUnspayedMales();
   }
 
@@ -324,6 +332,20 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     try {
       final count = await _dataService.getUnresolvedQueryCount();
       if (mounted) setState(() => _unresolvedQueryCount = count);
+    } catch (_) {}
+  }
+
+  Future<void> _loadUnresolvedDefectCount() async {
+    try {
+      final count = await _dataService.getUnresolvedFacilityDefectCount();
+      if (mounted) setState(() => _unresolvedDefectCount = count);
+    } catch (_) {}
+  }
+
+  Future<void> _loadUnresolvedVehicleDefectCount() async {
+    try {
+      final count = await _dataService.getUnresolvedVehicleDefectCount();
+      if (mounted) setState(() => _unresolvedVehicleDefectCount = count);
     } catch (_) {}
   }
 
@@ -1786,6 +1808,30 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           onTap: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()));
             _loadPendingRequestCount();
+          },
+        ),
+        const SizedBox(height: 4),
+        ActionItemTile(
+          icon: PiconsDuotone.wrench,
+          label: 'Site Defects',
+          count: _unresolvedDefectCount,
+          countColor: _unresolvedDefectCount > 0 ? Colors.red : null,
+          onTap: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const FacilityDefectsScreen()));
+            _loadUnresolvedDefectCount();
+          },
+        ),
+        const SizedBox(height: 4),
+        ActionItemTile(
+          icon: PiconsDuotone.van,
+          label: 'Vehicle Defects',
+          count: _unresolvedVehicleDefectCount,
+          countColor: _unresolvedVehicleDefectCount > 0 ? Colors.red : null,
+          onTap: () async {
+            await Navigator.push(context, MaterialPageRoute(
+              builder: (_) => FleetScreen(canManageVehicles: widget.canManageVehicles),
+            ));
+            _loadUnresolvedVehicleDefectCount();
           },
         ),
         if (_unspayedMalesCount > 0) ...[

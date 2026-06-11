@@ -173,4 +173,11 @@ abstract class DataService {
   Future<VehicleDefect> createVehicleDefect({required int vehicleId, required String title, String? description, String? severity, List<(Uint8List, String)> images = const []});
   Future<VehicleDefect> addDefectImages(int defectId, List<(Uint8List, String)> images);
   Future<VehicleDefect> changeDefectStatus(int defectId, String status);
+  Future<int> getUnresolvedVehicleDefectCount();
+  Future<List<FacilityDefect>> getFacilityDefects({String? status});
+  Future<FacilityDefect> getFacilityDefect(int id);
+  Future<FacilityDefect> createFacilityDefect({required String title, String? location, String? description, String? severity, List<(Uint8List, String)> images = const []});
+  Future<FacilityDefect> addFacilityDefectImages(int defectId, List<(Uint8List, String)> images);
+  Future<FacilityDefect> changeFacilityDefectStatus(int defectId, String status);
+  Future<int> getUnresolvedFacilityDefectCount();
 }

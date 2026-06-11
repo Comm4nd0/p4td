@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, FacilityDefect, FacilityDefectImage
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -714,6 +714,50 @@ class VehicleDefectSerializer(serializers.ModelSerializer):
         model = VehicleDefect
         fields = [
             'id', 'vehicle', 'vehicle_name', 'title', 'description', 'severity',
+            'status', 'reported_by_name', 'resolved_by_name', 'resolved_at',
+            'images', 'created_at', 'updated_at',
+        ]
+        # Status changes only happen through the change_status action so they
+        # always stamp resolved_by/resolved_at and notify the reporter.
+        read_only_fields = ['id', 'status', 'resolved_at', 'created_at', 'updated_at']
+
+    def get_reported_by_name(self, obj):
+        if obj.reported_by:
+            return obj.reported_by.first_name or obj.reported_by.username
+        return None
+
+    def get_resolved_by_name(self, obj):
+        if obj.resolved_by:
+            return obj.resolved_by.first_name or obj.resolved_by.username
+        return None
+
+
+class FacilityDefectImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FacilityDefectImage
+        fields = ['id', 'image', 'thumbnail', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request:
+            if instance.image:
+                data['image'] = request.build_absolute_uri(instance.image.url)
+            if instance.thumbnail:
+                data['thumbnail'] = request.build_absolute_uri(instance.thumbnail.url)
+        return data
+
+
+class FacilityDefectSerializer(serializers.ModelSerializer):
+    reported_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    images = FacilityDefectImageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FacilityDefect
+        fields = [
+            'id', 'title', 'location', 'description', 'severity',
             'status', 'reported_by_name', 'resolved_by_name', 'resolved_at',
             'images', 'created_at', 'updated_at',
         ]
