@@ -68,11 +68,15 @@ class DogAdmin(admin.ModelAdmin):
             'fields': (
                 ('owner_brings_default', 'owner_brings_default_time'),
                 ('owner_collects_default', 'owner_collects_default_time'),
+                'van_placement',
             ),
             'description': 'Owner-perspective defaults. Per-day overrides live on each Daily Dog Assignment.',
         }),
+        ('Home Access', {
+            'fields': ('address', 'access_instructions'),
+        }),
         ('Care Instructions', {
-            'fields': ('food_instructions', 'medical_notes', 'registered_vet'),
+            'fields': ('food_instructions', 'medical_notes', 'registered_vet', 'general_notes'),
         }),
         ('Metadata', {
             'fields': ('created_at',),
