@@ -2731,6 +2731,158 @@ class VehicleDefectTests(TestCase):
         resp = self.client.get('/api/vehicle-defects/?status=RESOLVED')
         self.assertEqual([d['title'] for d in resp.data], ['Tyre'])
 
+    def test_unresolved_count(self):
+        self._create_defect(title='Mirror')
+        self._create_defect(title='Tyre', status='IN_PROGRESS')
+        self._create_defect(title='Done', status='RESOLVED')
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.get('/api/vehicle-defects/unresolved_count/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 2)
+
+    def test_unresolved_count_requires_staff(self):
+        self.client.login(username='defowner', password='pw')
+        resp = self.client.get('/api/vehicle-defects/unresolved_count/')
+        self.assertEqual(resp.status_code, 403)
+
+
+class FacilityDefectTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='fdefowner', password='pw')
+        self.staff = User.objects.create_user(username='fdefstaff', password='pw', is_staff=True)
+        self.other_staff = User.objects.create_user(username='fdefstaff2', password='pw', is_staff=True)
+        self.client = APIClient()
+
+    def _create_defect(self, **kwargs):
+        from .models import FacilityDefect
+        base = {'title': 'Broken gate', 'reported_by': self.staff}
+        base.update(kwargs)
+        return FacilityDefect.objects.create(**base)
+
+    def test_any_staff_can_report_defect_with_images(self):
+        from .models import FacilityDefect, FacilityDefectImage
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.post(
+            '/api/facility-defects/',
+            {
+                'title': 'Broken gate',
+                'location': 'Main paddock',
+                'description': 'Latch has snapped off',
+                'severity': 'HIGH',
+                'images': [_test_image_file('one.jpg'), _test_image_file('two.jpg')],
+            },
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, 201)
+        defect = FacilityDefect.objects.get(pk=resp.data['id'])
+        self.assertEqual(defect.reported_by, self.staff)
+        self.assertEqual(defect.status, 'REPORTED')
+        self.assertEqual(defect.location, 'Main paddock')
+        self.assertEqual(FacilityDefectImage.objects.filter(defect=defect).count(), 2)
+        self.assertEqual(len(resp.data['images']), 2)
+        for image in resp.data['images']:
+            self.assertTrue(image['thumbnail'])
+
+    def test_non_staff_cannot_report_or_list_defects(self):
+        self.client.login(username='fdefowner', password='pw')
+        resp = self.client.post(
+            '/api/facility-defects/',
+            {'title': 'Broken gate'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.get('/api/facility-defects/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_any_staff_can_add_images_later(self):
+        from .models import FacilityDefectImage
+        defect = self._create_defect()
+        self.client.login(username='fdefstaff2', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/add_images/',
+            {'images': [_test_image_file()]},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(FacilityDefectImage.objects.filter(defect=defect).count(), 1)
+
+    def test_any_staff_can_change_status(self):
+        defect = self._create_defect()
+        self.client.login(username='fdefstaff2', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        defect.refresh_from_db()
+        self.assertEqual(defect.status, 'RESOLVED')
+        self.assertEqual(defect.resolved_by, self.other_staff)
+        self.assertIsNotNone(defect.resolved_at)
+
+        # Reopening clears the resolved stamp
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/change_status/',
+            {'status': 'IN_PROGRESS'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        defect.refresh_from_db()
+        self.assertIsNone(defect.resolved_by)
+        self.assertIsNone(defect.resolved_at)
+
+    def test_non_staff_cannot_change_status(self):
+        defect = self._create_defect()
+        self.client.login(username='fdefowner', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_invalid_status_rejected(self):
+        defect = self._create_defect()
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/change_status/',
+            {'status': 'BROKEN'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_status_not_writable_via_create_or_patch(self):
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.post(
+            '/api/facility-defects/',
+            {'title': 'Broken gate', 'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'REPORTED')
+
+        resp = self.client.patch(
+            f"/api/facility-defects/{resp.data['id']}/",
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'REPORTED')
+
+    def test_filter_by_status(self):
+        self._create_defect(title='Gate')
+        self._create_defect(title='Fence', status='RESOLVED')
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.get('/api/facility-defects/?status=RESOLVED')
+        self.assertEqual([d['title'] for d in resp.data], ['Fence'])
+
+    def test_unresolved_count(self):
+        self._create_defect(title='Gate')
+        self._create_defect(title='Fence', status='IN_PROGRESS')
+        self._create_defect(title='Door', status='RESOLVED')
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.get('/api/facility-defects/unresolved_count/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 2)
+
+    def test_unresolved_count_requires_staff(self):
+        self.client.login(username='fdefowner', password='pw')
+        resp = self.client.get('/api/facility-defects/unresolved_count/')
+        self.assertEqual(resp.status_code, 403)
+
 
 class FleetReminderCommandTests(TestCase):
     def setUp(self):

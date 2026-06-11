@@ -25,6 +25,7 @@ import '../models/vaccination_record.dart';
 import '../models/owner_calendar.dart';
 import '../models/vehicle.dart';
 import '../models/vehicle_defect.dart';
+import '../models/facility_defect.dart';
 import '../models/vehicle_maintenance_record.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
@@ -2646,5 +2647,121 @@ class ApiDataService implements DataService {
       return VehicleDefect.fromJson(json.decode(response.body));
     }
     throw Exception('Failed to update defect status: ${response.body}');
+  }
+
+  @override
+  Future<int> getUnresolvedVehicleDefectCount() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/unresolved_count/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['count'] ?? 0;
+    } else {
+      return 0;
+    }
+  }
+
+  // ---- Facility Defects ----
+
+  @override
+  Future<List<FacilityDefect>> getFacilityDefects({String? status}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (status != null) params['status'] = status;
+    final uri = Uri.parse('${AuthService.baseUrl}/api/facility-defects/')
+        .replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => FacilityDefect.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception('Failed to load defects: ${response.statusCode}');
+  }
+
+  @override
+  Future<FacilityDefect> getFacilityDefect(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/facility-defects/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return FacilityDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load defect: ${response.statusCode}');
+  }
+
+  @override
+  Future<FacilityDefect> createFacilityDefect({
+    required String title,
+    String? location,
+    String? description,
+    String? severity,
+    List<(Uint8List, String)> images = const [],
+  }) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/facility-defects/'),
+    );
+    request.headers['Authorization'] = 'Token $token';
+    request.fields['title'] = title;
+    if (location != null) request.fields['location'] = location;
+    if (description != null) request.fields['description'] = description;
+    if (severity != null) request.fields['severity'] = severity;
+    _addDefectImages(request, images);
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 201) {
+      return FacilityDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to report defect: ${response.body}');
+  }
+
+  @override
+  Future<FacilityDefect> addFacilityDefectImages(int defectId, List<(Uint8List, String)> images) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/facility-defects/$defectId/add_images/'),
+    );
+    request.headers['Authorization'] = 'Token $token';
+    _addDefectImages(request, images);
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 200) {
+      return FacilityDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add photos: ${response.body}');
+  }
+
+  @override
+  Future<FacilityDefect> changeFacilityDefectStatus(int defectId, String status) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/facility-defects/$defectId/change_status/'),
+      headers: headers,
+      body: json.encode({'status': status}),
+    );
+    if (response.statusCode == 200) {
+      return FacilityDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to update defect status: ${response.body}');
+  }
+
+  @override
+  Future<int> getUnresolvedFacilityDefectCount() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/facility-defects/unresolved_count/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['count'] ?? 0;
+    } else {
+      return 0;
+    }
   }
 }
