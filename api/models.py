@@ -18,6 +18,7 @@ class UserProfile(models.Model):
     can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
     can_approve_timeoff = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny time off requests.')
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
+    can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
 
     # Notification preferences (all enabled by default)
     notify_feed = models.BooleanField(default=True, help_text='Receive notifications for new feed posts and comments.')
@@ -493,6 +494,7 @@ class SupportQuery(models.Model):
     subject = models.CharField(max_length=255)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='OPEN')
     has_unread_reply = models.BooleanField(default=False, help_text='True when staff has replied and user has not yet viewed')
+    staff_has_unread = models.BooleanField(default=False, help_text='True when the owner has sent a message staff have not yet viewed')
     resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_queries')
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -927,3 +929,140 @@ class WaitlistEntry(models.Model):
 
     def __str__(self):
         return f"{self.dog.name} waitlisted for {self.date} ({self.status})"
+
+
+class Vehicle(models.Model):
+    """A work vehicle in the fleet.
+
+    All staff can view vehicles and report defects; users with the
+    can_manage_vehicles profile flag maintain the fleet (add/edit vehicles,
+    update MOT/service dates, change defect statuses). MOT and service due
+    dates trigger reminders via the send_fleet_reminders command, run daily
+    from cron.
+    """
+    DUE_SOON_DAYS = 30
+
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('IN_SERVICE', 'In Service/Garage'),
+        ('OFF_ROAD', 'Off Road'),
+    ]
+
+    name = models.CharField(max_length=100, help_text='Friendly name, e.g. "Blue Van"')
+    registration = models.CharField(max_length=20, unique=True, help_text='Number plate')
+    make = models.CharField(max_length=50, blank=True, null=True)
+    model = models.CharField(max_length=50, blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+    image = models.ImageField(upload_to='vehicle_images/', null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    mot_due_date = models.DateField(null=True, blank=True)
+    service_due_date = models.DateField(null=True, blank=True)
+
+    # Reminder bookkeeping so the daily command never notifies twice for the
+    # same milestone. Re-armed when the corresponding due date changes.
+    mot_reminder_30_sent = models.BooleanField(default=False)
+    mot_reminder_7_sent = models.BooleanField(default=False)
+    mot_overdue_notice_sent = models.BooleanField(default=False)
+    service_reminder_30_sent = models.BooleanField(default=False)
+    service_reminder_7_sent = models.BooleanField(default=False)
+    service_overdue_notice_sent = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['mot_due_date']),
+            models.Index(fields=['service_due_date']),
+        ]
+
+    def _date_status(self, due_date):
+        from datetime import date, timedelta
+        if due_date is None:
+            return None
+        today = date.today()
+        if due_date < today:
+            return 'overdue'
+        if due_date <= today + timedelta(days=self.DUE_SOON_DAYS):
+            return 'due_soon'
+        return 'ok'
+
+    @property
+    def mot_status(self):
+        return self._date_status(self.mot_due_date)
+
+    @property
+    def service_status(self):
+        return self._date_status(self.service_due_date)
+
+    def __str__(self):
+        return f"{self.name} ({self.registration})"
+
+
+class VehicleMaintenanceRecord(models.Model):
+    """History entry created whenever a vehicle's MOT or service due date changes."""
+    EVENT_CHOICES = [
+        ('MOT', 'MOT'),
+        ('SERVICE', 'Service'),
+    ]
+
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='maintenance_records')
+    event_type = models.CharField(max_length=10, choices=EVENT_CHOICES)
+    previous_due_date = models.DateField(null=True, blank=True)
+    new_due_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='vehicle_maintenance_records')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.vehicle.name} {self.event_type} due {self.new_due_date}"
+
+
+class VehicleDefect(models.Model):
+    """A defect reported against a fleet vehicle. Any staff member can report."""
+    STATUS_CHOICES = [
+        ('REPORTED', 'Reported'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('RESOLVED', 'Resolved'),
+    ]
+
+    SEVERITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'),
+        ('HIGH', 'High'),
+    ]
+
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='defects')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='MEDIUM')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='REPORTED')
+    reported_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reported_defects')
+    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_defects')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.vehicle.name}: {self.title} ({self.status})"
+
+
+class VehicleDefectImage(models.Model):
+    """A photo attached to a defect report."""
+    defect = models.ForeignKey(VehicleDefect, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to='vehicle_defects/', max_length=150)
+    thumbnail = models.ImageField(upload_to='vehicle_defects/thumbnails/', max_length=150, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Image for defect #{self.defect_id}"

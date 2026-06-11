@@ -10,6 +10,7 @@ from .models import (
     DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
     VaccinationRecord, WaitlistEntry, DaycareSettings,
+    Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
 )
 
 
@@ -223,8 +224,8 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff')
-    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles')
+    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles')
     search_fields = ('user__username', 'phone_number', 'address')
 
 @admin.register(DateChangeRequest)
@@ -877,3 +878,113 @@ class DaycareSettingsAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class VehicleDefectInline(admin.TabularInline):
+    model = VehicleDefect
+    extra = 0
+    fields = ('title', 'severity', 'status', 'reported_by', 'created_at')
+    readonly_fields = ('title', 'severity', 'status', 'reported_by', 'created_at')
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class VehicleMaintenanceRecordInline(admin.TabularInline):
+    model = VehicleMaintenanceRecord
+    extra = 0
+    fields = ('event_type', 'previous_due_date', 'new_due_date', 'notes', 'created_by', 'created_at')
+    readonly_fields = ('created_at',)
+    raw_id_fields = ('created_by',)
+
+
+@admin.register(Vehicle)
+class VehicleAdmin(admin.ModelAdmin):
+    list_display = ('name', 'registration', 'status', 'mot_due_date', 'mot_badge', 'service_due_date', 'service_badge', 'open_defects', 'image_preview')
+    list_filter = ('status', 'mot_due_date', 'service_due_date')
+    search_fields = ('name', 'registration', 'make', 'model')
+    readonly_fields = ('created_at', 'updated_at', 'image_preview_large')
+    list_per_page = 30
+    inlines = [VehicleDefectInline, VehicleMaintenanceRecordInline]
+    fieldsets = (
+        (None, {'fields': ('name', 'registration', 'make', 'model', 'status', 'notes', 'image', 'image_preview_large')}),
+        ('Maintenance', {'fields': ('mot_due_date', 'service_due_date')}),
+        ('Metadata', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    def _due_badge(self, status):
+        colors = {'overdue': '#dc3545', 'due_soon': '#ffc107', 'ok': '#198754'}
+        labels = {'overdue': 'Overdue', 'due_soon': 'Due soon', 'ok': 'OK'}
+        if status is None:
+            return format_html('<span style="color: #999;">-</span>')
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(status, '#6c757d'),
+            labels.get(status, status),
+        )
+
+    def mot_badge(self, obj):
+        return self._due_badge(obj.mot_status)
+    mot_badge.short_description = 'MOT'
+
+    def service_badge(self, obj):
+        return self._due_badge(obj.service_status)
+    service_badge.short_description = 'Service'
+
+    def open_defects(self, obj):
+        return obj.defects.exclude(status='RESOLVED').count()
+    open_defects.short_description = 'Open Defects'
+
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" style="width: 50px; height: 38px; object-fit: cover; border-radius: 4px;" />', obj.image.url)
+        return 'No image'
+    image_preview.short_description = 'Image'
+
+    def image_preview_large(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" style="max-width: 300px; border-radius: 8px;" />', obj.image.url)
+        return 'No image'
+    image_preview_large.short_description = 'Image Preview'
+
+
+class VehicleDefectImageInline(admin.TabularInline):
+    model = VehicleDefectImage
+    extra = 0
+    fields = ('image', 'thumbnail_preview', 'created_at')
+    readonly_fields = ('thumbnail_preview', 'created_at')
+
+    def thumbnail_preview(self, obj):
+        if obj.thumbnail:
+            return format_html('<img src="{}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;" />', obj.thumbnail.url)
+        if obj.image:
+            return format_html('<img src="{}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;" />', obj.image.url)
+        return 'No image'
+    thumbnail_preview.short_description = 'Preview'
+
+
+@admin.register(VehicleDefect)
+class VehicleDefectAdmin(admin.ModelAdmin):
+    list_display = ('vehicle', 'title', 'severity', 'status_display', 'reported_by_name', 'created_at')
+    list_filter = ('status', 'severity', 'vehicle')
+    search_fields = ('title', 'description', 'vehicle__name', 'vehicle__registration')
+    raw_id_fields = ('reported_by', 'resolved_by')
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 30
+    inlines = [VehicleDefectImageInline]
+
+    def reported_by_name(self, obj):
+        if obj.reported_by:
+            return obj.reported_by.first_name or obj.reported_by.username
+        return '-'
+    reported_by_name.short_description = 'Reported By'
+
+    def status_display(self, obj):
+        colors = {'REPORTED': '#dc3545', 'IN_PROGRESS': '#ffc107', 'RESOLVED': '#198754'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display(),
+        )
+    status_display.short_description = 'Status'

@@ -2,13 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:gal/gal.dart';
 import 'package:video_player/video_player.dart';
 import '../constants/app_colors.dart';
 import '../models/group_media.dart';
+import '../services/cache_service.dart';
 import '../services/data_service.dart';
 import '../utils/date_formats.dart';
+import '../utils/media_actions.dart';
+import 'reaction_picker_sheet.dart';
 
 class FeedItemCard extends StatefulWidget {
   final GroupMedia media;
@@ -34,13 +35,68 @@ class FeedItemCard extends StatefulWidget {
   State<FeedItemCard> createState() => _FeedItemCardState();
 }
 
-class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderStateMixin {
+class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMixin {
   bool _showAllComments = false;
   final TextEditingController _commentController = TextEditingController();
   final DataService _dataService = ApiDataService();
 
+  /// Drives the Instagram-style heart overlay shown on photo double-tap.
+  late final AnimationController _heartController;
+  late final Animation<double> _heartScale;
+  late final Animation<double> _heartOpacity;
+
+  /// Drives the "pop" on the reaction button/pill when a reaction lands.
+  late final AnimationController _popController;
+  late final Animation<double> _popScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _heartController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _heartScale = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
+      parent: _heartController,
+      curve: const Interval(0.0, 0.45, curve: Curves.elasticOut),
+    ));
+    _heartOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(CurvedAnimation(
+      parent: _heartController,
+      curve: const Interval(0.7, 1.0, curve: Curves.easeOut),
+    ));
+    _popController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _popScale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 1.35)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.35, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_popController);
+  }
+
+  @override
+  void didUpdateWidget(covariant FeedItemCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The feed screen swaps in a fresh GroupMedia after the API confirms a
+    // reaction, so a change here means the user's reaction just landed.
+    if (widget.media.userReaction != oldWidget.media.userReaction &&
+        widget.media.userReaction != null) {
+      _popController.forward(from: 0);
+    }
+  }
+
   @override
   void dispose() {
+    _heartController.dispose();
+    _popController.dispose();
     _commentController.dispose();
     super.dispose();
   }
@@ -94,16 +150,42 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                     ),
                   ),
                 ),
-                if (widget.canAddFeedMedia || widget.isStaff)
+                if (widget.media.isPhoto || widget.canAddFeedMedia || widget.isStaff)
                   PopupMenuButton<String>(
                     onSelected: (value) {
-                      if (value == 'delete') {
+                      if (value == 'share') {
+                        shareImage(context, widget.media.fileUrl);
+                      } else if (value == 'save') {
+                        saveImageToGallery(context, widget.media.fileUrl);
+                      } else if (value == 'delete') {
                         widget.onDelete(widget.media);
                       } else if (value == 'edit') {
                         widget.onEdit?.call(widget.media);
                       }
                     },
                     itemBuilder: (context) => [
+                      if (widget.media.isPhoto)
+                        const PopupMenuItem(
+                          value: 'share',
+                          child: Row(
+                            children: [
+                              Picon(PiconsDuotone.shareNetwork),
+                              SizedBox(width: 8),
+                              Text('Share photo'),
+                            ],
+                          ),
+                        ),
+                      if (widget.media.isPhoto)
+                        const PopupMenuItem(
+                          value: 'save',
+                          child: Row(
+                            children: [
+                              Picon(PiconsDuotone.downloadSimple),
+                              SizedBox(width: 8),
+                              Text('Save photo'),
+                            ],
+                          ),
+                        ),
                       if (widget.canAddFeedMedia || widget.isStaff)
                         const PopupMenuItem(
                           value: 'edit',
@@ -135,27 +217,57 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
           if (widget.media.isPhoto)
             GestureDetector(
               onTap: () => _openFullScreenImage(context, widget.media.fileUrl),
-              child: Semantics(
-                image: true,
-                button: true,
-                label: _photoSemanticLabel(),
-                child: CachedNetworkImage(
-                // Use the lightweight thumbnail in the list; the full-resolution
-                // image is loaded only when opening the full-screen viewer.
-                imageUrl: widget.media.thumbnailUrl ?? widget.media.fileUrl,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  height: 200,
-                  color: Colors.grey[200],
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
-                errorWidget: (context, url, error) => Container(
-                  height: 200,
-                  color: Colors.grey[300],
-                  child: const Center(child: Picon(PiconsDuotone.warningCircle)),
-                ),
-              ),
+              onDoubleTap: _onDoubleTapPhoto,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Semantics(
+                    image: true,
+                    button: true,
+                    label: _photoSemanticLabel(),
+                    child: CachedNetworkImage(
+                      // Use the lightweight thumbnail in the list; the full-resolution
+                      // image is loaded only when opening the full-screen viewer.
+                      imageUrl: widget.media.thumbnailUrl ?? widget.media.fileUrl,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        height: 200,
+                        color: Colors.grey[200],
+                        child: const Center(child: CircularProgressIndicator()),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        height: 200,
+                        color: Colors.grey[300],
+                        child: const Center(child: Picon(PiconsDuotone.warningCircle)),
+                      ),
+                    ),
+                  ),
+                  IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _heartController,
+                      builder: (context, _) {
+                        if (_heartController.isDismissed) {
+                          return const SizedBox.shrink();
+                        }
+                        return Opacity(
+                          opacity: _heartOpacity.value,
+                          child: Transform.scale(
+                            scale: _heartScale.value,
+                            child: const Icon(
+                              Icons.favorite,
+                              size: 96,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(color: Colors.black45, blurRadius: 24),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             )
           else
@@ -422,9 +534,27 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
     );
   }
 
+  /// Opens the reaction picker sheet and submits the chosen emoji.
+  Future<void> _openReactionPicker() async {
+    final emoji = await showReactionPickerSheet(
+      context,
+      currentReaction: widget.media.userReaction,
+    );
+    if (emoji == null) return;
+    CacheService().recordRecentReactionEmoji(emoji);
+    widget.onReaction(widget.media.id, emoji);
+  }
+
+  /// Instagram semantics: double-tap always hearts, never un-hearts.
+  void _onDoubleTapPhoto() {
+    _heartController.forward(from: 0);
+    if (widget.media.userReaction != '❤️') {
+      CacheService().recordRecentReactionEmoji('❤️');
+      widget.onReaction(widget.media.id, '❤️');
+    }
+  }
+
   Widget _buildReactionSection() {
-    final List<String> commonEmojis = ['❤️', '👍', '😂', '🔥', '🐾'];
-    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Wrap(
@@ -432,36 +562,29 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          // "Add Reaction" Button (Thumbs Up Icon)
-          PopupMenuButton<String>(
-            onSelected: (emoji) => widget.onReaction(widget.media.id, emoji),
-            itemBuilder: (context) => commonEmojis.map((emoji) {
-              final isSelected = widget.media.userReaction == emoji;
-              return PopupMenuItem<String>(
-                value: emoji,
-                child: Row(
-                  children: [
-                    Text(emoji, style: const TextStyle(fontSize: 24)),
-                    if (isSelected) ...[
-                       const SizedBox(width: 8),
-                       Picon(PiconsDuotone.check, color: AppColors.primary, size: 16),
-                    ],
-                  ],
+          // "Add Reaction" button — opens the picker sheet.
+          Tooltip(
+            message: 'Add reaction',
+            child: InkWell(
+              onTap: _openReactionPicker,
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: ScaleTransition(
+                  scale: _popScale,
+                  child: widget.media.userReaction != null
+                      ? Picon(PiconsFill.thumbsUp, color: AppColors.primary, size: 20)
+                      : Picon(PiconsDuotone.thumbsUp, color: Colors.grey[600], size: 20),
                 ),
-              );
-            }).toList(),
-            tooltip: 'Add Reaction',
-             // Use transparent icon button for cleaner look
-            child: widget.media.userReaction != null
-                ? Picon(PiconsFill.thumbsUp, color: AppColors.primary, size: 20)
-                : Picon(PiconsDuotone.thumbsUp, color: Colors.grey[600], size: 20),
+              ),
+            ),
           ),
-          
+
           // Existing reactions
           if (widget.media.reactions.isNotEmpty)
             ...widget.media.reactions.entries.map((entry) {
               final isMyReaction = widget.media.userReaction == entry.key;
-              return GestureDetector(
+              final pill = GestureDetector(
                 onTap: _showReactionDetails,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -489,6 +612,10 @@ class _FeedItemCardState extends State<FeedItemCard> with SingleTickerProviderSt
                   ),
                 ),
               );
+              // The user's own pill pops alongside the trigger icon.
+              return isMyReaction
+                  ? ScaleTransition(scale: _popScale, child: pill)
+                  : pill;
             }),
         ],
       ),
@@ -507,62 +634,33 @@ class _FullScreenImageViewer extends StatefulWidget {
 
 class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
   bool _saving = false;
+  bool _sharing = false;
 
   Future<void> _saveToDevice() async {
     if (_saving) return;
-    final messenger = ScaffoldMessenger.of(context);
     setState(() => _saving = true);
     try {
-      final hasAccess = await Gal.hasAccess();
-      final granted = hasAccess ? true : await Gal.requestAccess();
-      if (!granted) {
-        if (!mounted) return;
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Photo library permission denied. Enable it in your device settings to save photos.',
-            ),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        return;
-      }
-      final file = await DefaultCacheManager().getSingleFile(widget.imageUrl);
-      final bytes = await file.readAsBytes();
-      await Gal.putImageBytes(bytes, name: _suggestedFileName(widget.imageUrl));
-      if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Saved to your photos'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    } on GalException catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Could not save: ${e.type.message}'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Could not save: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      await saveImageToGallery(context, widget.imageUrl);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  String _suggestedFileName(String url) {
-    final last = Uri.tryParse(url)?.pathSegments.lastOrNull;
-    if (last != null && last.isNotEmpty) return last;
-    return 'p4td_${DateTime.now().millisecondsSinceEpoch}.jpg';
+  Future<void> _share() async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    try {
+      await shareImage(context, widget.imageUrl);
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
   }
+
+  Widget _busySpinner() => const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -573,17 +671,17 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
+            tooltip: 'Share',
+            onPressed: _sharing ? null : () => _share(),
+            icon: _sharing
+                ? _busySpinner()
+                : const Icon(Icons.ios_share, color: Colors.white),
+          ),
+          IconButton(
             tooltip: 'Save to device',
             onPressed: _saving ? null : () => _saveToDevice(),
             icon: _saving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
+                ? _busySpinner()
                 : const Icon(Icons.download_rounded, color: Colors.white),
           ),
         ],

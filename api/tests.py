@@ -1191,9 +1191,12 @@ class SupportQueryTests(TestCase):
         self.assertEqual(q.status, 'RESOLVED')
 
     def test_unresolved_count(self):
-        SupportQuery.objects.create(owner=self.owner, subject='Open1')
-        SupportQuery.objects.create(owner=self.owner, subject='Open2')
-        SupportQuery.objects.create(owner=self.owner, subject='Resolved', status='RESOLVED')
+        # Staff badge counts open queries with unread owner messages, not all
+        # open queries (an open but fully-read conversation shows no badge).
+        SupportQuery.objects.create(owner=self.owner, subject='Open unread 1', staff_has_unread=True)
+        SupportQuery.objects.create(owner=self.owner, subject='Open unread 2', staff_has_unread=True)
+        SupportQuery.objects.create(owner=self.owner, subject='Open read')
+        SupportQuery.objects.create(owner=self.owner, subject='Resolved', status='RESOLVED', staff_has_unread=True)
         self.client.login(username='staff', password='pw')
         resp = self.client.get('/api/support-queries/unresolved_count/')
         self.assertEqual(resp.status_code, 200)
@@ -2507,3 +2510,379 @@ class WaitlistTests(TestCase):
         resp = self.client.delete(f'/api/waitlist/{entry.id}/')
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(WaitlistEntry.objects.filter(id=entry.id).exists())
+
+
+def _test_image_file(name='test.jpg'):
+    """A small in-memory JPEG for upload tests."""
+    import io as _io
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    buf = _io.BytesIO()
+    Image.new('RGB', (50, 50), color='red').save(buf, format='JPEG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type='image/jpeg')
+
+
+class FleetVehicleTests(TestCase):
+    def setUp(self):
+        from .models import Vehicle  # noqa: F401 (model import sanity)
+        self.owner = User.objects.create_user(username='fleetowner', password='pw')
+        self.staff = User.objects.create_user(username='fleetstaff', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='fleetmanager', password='pw', is_staff=True)
+        self.manager.profile.can_manage_vehicles = True
+        self.manager.profile.save()
+        self.client = APIClient()
+
+    def _create_vehicle(self, **kwargs):
+        from .models import Vehicle
+        base = {'name': 'Blue Van', 'registration': 'AB12 CDE'}
+        base.update(kwargs)
+        return Vehicle.objects.create(**base)
+
+    def test_non_staff_cannot_list_vehicles(self):
+        self.client.login(username='fleetowner', password='pw')
+        resp = self.client.get('/api/vehicles/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_staff_can_list_vehicles(self):
+        self._create_vehicle()
+        self.client.login(username='fleetstaff', password='pw')
+        resp = self.client.get('/api/vehicles/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['registration'], 'AB12 CDE')
+
+    def test_plain_staff_cannot_create_vehicle(self):
+        self.client.login(username='fleetstaff', password='pw')
+        resp = self.client.post('/api/vehicles/', {'name': 'Van', 'registration': 'XY99 ZZZ'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_manager_can_create_vehicle(self):
+        self.client.login(username='fleetmanager', password='pw')
+        resp = self.client.post(
+            '/api/vehicles/',
+            {
+                'name': 'Red Van', 'registration': 'XY99 ZZZ',
+                'mot_due_date': (date.today() + timedelta(days=200)).isoformat(),
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['mot_status'], 'ok')
+        self.assertEqual(resp.data['status'], 'ACTIVE')
+
+    def test_plain_staff_cannot_delete_vehicle(self):
+        vehicle = self._create_vehicle()
+        self.client.login(username='fleetstaff', password='pw')
+        resp = self.client.delete(f'/api/vehicles/{vehicle.id}/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_updating_dates_creates_history_and_rearms_flags(self):
+        from .models import VehicleMaintenanceRecord
+        vehicle = self._create_vehicle(
+            mot_due_date=date.today() - timedelta(days=5),
+            mot_reminder_30_sent=True, mot_reminder_7_sent=True, mot_overdue_notice_sent=True,
+        )
+        self.client.login(username='fleetmanager', password='pw')
+        new_mot = date.today() + timedelta(days=365)
+        resp = self.client.patch(
+            f'/api/vehicles/{vehicle.id}/',
+            {'mot_due_date': new_mot.isoformat(), 'maintenance_notes': 'Passed MOT'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        vehicle.refresh_from_db()
+        self.assertFalse(vehicle.mot_reminder_30_sent)
+        self.assertFalse(vehicle.mot_reminder_7_sent)
+        self.assertFalse(vehicle.mot_overdue_notice_sent)
+        records = VehicleMaintenanceRecord.objects.filter(vehicle=vehicle)
+        self.assertEqual(records.count(), 1)
+        record = records.first()
+        self.assertEqual(record.event_type, 'MOT')
+        self.assertEqual(record.new_due_date, new_mot)
+        self.assertEqual(record.notes, 'Passed MOT')
+        self.assertEqual(record.created_by, self.manager)
+
+        history = self.client.get(f'/api/vehicles/{vehicle.id}/history/')
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(len(history.data), 1)
+
+    def test_date_status_properties(self):
+        overdue = self._create_vehicle(
+            registration='OV1', mot_due_date=date.today() - timedelta(days=1))
+        soon = self._create_vehicle(
+            registration='SN1', mot_due_date=date.today() + timedelta(days=10))
+        fine = self._create_vehicle(
+            registration='OK1', mot_due_date=date.today() + timedelta(days=200))
+        none_set = self._create_vehicle(registration='NA1')
+        self.assertEqual(overdue.mot_status, 'overdue')
+        self.assertEqual(soon.mot_status, 'due_soon')
+        self.assertEqual(fine.mot_status, 'ok')
+        self.assertIsNone(none_set.mot_status)
+
+
+class VehicleDefectTests(TestCase):
+    def setUp(self):
+        from .models import Vehicle
+        self.owner = User.objects.create_user(username='defowner', password='pw')
+        self.staff = User.objects.create_user(username='defstaff', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='defmanager', password='pw', is_staff=True)
+        self.manager.profile.can_manage_vehicles = True
+        self.manager.profile.save()
+        self.vehicle = Vehicle.objects.create(name='Blue Van', registration='AB12 CDE')
+        self.client = APIClient()
+
+    def _create_defect(self, **kwargs):
+        from .models import VehicleDefect
+        base = {'vehicle': self.vehicle, 'title': 'Cracked mirror', 'reported_by': self.staff}
+        base.update(kwargs)
+        return VehicleDefect.objects.create(**base)
+
+    def test_any_staff_can_report_defect_with_images(self):
+        from .models import VehicleDefect, VehicleDefectImage
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.post(
+            '/api/vehicle-defects/',
+            {
+                'vehicle': self.vehicle.id,
+                'title': 'Cracked mirror',
+                'description': 'Nearside wing mirror cracked',
+                'severity': 'HIGH',
+                'images': [_test_image_file('one.jpg'), _test_image_file('two.jpg')],
+            },
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, 201)
+        defect = VehicleDefect.objects.get(pk=resp.data['id'])
+        self.assertEqual(defect.reported_by, self.staff)
+        self.assertEqual(defect.status, 'REPORTED')
+        self.assertEqual(VehicleDefectImage.objects.filter(defect=defect).count(), 2)
+        self.assertEqual(len(resp.data['images']), 2)
+
+    def test_non_staff_cannot_report_defect(self):
+        self.client.login(username='defowner', password='pw')
+        resp = self.client.post(
+            '/api/vehicle-defects/',
+            {'vehicle': self.vehicle.id, 'title': 'Scratch'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_any_staff_can_add_images_later(self):
+        from .models import VehicleDefectImage
+        defect = self._create_defect()
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/add_images/',
+            {'images': [_test_image_file()]},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(VehicleDefectImage.objects.filter(defect=defect).count(), 1)
+
+    def test_plain_staff_cannot_change_status(self):
+        defect = self._create_defect()
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_manager_change_status_sets_resolved_fields(self):
+        defect = self._create_defect()
+        self.client.login(username='defmanager', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        defect.refresh_from_db()
+        self.assertEqual(defect.status, 'RESOLVED')
+        self.assertEqual(defect.resolved_by, self.manager)
+        self.assertIsNotNone(defect.resolved_at)
+
+        # Reopening clears the resolved stamp
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/change_status/',
+            {'status': 'IN_PROGRESS'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        defect.refresh_from_db()
+        self.assertIsNone(defect.resolved_by)
+        self.assertIsNone(defect.resolved_at)
+
+    def test_invalid_status_rejected(self):
+        defect = self._create_defect()
+        self.client.login(username='defmanager', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/change_status/',
+            {'status': 'BROKEN'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_filter_by_vehicle_and_status(self):
+        from .models import Vehicle
+        other_vehicle = Vehicle.objects.create(name='Red Van', registration='XX11 YYY')
+        self._create_defect(title='Mirror')
+        self._create_defect(vehicle=other_vehicle, title='Tyre', status='RESOLVED')
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.get(f'/api/vehicle-defects/?vehicle={self.vehicle.id}')
+        self.assertEqual([d['title'] for d in resp.data], ['Mirror'])
+        resp = self.client.get('/api/vehicle-defects/?status=RESOLVED')
+        self.assertEqual([d['title'] for d in resp.data], ['Tyre'])
+
+
+class FleetReminderCommandTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(username='remmanager', password='pw', is_staff=True)
+        self.manager.profile.can_manage_vehicles = True
+        self.manager.profile.save()
+
+    def test_reminder_command_sends_once(self):
+        import io
+        from django.core.management import call_command
+        from .models import Vehicle
+        Vehicle.objects.create(
+            name='Overdue Van', registration='OV1',
+            mot_due_date=date.today() - timedelta(days=2),
+        )
+        Vehicle.objects.create(
+            name='Soon Van', registration='SN1',
+            service_due_date=date.today() + timedelta(days=5),
+        )
+        Vehicle.objects.create(
+            name='Fine Van', registration='OK1',
+            mot_due_date=date.today() + timedelta(days=300),
+            service_due_date=date.today() + timedelta(days=300),
+        )
+        out = io.StringIO()
+        call_command('send_fleet_reminders', stdout=out)
+        self.assertIn('Sent 2', out.getvalue())
+        out = io.StringIO()
+        call_command('send_fleet_reminders', stdout=out)
+        self.assertIn('Sent 0', out.getvalue())
+
+    def test_thirty_day_window_sends(self):
+        import io
+        from django.core.management import call_command
+        from .models import Vehicle
+        vehicle = Vehicle.objects.create(
+            name='Month Van', registration='MV1',
+            mot_due_date=date.today() + timedelta(days=20),
+        )
+        out = io.StringIO()
+        call_command('send_fleet_reminders', stdout=out)
+        self.assertIn('Sent 1', out.getvalue())
+        vehicle.refresh_from_db()
+        self.assertTrue(vehicle.mot_reminder_30_sent)
+        self.assertFalse(vehicle.mot_reminder_7_sent)
+
+
+class SupportStaffUnreadTests(TestCase):
+    """The Contact Staff badge for staff must reflect unread owner messages,
+    not simply the number of open queries."""
+
+    def setUp(self):
+        from .models import SupportQuery
+        self.owner = User.objects.create_user(username='quowner', password='pw')
+        self.staff = User.objects.create_user(username='qustaff', password='pw', is_staff=True)
+        self.staff.profile.can_reply_queries = True
+        self.staff.profile.save()
+        self.client = APIClient()
+
+    def _unresolved_count(self):
+        resp = self.client.get('/api/support-queries/unresolved_count/')
+        self.assertEqual(resp.status_code, 200)
+        return resp.data['count']
+
+    def test_open_read_query_shows_no_staff_badge(self):
+        from .models import SupportQuery
+        SupportQuery.objects.create(owner=self.owner, subject='Old question')
+        self.client.login(username='qustaff', password='pw')
+        self.assertEqual(self._unresolved_count(), 0)
+
+    def test_owner_created_query_is_unread_for_staff(self):
+        self.client.login(username='quowner', password='pw')
+        resp = self.client.post(
+            '/api/support-queries/',
+            {'subject': 'Help', 'initial_message': 'My dog ate my homework'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.client.login(username='qustaff', password='pw')
+        self.assertEqual(self._unresolved_count(), 1)
+
+    def test_owner_message_marks_unread_and_staff_reply_clears(self):
+        from .models import SupportQuery
+        query = SupportQuery.objects.create(owner=self.owner, subject='Help')
+        self.client.login(username='quowner', password='pw')
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Hello?'}, format='json')
+
+        self.client.login(username='qustaff', password='pw')
+        self.assertEqual(self._unresolved_count(), 1)
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'On it!'}, format='json')
+        self.assertEqual(self._unresolved_count(), 0)
+        query.refresh_from_db()
+        self.assertTrue(query.has_unread_reply)  # owner-side flag unaffected
+
+    def test_staff_mark_read_clears_badge(self):
+        from .models import SupportQuery
+        query = SupportQuery.objects.create(owner=self.owner, subject='Help', staff_has_unread=True)
+        self.client.login(username='qustaff', password='pw')
+        self.assertEqual(self._unresolved_count(), 1)
+        resp = self.client.post(f'/api/support-queries/{query.id}/mark_read/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._unresolved_count(), 0)
+
+    def test_owner_unread_behaviour_unchanged(self):
+        from .models import SupportQuery
+        query = SupportQuery.objects.create(owner=self.owner, subject='Help')
+        self.client.login(username='qustaff', password='pw')
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Reply'}, format='json')
+
+        self.client.login(username='quowner', password='pw')
+        self.assertEqual(self._unresolved_count(), 1)
+        self.client.post(f'/api/support-queries/{query.id}/mark_read/')
+        self.assertEqual(self._unresolved_count(), 0)
+
+
+class FeedReactionResponseTests(TestCase):
+    """The react endpoint must return post-toggle state so the app can update
+    the feed item without a refresh."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        self.staff = User.objects.create_user(username='reactstaff', password='pw', is_staff=True)
+        self.media = GroupMedia.objects.create(
+            uploaded_by=self.staff,
+            media_type='PHOTO',
+            file=ContentFile(b'photo', name='react-test.jpg'),
+        )
+        self.client = APIClient()
+        self.client.login(username='reactstaff', password='pw')
+
+    def test_react_response_includes_new_reaction(self):
+        resp = self.client.post(f'/api/feed/{self.media.id}/react/', {'emoji': '❤️'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['reactions'], {'❤️': 1})
+        self.assertEqual(resp.data['user_reaction'], '❤️')
+
+    def test_react_response_reflects_toggle_off(self):
+        self.client.post(f'/api/feed/{self.media.id}/react/', {'emoji': '❤️'}, format='json')
+        resp = self.client.post(f'/api/feed/{self.media.id}/react/', {'emoji': '❤️'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['reactions'], {})
+        self.assertIsNone(resp.data['user_reaction'])
+
+    def test_react_response_reflects_swapped_reaction(self):
+        self.client.post(f'/api/feed/{self.media.id}/react/', {'emoji': '❤️'}, format='json')
+        resp = self.client.post(f'/api/feed/{self.media.id}/react/', {'emoji': '😀'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['reactions'], {'😀': 1})
+        self.assertEqual(resp.data['user_reaction'], '😀')
+
+    def test_comment_response_includes_new_comment(self):
+        resp = self.client.post(f'/api/feed/{self.media.id}/comment/', {'text': 'Cute!'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['comments']), 1)
+        self.assertEqual(resp.data['comments'][0]['text'], 'Cute!')

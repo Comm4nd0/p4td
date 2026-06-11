@@ -87,12 +87,16 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     return Dog(
       id: '99',
       name: name,
       ownerId: 'user1',
       registeredVet: registeredVet,
+      ownerBringsDefault: ownerBringsDefault ?? false,
+      ownerCollectsDefault: ownerCollectsDefault ?? false,
+      ownerBringsDefaultTime: ownerBringsDefaultTime,
+      ownerCollectsDefaultTime: ownerCollectsDefaultTime,
       sex: sex,
       dateOfBirth: dateOfBirth,
       isSpayed: isSpayed ?? false,
@@ -456,4 +460,35 @@ class MockDataService implements DataService {
   @override
   Future<StaffPermission> updateStaffPermissions(int userId, Map<String, bool> permissions) async =>
       StaffPermission(userId: userId, username: 'test', email: 'test@example.com');
+
+  // Fleet
+  @override
+  Future<List<Vehicle>> getVehicles() async => [];
+  @override
+  Future<Vehicle> getVehicle(int id) async =>
+      Vehicle(id: id, name: 'Test Van', registration: 'TE57 VAN');
+  @override
+  Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, Uint8List? imageBytes, String? imageName}) async =>
+      Vehicle(id: 1, name: name, registration: registration);
+  @override
+  Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName}) async =>
+      Vehicle(id: id, name: name ?? 'Test Van', registration: registration ?? 'TE57 VAN');
+  @override
+  Future<void> deleteVehicle(int id) async {}
+  @override
+  Future<List<VehicleMaintenanceRecord>> getVehicleHistory(int vehicleId) async => [];
+  @override
+  Future<List<VehicleDefect>> getVehicleDefects({int? vehicleId, String? status}) async => [];
+  @override
+  Future<VehicleDefect> getVehicleDefect(int id) async =>
+      VehicleDefect(id: id, vehicleId: 1, vehicleName: 'Test Van', title: 'Test', createdAt: DateTime.now());
+  @override
+  Future<VehicleDefect> createVehicleDefect({required int vehicleId, required String title, String? description, String? severity, List<(Uint8List, String)> images = const []}) async =>
+      VehicleDefect(id: 1, vehicleId: vehicleId, vehicleName: 'Test Van', title: title, createdAt: DateTime.now());
+  @override
+  Future<VehicleDefect> addDefectImages(int defectId, List<(Uint8List, String)> images) async =>
+      VehicleDefect(id: defectId, vehicleId: 1, vehicleName: 'Test Van', title: 'Test', createdAt: DateTime.now());
+  @override
+  Future<VehicleDefect> changeDefectStatus(int defectId, String status) async =>
+      VehicleDefect(id: defectId, vehicleId: 1, vehicleName: 'Test Van', title: 'Test', status: status, createdAt: DateTime.now());
 }

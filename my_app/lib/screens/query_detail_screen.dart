@@ -91,9 +91,13 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
           _loadFailed = false;
         });
         _scrollToBottom();
-        // Mark as read when user opens the conversation
-        if (!widget.isStaff) {
-          _dataService.markQueryRead(widget.queryId);
+        // Mark as read when the conversation is opened — clears the owner's
+        // unread flag, and for staff the staff-side unread badge. Awaited so
+        // the badge refresh on returning home can't race the request.
+        try {
+          await _dataService.markQueryRead(widget.queryId);
+        } catch (_) {
+          // The conversation still loaded; the badge just won't clear yet.
         }
       }
     } catch (e) {

@@ -12,7 +12,7 @@ abstract class DataService {
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false});
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed});
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed});
   Future<UnspayedMalesResult> getUnspayedMales();
   Future<List<PostcodeAddress>> lookupPostcode(String postcode);
   Future<void> deleteDog(String dogId);
@@ -160,4 +160,17 @@ abstract class DataService {
   // Staff Permissions (superuser only)
   Future<List<StaffPermission>> listStaffPermissions();
   Future<StaffPermission> updateStaffPermissions(int userId, Map<String, bool> permissions);
+
+  // Fleet (staff only; writes require can_manage_vehicles)
+  Future<List<Vehicle>> getVehicles();
+  Future<Vehicle> getVehicle(int id);
+  Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, Uint8List? imageBytes, String? imageName});
+  Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName});
+  Future<void> deleteVehicle(int id);
+  Future<List<VehicleMaintenanceRecord>> getVehicleHistory(int vehicleId);
+  Future<List<VehicleDefect>> getVehicleDefects({int? vehicleId, String? status});
+  Future<VehicleDefect> getVehicleDefect(int id);
+  Future<VehicleDefect> createVehicleDefect({required int vehicleId, required String title, String? description, String? severity, List<(Uint8List, String)> images = const []});
+  Future<VehicleDefect> addDefectImages(int defectId, List<(Uint8List, String)> images);
+  Future<VehicleDefect> changeDefectStatus(int defectId, String status);
 }

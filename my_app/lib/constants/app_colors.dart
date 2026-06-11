@@ -1,3 +1,5 @@
+// Flutter 3.44+ exports CupertinoPageTransitionsBuilder only from cupertino.
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 

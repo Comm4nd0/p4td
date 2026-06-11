@@ -23,6 +23,9 @@ import '../models/staff_permission.dart';
 import '../models/postcode_address.dart';
 import '../models/vaccination_record.dart';
 import '../models/owner_calendar.dart';
+import '../models/vehicle.dart';
+import '../models/vehicle_defect.dart';
+import '../models/vehicle_maintenance_record.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 
@@ -435,7 +438,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     final token = await _authService.getToken();
 
     if (imageBytes != null) {
@@ -451,6 +454,10 @@ class ApiDataService implements DataService {
       if (ownerId != null) request.fields['owner'] = ownerId;
       if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
       if (scheduleType != null) request.fields['schedule_type'] = scheduleType.apiValue;
+      if (ownerBringsDefault != null) request.fields['owner_brings_default'] = ownerBringsDefault.toString();
+      if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
+      if (ownerBringsDefaultTime != null) request.fields['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
+      if (ownerCollectsDefaultTime != null) request.fields['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
       if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
       if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
       if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
@@ -523,6 +530,10 @@ class ApiDataService implements DataService {
           if (ownerId != null) 'owner': int.parse(ownerId),
           if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
           if (scheduleType != null) 'schedule_type': scheduleType.apiValue,
+          if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
+          if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
+          if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
+          if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
           if (sex != null) 'sex': dogSexToApi(sex),
           if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
           if (isSpayed != null) 'is_spayed': isSpayed,
@@ -2357,5 +2368,283 @@ class ApiDataService implements DataService {
       }
     } catch (_) {}
     throw Exception(errorMessage);
+  }
+
+  // ── Fleet ──────────────────────────────────────────────────────────
+
+  void _addVehicleFields(
+    Map<String, String> fields, {
+    String? name,
+    String? registration,
+    String? make,
+    String? model,
+    String? notes,
+    String? status,
+    DateTime? motDueDate,
+    DateTime? serviceDueDate,
+    String? maintenanceNotes,
+  }) {
+    if (name != null) fields['name'] = name;
+    if (registration != null) fields['registration'] = registration;
+    if (make != null) fields['make'] = make;
+    if (model != null) fields['model'] = model;
+    if (notes != null) fields['notes'] = notes;
+    if (status != null) fields['status'] = status;
+    if (motDueDate != null) {
+      fields['mot_due_date'] = motDueDate.toIso8601String().split('T').first;
+    }
+    if (serviceDueDate != null) {
+      fields['service_due_date'] = serviceDueDate.toIso8601String().split('T').first;
+    }
+    if (maintenanceNotes != null) fields['maintenance_notes'] = maintenanceNotes;
+  }
+
+  Future<Vehicle> _sendVehicleRequest(
+    String method,
+    Uri uri,
+    Map<String, String> fields,
+    Uint8List? imageBytes,
+    String? imageName,
+  ) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(method, uri);
+    request.headers['Authorization'] = 'Token $token';
+    request.fields.addAll(fields);
+    if (imageBytes != null) {
+      final filename = imageName ?? 'vehicle.jpg';
+      request.files.add(http.MultipartFile.fromBytes(
+        'image',
+        imageBytes,
+        filename: filename,
+        contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+      ));
+    }
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return Vehicle.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to save vehicle: ${response.body}');
+  }
+
+  @override
+  Future<List<Vehicle>> getVehicles() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => Vehicle.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception('Failed to load vehicles: ${response.statusCode}');
+  }
+
+  @override
+  Future<Vehicle> getVehicle(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return Vehicle.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load vehicle: ${response.statusCode}');
+  }
+
+  @override
+  Future<Vehicle> createVehicle({
+    required String name,
+    required String registration,
+    String? make,
+    String? model,
+    String? notes,
+    String? status,
+    DateTime? motDueDate,
+    DateTime? serviceDueDate,
+    Uint8List? imageBytes,
+    String? imageName,
+  }) async {
+    final fields = <String, String>{};
+    _addVehicleFields(
+      fields,
+      name: name,
+      registration: registration,
+      make: make,
+      model: model,
+      notes: notes,
+      status: status,
+      motDueDate: motDueDate,
+      serviceDueDate: serviceDueDate,
+    );
+    return _sendVehicleRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/'),
+      fields,
+      imageBytes,
+      imageName,
+    );
+  }
+
+  @override
+  Future<Vehicle> updateVehicle(
+    int id, {
+    String? name,
+    String? registration,
+    String? make,
+    String? model,
+    String? notes,
+    String? status,
+    DateTime? motDueDate,
+    DateTime? serviceDueDate,
+    String? maintenanceNotes,
+    Uint8List? imageBytes,
+    String? imageName,
+  }) async {
+    final fields = <String, String>{};
+    _addVehicleFields(
+      fields,
+      name: name,
+      registration: registration,
+      make: make,
+      model: model,
+      notes: notes,
+      status: status,
+      motDueDate: motDueDate,
+      serviceDueDate: serviceDueDate,
+      maintenanceNotes: maintenanceNotes,
+    );
+    return _sendVehicleRequest(
+      'PATCH',
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/$id/'),
+      fields,
+      imageBytes,
+      imageName,
+    );
+  }
+
+  @override
+  Future<void> deleteVehicle(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete vehicle: ${response.statusCode}');
+    }
+  }
+
+  @override
+  Future<List<VehicleMaintenanceRecord>> getVehicleHistory(int vehicleId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/$vehicleId/history/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data
+          .map((e) => VehicleMaintenanceRecord.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load vehicle history: ${response.statusCode}');
+  }
+
+  @override
+  Future<List<VehicleDefect>> getVehicleDefects({int? vehicleId, String? status}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (vehicleId != null) params['vehicle'] = vehicleId.toString();
+    if (status != null) params['status'] = status;
+    final uri = Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/')
+        .replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => VehicleDefect.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception('Failed to load defects: ${response.statusCode}');
+  }
+
+  @override
+  Future<VehicleDefect> getVehicleDefect(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return VehicleDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load defect: ${response.statusCode}');
+  }
+
+  void _addDefectImages(http.MultipartRequest request, List<(Uint8List, String)> images) {
+    for (final (bytes, name) in images) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'images',
+        bytes,
+        filename: name,
+        contentType: http_parser.MediaType('image', name.endsWith('.png') ? 'png' : 'jpeg'),
+      ));
+    }
+  }
+
+  @override
+  Future<VehicleDefect> createVehicleDefect({
+    required int vehicleId,
+    required String title,
+    String? description,
+    String? severity,
+    List<(Uint8List, String)> images = const [],
+  }) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/'),
+    );
+    request.headers['Authorization'] = 'Token $token';
+    request.fields['vehicle'] = vehicleId.toString();
+    request.fields['title'] = title;
+    if (description != null) request.fields['description'] = description;
+    if (severity != null) request.fields['severity'] = severity;
+    _addDefectImages(request, images);
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 201) {
+      return VehicleDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to report defect: ${response.body}');
+  }
+
+  @override
+  Future<VehicleDefect> addDefectImages(int defectId, List<(Uint8List, String)> images) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$defectId/add_images/'),
+    );
+    request.headers['Authorization'] = 'Token $token';
+    _addDefectImages(request, images);
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 200) {
+      return VehicleDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add photos: ${response.body}');
+  }
+
+  @override
+  Future<VehicleDefect> changeDefectStatus(int defectId, String status) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$defectId/change_status/'),
+      headers: headers,
+      body: json.encode({'status': status}),
+    );
+    if (response.statusCode == 200) {
+      return VehicleDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to update defect status: ${response.body}');
   }
 }
