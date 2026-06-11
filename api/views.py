@@ -3449,3 +3449,100 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
                 print(f"Failed to send defect status notification: {e}")
 
         return Response(self.get_serializer(defect).data)
+
+    @action(detail=False, methods=['get'])
+    def unresolved_count(self, request):
+        from .models import VehicleDefect
+        count = VehicleDefect.objects.exclude(status='RESOLVED').count()
+        return Response({'count': count})
+
+
+class FacilityDefectViewSet(viewsets.ModelViewSet):
+    """General site/facility defect reports (e.g. a broken gate). Any staff
+    member can report a defect with photos and change its status."""
+    permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        from .serializers import FacilityDefectSerializer
+        return FacilityDefectSerializer
+
+    def get_queryset(self):
+        from .models import FacilityDefect
+        qs = FacilityDefect.objects.select_related('reported_by', 'resolved_by').prefetch_related('images')
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        return qs
+
+    def _attach_images(self, defect):
+        from .models import FacilityDefectImage
+        for image_file in self.request.FILES.getlist('images'):
+            FacilityDefectImage.objects.create(
+                defect=defect,
+                image=process_image(image_file, max_size=(1280, 1280)),
+                thumbnail=process_image(image_file, max_size=(400, 400), quality=70),
+            )
+
+    def perform_create(self, serializer):
+        defect = serializer.save(reported_by=self.request.user)
+        self._attach_images(defect)
+
+        try:
+            from .notifications import send_staff_notification
+            reporter = self.request.user.first_name or self.request.user.username
+            send_staff_notification(
+                "New defect reported",
+                f"{reporter} reported '{defect.title}' ({defect.get_severity_display()} severity)",
+                {'type': 'facility_defect', 'id': str(defect.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+            )
+        except Exception as e:
+            print(f"Failed to send facility defect notification: {e}")
+
+    @action(detail=True, methods=['post'])
+    def add_images(self, request, pk=None):
+        defect = self.get_object()
+        self._attach_images(defect)
+        defect = self.get_queryset().get(pk=defect.pk)
+        return Response(self.get_serializer(defect).data)
+
+    @action(detail=True, methods=['post'])
+    def change_status(self, request, pk=None):
+        from .models import FacilityDefect
+
+        defect = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(FacilityDefect.STATUS_CHOICES).keys():
+            return Response({'detail': 'Invalid status'}, status=400)
+
+        old_status = defect.status
+        if old_status == new_status:
+            return Response(self.get_serializer(defect).data)
+
+        defect.status = new_status
+        if new_status == 'RESOLVED':
+            defect.resolved_by = request.user
+            defect.resolved_at = timezone.now()
+        else:
+            defect.resolved_by = None
+            defect.resolved_at = None
+        defect.save()
+
+        if defect.reported_by and defect.reported_by != request.user:
+            try:
+                from .notifications import send_push_notification
+                send_push_notification(
+                    defect.reported_by,
+                    "Defect update",
+                    f"'{defect.title}' is now {defect.get_status_display()}.",
+                    {'type': 'facility_defect', 'id': str(defect.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                )
+            except Exception as e:
+                print(f"Failed to send facility defect status notification: {e}")
+
+        return Response(self.get_serializer(defect).data)
+
+    @action(detail=False, methods=['get'])
+    def unresolved_count(self, request):
+        from .models import FacilityDefect
+        count = FacilityDefect.objects.exclude(status='RESOLVED').count()
+        return Response({'count': count})

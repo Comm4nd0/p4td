@@ -520,6 +520,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       canReplyQueries: _canReplyQueries,
                       canViewInquiries: _canViewInquiries,
                       canAddFeedMedia: _canAddFeedMedia,
+                      canManageVehicles: _canManageVehicles,
                       isStaff: _isStaff,
                       isSuperuser: _isSuperuser,
                       myUserId: _myUserId,
