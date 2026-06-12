@@ -49,12 +49,14 @@ class GroupedSection extends StatelessWidget {
                 ),
               ),
             ),
-          ClipRRect(
+          // Material (not a colored Container) so the ListTiles inside paint
+          // their backgrounds/ink on it — a colored box here hides those
+          // effects and trips a debug assertion on Flutter 3.44+.
+          Material(
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(10),
-            child: Container(
-              color: theme.colorScheme.surface,
-              child: Column(children: rows),
-            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(children: rows),
           ),
           if (footer != null)
             Padding(
