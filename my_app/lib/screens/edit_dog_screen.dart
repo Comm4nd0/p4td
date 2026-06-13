@@ -314,6 +314,78 @@ class _EditDogScreenState extends State<EditDogScreen> {
     );
   }
 
+  /// Small pill showing whether a field/section is visible to the dog's owner
+  /// in their app, or hidden (staff-only).
+  Widget _visibilityBadge({required bool visibleToOwner}) {
+    final color = visibleToOwner ? AppColors.success : AppColors.grey600;
+    final icon = visibleToOwner ? PiconsDuotone.eye : PiconsDuotone.eyeSlash;
+    final label = visibleToOwner ? 'Visible to owner' : 'Hidden from owner';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Picon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Section header with an optional owner-visibility badge. The badge is only
+  /// shown to staff — owners only ever see their own (visible) fields, so the
+  /// distinction is meaningless to them.
+  Widget _sectionHeader(String title, {double fontSize = 18, bool? visibleToOwner}) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+          ),
+        ),
+        if (_isStaff && visibleToOwner != null) ...[
+          const SizedBox(width: 8),
+          _visibilityBadge(visibleToOwner: visibleToOwner),
+        ],
+      ],
+    );
+  }
+
+  /// Explains the visibility badges. Staff-only.
+  Widget _buildVisibilityLegend() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          Picon(PiconsDuotone.eye, color: AppColors.primary, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Badges show what the owner sees in their app. '
+              'Fields marked “Hidden from owner” are staff-only.',
+              style: TextStyle(color: AppColors.primary, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -330,7 +402,13 @@ class _EditDogScreenState extends State<EditDogScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           _buildPhotoSection(),
+          if (_isStaff) ...[
+            const SizedBox(height: 20),
+            _buildVisibilityLegend(),
+          ],
           const SizedBox(height: 24),
+          _sectionHeader('Basics', visibleToOwner: true),
+          const SizedBox(height: 8),
           TextField(
             controller: _nameController,
             decoration: const InputDecoration(
@@ -338,7 +416,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text('Care Instructions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          _sectionHeader('Care Instructions', visibleToOwner: true),
           const SizedBox(height: 8),
           TextField(
             controller: _foodController,
@@ -396,7 +474,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               ),
             ),
           const SizedBox(height: 24),
-          const Text('About', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          _sectionHeader('About', visibleToOwner: true),
           const SizedBox(height: 8),
           DropdownButtonFormField<DogSex?>(
             value: _selectedSex,
@@ -457,13 +535,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
           ),
           if (_isStaff) ...[
             const SizedBox(height: 24),
-            const Text(
-              'Staff Notes',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
+            _sectionHeader('Staff Notes', fontSize: 16, visibleToOwner: false),
             const SizedBox(height: 4),
             Text(
-              'Only visible to staff.',
+              'Access details, van placement and handling notes. The owner never sees these.',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 12),
@@ -497,10 +572,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               maxLines: 4,
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Transport defaults',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
+            _sectionHeader('Transport defaults', fontSize: 16, visibleToOwner: false),
             const SizedBox(height: 4),
             Text(
               'Who usually handles drop-off and pick-up for this dog? Staff-only; per-day exceptions can be set on each assignment.',
@@ -533,10 +605,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               onTimeCleared: () => setState(() => _ownerCollectsDefaultTime = null),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Pickup & Drop-off',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
+            _sectionHeader('Pickup & Drop-off', fontSize: 16, visibleToOwner: false),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -585,10 +654,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
               }).toList(),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Schedule Frequency',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
+            _sectionHeader('Schedule Frequency', fontSize: 16, visibleToOwner: true),
             const SizedBox(height: 8),
             const Text(
               'How often does this dog attend?',
@@ -645,10 +711,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ],
             if (_selectedScheduleType != ScheduleType.adHoc) ...[
               const SizedBox(height: 24),
-              const Text(
-                'Daycare Schedule',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+              _sectionHeader('Daycare Schedule', fontSize: 16, visibleToOwner: true),
               const SizedBox(height: 12),
               const Text(
                 'Select which days your dog attends daycare:',
