@@ -68,10 +68,17 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   late List<DailyDogAssignment> _assignments;
   late List<Dog> _unassignedDogs;
 
+  /// Staff display names whose pins are hidden by default (still toggleable).
+  /// "P4TD" is the business's own pseudo-staff bucket (e.g. daycare/at-base
+  /// dogs), which would otherwise clutter the pickup view.
+  static const Set<String> _defaultHiddenStaffNames = {'p4td'};
+
   /// Staff whose pins are currently hidden.
   final Set<int> _hiddenStaffIds = {};
   bool _showUnassigned = true;
-  bool _showBase = true;
+  // "At base (no address)" pins are hidden by default — they all stack on the
+  // depot and aren't useful for planning pickups. Toggleable in the legend.
+  bool _showBase = false;
   bool _refreshing = false;
 
   @override
@@ -79,6 +86,12 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
     super.initState();
     _assignments = List.of(widget.assignments);
     _unassignedDogs = List.of(widget.unassignedDogs);
+    // Default-hide the P4TD pseudo-staff member's pins (still toggleable).
+    _staffNames().forEach((id, name) {
+      if (_defaultHiddenStaffNames.contains(name.trim().toLowerCase())) {
+        _hiddenStaffIds.add(id);
+      }
+    });
   }
 
   /// All staff ids in a stable order, so each staff member maps to a fixed
