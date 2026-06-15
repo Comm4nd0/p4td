@@ -3,21 +3,24 @@ import time
 from django.core.management.base import BaseCommand
 
 from api.models import Dog
-from api.geocoding import geocode_dog
+from api.geocoding import geocode_dog, effective_postcode
 
 
 def _needs_geocode(dog, force):
-    """Whether this dog's cached coordinates are missing, stale, or forced."""
-    address = (dog.address or '').strip()
-    if not address:
-        # No address: only "needs" work if there are stale coords to clear.
+    """Whether this dog's cached coordinates are missing, stale, or forced.
+
+    Keyed off the effective postcode (structured field or one parsed from the
+    address) so it matches what :func:`geocode_dog` actually geocodes."""
+    postcode = effective_postcode(dog)
+    if not postcode:
+        # No usable postcode: only "needs" work if there are stale coords to clear.
         return any([
             dog.latitude is not None, dog.longitude is not None,
             dog.geocode_source, dog.geocoded_address,
         ])
     if force:
         return True
-    return dog.geocoded_address != address
+    return dog.geocoded_address != postcode
 
 
 class Command(BaseCommand):
