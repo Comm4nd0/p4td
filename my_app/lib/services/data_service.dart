@@ -82,6 +82,8 @@ class ApiDataService implements DataService {
         accessInstructions: json['access_instructions'],
         vanPlacement: json['van_placement'],
         generalNotes: json['general_notes'],
+        latitude: parseApiDouble(json['latitude']),
+        longitude: parseApiDouble(json['longitude']),
         daysInDaycare: daysInDaycare,
         ownerDetails: ownerDetails,
         additionalOwners: additionalOwners,

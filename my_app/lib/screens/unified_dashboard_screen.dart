@@ -16,6 +16,7 @@ import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/media_tag_dialog.dart';
 import 'all_dogs_today_screen.dart';
+import 'pickup_map_screen.dart';
 import 'staff_dog_detail_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'boarding_request_list_screen.dart';
@@ -449,6 +450,28 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       ),
     );
     // Refresh after returning — statuses may have changed
+    if (mounted) {
+      await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+    }
+  }
+
+  Future<void> _navigateToMap(
+    List<DailyDogAssignment> assignments,
+    List<Dog> unassignedDogs,
+  ) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PickupMapScreen(
+          date: _selectedDate,
+          assignments: assignments,
+          unassignedDogs: unassignedDogs,
+          staffMembers: _staffMembers,
+          availableStaffIds: _availableStaffIds,
+          canAssignDogs: widget.canAssignDogs,
+        ),
+      ),
+    );
     if (mounted) {
       await _loadAssignmentsForDate(_selectedDate, forceReload: true);
     }
@@ -1705,40 +1728,53 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         : 0;
     final boardingCount = assignments.where((a) => a.isBoarding).length;
 
-    return Row(children: [
-      Expanded(child: OverviewCard(
-        compact: true,
-        icon: PiconsDuotone.pawPrint,
-        value: '$allDogsCount',
-        label: 'All Dogs',
-        color: AppColors.primary,
-        onTap: () => _navigateToAllDogs(assignments, unassignedDogs),
-      )),
-      const SizedBox(width: 6),
-      Expanded(child: OverviewCard(
-        compact: true,
-        icon: PiconsDuotone.user,
-        value: '$myDogs',
-        label: 'My Dogs',
-        color: AppColors.primary,
-        onTap: widget.myUserId != null ? () => filterByStaff(widget.myUserId) : null,
-      )),
-      const SizedBox(width: 6),
-      Expanded(child: OverviewCard(
-        compact: true,
-        icon: PiconsDuotone.clipboardText,
-        value: '${assignments.length}',
-        label: 'Assigned',
-        color: AppColors.info,
-      )),
-      const SizedBox(width: 6),
-      Expanded(child: OverviewCard(
-        compact: true,
-        icon: PiconsDuotone.bed,
-        value: '$boardingCount',
-        label: 'Boarding',
-        color: AppColors.primaryLight,
-      )),
+    return Column(children: [
+      Row(children: [
+        Expanded(child: OverviewCard(
+          compact: true,
+          icon: PiconsDuotone.pawPrint,
+          value: '$allDogsCount',
+          label: 'All Dogs',
+          color: AppColors.primary,
+          onTap: () => _navigateToAllDogs(assignments, unassignedDogs),
+        )),
+        const SizedBox(width: 6),
+        Expanded(child: OverviewCard(
+          compact: true,
+          icon: PiconsDuotone.user,
+          value: '$myDogs',
+          label: 'My Dogs',
+          color: AppColors.primary,
+          onTap: widget.myUserId != null ? () => filterByStaff(widget.myUserId) : null,
+        )),
+        const SizedBox(width: 6),
+        Expanded(child: OverviewCard(
+          compact: true,
+          icon: PiconsDuotone.clipboardText,
+          value: '${assignments.length}',
+          label: 'Assigned',
+          color: AppColors.info,
+        )),
+        const SizedBox(width: 6),
+        Expanded(child: OverviewCard(
+          compact: true,
+          icon: PiconsDuotone.bed,
+          value: '$boardingCount',
+          label: 'Boarding',
+          color: AppColors.primaryLight,
+        )),
+      ]),
+      if (widget.canAssignDogs) ...[
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => _navigateToMap(assignments, unassignedDogs),
+            icon: const Icon(Icons.map_outlined, size: 18),
+            label: const Text('View pickups on map'),
+          ),
+        ),
+      ],
     ]);
   }
 

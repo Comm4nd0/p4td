@@ -112,6 +112,18 @@ class Dog(models.Model):
     sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
+    # Cached geocoding of `address` for the staff pickup map. Populated by the
+    # geocode_dogs management command and refreshed when `address` changes.
+    GEOCODE_SOURCE_CHOICES = [
+        ('house', 'House-level match'),
+        ('postcode', 'Postcode centroid'),
+        ('failed', 'Could not geocode'),
+    ]
+    latitude = models.FloatField(null=True, blank=True, help_text='Cached latitude of the pickup address.')
+    longitude = models.FloatField(null=True, blank=True, help_text='Cached longitude of the pickup address.')
+    geocoded_at = models.DateTimeField(null=True, blank=True, help_text='When the address was last geocoded.')
+    geocode_source = models.CharField(max_length=10, choices=GEOCODE_SOURCE_CHOICES, blank=True, help_text='Precision of the cached coordinates.')
+    geocoded_address = models.TextField(blank=True, null=True, help_text='The address string the cached coordinates were derived from, used to detect staleness.')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

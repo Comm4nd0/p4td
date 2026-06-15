@@ -109,8 +109,8 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'created_at']
-        read_only_fields = ['created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source']
         extra_kwargs = {
             'owner': {'required': False},
             'additional_owners': {'required': False},
@@ -320,6 +320,10 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
 class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
     dog_profile_image = serializers.ImageField(source='dog.profile_image', read_only=True)
+    # Cached pickup coordinates (from the dog) for the staff map. Null when the
+    # dog has no address or couldn't be geocoded — the app pins it at base.
+    latitude = serializers.FloatField(source='dog.latitude', read_only=True, allow_null=True)
+    longitude = serializers.FloatField(source='dog.longitude', read_only=True, allow_null=True)
     staff_member_name = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
     owner_address = serializers.SerializerMethodField()
@@ -334,7 +338,7 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyDogAssignment
         fields = [
-            'id', 'dog', 'dog_name', 'dog_profile_image',
+            'id', 'dog', 'dog_name', 'dog_profile_image', 'latitude', 'longitude',
             'staff_member', 'staff_member_name',
             'owner_name', 'owner_address', 'owner_phone', 'pickup_instructions',
             'date', 'status', 'is_boarding',

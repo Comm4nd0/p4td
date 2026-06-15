@@ -46,6 +46,13 @@ String? formatApiDate(DateTime? d) {
   return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }
 
+/// Parse a backend numeric value (int, double, or numeric string) to a double.
+double? parseApiDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
+
 /// Parse a backend time string ("HH:MM:SS" or "HH:MM") to TimeOfDay.
 TimeOfDay? parseApiTime(dynamic value) {
   if (value == null) return null;
@@ -193,6 +200,10 @@ class Dog {
   final String? accessInstructions;
   final String? vanPlacement;
   final String? generalNotes;
+  /// Cached pickup coordinates (geocoded server-side from [address]). Null when
+  /// the dog has no address or couldn't be geocoded — shown at base on the map.
+  final double? latitude;
+  final double? longitude;
   final List<Weekday> daysInDaycare;
   final OwnerDetails? ownerDetails;
   final List<OwnerDetails> additionalOwners;
@@ -218,6 +229,8 @@ class Dog {
     this.accessInstructions,
     this.vanPlacement,
     this.generalNotes,
+    this.latitude,
+    this.longitude,
     this.daysInDaycare = const [],
     this.ownerDetails,
     this.additionalOwners = const [],
@@ -259,6 +272,8 @@ class Dog {
     String? accessInstructions,
     String? vanPlacement,
     String? generalNotes,
+    double? latitude,
+    double? longitude,
     List<Weekday>? daysInDaycare,
     OwnerDetails? ownerDetails,
     List<OwnerDetails>? additionalOwners,
@@ -284,6 +299,8 @@ class Dog {
       accessInstructions: accessInstructions ?? this.accessInstructions,
       vanPlacement: vanPlacement ?? this.vanPlacement,
       generalNotes: generalNotes ?? this.generalNotes,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
       ownerDetails: ownerDetails ?? this.ownerDetails,
       additionalOwners: additionalOwners ?? this.additionalOwners,

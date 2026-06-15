@@ -434,9 +434,10 @@ class DogViewSet(viewsets.ModelViewSet):
         # Staff must assign an owner when creating a dog
         self._handle_image_upload(serializer)
         if 'owner' in self.request.data:
-            serializer.save()
+            dog = serializer.save()
         else:
-            serializer.save(owner=self.request.user)
+            dog = serializer.save(owner=self.request.user)
+        self._maybe_geocode(dog)
 
     def update(self, request, *args, **kwargs):
         """Override update to route non-staff edits through the approval workflow."""
@@ -556,6 +557,8 @@ class DogViewSet(viewsets.ModelViewSet):
         serializer.save()
 
         dog.refresh_from_db()
+        # Refresh cached pickup coordinates if the address changed.
+        self._maybe_geocode(dog)
         new_daycare_days = list(dog.daycare_days or [])
         new_schedule_type = dog.schedule_type
 
@@ -658,6 +661,15 @@ class DogViewSet(viewsets.ModelViewSet):
                 processed_image = process_image(image_file, max_size=(800, 800))
                 serializer.validated_data['profile_image'] = processed_image
 
+    def _maybe_geocode(self, dog):
+        """Best-effort refresh of the dog's cached pickup coordinates after a
+        save. Never lets a slow or failed address lookup block the request."""
+        try:
+            from .geocoding import geocode_dog
+            geocode_dog(dog)
+        except Exception as e:
+            print(f"Geocoding failed for dog {getattr(dog, 'id', '?')}: {e}")
+
 class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
     """View and manage dog profile change requests.
 
@@ -719,6 +731,13 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
         dog.save()
 
         dog.refresh_from_db()
+        # Refresh cached pickup coordinates if an approved change altered the
+        # address. Best-effort — never block approval on the address lookup.
+        try:
+            from .geocoding import geocode_dog
+            geocode_dog(dog)
+        except Exception as e:
+            print(f"Geocoding failed for dog {getattr(dog, 'id', '?')}: {e}")
         new_daycare_days = list(dog.daycare_days or [])
         new_schedule_type = dog.schedule_type
 
@@ -3109,69 +3128,13 @@ def delete_account(request):
 # POSTCODE -> ADDRESS LOOKUP
 # =============================================================================
 
-class PostcodeLookupError(Exception):
-    """A provider error we should surface to the client."""
-
-
-class PostcodeNotFound(PostcodeLookupError):
-    """The postcode had no matching addresses."""
-
-
-def _getaddress_io_lookup(postcode, api_key):
-    """Query getAddress.io's ``/find`` endpoint and normalise the result.
-
-    Docs: https://getaddress.io/Documentation — ``/find/{postcode}?expand=true``
-    returns an ``addresses`` array of objects with line_1..line_4, locality,
-    town_or_city and county fields. Uses the standard library only so no extra
-    dependency is needed.
-    """
-    import json as _json
-    import urllib.parse
-    import urllib.request
-    import urllib.error
-
-    pc = urllib.parse.quote(postcode.replace(' ', ''))
-    url = (
-        f'https://api.getAddress.io/find/{pc}'
-        f'?api-key={urllib.parse.quote(api_key)}&expand=true&sort=true'
-    )
-    req = urllib.request.Request(url, headers={'User-Agent': 'p4td-backend'})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            payload = _json.loads(resp.read().decode('utf-8'))
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            raise PostcodeNotFound()
-        if exc.code == 400:
-            raise PostcodeLookupError('That does not look like a valid postcode.')
-        if exc.code in (401, 403):
-            raise PostcodeLookupError('Postcode lookup is misconfigured (auth failed).')
-        if exc.code == 429:
-            raise PostcodeLookupError('Postcode lookup limit reached. Please try again later.')
-        raise PostcodeLookupError('Address lookup service error.')
-    except (urllib.error.URLError, TimeoutError, ValueError):
-        raise PostcodeLookupError('Could not reach the address lookup service.')
-
-    normalised_pc = (payload.get('postcode') or postcode).upper()
-    results = []
-    for addr in payload.get('addresses', []) or []:
-        if isinstance(addr, dict):
-            parts = [
-                addr.get('line_1'), addr.get('line_2'), addr.get('line_3'),
-                addr.get('line_4'), addr.get('locality'),
-                addr.get('town_or_city'), addr.get('county'),
-            ]
-        else:
-            # Non-expanded form: a single comma-separated string.
-            parts = str(addr).split(',')
-        lines = [p.strip() for p in parts if p and p.strip()]
-        if not lines:
-            continue
-        formatted = ', '.join(lines + [normalised_pc])
-        results.append({'formatted': formatted, 'lines': lines, 'postcode': normalised_pc})
-    if not results:
-        raise PostcodeNotFound()
-    return results
+# Postcode lookup + address geocoding live in api/geocoding.py (stdlib only,
+# shared with the staff pickup map). Re-exported here for postcode_lookup below.
+from .geocoding import (  # noqa: E402
+    PostcodeLookupError,
+    PostcodeNotFound,
+    lookup_addresses,
+)
 
 
 @api_view(['GET'])
@@ -3206,7 +3169,7 @@ def postcode_lookup(request):
     provider = getattr(settings, 'POSTCODE_LOOKUP_PROVIDER', 'getaddress').lower()
     try:
         if provider == 'getaddress':
-            addresses = _getaddress_io_lookup(postcode, api_key)
+            addresses = lookup_addresses(postcode, api_key)
         else:
             return Response(
                 {'detail': f'Unsupported postcode provider "{provider}".'},

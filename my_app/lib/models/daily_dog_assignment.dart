@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart' show TimeOfDay;
-import 'dog.dart' show parseApiTime;
+import 'dog.dart' show parseApiTime, parseApiDouble;
 
 /// Scope used when reassigning or unassigning a single dog on a specific date.
 /// Maps to the backend `scope` body param on /reassign/ and /unassign/.
@@ -80,6 +80,10 @@ class DailyDogAssignment {
   final int dogId;
   final String dogName;
   final String? dogProfileImage;
+  /// Cached pickup coordinates of the dog (from its geocoded address). Null when
+  /// the dog has no address — the map pins it at base.
+  final double? latitude;
+  final double? longitude;
   final int staffMemberId;
   final String staffMemberName;
   final String ownerName;
@@ -104,6 +108,8 @@ class DailyDogAssignment {
     required this.dogId,
     required this.dogName,
     this.dogProfileImage,
+    this.latitude,
+    this.longitude,
     required this.staffMemberId,
     required this.staffMemberName,
     required this.ownerName,
@@ -130,6 +136,8 @@ class DailyDogAssignment {
       dogId: json['dog'] is int ? json['dog'] : int.parse(json['dog'].toString()),
       dogName: json['dog_name'] ?? '',
       dogProfileImage: json['dog_profile_image'],
+      latitude: parseApiDouble(json['latitude']),
+      longitude: parseApiDouble(json['longitude']),
       staffMemberId: json['staff_member'] is int ? json['staff_member'] : int.parse(json['staff_member'].toString()),
       staffMemberName: json['staff_member_name'] ?? '',
       ownerName: json['owner_name'] ?? '',
@@ -168,6 +176,8 @@ class DailyDogAssignment {
       dogId: dogId,
       dogName: dogName,
       dogProfileImage: dogProfileImage,
+      latitude: latitude,
+      longitude: longitude,
       staffMemberId: staffMemberId,
       staffMemberName: staffMemberName,
       ownerName: ownerName,
