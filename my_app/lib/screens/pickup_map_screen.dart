@@ -515,6 +515,9 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                       ),
                     ),
                   ),
+                // Daycare/base landmark — its own layer so it's always visible
+                // and never absorbed into a cluster count.
+                MarkerLayer(markers: [_daycareMarker()]),
                 const RichAttributionWidget(
                   attributions: [
                     TextSourceAttribution('© OpenStreetMap contributors'),
@@ -532,16 +535,85 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   Marker _buildMarker(_Pin pin) {
     return Marker(
       point: pin.position,
-      width: 40,
-      height: 40,
-      alignment: Alignment.topCenter,
+      width: 38,
+      height: 38,
+      alignment: Alignment.center,
       child: GestureDetector(
         onTap: () => _showPinSheet(pin),
-        child: Icon(
-          Icons.location_pin,
-          color: pin.color,
-          size: 36,
-          shadows: const [Shadow(color: Colors.black45, blurRadius: 3, offset: Offset(0, 1))],
+        child: _pawBadge(pin.color),
+      ),
+    );
+  }
+
+  /// A staff-coloured circular badge with a white paw — a dog pickup.
+  Widget _pawBadge(Color color) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))],
+      ),
+      child: const Center(child: Icon(Icons.pets, color: Colors.white, size: 20)),
+    );
+  }
+
+  /// The fixed daycare/base landmark — a larger teal house badge.
+  Marker _daycareMarker() {
+    return Marker(
+      point: const LatLng(kBaseLatitude, kBaseLongitude),
+      width: 46,
+      height: 46,
+      alignment: Alignment.center,
+      child: GestureDetector(
+        onTap: _showDaycareSheet,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1))],
+          ),
+          child: const Center(child: Icon(Icons.home, color: Colors.white, size: 26)),
+        ),
+      ),
+    );
+  }
+
+  void _showDaycareSheet() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.home, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text('Paws 4 Thought Dogs', style: Theme.of(context).textTheme.titleLarge)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text('Daycare / base', style: TextStyle(color: AppColors.grey600)),
+              const SizedBox(height: 6),
+              const Text('Chiltern View, Henley Road, Medmenham, SL7 2HE',
+                  style: TextStyle(color: AppColors.grey600, fontSize: 13)),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => _openInMaps(const LatLng(kBaseLatitude, kBaseLongitude)),
+                  icon: const Icon(Icons.directions, size: 18),
+                  label: const Text('Directions'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -567,6 +639,17 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.home, size: 16, color: AppColors.primary),
+                    SizedBox(width: 12),
+                    Text('Daycare (base)'),
+                  ],
+                ),
+              ),
+              const Divider(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
