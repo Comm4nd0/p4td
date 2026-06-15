@@ -169,7 +169,7 @@ See `.env.example` for required variables. Key ones:
 |---|---|
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files |
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` (daily 8:05am cron) |
-| `python manage.py geocode_dogs` | Geocode dog pickup addresses (getAddress.io) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` |
+| `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` |
 
 ### Feed Media Pruning
 

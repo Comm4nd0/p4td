@@ -3118,24 +3118,13 @@ class FeedReactionResponseTests(TestCase):
         self.assertEqual(resp.data['comments'][0]['text'], 'Cute!')
 
 
-# getAddress.io /find?expand=true style payload used to mock the provider in
-# geocoding tests (top-level postcode centroid + per-address coordinates).
-GETADDRESS_PAYLOAD = {
-    'postcode': 'SL7 2HE',
-    'latitude': 51.5554,
-    'longitude': -0.8459,
-    'addresses': [
-        {'line_1': '1 Henley Road', 'town_or_city': 'Marlow',
-         'county': 'Buckinghamshire', 'latitude': 51.5551, 'longitude': -0.8460},
-        {'line_1': '2 Henley Road', 'town_or_city': 'Marlow',
-         'latitude': 51.5552, 'longitude': -0.8461},
-        {'line_1': 'Chiltern View', 'town_or_city': 'Medmenham',
-         'latitude': 51.5557, 'longitude': -0.8458},
-    ],
+# postcodes.io /postcodes/{postcode} style payload used to mock the geocoder.
+POSTCODES_IO_PAYLOAD = {
+    'status': 200,
+    'result': {'postcode': 'SL7 2HE', 'latitude': 51.555465, 'longitude': -0.845921},
 }
 
 
-@override_settings(POSTCODE_LOOKUP_API_KEY='test-key')
 class GeocodingTests(TestCase):
     """Address geocoding for the staff pickup map (api/geocoding.py)."""
 
@@ -3148,46 +3137,33 @@ class GeocodingTests(TestCase):
         self.assertIsNone(extract_postcode(''))
         self.assertIsNone(extract_postcode(None))
 
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
-    def test_geocode_address_house_match(self, mock_fetch):
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
+    def test_geocode_address_returns_postcode_centroid(self, mock_fetch):
         from api.geocoding import geocode_address
         lat, lng, source = geocode_address('Chiltern View, Henley Road, Medmenham, SL7 2HE')
-        self.assertEqual(source, 'house')
-        self.assertAlmostEqual(lat, 51.5557)
-        self.assertAlmostEqual(lng, -0.8458)
-
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
-    def test_geocode_address_picks_right_house(self, mock_fetch):
-        from api.geocoding import geocode_address
-        lat, lng, source = geocode_address('2 Henley Road, Marlow, SL7 2HE')
-        self.assertEqual(source, 'house')
-        self.assertAlmostEqual(lat, 51.5552)
-
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
-    def test_geocode_address_postcode_fallback(self, mock_fetch):
-        from api.geocoding import geocode_address
-        # No building/street tokens overlap any address line → centroid fallback.
-        lat, lng, source = geocode_address('Flat somewhere unmatched, SL7 2HE')
         self.assertEqual(source, 'postcode')
-        self.assertAlmostEqual(lat, 51.5554)
-        self.assertAlmostEqual(lng, -0.8459)
+        self.assertAlmostEqual(lat, 51.555465)
+        self.assertAlmostEqual(lng, -0.845921)
+        # Geocodes by postcode only — building/street are ignored.
+        mock_fetch.assert_called_once_with('SL7 2HE')
 
     def test_geocode_address_no_postcode_fails(self):
         from api.geocoding import geocode_address
         self.assertEqual(geocode_address('Just a name, no postcode'), (None, None, 'failed'))
 
-    @patch('api.geocoding._fetch_getaddress')
+    @patch('api.geocoding._fetch_postcodes_io')
     def test_geocode_address_provider_error_fails(self, mock_fetch):
         from api.geocoding import geocode_address, PostcodeLookupError
         mock_fetch.side_effect = PostcodeLookupError('boom')
         self.assertEqual(geocode_address('1 High St, SL7 2HE'), (None, None, 'failed'))
 
-    @override_settings(POSTCODE_LOOKUP_API_KEY='')
-    def test_geocode_address_without_key_fails(self):
+    @patch('api.geocoding._fetch_postcodes_io',
+           return_value={'status': 200, 'result': {'latitude': None, 'longitude': None}})
+    def test_geocode_address_terminated_postcode_fails(self, mock_fetch):
         from api.geocoding import geocode_address
-        self.assertEqual(geocode_address('Chiltern View, SL7 2HE'), (None, None, 'failed'))
+        self.assertEqual(geocode_address('1 High St, SL7 2HE'), (None, None, 'failed'))
 
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
     def test_geocode_dog_sets_and_caches(self, mock_fetch):
         from api.geocoding import geocode_dog
         owner = User.objects.create_user(username='o1', password='pw')
@@ -3196,7 +3172,7 @@ class GeocodingTests(TestCase):
             address='Chiltern View, Henley Road, Medmenham, SL7 2HE')
         self.assertTrue(geocode_dog(dog))
         dog.refresh_from_db()
-        self.assertEqual(dog.geocode_source, 'house')
+        self.assertEqual(dog.geocode_source, 'postcode')
         self.assertIsNotNone(dog.latitude)
         self.assertEqual(dog.geocoded_address, 'Chiltern View, Henley Road, Medmenham, SL7 2HE')
         # Idempotent: unchanged address → no second provider call.
@@ -3204,7 +3180,7 @@ class GeocodingTests(TestCase):
         self.assertFalse(geocode_dog(dog))
         self.assertEqual(mock_fetch.call_count, 1)
 
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
     def test_geocode_dog_clears_when_address_removed(self, mock_fetch):
         from api.geocoding import geocode_dog
         owner = User.objects.create_user(username='o2', password='pw')
@@ -3223,35 +3199,35 @@ class GeocodingTests(TestCase):
         staff = User.objects.create_user(username='s3', password='pw', is_staff=True)
         dog = Dog.objects.create(
             owner=owner, name='Rex', address='Chiltern View, SL7 2HE',
-            latitude=51.5557, longitude=-0.8458, geocode_source='house')
+            latitude=51.555465, longitude=-0.845921, geocode_source='postcode')
         DailyDogAssignment.objects.create(dog=dog, staff_member=staff, date=date.today())
         client = APIClient()
         client.login(username='s3', password='pw')
 
         resp = client.get('/api/dogs/')
         rec = next(d for d in resp.data if d['id'] == dog.id)
-        self.assertAlmostEqual(rec['latitude'], 51.5557)
-        self.assertAlmostEqual(rec['longitude'], -0.8458)
-        self.assertEqual(rec['geocode_source'], 'house')
+        self.assertAlmostEqual(rec['latitude'], 51.555465)
+        self.assertAlmostEqual(rec['longitude'], -0.845921)
+        self.assertEqual(rec['geocode_source'], 'postcode')
 
         resp = client.get('/api/daily-assignments/')
         a = next(x for x in resp.data if x['dog'] == dog.id)
-        self.assertAlmostEqual(a['latitude'], 51.5557)
-        self.assertAlmostEqual(a['longitude'], -0.8458)
+        self.assertAlmostEqual(a['latitude'], 51.555465)
+        self.assertAlmostEqual(a['longitude'], -0.845921)
 
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
     def test_geocode_dogs_command(self, mock_fetch):
         owner = User.objects.create_user(username='o4', password='pw')
         d1 = Dog.objects.create(owner=owner, name='A', address='Chiltern View, SL7 2HE')
         d2 = Dog.objects.create(owner=owner, name='B')  # no address → not a candidate
         call_command('geocode_dogs', sleep=0, verbosity=0)
         d1.refresh_from_db()
-        self.assertEqual(d1.geocode_source, 'house')
+        self.assertEqual(d1.geocode_source, 'postcode')
         self.assertIsNotNone(d1.latitude)
         d2.refresh_from_db()
         self.assertIsNone(d2.latitude)
 
-    @patch('api.geocoding._fetch_getaddress', return_value=GETADDRESS_PAYLOAD)
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
     def test_geocode_dogs_dry_run_makes_no_changes(self, mock_fetch):
         owner = User.objects.create_user(username='o5', password='pw')
         d1 = Dog.objects.create(owner=owner, name='A', address='Chiltern View, SL7 2HE')

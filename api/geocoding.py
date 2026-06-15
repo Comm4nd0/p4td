@@ -1,16 +1,14 @@
-"""getAddress.io postcode lookup + address geocoding.
+"""UK postcode lookup (getAddress.io) + address geocoding (postcodes.io).
 
-Shared by the postcode-autofill endpoint (``api.views.postcode_lookup``) and the
-staff pickup map, which needs latitude/longitude for each dog's pickup address.
+Two independent helpers:
+- ``lookup_addresses`` powers the postcode-autofill endpoint
+  (``api.views.postcode_lookup``) via getAddress.io; needs ``POSTCODE_LOOKUP_API_KEY``.
+- ``geocode_address`` resolves a dog's address to coordinates for the staff
+  pickup map via postcodes.io — free, no API key, postcode-centroid accuracy.
 
 Uses the Python standard library only (``urllib``) so no extra pip dependency is
 introduced — adding one to a single requirements file breaks the prod Docker
 build.
-
-Docs: https://getaddress.io/Documentation — ``/find/{postcode}?expand=true``
-returns an ``addresses`` array of objects with line_1..line_4, locality,
-town_or_city, county and (with expand) ``latitude``/``longitude`` fields, plus a
-top-level ``latitude``/``longitude`` postcode centroid.
 """
 import json as _json
 import re
@@ -136,61 +134,46 @@ def _coord(obj):
     return (lat, lng)
 
 
-def _building_tokens(text):
-    """Lowercased tokens from the first line of an address (building number/name
-    + street), used to match a dog's free-text address to a structured entry."""
-    if not text:
-        return set()
-    head = text.split(',')[0].lower()
-    return {t for t in re.split(r'[^a-z0-9]+', head) if t}
+def _fetch_postcodes_io(postcode):
+    """Look up a postcode's centroid via postcodes.io (free, no API key).
+
+    Returns the parsed JSON dict, or raises :class:`PostcodeNotFound` /
+    :class:`PostcodeLookupError`.
+    """
+    pc = urllib.parse.quote(postcode.replace(' ', ''))
+    url = f'https://api.postcodes.io/postcodes/{pc}'
+    req = urllib.request.Request(url, headers={'User-Agent': 'p4td-backend'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return _json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise PostcodeNotFound()
+        raise PostcodeLookupError('Geocoding service error.')
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        raise PostcodeLookupError('Could not reach the geocoding service.')
 
 
 def geocode_address(address):
     """Geocode a free-text UK address to ``(lat, lng, source)``.
 
-    ``source`` is ``'house'`` (matched a specific property), ``'postcode'``
-    (postcode-centroid fallback) or ``'failed'`` (no usable coordinates). Never
-    raises — returns ``(None, None, 'failed')`` on any error so callers (the
-    geocode command, the dog-save hook) degrade gracefully and the dog simply
-    pins at base on the map.
+    Resolves the postcode to its centroid via postcodes.io (free, no API key),
+    so ``source`` is ``'postcode'`` on success or ``'failed'`` when there's no
+    usable postcode/coordinates. Never raises — returns
+    ``(None, None, 'failed')`` on any error so callers (the geocode command, the
+    dog-save hook) degrade gracefully and the dog simply pins at base.
     """
     postcode = extract_postcode(address)
     if not postcode:
         return (None, None, 'failed')
-    api_key = _provider_key()
-    if not api_key:
-        return (None, None, 'failed')
     try:
-        payload = _fetch_getaddress(postcode, api_key)
+        payload = _fetch_postcodes_io(postcode)
     except PostcodeLookupError:
         return (None, None, 'failed')
-
-    addresses = payload.get('addresses', []) or []
-    want = _building_tokens(address)
-
-    # House-level: the structured address whose building/street tokens overlap
-    # the dog's address best, provided it carries its own coordinates.
-    best, best_score = None, 0
-    for addr in addresses:
-        coord = _coord(addr)
-        if not coord:
-            continue
-        score = len(want & _building_tokens(', '.join(_address_lines(addr))))
-        if score > best_score:
-            best, best_score = coord, score
-    if best and best_score > 0:
-        return (best[0], best[1], 'house')
-
-    # Postcode-centroid fallback: top-level coords, else first address with any.
-    centroid = _coord(payload)
-    if not centroid:
-        for addr in addresses:
-            centroid = _coord(addr)
-            if centroid:
-                break
-    if centroid:
-        return (centroid[0], centroid[1], 'postcode')
-
+    result = payload.get('result') if isinstance(payload, dict) else None
+    coord = _coord(result)
+    if coord:
+        return (coord[0], coord[1], 'postcode')
     return (None, None, 'failed')
 
 
