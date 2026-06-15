@@ -419,7 +419,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                       ),
                       const SizedBox(width: 8),
                       Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
-                      if (!isAvailable) Text(' (off)', style: const TextStyle(fontSize: 11, color: AppColors.grey400)),
+                      if (!isAvailable) const Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
                     ]),
                   );
                 }).toList(),
@@ -472,6 +472,10 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                 initialZoom: 11,
                 minZoom: 6,
                 maxZoom: 18,
+                // Lock the map to north-up: keep all gestures except rotation.
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                ),
               ),
               children: [
                 TileLayer(
