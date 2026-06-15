@@ -100,6 +100,7 @@ class Dog(models.Model):
     medical_notes = models.TextField(blank=True, null=True)
     registered_vet = models.TextField(blank=True, null=True, help_text="Owner's registered vet — typically the practice name, address and phone number.")
     address = models.TextField(blank=True, null=True, help_text="Home address used for pickups/drop-offs of this dog.")
+    postcode = models.CharField(max_length=10, blank=True, help_text="UK postcode of the pickup address; drives placement on the staff map (preferred over parsing the free-text address).")
     access_instructions = models.TextField(blank=True, null=True, help_text="How to access the home — keys, codes, gates, where the dog is kept.")
     van_placement = models.TextField(blank=True, null=True, help_text="Where the dog should sit in the van and any companion/seating notes.")
     general_notes = models.TextField(blank=True, null=True, help_text="General notes about the dog (behaviour, handling, misc).")
@@ -123,7 +124,7 @@ class Dog(models.Model):
     longitude = models.FloatField(null=True, blank=True, help_text='Cached longitude of the pickup address.')
     geocoded_at = models.DateTimeField(null=True, blank=True, help_text='When the address was last geocoded.')
     geocode_source = models.CharField(max_length=10, choices=GEOCODE_SOURCE_CHOICES, blank=True, help_text='Precision of the cached coordinates.')
-    geocoded_address = models.TextField(blank=True, null=True, help_text='The address string the cached coordinates were derived from, used to detect staleness.')
+    geocoded_address = models.TextField(blank=True, null=True, help_text='The effective postcode the cached coordinates were derived from, used to detect staleness.')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

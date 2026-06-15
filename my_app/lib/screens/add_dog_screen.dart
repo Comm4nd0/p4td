@@ -47,6 +47,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final _medicalController = TextEditingController();
   final _vetController = TextEditingController();
   final _addressController = TextEditingController();
+  final _postcodeController = TextEditingController();
   final _accessController = TextEditingController();
   final _vanPlacementController = TextEditingController();
   final _generalNotesController = TextEditingController();
@@ -172,6 +173,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         medicalNotes: _medicalController.text.trim().isEmpty ? null : _medicalController.text.trim(),
         registeredVet: _vetController.text.trim().isEmpty ? null : _vetController.text.trim(),
         address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
+        postcode: _postcodeController.text.trim().isEmpty ? null : _postcodeController.text.trim().toUpperCase(),
         accessInstructions: _isStaff && _accessController.text.trim().isNotEmpty ? _accessController.text.trim() : null,
         vanPlacement: _isStaff && _vanPlacementController.text.trim().isNotEmpty ? _vanPlacementController.text.trim() : null,
         generalNotes: _isStaff && _generalNotesController.text.trim().isNotEmpty ? _generalNotesController.text.trim() : null,
@@ -366,6 +368,16 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             label: const Text('Look up postcode'),
                           ),
                         ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _postcodeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Postcode (Optional)',
+                          hintText: 'e.g. SL7 2HE — places the dog on the pickup map',
+                          prefixIcon: Picon(PiconsDuotone.mapPin),
+                        ),
+                        textCapitalization: TextCapitalization.characters,
+                      ),
                       const SizedBox(height: 24),
                       const Text(
                         'About',

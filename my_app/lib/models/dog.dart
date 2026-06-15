@@ -197,10 +197,12 @@ class Dog {
   final String? medicalNotes;
   final String? registeredVet;
   final String? address;
+  /// UK postcode of the pickup address; drives placement on the staff map.
+  final String? postcode;
   final String? accessInstructions;
   final String? vanPlacement;
   final String? generalNotes;
-  /// Cached pickup coordinates (geocoded server-side from [address]). Null when
+  /// Cached pickup coordinates (geocoded server-side from [postcode]/[address]). Null when
   /// the dog has no address or couldn't be geocoded — shown at base on the map.
   final double? latitude;
   final double? longitude;
@@ -226,6 +228,7 @@ class Dog {
     this.medicalNotes,
     this.registeredVet,
     this.address,
+    this.postcode,
     this.accessInstructions,
     this.vanPlacement,
     this.generalNotes,
@@ -269,6 +272,7 @@ class Dog {
     String? medicalNotes,
     String? registeredVet,
     String? address,
+    String? postcode,
     String? accessInstructions,
     String? vanPlacement,
     String? generalNotes,
@@ -296,6 +300,7 @@ class Dog {
       medicalNotes: medicalNotes ?? this.medicalNotes,
       registeredVet: registeredVet ?? this.registeredVet,
       address: address ?? this.address,
+      postcode: postcode ?? this.postcode,
       accessInstructions: accessInstructions ?? this.accessInstructions,
       vanPlacement: vanPlacement ?? this.vanPlacement,
       generalNotes: generalNotes ?? this.generalNotes,

@@ -79,6 +79,7 @@ class ApiDataService implements DataService {
         medicalNotes: json['medical_notes'],
         registeredVet: json['registered_vet'],
         address: json['address'],
+        postcode: json['postcode'],
         accessInstructions: json['access_instructions'],
         vanPlacement: json['van_placement'],
         generalNotes: json['general_notes'],
@@ -262,7 +263,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -276,6 +277,7 @@ class ApiDataService implements DataService {
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
       if (address != null) request.fields['address'] = address;
+      if (postcode != null) request.fields['postcode'] = postcode;
       if (accessInstructions != null) request.fields['access_instructions'] = accessInstructions;
       if (vanPlacement != null) request.fields['van_placement'] = vanPlacement;
       if (generalNotes != null) request.fields['general_notes'] = generalNotes;
@@ -319,6 +321,7 @@ class ApiDataService implements DataService {
           'medical_notes': medicalNotes ?? dog.medicalNotes,
           'registered_vet': registeredVet ?? dog.registeredVet,
           'address': address ?? dog.address,
+          'postcode': postcode ?? dog.postcode,
           'access_instructions': accessInstructions ?? dog.accessInstructions,
           'van_placement': vanPlacement ?? dog.vanPlacement,
           'general_notes': generalNotes ?? dog.generalNotes,
@@ -376,6 +379,7 @@ class ApiDataService implements DataService {
       medicalNotes: data['medical_notes'],
       registeredVet: data['registered_vet'],
       address: data['address'],
+      postcode: data['postcode'],
       accessInstructions: data['access_instructions'],
       vanPlacement: data['van_placement'],
       generalNotes: data['general_notes'],
@@ -468,7 +472,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
     final token = await _authService.getToken();
 
     if (imageBytes != null) {
@@ -481,6 +485,7 @@ class ApiDataService implements DataService {
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
       if (address != null) request.fields['address'] = address;
+      if (postcode != null) request.fields['postcode'] = postcode;
       if (accessInstructions != null) request.fields['access_instructions'] = accessInstructions;
       if (vanPlacement != null) request.fields['van_placement'] = vanPlacement;
       if (generalNotes != null) request.fields['general_notes'] = generalNotes;
@@ -534,6 +539,7 @@ class ApiDataService implements DataService {
           medicalNotes: data['medical_notes'],
           registeredVet: data['registered_vet'],
           address: data['address'],
+          postcode: data['postcode'],
           accessInstructions: data['access_instructions'],
           vanPlacement: data['van_placement'],
           generalNotes: data['general_notes'],
@@ -565,6 +571,7 @@ class ApiDataService implements DataService {
           'medical_notes': medicalNotes,
           'registered_vet': registeredVet,
           'address': address,
+          'postcode': postcode,
           'access_instructions': accessInstructions,
           'van_placement': vanPlacement,
           'general_notes': generalNotes,
@@ -607,6 +614,7 @@ class ApiDataService implements DataService {
           medicalNotes: data['medical_notes'],
           registeredVet: data['registered_vet'],
           address: data['address'],
+          postcode: data['postcode'],
           accessInstructions: data['access_instructions'],
           vanPlacement: data['van_placement'],
           generalNotes: data['general_notes'],
@@ -750,6 +758,7 @@ class ApiDataService implements DataService {
       medicalNotes: data['medical_notes'],
       registeredVet: data['registered_vet'],
       address: data['address'],
+      postcode: data['postcode'],
       accessInstructions: data['access_instructions'],
       vanPlacement: data['van_placement'],
       generalNotes: data['general_notes'],

@@ -109,7 +109,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'latitude', 'longitude', 'geocode_source', 'created_at']
         read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source']
         extra_kwargs = {
             'owner': {'required': False},

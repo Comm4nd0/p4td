@@ -3174,11 +3174,39 @@ class GeocodingTests(TestCase):
         dog.refresh_from_db()
         self.assertEqual(dog.geocode_source, 'postcode')
         self.assertIsNotNone(dog.latitude)
-        self.assertEqual(dog.geocoded_address, 'Chiltern View, Henley Road, Medmenham, SL7 2HE')
-        # Idempotent: unchanged address → no second provider call.
+        # The staleness marker is the effective postcode, not the full address.
+        self.assertEqual(dog.geocoded_address, 'SL7 2HE')
+        # Idempotent: unchanged postcode → no second provider call.
         self.assertEqual(mock_fetch.call_count, 1)
         self.assertFalse(geocode_dog(dog))
         self.assertEqual(mock_fetch.call_count, 1)
+
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
+    def test_geocode_dog_prefers_structured_postcode(self, mock_fetch):
+        from api.geocoding import geocode_dog
+        owner = User.objects.create_user(username='o6', password='pw')
+        # Address carries a different postcode; the structured field wins.
+        dog = Dog.objects.create(
+            owner=owner, name='Rex', address='1 Somewhere, RG1 1AA', postcode='SL7 2HE')
+        geocode_dog(dog)
+        mock_fetch.assert_called_once_with('SL7 2HE')
+        dog.refresh_from_db()
+        self.assertEqual(dog.geocode_source, 'postcode')
+        self.assertEqual(dog.geocoded_address, 'SL7 2HE')
+
+    @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
+    def test_setting_postcode_via_api_geocodes(self, mock_fetch):
+        staff = User.objects.create_user(username='s7', password='pw', is_staff=True)
+        owner = User.objects.create_user(username='o7', password='pw')
+        dog = Dog.objects.create(owner=owner, name='Rex')
+        client = APIClient()
+        client.login(username='s7', password='pw')
+        resp = client.patch(f'/api/dogs/{dog.id}/', {'postcode': 'SL7 2HE'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['postcode'], 'SL7 2HE')
+        dog.refresh_from_db()
+        self.assertIsNotNone(dog.latitude)
+        self.assertEqual(dog.geocode_source, 'postcode')
 
     @patch('api.geocoding._fetch_postcodes_io', return_value=POSTCODES_IO_PAYLOAD)
     def test_geocode_dog_clears_when_address_removed(self, mock_fetch):
@@ -3198,7 +3226,7 @@ class GeocodingTests(TestCase):
         owner = User.objects.create_user(username='o3', password='pw')
         staff = User.objects.create_user(username='s3', password='pw', is_staff=True)
         dog = Dog.objects.create(
-            owner=owner, name='Rex', address='Chiltern View, SL7 2HE',
+            owner=owner, name='Rex', address='Chiltern View, SL7 2HE', postcode='SL7 2HE',
             latitude=51.555465, longitude=-0.845921, geocode_source='postcode')
         DailyDogAssignment.objects.create(dog=dog, staff_member=staff, date=date.today())
         client = APIClient()
@@ -3209,6 +3237,7 @@ class GeocodingTests(TestCase):
         self.assertAlmostEqual(rec['latitude'], 51.555465)
         self.assertAlmostEqual(rec['longitude'], -0.845921)
         self.assertEqual(rec['geocode_source'], 'postcode')
+        self.assertEqual(rec['postcode'], 'SL7 2HE')
 
         resp = client.get('/api/daily-assignments/')
         a = next(x for x in resp.data if x['dog'] == dog.id)

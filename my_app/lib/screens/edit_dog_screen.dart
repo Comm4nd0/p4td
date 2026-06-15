@@ -29,6 +29,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
   late TextEditingController _medicalController;
   late TextEditingController _vetController;
   late TextEditingController _addressController;
+  late TextEditingController _postcodeController;
   late TextEditingController _accessController;
   late TextEditingController _vanPlacementController;
   late TextEditingController _generalNotesController;
@@ -59,6 +60,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _medicalController = TextEditingController(text: widget.dog.medicalNotes ?? '');
     _vetController = TextEditingController(text: widget.dog.registeredVet ?? '');
     _addressController = TextEditingController(text: widget.dog.address ?? '');
+    _postcodeController = TextEditingController(text: widget.dog.postcode ?? '');
     _accessController = TextEditingController(text: widget.dog.accessInstructions ?? '');
     _vanPlacementController = TextEditingController(text: widget.dog.vanPlacement ?? '');
     _generalNotesController = TextEditingController(text: widget.dog.generalNotes ?? '');
@@ -186,6 +188,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         medicalNotes: _medicalController.text,
         registeredVet: _vetController.text,
         address: _addressController.text,
+        postcode: _postcodeController.text.trim().toUpperCase(),
         accessInstructions: _isStaff ? _accessController.text : null,
         vanPlacement: _isStaff ? _vanPlacementController.text : null,
         generalNotes: _isStaff ? _generalNotesController.text : null,
@@ -473,6 +476,16 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 label: const Text('Look up postcode'),
               ),
             ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _postcodeController,
+            decoration: const InputDecoration(
+              labelText: 'Postcode',
+              hintText: 'e.g. SL7 2HE — used to place the dog on the pickup map',
+              prefixIcon: Picon(PiconsDuotone.mapPin),
+            ),
+            textCapitalization: TextCapitalization.characters,
+          ),
           const SizedBox(height: 24),
           _sectionHeader('About', visibleToOwner: true),
           const SizedBox(height: 8),

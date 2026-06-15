@@ -154,16 +154,14 @@ def _fetch_postcodes_io(postcode):
         raise PostcodeLookupError('Could not reach the geocoding service.')
 
 
-def geocode_address(address):
-    """Geocode a free-text UK address to ``(lat, lng, source)``.
+def geocode_postcode(postcode):
+    """Geocode a UK postcode to ``(lat, lng, source)`` via postcodes.io.
 
-    Resolves the postcode to its centroid via postcodes.io (free, no API key),
-    so ``source`` is ``'postcode'`` on success or ``'failed'`` when there's no
-    usable postcode/coordinates. Never raises — returns
-    ``(None, None, 'failed')`` on any error so callers (the geocode command, the
-    dog-save hook) degrade gracefully and the dog simply pins at base.
+    ``source`` is ``'postcode'`` on success or ``'failed'`` when the postcode is
+    blank, unknown, or has no coordinates. Never raises — returns
+    ``(None, None, 'failed')`` on any error so callers degrade gracefully and the
+    dog simply pins at base.
     """
-    postcode = extract_postcode(address)
     if not postcode:
         return (None, None, 'failed')
     try:
@@ -177,24 +175,41 @@ def geocode_address(address):
     return (None, None, 'failed')
 
 
+def geocode_address(address):
+    """Geocode a free-text UK address by extracting its postcode (free, no API
+    key). See :func:`geocode_postcode`."""
+    return geocode_postcode(extract_postcode(address))
+
+
 # Geocode field names cached on the Dog model.
 GEOCODE_FIELDS = ['latitude', 'longitude', 'geocode_source', 'geocoded_address', 'geocoded_at']
 
 
-def geocode_dog(dog, force=False, save=True):
-    """Refresh a Dog's cached pickup coordinates from its ``address``.
+def effective_postcode(dog):
+    """The postcode used to place a dog: the structured ``postcode`` field if
+    set, otherwise one parsed from the free-text ``address``. Upper-cased,
+    normalised, or ``''`` when neither yields a postcode."""
+    pc = (getattr(dog, 'postcode', '') or '').strip()
+    if pc:
+        return extract_postcode(pc) or pc.upper()
+    return extract_postcode(dog.address) or ''
 
-    Skips the network call when the address is unchanged since it was last
-    geocoded (unless ``force``). Clears coordinates when the dog has no address.
-    Returns ``True`` if any geocode field was modified. Uses
-    :func:`geocode_address`, which never raises.
+
+def geocode_dog(dog, force=False, save=True):
+    """Refresh a Dog's cached pickup coordinates from its effective postcode.
+
+    Prefers the structured ``postcode`` field, falling back to a postcode parsed
+    from ``address``. Skips the network call when that postcode is unchanged
+    since it was last geocoded (unless ``force``); clears coordinates when there
+    is no usable postcode. Returns ``True`` if any geocode field was modified.
+    Uses :func:`geocode_postcode`, which never raises.
     """
     from django.utils import timezone
 
-    address = (dog.address or '').strip()
+    postcode = effective_postcode(dog)
 
-    if not address:
-        # No address → pin at base on the map; clear any stale coordinates.
+    if not postcode:
+        # No usable postcode → pin at base; clear any stale coordinates.
         already_clear = (
             dog.latitude is None and dog.longitude is None
             and not dog.geocode_source and not dog.geocoded_address
@@ -204,21 +219,21 @@ def geocode_dog(dog, force=False, save=True):
         dog.latitude = None
         dog.longitude = None
         dog.geocode_source = ''
-        dog.geocoded_address = None
+        dog.geocoded_address = ''
         dog.geocoded_at = timezone.now()
         if save:
             dog.save(update_fields=GEOCODE_FIELDS)
         return True
 
-    # Already processed this exact address (success or failure) → leave it.
-    if not force and dog.geocoded_address == address:
+    # Already processed this exact postcode (success or failure) → leave it.
+    if not force and dog.geocoded_address == postcode:
         return False
 
-    lat, lng, source = geocode_address(address)
+    lat, lng, source = geocode_postcode(postcode)
     dog.latitude = lat
     dog.longitude = lng
     dog.geocode_source = source
-    dog.geocoded_address = address
+    dog.geocoded_address = postcode
     dog.geocoded_at = timezone.now()
     if save:
         dog.save(update_fields=GEOCODE_FIELDS)
