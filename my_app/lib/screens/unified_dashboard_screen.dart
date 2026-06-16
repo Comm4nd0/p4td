@@ -1771,7 +1771,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           child: OutlinedButton.icon(
             onPressed: () => _navigateToMap(assignments, unassignedDogs),
             icon: const Icon(Icons.map_outlined, size: 18),
-            label: const Text('View pickups on map'),
+            label: const Text('View routes on map'),
           ),
         ),
       ],

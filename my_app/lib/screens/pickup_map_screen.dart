@@ -474,7 +474,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
       appBar: AppBar(
         title: Column(
           children: [
-            const Text('Pickup Map'),
+            const Text('Routes Map'),
             Text(ukDateWithDay(widget.date),
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400)),
           ],
