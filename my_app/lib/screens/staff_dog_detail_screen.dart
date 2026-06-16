@@ -9,6 +9,7 @@ import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
+import 'pickup_map_screen.dart';
 
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
@@ -50,6 +51,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   DogSortOption _sortOption = DogSortOption.nameAsc;
   bool _dataChanged = false;
   bool _reordering = false;
+  bool _openingMap = false;
 
   @override
   void initState() {
@@ -601,6 +603,34 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     );
   }
 
+  /// Open the full routes map for this date (loads all staff so routes/pins
+  /// for everyone show, not just this staff member).
+  Future<void> _openMap() async {
+    setState(() => _openingMap = true);
+    try {
+      final assignments = await _dataService.getTodayAssignments(date: widget.date);
+      final staff = await _dataService.getStaffMembers();
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PickupMapScreen(
+            date: widget.date,
+            assignments: assignments,
+            staffMembers: staff,
+            canAssignDogs: widget.canAssignDogs,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to open map: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _openingMap = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateLabel = ukDateWithDay(widget.date);
@@ -616,7 +646,17 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(isUnassigned ? 'Unassigned - $dateLabel' : "${widget.staffMemberName}'s Dogs - $dateLabel"),
-          actions: [_buildSortButton()],
+          actions: [
+            if (!isUnassigned)
+              IconButton(
+                tooltip: 'View on map',
+                icon: _openingMap
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.map_outlined),
+                onPressed: _openingMap ? null : _openMap,
+              ),
+            _buildSortButton(),
+          ],
         ),
         body: _assignments.isEmpty
             ? Center(

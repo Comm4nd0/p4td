@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
@@ -10,6 +12,15 @@ import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../utils/date_formats.dart';
+import 'staff_dog_detail_screen.dart';
+
+/// A staff member's route geometry: base → their dogs (in list order) → base.
+class _Route {
+  final int staffId;
+  final Color color;
+  final List<LatLng> points;
+  _Route(this.staffId, this.color, this.points);
+}
 
 /// One plottable pickup on the map: either an assigned dog (coloured by staff)
 /// or an unassigned/rostered dog (grey).
@@ -61,9 +72,12 @@ class PickupMapScreen extends StatefulWidget {
   State<PickupMapScreen> createState() => _PickupMapScreenState();
 }
 
-class _PickupMapScreenState extends State<PickupMapScreen> {
+class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProviderStateMixin {
   final DataService _dataService = ApiDataService();
   final MapController _mapController = MapController();
+
+  /// Drives the dot that travels along each route to show direction of travel.
+  late final AnimationController _routeAnim;
 
   late List<DailyDogAssignment> _assignments;
   late List<Dog> _unassignedDogs;
@@ -94,6 +108,13 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
         _hiddenStaffIds.add(id);
       }
     });
+    _routeAnim = AnimationController(vsync: this, duration: const Duration(seconds: 5))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _routeAnim.dispose();
+    super.dispose();
   }
 
   /// All staff ids in a stable order, so each staff member maps to a fixed
@@ -471,6 +492,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   Widget build(BuildContext context) {
     final pins = _visiblePins();
     final markers = pins.map(_buildMarker).toList();
+    final routeGeoms = _routeGeometries();
 
     return Scaffold(
       appBar: AppBar(
@@ -516,7 +538,12 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                   userAgentPackageName: 'com.paws4thoughtdogs.app',
                 ),
                 // Route lines sit under the markers so paws stay tappable.
-                if (_showRoutes) PolylineLayer(polylines: _buildRoutes()),
+                if (_showRoutes) PolylineLayer(polylines: _routeLines(routeGeoms)),
+                if (_showRoutes)
+                  AnimatedBuilder(
+                    animation: _routeAnim,
+                    builder: (_, __) => MarkerLayer(markers: _movingDots(routeGeoms, _routeAnim.value)),
+                  ),
                 if (markers.isNotEmpty)
                   MarkerClusterLayerWidget(
                     options: MarkerClusterLayerOptions(
@@ -557,7 +584,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   /// One route polyline per visible staff member: base → their dogs in list
   /// order (sortOrder, then name — matching the staff dog list) → base. Dogs
   /// with no address (pinned at base) are skipped so the line stays clean.
-  List<Polyline> _buildRoutes() {
+  List<_Route> _routeGeometries() {
     final ordered = _orderedStaffIds;
     final byStaff = <int, List<DailyDogAssignment>>{};
     for (final a in _assignments) {
@@ -566,27 +593,104 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
       byStaff.putIfAbsent(a.staffMemberId, () => []).add(a);
     }
     const base = LatLng(kBaseLatitude, kBaseLongitude);
-    final lines = <Polyline>[];
+    final routes = <_Route>[];
     byStaff.forEach((staffId, list) {
       list.sort((a, b) {
         final cmp = a.sortOrder.compareTo(b.sortOrder);
         if (cmp != 0) return cmp;
         return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
       });
-      final points = <LatLng>[
-        base,
-        for (final a in list) LatLng(a.latitude!, a.longitude!),
-        base,
-      ];
-      lines.add(Polyline(
-        points: points,
-        color: staffColor(staffId, ordered).withValues(alpha: 0.85),
-        strokeWidth: 3,
-        borderColor: Colors.white,
-        borderStrokeWidth: 1,
+      routes.add(_Route(
+        staffId,
+        staffColor(staffId, ordered),
+        <LatLng>[base, for (final a in list) LatLng(a.latitude!, a.longitude!), base],
       ));
     });
-    return lines;
+    return routes;
+  }
+
+  List<Polyline> _routeLines(List<_Route> routes) => [
+        for (final r in routes)
+          Polyline(
+            points: r.points,
+            color: r.color.withValues(alpha: 0.85),
+            strokeWidth: 3,
+            borderColor: Colors.white,
+            borderStrokeWidth: 1,
+          ),
+      ];
+
+  /// A dot per route at fraction [t] along the path — its motion (base → dogs →
+  /// base) shows the direction of travel.
+  List<Marker> _movingDots(List<_Route> routes, double t) {
+    final dots = <Marker>[];
+    for (final r in routes) {
+      if (r.points.length < 2) continue;
+      dots.add(Marker(
+        point: _alongPath(r.points, t),
+        width: 12,
+        height: 12,
+        alignment: Alignment.center,
+        child: IgnorePointer(
+          child: Container(
+            decoration: BoxDecoration(
+              color: r.color,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ));
+    }
+    return dots;
+  }
+
+  LatLng _alongPath(List<LatLng> pts, double frac) {
+    final segLen = <double>[];
+    var total = 0.0;
+    for (var i = 0; i < pts.length - 1; i++) {
+      final d = _dist(pts[i], pts[i + 1]);
+      segLen.add(d);
+      total += d;
+    }
+    if (total == 0) return pts.first;
+    var target = frac.clamp(0.0, 1.0) * total;
+    for (var i = 0; i < segLen.length; i++) {
+      if (target <= segLen[i] || i == segLen.length - 1) {
+        final f = segLen[i] == 0 ? 0.0 : target / segLen[i];
+        return LatLng(
+          pts[i].latitude + (pts[i + 1].latitude - pts[i].latitude) * f,
+          pts[i].longitude + (pts[i + 1].longitude - pts[i].longitude) * f,
+        );
+      }
+      target -= segLen[i];
+    }
+    return pts.last;
+  }
+
+  double _dist(LatLng a, LatLng b) {
+    final dx = a.latitude - b.latitude;
+    final dy = a.longitude - b.longitude;
+    return math.sqrt(dx * dx + dy * dy);
+  }
+
+  /// Jump from the map to a staff member's reorderable dog list, then refresh
+  /// (so any reordering there updates the route here).
+  Future<void> _openStaffList(int staffId, String name) async {
+    final staffAssignments = _assignments.where((a) => a.staffMemberId == staffId).toList();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StaffDogDetailScreen(
+          staffMemberId: staffId,
+          staffMemberName: name,
+          date: widget.date,
+          assignments: staffAssignments,
+          canAssignDogs: widget.canAssignDogs,
+        ),
+      ),
+    );
+    if (mounted) await _refresh();
   }
 
   Marker _buildMarker(_Pin pin) {
@@ -753,6 +857,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                   count: counts[id] ?? 0,
                   collected: collected[id] ?? 0,
                   value: !_hiddenStaffIds.contains(id),
+                  onTap: () => _openStaffList(id, names[id] ?? 'Staff'),
                   onChanged: (v) => setState(() {
                     if (v) {
                       _hiddenStaffIds.remove(id);
@@ -793,32 +898,43 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
     required ValueChanged<bool> onChanged,
     IconData? icon,
     int? collected,
+    VoidCallback? onTap,
   }) {
+    final content = Row(
+      children: [
+        icon != null
+            ? Icon(icon, size: 16, color: color)
+            : Container(width: 14, height: 14, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: collected != null
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label),
+                    Row(
+                      children: [
+                        const Icon(Icons.check_circle, size: 13, color: AppColors.success),
+                        const SizedBox(width: 4),
+                        Text('collected $collected of $count',
+                            style: const TextStyle(fontSize: 12, color: AppColors.grey600)),
+                      ],
+                    ),
+                  ],
+                )
+              : Text('$label  ($count)'),
+        ),
+        if (onTap != null) const Icon(Icons.chevron_right, size: 18, color: AppColors.grey400),
+      ],
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          icon != null
-              ? Icon(icon, size: 16, color: color)
-              : Container(width: 14, height: 14, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 12),
           Expanded(
-            child: collected != null
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(label),
-                      Row(
-                        children: [
-                          const Icon(Icons.check_circle, size: 13, color: AppColors.success),
-                          const SizedBox(width: 4),
-                          Text('collected $collected of $count',
-                              style: const TextStyle(fontSize: 12, color: AppColors.grey600)),
-                        ],
-                      ),
-                    ],
-                  )
-                : Text('$label  ($count)'),
+            child: onTap != null
+                ? InkWell(onTap: onTap, child: content)
+                : content,
           ),
           Switch.adaptive(value: value, onChanged: onChanged),
         ],
