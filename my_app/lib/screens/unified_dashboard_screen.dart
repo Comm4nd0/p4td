@@ -1950,6 +1950,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           final ownerBringsCount = staff.assignments.where((a) => a.effectiveOwnerBrings).length;
           final ownerCollectsCount = staff.assignments.where((a) => a.effectiveOwnerCollects).length;
           final hasOwnerTransport = ownerBringsCount > 0 || ownerCollectsCount > 0;
+          final collectedCount = staff.assignments
+              .where((a) => a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff)
+              .length;
+          final allCollected = staff.dogCount > 0 && collectedCount == staff.dogCount;
           return Card(
             child: ListTile(
               leading: CircleAvatar(
@@ -1963,8 +1967,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Text('(off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
                 ],
               ]),
-              subtitle: hasOwnerTransport
-                  ? Row(children: [
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(children: [
+                    Icon(Icons.check_circle, size: 13, color: allCollected ? AppColors.success : AppColors.grey400),
+                    const SizedBox(width: 3),
+                    Text('collected $collectedCount of ${staff.dogCount}',
+                        style: TextStyle(fontSize: 11, color: allCollected ? AppColors.success : AppColors.grey600)),
+                  ]),
+                  if (hasOwnerTransport) ...[
+                    const SizedBox(height: 2),
+                    Row(children: [
                       const Picon(PiconsDuotone.houseLine, size: 13, color: Colors.teal),
                       const SizedBox(width: 3),
                       Text(
@@ -1974,8 +1989,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         ].join(', '),
                         style: const TextStyle(fontSize: 11, color: Colors.teal),
                       ),
-                    ])
-                  : null,
+                    ]),
+                  ],
+                ],
+              ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
