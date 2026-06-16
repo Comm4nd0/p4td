@@ -157,6 +157,19 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
     return counts;
   }
 
+  /// A dog counts as "collected" once it's no longer just assigned — i.e. it's
+  /// with the team (picked up) or already dropped off.
+  bool _isCollected(DailyDogAssignment a) =>
+      a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff;
+
+  Map<int, int> _collectedCountsByStaff() {
+    final counts = <int, int>{};
+    for (final a in _assignments) {
+      if (_isCollected(a)) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   Map<int, String> _staffNames() {
     final names = <int, String>{};
     for (final s in widget.staffMembers) {
@@ -533,14 +546,22 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   }
 
   Marker _buildMarker(_Pin pin) {
+    final collected = pin.assignment != null && _isCollected(pin.assignment!);
     return Marker(
       point: pin.position,
-      width: 38,
-      height: 38,
+      width: 44,
+      height: 44,
       alignment: Alignment.center,
       child: GestureDetector(
         onTap: () => _showPinSheet(pin),
-        child: _pawBadge(pin.color),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            _pawBadge(pin.color),
+            if (collected)
+              Positioned(right: 3, bottom: 3, child: _collectedTick()),
+          ],
+        ),
       ),
     );
   }
@@ -548,13 +569,32 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   /// A staff-coloured circular badge with a white paw — a dog pickup.
   Widget _pawBadge(Color color) {
     return Container(
+      width: 34,
+      height: 34,
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 2),
         boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))],
       ),
-      child: const Center(child: Icon(Icons.pets, color: Colors.white, size: 20)),
+      child: const Center(child: Icon(Icons.pets, color: Colors.white, size: 18)),
+    );
+  }
+
+  /// Small green tick shown on a paw once the dog is with the team / collected.
+  Widget _collectedTick() {
+    return Container(
+      width: 16,
+      height: 16,
+      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+      child: Center(
+        child: Container(
+          width: 14,
+          height: 14,
+          decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
+          child: const Icon(Icons.check, color: Colors.white, size: 10),
+        ),
+      ),
     );
   }
 
@@ -621,6 +661,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
 
   Widget _buildLegend() {
     final counts = _assignmentCountsByStaff();
+    final collected = _collectedCountsByStaff();
     final names = _staffNames();
     final staffIds = counts.keys.toList()..sort();
     final unassignedCount = _unassignedDogs.length;
@@ -666,6 +707,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                   color: staffColor(id, _orderedStaffIds),
                   label: names[id] ?? 'Staff',
                   count: counts[id] ?? 0,
+                  collected: collected[id] ?? 0,
                   value: !_hiddenStaffIds.contains(id),
                   onChanged: (v) => setState(() {
                     if (v) {
@@ -706,6 +748,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
     required bool value,
     required ValueChanged<bool> onChanged,
     IconData? icon,
+    int? collected,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -715,7 +758,24 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
               ? Icon(icon, size: 16, color: color)
               : Container(width: 14, height: 14, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
           const SizedBox(width: 12),
-          Expanded(child: Text('$label  ($count)')),
+          Expanded(
+            child: collected != null
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label),
+                      Row(
+                        children: [
+                          const Icon(Icons.check_circle, size: 13, color: AppColors.success),
+                          const SizedBox(width: 4),
+                          Text('collected $collected of $count',
+                              style: const TextStyle(fontSize: 12, color: AppColors.grey600)),
+                        ],
+                      ),
+                    ],
+                  )
+                : Text('$label  ($count)'),
+          ),
           Switch.adaptive(value: value, onChanged: onChanged),
         ],
       ),
