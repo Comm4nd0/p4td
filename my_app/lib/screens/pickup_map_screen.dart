@@ -590,6 +590,8 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     for (final a in _assignments) {
       if (_hiddenStaffIds.contains(a.staffMemberId)) continue;
       if (a.latitude == null || a.longitude == null) continue;
+      // Owner brings AND collects → no staff transport leg → not on the route.
+      if (a.effectiveOwnerBrings && a.effectiveOwnerCollects) continue;
       byStaff.putIfAbsent(a.staffMemberId, () => []).add(a);
     }
     const base = LatLng(kBaseLatitude, kBaseLongitude);

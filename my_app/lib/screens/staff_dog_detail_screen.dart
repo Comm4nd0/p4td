@@ -709,8 +709,13 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   }
 
   Widget _buildSectionedList() {
-    final staffPickups = _assignments.where((a) => !a.effectiveOwnerBrings).toList();
-    final ownerDropoffs = _assignments.where((a) => a.effectiveOwnerBrings).toList();
+    // Reorderable when staff handle at least one leg (pickup or drop-off) — this
+    // includes "client drops off, staff takes home" and vice versa. Only dogs
+    // the owner both brings AND collects (no staff transport) sit in the locked
+    // section, since they need no route position.
+    bool ownerHandlesBoth(DailyDogAssignment a) => a.effectiveOwnerBrings && a.effectiveOwnerCollects;
+    final staffPickups = _assignments.where((a) => !ownerHandlesBoth(a)).toList();
+    final ownerDropoffs = _assignments.where(ownerHandlesBoth).toList();
 
     return CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -744,7 +749,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 children: [
                   Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                   const SizedBox(width: 8),
-                  Text('Owner Drop-offs',
+                  Text('Owner brings & collects',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(width: 8),
                   Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
