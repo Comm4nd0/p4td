@@ -79,6 +79,8 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
   // "At base (no address)" pins are hidden by default — they all stack on the
   // depot and aren't useful for planning pickups. Toggleable in the legend.
   bool _showBase = false;
+  // Route lines per staff (base → dogs in list order → base).
+  bool _showRoutes = true;
   bool _refreshing = false;
 
   @override
@@ -481,6 +483,11 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: _showRoutes ? 'Hide routes' : 'Show routes',
+            icon: Icon(_showRoutes ? Icons.route : Icons.route_outlined),
+            onPressed: () => setState(() => _showRoutes = !_showRoutes),
+          ),
+          IconButton(
             icon: _refreshing
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.refresh),
@@ -508,6 +515,8 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.paws4thoughtdogs.app',
                 ),
+                // Route lines sit under the markers so paws stay tappable.
+                if (_showRoutes) PolylineLayer(polylines: _buildRoutes()),
                 if (markers.isNotEmpty)
                   MarkerClusterLayerWidget(
                     options: MarkerClusterLayerOptions(
@@ -543,6 +552,41 @@ class _PickupMapScreenState extends State<PickupMapScreen> {
         ],
       ),
     );
+  }
+
+  /// One route polyline per visible staff member: base → their dogs in list
+  /// order (sortOrder, then name — matching the staff dog list) → base. Dogs
+  /// with no address (pinned at base) are skipped so the line stays clean.
+  List<Polyline> _buildRoutes() {
+    final ordered = _orderedStaffIds;
+    final byStaff = <int, List<DailyDogAssignment>>{};
+    for (final a in _assignments) {
+      if (_hiddenStaffIds.contains(a.staffMemberId)) continue;
+      if (a.latitude == null || a.longitude == null) continue;
+      byStaff.putIfAbsent(a.staffMemberId, () => []).add(a);
+    }
+    const base = LatLng(kBaseLatitude, kBaseLongitude);
+    final lines = <Polyline>[];
+    byStaff.forEach((staffId, list) {
+      list.sort((a, b) {
+        final cmp = a.sortOrder.compareTo(b.sortOrder);
+        if (cmp != 0) return cmp;
+        return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
+      });
+      final points = <LatLng>[
+        base,
+        for (final a in list) LatLng(a.latitude!, a.longitude!),
+        base,
+      ];
+      lines.add(Polyline(
+        points: points,
+        color: staffColor(staffId, ordered).withValues(alpha: 0.85),
+        strokeWidth: 3,
+        borderColor: Colors.white,
+        borderStrokeWidth: 1,
+      ));
+    });
+    return lines;
   }
 
   Marker _buildMarker(_Pin pin) {
