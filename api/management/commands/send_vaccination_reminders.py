@@ -12,6 +12,7 @@ from django.core.management.base import BaseCommand
 
 from api.models import VaccinationRecord
 from api.notifications import send_push_notification
+from api.cron_heartbeat import ping_heartbeat
 
 
 class Command(BaseCommand):
@@ -106,3 +107,5 @@ class Command(BaseCommand):
                     self.stderr.write(f'Failed to notify staff {user}: {exc}')
 
         self.stdout.write(f'Sent {sent} vaccination reminder(s).')
+        # Heartbeat on success so a monitor alerts if this cron stops running (I7).
+        ping_heartbeat('vaccination-reminders')

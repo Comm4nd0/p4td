@@ -12,6 +12,7 @@ from django.core.management.base import BaseCommand
 
 from api.models import Vehicle
 from api.notifications import send_push_notification
+from api.cron_heartbeat import ping_heartbeat
 
 
 class Command(BaseCommand):
@@ -103,3 +104,5 @@ class Command(BaseCommand):
                 sent += 1
 
         self.stdout.write(f'Sent {sent} fleet reminder(s).')
+        # Heartbeat on success so a monitor alerts if this cron stops running (I7).
+        ping_heartbeat('fleet-reminders')

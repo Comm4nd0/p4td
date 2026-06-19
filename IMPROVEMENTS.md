@@ -106,7 +106,7 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **I13** 🟡 M — Deploy script: readiness loop + post-migrate health gate + rollback record *(deploy)*
 - [x] **I1** 🔴 M — `scripts/backup-db.sh` nightly pg_dump + retention *(deploy: cron + off-box ship)*
 - [→] **B44** ⚪ S — Kept localhost for healthcheck; risk mitigated by I8 + OTP-based reset (documented)
-- [ ] **I7** 🟡 M — Cron failure alerting — NOT done (folds into the deploy cron wiring; see notes)
+- [x] **I7** 🟡 M — Cron heartbeat (api/cron_heartbeat.py) wired into reminder + prune commands; pings P4TD_CRON_HEARTBEAT_URL on success *(deploy: set the env var + a healthchecks.io check)*
 - [ ] **I3** 🟠 M — Authenticated media — DEFERRED (needs coordinated Flutter image-auth or signed URLs; would break all image loading if done piecemeal)
 
 ## Batch 8 — Docs ✅
@@ -176,7 +176,7 @@ Server-side actions that can't be done from the repo:
 1. **I9 — DOMAIN_NAME**: set `DOMAIN_NAME` in the deploy env/`.env` so Caddy provisions the right cert (falls back to `paws4thoughtdogs.com`). `setup-hetzner.sh` already writes it into the generated `.env`.
 2. **I17 — media volume migration**: prod switched from the `./media` bind-mount to the named volume `media_data`. On the next deploy, copy existing media into the `p4td_media_data` volume once; if Caddy is a separate container, mount `media_data` at `/srv/media` (read-only).
 3. **I1 — backups**: wire `scripts/backup-db.sh` to host cron and configure off-box shipping (rclone/restic/S3).
-4. **I7 — cron alerting**: add a heartbeat (e.g. healthchecks.io ping) to the cron entries for backups + reminders so silent failures surface.
+4. **I7 — cron alerting**: the commands now ping `P4TD_CRON_HEARTBEAT_URL` on success — set that env var to a healthchecks.io (or similar) check so a missed ping alerts you. Add a check for backups too.
 5. **I13 — rollback**: automated rollback isn't performed; the deploy script records the prior commit + image id to `.deploy-history` and prints the manual rollback command.
 6. **CONTACT_INQUIRY_EMAIL** (W5): set this to route contact-form inquiries to a monitored inbox (falls back to DEFAULT_FROM_EMAIL).
 7. **Constraint migrations** (B15/B16): the Comment "exactly one parent" CheckConstraint and the DayOffRequest active-uniqueness constraint will fail to apply if existing prod rows already violate them — dedupe first if `migrate` errors.

@@ -6,6 +6,7 @@ from django.utils.timezone import now as tz_now
 from datetime import timedelta
 
 from api.models import GroupMedia
+from api.cron_heartbeat import ping_heartbeat
 
 
 class Command(BaseCommand):
@@ -68,6 +69,10 @@ class Command(BaseCommand):
             self.stdout.write(
                 f'{prefix}Removed {orphan_count} orphaned files.'
             )
+
+        # Ping the dead-man's-switch only on a real (non-dry-run) success (I7).
+        if not dry_run:
+            ping_heartbeat('prune-feed-media')
 
     def _clean_orphans(self, dry_run):
         media_root = str(settings.MEDIA_ROOT)
