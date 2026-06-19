@@ -153,7 +153,7 @@ Large architectural rewrites of working code that can't be runtime-verified here
 `flutter analyze` won't catch. Recommended as a focused, separately-reviewed pass.
 Note F18's *goal* (centralise HTTP cross-cutting concerns) is partially met:
 http_client now owns timeouts (F2) + 401 handling (F3) for every call.
-- [ ] **F18** 🟡 L — Full ApiClient extraction / split the 116-method god-class into repositories
+- [→] **F18** 🟡 L — SKIPPED (low value: its goal — central HTTP timeouts/401 — is already met by http_client; the remainder is pure reorganisation with high regression risk)
 - [x] **F11** 🟠 L — Routed 39 screens/widgets (incl pickup_map) through `getIt<DataService>()` (+3 interface methods)
 - [x] **F12** 🟠 L — Shared assignment_action_dialogs (scope/transport/staff-pick) across 4 screens; also fixed pickup_map's missing staff-availability fallback (dev branch — TEST the map Reassign/Assign)
 - [x] **F13** 🟠 M — Shared MediaUploadFlow (feed + dashboard) (dev branch)
@@ -164,8 +164,8 @@ http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 
 ## Also deferred
 - [x] **B6** 🟠 M — Opt-in list pagination on Dog/DateChange/Boarding/Vaccination viewsets (bare list by default, paginates on ?page; app aggregates via _fetchAllPages) + Dog ordering fix (dev branch; 292 tests OK)
-- [~] **I3** 🟠 M — UUID filenames for processed-image uploads done (unguessable URLs); full auth-gating still deferred (needs coordinated Flutter image-auth / signed URLs). Video files still keep original names.
-- [ ] **I7** 🟡 M — Cron failure alerting (folds into deploy cron wiring)
+- [~] **I3** 🟠 M — UUID filenames done (unguessable URLs). Full auth-gating DEFERRED BY CHOICE — it's a deploy-gated backend+Caddy change with prod-image risk that can't be alpha-tested; the UUID partial is the accepted interim mitigation. Follow-up: signed private-media URLs (scoped to private dirs, keep website media public) + post-deploy image check.
+- [x] **I7** 🟡 M — Cron heartbeat done (api/cron_heartbeat.py, pings P4TD_CRON_HEARTBEAT_URL on success) — see Batch 7
 
 ---
 
