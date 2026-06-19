@@ -1426,10 +1426,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           final ownerBringsCount = staff.assignments.where((a) => a.effectiveOwnerBrings).length;
           final ownerCollectsCount = staff.assignments.where((a) => a.effectiveOwnerCollects).length;
           final hasOwnerTransport = ownerBringsCount > 0 || ownerCollectsCount > 0;
-          final collectedCount = staff.assignments
+          // Leg-aware counts: only dogs the staff member physically handles for
+          // that leg count toward the total, so both lines can reach 100%.
+          final pickupLeg = staff.assignments.where((a) => !a.effectiveOwnerBrings).toList();
+          final dropoffLeg = staff.assignments.where((a) => !a.effectiveOwnerCollects).toList();
+          final collectedCount = pickupLeg
               .where((a) => a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff)
               .length;
-          final allCollected = staff.dogCount > 0 && collectedCount == staff.dogCount;
+          final droppedCount = dropoffLeg
+              .where((a) => a.status == AssignmentStatus.droppedOff)
+              .length;
+          final allCollected = pickupLeg.isNotEmpty && collectedCount == pickupLeg.length;
+          final allDropped = dropoffLeg.isNotEmpty && droppedCount == dropoffLeg.length;
           return Card(
             child: ListTile(
               leading: CircleAvatar(
@@ -1450,8 +1458,15 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Row(children: [
                     Icon(Icons.check_circle, size: 13, color: allCollected ? AppColors.success : AppColors.grey400),
                     const SizedBox(width: 3),
-                    Text('collected $collectedCount of ${staff.dogCount}',
+                    Text('collected $collectedCount of ${pickupLeg.length}',
                         style: TextStyle(fontSize: 11, color: allCollected ? AppColors.success : AppColors.grey600)),
+                  ]),
+                  const SizedBox(height: 2),
+                  Row(children: [
+                    Picon(PiconsDuotone.houseLine, size: 13, color: allDropped ? AppColors.success : AppColors.grey400),
+                    const SizedBox(width: 3),
+                    Text('dropped home $droppedCount of ${dropoffLeg.length}',
+                        style: TextStyle(fontSize: 11, color: allDropped ? AppColors.success : AppColors.grey600)),
                   ]),
                   if (hasOwnerTransport) ...[
                     const SizedBox(height: 2),

@@ -152,20 +152,20 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     from .models import DailyDogAssignment
     from django.contrib.auth.models import User
 
-    # Only notify owners on this staff member's route whose dogs are
-    # still awaiting the relevant action (pickup or dropoff).
-    if alert_type == 'pickup':
-        relevant_statuses = ['ASSIGNED']
-    else:
-        relevant_statuses = ['PICKED_UP']
-
     assignments = DailyDogAssignment.objects.filter(
-        date=date, staff_member=staff_member, status__in=relevant_statuses
-    ).select_related('dog__owner').prefetch_related('dog__additional_owners')
+        date=date, staff_member=staff_member
+    ).exclude(status='REMOVED').select_related('dog__owner').prefetch_related('dog__additional_owners')
 
-    # If specific dogs were selected, filter to only those
     if dog_ids:
+        # An explicit selection from the app is authoritative: notify exactly
+        # these dogs regardless of pickup/dropoff status (the app already
+        # excluded the dogs that are done).
         assignments = assignments.filter(dog_id__in=dog_ids)
+    else:
+        # Default: only owners whose dogs are still awaiting the relevant
+        # action (pickup → not yet picked up, dropoff → not yet dropped home).
+        relevant_statuses = ['ASSIGNED'] if alert_type == 'pickup' else ['PICKED_UP']
+        assignments = assignments.filter(status__in=relevant_statuses)
 
     # Skip dogs where the owner is handling this leg of transport —
     # they don't need a staff traffic delay alert.

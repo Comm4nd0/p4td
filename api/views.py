@@ -1511,9 +1511,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
           * dogs whose current ``daycare_days`` no longer include this weekday
           * dogs with an APPROVED CANCEL DateChangeRequest for this date
           * dogs that already have a DailyDogAssignment for this date
-          * dogs whose owner brings them (owner_brings_default=True with no
-            override, or per-date owner_brings override = True) — no staff
-            pickup is needed
+          * dogs whose owner handles BOTH legs of transport
+            (owner_brings_default AND owner_collects_default) — no staff route
+            ever touches them. Dogs the owner only brings OR only collects are
+            still materialized, because staff run the other leg.
         """
         from .models import ClosureDay
         from datetime import date as date_cls
@@ -1559,13 +1560,17 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 continue
             if dog.id in existing_dog_ids or dog.id in cancelled_dog_ids:
                 continue
-            if dog.owner_brings_default:
+            # Skip only when the owner handles BOTH legs — then no staff route
+            # ever touches this dog. Owner-brings-only or owner-collects-only
+            # dogs still need staff for the other leg, so they are materialized.
+            if dog.owner_brings_default and dog.owner_collects_default:
                 continue
             to_create.append(DailyDogAssignment(
                 dog=dog,
                 staff_member=entry.staff_member,
                 date=target_date,
                 status='ASSIGNED',
+                sort_order=entry.sort_order,
             ))
 
         if not to_create:
@@ -2411,9 +2416,28 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'assignment_ids list is required.'}, status=400)
 
         from django.db import transaction
+
+        # Load the assignments so we can recover dog/staff/date for the
+        # roster write-back (the payload is only ordered assignment ids).
+        assignments = {
+            a.id: a
+            for a in DailyDogAssignment.objects.filter(
+                id__in=assignment_ids
+            ).select_related('dog')
+        }
+        ordered = [assignments[aid] for aid in assignment_ids if aid in assignments]
+
         with transaction.atomic():
-            for i, aid in enumerate(assignment_ids):
-                DailyDogAssignment.objects.filter(id=aid).update(sort_order=i)
+            for position, a in enumerate(ordered):
+                DailyDogAssignment.objects.filter(id=a.id).update(sort_order=position)
+                # Remember this position on the persistent weekday roster so it
+                # carries forward to future weeks. No-ops for dogs not on the
+                # roster, or assignments reassigned to a non-roster staff member.
+                DogWeekdayPickup.objects.filter(
+                    dog_id=a.dog_id,
+                    weekday=a.date.isoweekday(),
+                    staff_member_id=a.staff_member_id,
+                ).update(sort_order=position)
 
         return Response({'detail': 'Order saved.'})
 

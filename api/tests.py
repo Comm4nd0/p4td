@@ -1191,6 +1191,102 @@ class WeekdayRosterTests(TestCase):
         self.assertEqual(resp.data[0]['dog'], self.dog.id)
         self.assertEqual(resp.data[0]['weekday'], self.today_weekday)
 
+    # --- persistent route-order memory (F1) ---
+
+    def _make_dog(self, name, staff):
+        dog = Dog.objects.create(
+            owner=self.owner, name=name,
+            daycare_days=[self.today_weekday], schedule_type='weekly',
+        )
+        DogWeekdayPickup.objects.create(
+            dog=dog, weekday=self.today_weekday, staff_member=staff,
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=dog, staff_member=staff, date=self.today,
+        )
+        return dog, assignment
+
+    def test_reorder_writes_back_to_weekday_roster(self):
+        dog1, a1 = self._make_dog('Ace', self.staff_a)
+        dog2, a2 = self._make_dog('Buddy', self.staff_a)
+        self.client.login(username='staffa', password='pw')
+        # Reverse the order: dog2 first, dog1 second.
+        resp = self.client.post('/api/daily-assignments/reorder/', {
+            'assignment_ids': [a2.id, a1.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        roster1 = DogWeekdayPickup.objects.get(dog=dog1, weekday=self.today_weekday)
+        roster2 = DogWeekdayPickup.objects.get(dog=dog2, weekday=self.today_weekday)
+        self.assertEqual(roster2.sort_order, 0)
+        self.assertEqual(roster1.sort_order, 1)
+
+    def test_reorder_writeback_skips_dog_without_roster(self):
+        # Assignment exists but the dog has no DogWeekdayPickup row (ad-hoc).
+        dog = Dog.objects.create(
+            owner=self.owner, name='Loner',
+            daycare_days=[self.today_weekday], schedule_type='ad_hoc',
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=dog, staff_member=self.staff_a, date=self.today,
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/reorder/', {
+            'assignment_ids': [assignment.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=dog).exists())
+
+    def test_reorder_writeback_ignores_non_roster_staff(self):
+        # Roster says staff_a owns the route, but today's assignment was
+        # reassigned to staff_b. The roster default must stay with staff_a.
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday,
+            staff_member=self.staff_a, sort_order=5,
+        )
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_b, date=self.today,
+        )
+        self.client.login(username='staffb', password='pw')
+        resp = self.client.post('/api/daily-assignments/reorder/', {
+            'assignment_ids': [assignment.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.sort_order, 0)
+        roster = DogWeekdayPickup.objects.get(dog=self.dog, weekday=self.today_weekday)
+        self.assertEqual(roster.sort_order, 5)
+
+    def test_materialization_copies_roster_sort_order(self):
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today_weekday,
+            staff_member=self.staff_a, sort_order=7,
+        )
+        self.assertEqual(DailyDogAssignment.objects.count(), 0)
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.today)
+        self.assertEqual(assignment.sort_order, 7)
+
+    def test_reorder_writeback_round_trip(self):
+        # Reorder, then drop the day's rows and re-materialize — the remembered
+        # order from the roster must be preserved.
+        dog1, a1 = self._make_dog('Ace', self.staff_a)
+        dog2, a2 = self._make_dog('Buddy', self.staff_a)
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/reorder/', {
+            'assignment_ids': [a2.id, a1.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        # Simulate a fresh day: delete the materialized rows, then re-fetch.
+        DailyDogAssignment.objects.filter(date=self.today).delete()
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        new1 = DailyDogAssignment.objects.get(dog=dog1, date=self.today)
+        new2 = DailyDogAssignment.objects.get(dog=dog2, date=self.today)
+        self.assertEqual(new2.sort_order, 0)
+        self.assertEqual(new1.sort_order, 1)
+
 
 class BoardingRequestTests(TestCase):
     def setUp(self):
@@ -2191,10 +2287,12 @@ class AssignmentTransportTests(TestCase):
         self.assertTrue(self.dog.owner_brings_default)
         self.assertEqual(self.dog.owner_brings_default_time.strftime('%H:%M'), '08:00')
 
-    def test_materialization_skips_dog_with_owner_brings_default(self):
+    def test_materialization_skips_dog_when_owner_handles_both_legs(self):
         # Remove today's assignment so the materializer has a clean state
         self.assignment.delete()
+        # Owner handles BOTH legs — no staff route ever touches this dog.
         self.dog.owner_brings_default = True
+        self.dog.owner_collects_default = True
         self.dog.save()
         DogWeekdayPickup.objects.create(
             dog=self.dog, weekday=self.today.isoweekday(),
@@ -2206,6 +2304,38 @@ class AssignmentTransportTests(TestCase):
         dog_ids = [a['dog'] for a in resp.data]
         self.assertNotIn(self.dog.id, dog_ids)
         self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
+
+    def test_materialization_includes_dog_when_owner_brings_only(self):
+        # Owner drops off in the morning but STAFF drop home — the dog must be
+        # on the route so staff can run the drop-off leg.
+        self.assignment.delete()
+        self.dog.owner_brings_default = True
+        self.dog.owner_collects_default = False
+        self.dog.save()
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today.isoweekday(),
+            staff_member=self.staff,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
+
+    def test_materialization_includes_dog_when_owner_collects_only(self):
+        # Staff pick up in the morning but OWNER collects — the dog must be on
+        # the route so staff can run the pickup leg.
+        self.assignment.delete()
+        self.dog.owner_brings_default = False
+        self.dog.owner_collects_default = True
+        self.dog.save()
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today.isoweekday(),
+            staff_member=self.staff,
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
 
     def test_materialization_runs_when_owner_brings_default_false(self):
         self.assignment.delete()
@@ -3991,3 +4121,87 @@ class DefectStatusNotificationTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         mock_push.assert_not_called()
+
+
+class TrafficAlertRecipientTests(TestCase):
+    """F4 — send_traffic_alert recipient targeting: explicit dog_ids are
+    authoritative (notify regardless of pending status) while still excluding
+    the owner-handled leg; with no dog_ids the status default still applies."""
+
+    def setUp(self):
+        self.owner_a = User.objects.create_user(username='owner_a', password='pw')
+        self.owner_b = User.objects.create_user(username='owner_b', password='pw')
+        self.staff = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        self.today = date.today()
+        weekday = self.today.isoweekday()
+        self.dog1 = Dog.objects.create(
+            owner=self.owner_a, name='Ace', daycare_days=[weekday], schedule_type='weekly',
+        )
+        self.dog2 = Dog.objects.create(
+            owner=self.owner_b, name='Buddy', daycare_days=[weekday], schedule_type='weekly',
+        )
+        self.a1 = DailyDogAssignment.objects.create(
+            dog=self.dog1, staff_member=self.staff, date=self.today, status='ASSIGNED',
+        )
+        self.a2 = DailyDogAssignment.objects.create(
+            dog=self.dog2, staff_member=self.staff, date=self.today, status='ASSIGNED',
+        )
+
+    def _notified_owner_ids(self, mock_push):
+        return {call.args[0].id for call in mock_push.call_args_list}
+
+    @patch('api.notifications.send_push_notification')
+    def test_explicit_dog_ids_notifies_already_picked_up_dog(self, mock_push):
+        from api.notifications import send_traffic_alert
+        # dog1 is already PICKED_UP — the default pickup filter would skip it,
+        # but an explicit selection must still notify its owner.
+        self.a1.status = 'PICKED_UP'
+        self.a1.save()
+        send_traffic_alert('pickup', self.today, self.staff, dog_ids=[self.dog1.id])
+        self.assertIn(self.owner_a.id, self._notified_owner_ids(mock_push))
+
+    @patch('api.notifications.send_push_notification')
+    def test_explicit_dog_ids_still_excludes_owner_brings_for_pickup(self, mock_push):
+        from api.notifications import send_traffic_alert
+        self.dog1.owner_brings_default = True
+        self.dog1.save()
+        send_traffic_alert('pickup', self.today, self.staff, dog_ids=[self.dog1.id])
+        self.assertNotIn(self.owner_a.id, self._notified_owner_ids(mock_push))
+
+    @patch('api.notifications.send_push_notification')
+    def test_explicit_dog_ids_dropoff_excludes_owner_collects(self, mock_push):
+        from api.notifications import send_traffic_alert
+        self.dog1.owner_collects_default = True
+        self.dog1.save()
+        send_traffic_alert('dropoff', self.today, self.staff, dog_ids=[self.dog1.id])
+        self.assertNotIn(self.owner_a.id, self._notified_owner_ids(mock_push))
+
+    @patch('api.notifications.send_push_notification')
+    def test_no_dog_ids_uses_status_default_pickup(self, mock_push):
+        from api.notifications import send_traffic_alert
+        # Default pickup target = dogs still ASSIGNED (not yet picked up).
+        self.a2.status = 'PICKED_UP'
+        self.a2.save()
+        send_traffic_alert('pickup', self.today, self.staff)
+        notified = self._notified_owner_ids(mock_push)
+        self.assertIn(self.owner_a.id, notified)
+        self.assertNotIn(self.owner_b.id, notified)
+
+    @patch('api.notifications.send_push_notification')
+    def test_no_dog_ids_uses_status_default_dropoff(self, mock_push):
+        from api.notifications import send_traffic_alert
+        # Default dropoff target = dogs PICKED_UP (not yet dropped home).
+        self.a2.status = 'PICKED_UP'
+        self.a2.save()
+        send_traffic_alert('dropoff', self.today, self.staff)
+        notified = self._notified_owner_ids(mock_push)
+        self.assertIn(self.owner_b.id, notified)
+        self.assertNotIn(self.owner_a.id, notified)
+
+    @patch('api.notifications.send_push_notification')
+    def test_explicit_dog_ids_skips_removed(self, mock_push):
+        from api.notifications import send_traffic_alert
+        self.a1.status = 'REMOVED'
+        self.a1.save()
+        send_traffic_alert('pickup', self.today, self.staff, dog_ids=[self.dog1.id])
+        self.assertNotIn(self.owner_a.id, self._notified_owner_ids(mock_push))

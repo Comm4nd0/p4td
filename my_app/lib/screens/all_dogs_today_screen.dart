@@ -622,9 +622,16 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     );
   }
 
+  // Only dogs the owner brings AND collects sit in the separate locked
+  // section — they need no staff route. Dogs the owner only brings OR only
+  // collects still have a staff leg, so they belong in the main route list
+  // (matches staff_dog_detail_screen.dart).
+  bool _ownerHandlesBoth(DailyDogAssignment a) =>
+      a.effectiveOwnerBrings && a.effectiveOwnerCollects;
+
   Widget _buildFlatList(List<DailyDogAssignment> assignments, List<Dog> unassigned) {
-    final staffPickups = assignments.where((a) => !a.effectiveOwnerBrings).toList();
-    final ownerDropoffs = assignments.where((a) => a.effectiveOwnerBrings).toList();
+    final staffPickups = assignments.where((a) => !_ownerHandlesBoth(a)).toList();
+    final ownerDropoffs = assignments.where(_ownerHandlesBoth).toList();
 
     // Build a flat list of lazy row builders so only visible rows are built.
     final rows = <Widget Function(BuildContext)>[];
@@ -645,7 +652,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
               children: [
                 Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                 const SizedBox(width: 8),
-                Text('Owner Drop-offs',
+                Text('Owner brings & collects',
                     style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
                 Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
@@ -689,8 +696,8 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       final staffId = sortedStaffIds[i];
       final staffAssignments = groups[staffId]!;
       final staffName = staffNames[staffId]!;
-      final staffPickups = staffAssignments.where((a) => !a.effectiveOwnerBrings).toList();
-      final ownerDropoffs = staffAssignments.where((a) => a.effectiveOwnerBrings).toList();
+      final staffPickups = staffAssignments.where((a) => !_ownerHandlesBoth(a)).toList();
+      final ownerDropoffs = staffAssignments.where(_ownerHandlesBoth).toList();
       final isFirst = i == 0;
       rows.add((ctx) => Padding(
             padding: EdgeInsets.only(top: isFirst ? 0 : 12, bottom: 8),
@@ -720,7 +727,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 children: [
                   Picon(PiconsDuotone.houseLine, size: 16, color: Colors.teal),
                   const SizedBox(width: 6),
-                  Text('Owner Drop-offs',
+                  Text('Owner brings & collects',
                       style: Theme.of(ctx).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal)),
                 ],
               ),

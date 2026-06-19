@@ -366,13 +366,14 @@ class DogWeekdayPickup(models.Model):
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='weekday_pickups')
     weekday = models.IntegerField(help_text='1=Monday … 7=Sunday (matches isoweekday())')
     staff_member = models.ForeignKey(User, on_delete=models.PROTECT, related_name='weekday_pickups')
+    sort_order = models.IntegerField(default=0, help_text='Remembered route position for this weekday; copied into the daily assignment on materialization.')
     created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='created_weekday_pickups')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('dog', 'weekday')
-        ordering = ['dog__name', 'weekday']
+        ordering = ['weekday', 'sort_order', 'dog__name']
         indexes = [models.Index(fields=['weekday', 'staff_member'])]
 
     def __str__(self):

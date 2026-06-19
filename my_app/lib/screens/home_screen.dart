@@ -27,6 +27,7 @@ import 'my_calendar_screen.dart';
 import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'fleet_screen.dart';
+import 'traffic_alert_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
@@ -336,71 +337,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showTrafficAlertDialog() async {
-    final detailController = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Picon(PiconsDuotone.path, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Traffic Alert'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Send a traffic delay notification to all owners with dogs scheduled today. Which service is affected?'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: detailController,
-              decoration: const InputDecoration(
-                labelText: 'Additional detail (optional)',
-                hintText: 'e.g. Accident on M1, expect 20 min delay',
-              ),
-              maxLines: 2,
-              textCapitalization: TextCapitalization.sentences,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, 'pickup'),
-            icon: Picon(PiconsDuotone.arrowUp, size: 18),
-            label: const Text('Pickup'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, 'dropoff'),
-            icon: Picon(PiconsDuotone.arrowDown, size: 18),
-            label: const Text('Drop-off'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null) {
-      try {
-        final detail = detailController.text.trim();
-        await _dataService.sendTrafficAlert(result, detail: detail.isNotEmpty ? detail : null);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Traffic alert sent to all owners for ${result == 'pickup' ? 'pickup' : 'drop-off'}'),
-              backgroundColor: AppColors.success,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send traffic alert: $e')));
-        }
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return UpgradeAlert(
@@ -633,9 +569,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ListTile(
                   leading: Picon(PiconsDuotone.path),
                   title: const Text('Traffic Alert'),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
-                    _showTrafficAlertDialog();
+                    final sent = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(builder: (_) => const TrafficAlertScreen()),
+                    );
+                    if (sent == true && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Traffic alert sent'),
+                          backgroundColor: AppColors.success,
+                        ),
+                      );
+                    }
                   },
                 ),
               if (_isStaff)
