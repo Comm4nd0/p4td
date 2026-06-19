@@ -47,10 +47,13 @@ class ApiDataService implements DataService {
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await _authService.getToken();
-    return {
-      'Authorization': 'Token $token',
-      'Content-Type': 'application/json',
-    };
+    // Don't send the literal "Token null" when logged out / cleared mid-flight —
+    // omit the header so the server returns a clean 401 instead (F5).
+    final headers = {'Content-Type': 'application/json'};
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Token $token';
+    }
+    return headers;
   }
 
   List<Dog> _parseDogsList(List<dynamic> data) {
@@ -457,17 +460,23 @@ class ApiDataService implements DataService {
   @override
   Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images) async {
     final uploadedPhotos = <Photo>[];
-    
+    final failures = <String>[];
+
     for (final (imageBytes, imageName, takenAt) in images) {
       try {
         final photo = await uploadPhoto(dogId, imageBytes, imageName, takenAt);
         uploadedPhotos.add(photo);
       } catch (e) {
-        // Continue uploading remaining photos even if one fails
-        rethrow;
+        // Honour the contract: keep going so one bad photo doesn't abort the
+        // whole batch (F6). Collect failures to report partial success.
+        failures.add(imageName);
       }
     }
-    
+
+    // Only error when nothing uploaded, so a partial batch still succeeds.
+    if (uploadedPhotos.isEmpty && failures.isNotEmpty) {
+      throw Exception('Failed to upload ${failures.length} photo(s).');
+    }
     return uploadedPhotos;
   }
 

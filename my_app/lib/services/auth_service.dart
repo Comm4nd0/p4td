@@ -381,8 +381,10 @@ class AuthService {
     }
   }
 
-  /// Change password for the currently logged-in user.
-  Future<String?> changePassword(String newPassword) async {
+  /// Change password for the currently logged-in user. The server requires the
+  /// current password and rotates the auth token (B3), so we send old_password
+  /// and persist the new token it returns.
+  Future<String?> changePassword(String oldPassword, String newPassword) async {
     try {
       final token = await getToken();
       if (token == null) return 'Not authenticated';
@@ -394,11 +396,21 @@ class AuthService {
           'Authorization': 'Token $token',
         },
         body: json.encode({
+          'old_password': oldPassword,
           'new_password': newPassword,
         }),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
+        // The server rotates the token on success; persist it so the session
+        // keeps working after the change (B3).
+        try {
+          final data = json.decode(response.body);
+          final newToken = data is Map ? data['token'] as String? : null;
+          if (newToken != null && newToken.isNotEmpty) {
+            await _replaceActiveToken(newToken);
+          }
+        } catch (_) {}
         return null; // Success
       }
       final data = json.decode(response.body);
@@ -408,6 +420,9 @@ class AuthService {
           if (errors is List) return errors.join('\n');
           return errors.toString();
         }
+        if (data.containsKey('old_password')) {
+          return 'Your current password is incorrect.';
+        }
         return data['detail'] ?? 'Change failed';
       }
       return 'Change failed';
@@ -415,7 +430,20 @@ class AuthService {
       if (NoConnectionException.isNetworkError(e)) {
         throw const NoConnectionException();
       }
-      return 'Error: $e';
+      return 'Could not change your password. Please try again.';
     }
+  }
+
+  /// Persist a rotated token for the active account (active-token key plus the
+  /// matching entry in the saved accounts list).
+  Future<void> _replaceActiveToken(String newToken) async {
+    await _storage.write(key: _kActiveToken, value: newToken);
+    final activeId = await getActiveAccountId();
+    if (activeId == null) return;
+    final accounts = await getAccounts();
+    final updated = accounts
+        .map((a) => a.userId == activeId ? a.copyWith(token: newToken) : a)
+        .toList();
+    await _writeAccounts(updated);
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -222,23 +223,16 @@ class NotificationService {
     );
   }
 
-  /// Parse a Dart Map.toString() payload back into a Map.
-  /// e.g. "{type: post_comment, post_id: 42}" → {type: post_comment, post_id: 42}
+  /// Parse a JSON payload (written by jsonEncode(message.data)) back into a Map.
+  /// The old Map.toString() format corrupted any value containing ', ' or ': '
+  /// (comment previews, punctuated titles) — JSON round-trips them safely (F7).
   Map<String, dynamic>? _parsePayload(String payload) {
     try {
-      // Remove outer braces
-      var inner = payload.trim();
-      if (inner.startsWith('{') && inner.endsWith('}')) {
-        inner = inner.substring(1, inner.length - 1);
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
       }
-      final map = <String, dynamic>{};
-      for (final pair in inner.split(', ')) {
-        final idx = pair.indexOf(': ');
-        if (idx != -1) {
-          map[pair.substring(0, idx).trim()] = pair.substring(idx + 2).trim();
-        }
-      }
-      return map.isNotEmpty ? map : null;
+      return null;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Failed to parse notification payload: $e');
@@ -255,7 +249,7 @@ class NotificationService {
         id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
         title: notification.title ?? '',
         body: notification.body ?? '',
-        payload: message.data.toString(),
+        payload: jsonEncode(message.data),
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'p4td_main_channel',

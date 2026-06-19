@@ -12,9 +12,11 @@ class ChangePasswordScreen extends StatefulWidget {
 
 class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _authService = AuthService();
+  final _oldPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscureOld = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
   String? _errorMessage;
@@ -25,11 +27,20 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     _newPasswordController.addListener(() => setState(() {}));
   }
 
+  @override
+  void dispose() {
+    _oldPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _changePassword() async {
+    final oldPassword = _oldPasswordController.text;
     final newPassword = _newPasswordController.text;
     final confirmPassword = _confirmPasswordController.text;
 
-    if (newPassword.isEmpty || confirmPassword.isEmpty) {
+    if (oldPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
       setState(() => _errorMessage = 'Please fill in all fields.');
       return;
     }
@@ -47,7 +58,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       _errorMessage = null;
     });
 
-    final error = await _authService.changePassword(newPassword);
+    final error = await _authService.changePassword(oldPassword, newPassword);
 
     setState(() => _isLoading = false);
 
@@ -87,6 +98,21 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   textAlign: TextAlign.center,
                 ),
               ),
+            TextField(
+              controller: _oldPasswordController,
+              obscureText: _obscureOld,
+              decoration: InputDecoration(
+                labelText: 'Current Password',
+                prefixIcon: Picon(PiconsDuotone.lock),
+                suffixIcon: IconButton(
+                  icon: Picon(
+                    _obscureOld ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
+                  ),
+                  onPressed: () => setState(() => _obscureOld = !_obscureOld),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _newPasswordController,
               obscureText: _obscureNew,

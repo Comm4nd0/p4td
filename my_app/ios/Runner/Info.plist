@@ -55,8 +55,11 @@
 	<string>This app needs microphone access to record videos with sound.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- Enforce App Transport Security (HTTPS). Production is HTTPS-only;
+		     allowing arbitrary loads enabled MITM/SSL-strip capture of the
+		     login credentials and auth token (F1). -->
 		<key>NSAllowsArbitraryLoads</key>
-		<true/>
+		<false/>
 	</dict>
 	<key>UIBackgroundModes</key>
 	<array>

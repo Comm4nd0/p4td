@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Production is HTTPS-only. Cleartext is disabled app-wide to stop
+         MITM/downgrade capture of login credentials and the auth token (F1).
+         Only localhost / the emulator host loopback are allowed cleartext so a
+         local dev backend over HTTP still works. -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">178.104.29.66</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>
