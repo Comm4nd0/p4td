@@ -1,10 +1,13 @@
 import firebase_admin
 from firebase_admin import credentials, messaging
+import logging
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .models import DeviceToken
+
+logger = logging.getLogger(__name__)
 
 _firebase_app = None
 
@@ -17,7 +20,7 @@ def initialize_firebase():
     # Path to your service account key file
     cred_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
     if not cred_path or not os.path.exists(cred_path):
-        print("Firebase service account key not found. Push notifications will be disabled.")
+        logger.warning("Firebase service account key not found. Push notifications will be disabled.")
         return False
 
     try:
@@ -25,7 +28,7 @@ def initialize_firebase():
         _firebase_app = firebase_admin.initialize_app(cred)
         return True
     except Exception as e:
-        print(f"Error initializing Firebase Admin: {e}")
+        logger.error(f"Error initializing Firebase Admin: {e}", exc_info=True)
         return False
 
 
@@ -86,35 +89,57 @@ def send_push_notification(user, title, body, data=None, category=None):
     if not initialize_firebase():
         return
 
-    tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
-    if not tokens:
-        return
+    def _dispatch():
+        tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
+        if not tokens:
+            return
 
-    # Send to each token individually using the current firebase-admin API
-    success_count = 0
-    failure_count = 0
-    for token in tokens:
-        message = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=body,
-            ),
-            data=data or {},
-            token=token,
-        )
+        # Send to all tokens in a single batched call using the firebase-admin
+        # batch API. send_each preserves input order, so responses line up with
+        # the messages (and therefore the tokens) by index.
+        messages = [
+            messaging.Message(
+                notification=messaging.Notification(
+                    title=title,
+                    body=body,
+                ),
+                data=data or {},
+                token=token,
+            )
+            for token in tokens
+        ]
+
         try:
-            messaging.send(message)
-            success_count += 1
-        except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
-            # Token is invalid or registered to a different sender - clean it up
-            DeviceToken.objects.filter(token=token).delete()
-            failure_count += 1
-            print(f"Removed stale token {token[:10]}...")
+            batch_response = messaging.send_each(messages)
         except Exception as e:
-            failure_count += 1
-            print(f"Failed to send to token {token[:10]}...: {e}")
+            logger.error(f"Failed to send push notifications: {e}", exc_info=True)
+            return
 
-    print(f"Successfully sent {success_count} messages; failed {failure_count} messages.")
+        success_count = 0
+        failure_count = 0
+        for token, response in zip(tokens, batch_response.responses):
+            if response.success:
+                success_count += 1
+                continue
+
+            failure_count += 1
+            exception = response.exception
+            if isinstance(exception, (messaging.UnregisteredError, messaging.SenderIdMismatchError)):
+                # Token is invalid or registered to a different sender - clean it up
+                DeviceToken.objects.filter(token=token).delete()
+                logger.warning(f"Removed stale token {token[:10]}...")
+            else:
+                logger.error(f"Failed to send to token {token[:10]}...: {exception}")
+
+        logger.info(f"Successfully sent {success_count} messages; failed {failure_count} messages.")
+
+    # Get the Firebase network I/O off the request/transaction path: run after
+    # the surrounding DB transaction commits AND on a background daemon thread,
+    # so a slow FCM endpoint cannot stall the worker. When there is no active
+    # transaction, on_commit runs the callback immediately, which is fine.
+    from django.db import transaction
+    import threading
+    transaction.on_commit(lambda: threading.Thread(target=_dispatch, daemon=True).start())
 
 def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     """

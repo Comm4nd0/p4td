@@ -42,25 +42,25 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **B30** 🟡 S — Feed ordering `-id` tie-breaker (queryset + model Meta)
 - [x] **B41** 🟡 S — `approve_requests` admin action: transactional
 
-## Batch 3 — Backend performance & queries
-- [ ] **B5** 🟠 S — Dog queryset select_related/prefetch owner profiles; fix bare except
-- [ ] **B6** 🟠 M — Paginate high-volume list endpoints (coordinate Flutter client)
-- [ ] **B7** 🟠 M — `is_boarding`: compute boarding ids once via context/annotation
-- [ ] **B8** 🟠 S — Ensure select_related('dog') for effective_* paths
-- [ ] **B9** 🟠 M — Defer notification fan-out to on_commit/background
-- [ ] **B10** 🟡 S — Use firebase `send_each` batch API
-- [ ] **B17** 🟡 S — Add indexes on heavily-joined FKs
-- [ ] **B21** ⚪ S — `save_user_profile`: only create on created=True
-- [ ] **B29** 🟡 S — SupportQuery list: annotate count/last-message
-- [ ] **B31** 🟡 L — Move image/video processing off request path (or single-resize)
-- [ ] **B32** 🟡 M — Geocode after response (on_commit); fix docstring
-- [ ] **B33** 🟡 S — FCM token age-pruning + cross-user dedupe on register
-- [ ] **B36** ⚪ S — `geocode_dogs`: iterator()/only(), queryset-level limit
-- [ ] **B38** 🟠 S — `DailyDogAssignment` admin: list_select_related
-- [ ] **B39** 🟡 S — Admin changelists: annotate counts, prefetch, RelatedOnlyFieldListFilter
-- [ ] **B40** ⚪ M — Add list_select_related across single-FK admins
-- [ ] **B23** ⚪ S — Prune PasswordResetOTP; index (user,is_used)
-- [ ] **B37** ⚪ S — Replace `print()` in notifications with logging
+## Batch 3 — Backend performance & queries ✅ (236 tests OK; migration 0057)
+- [x] **B5** 🟠 S — Dog queryset select_related/prefetch owner profiles; explicit except in serializer
+- [→] **B6** 🟠 M — Pagination deferred to Batch 9 (needs coordinated Flutter client change)
+- [x] **B7** 🟠 M — `is_boarding` via per-date context set (today/my_assignments); query fallback elsewhere
+- [x] **B8** 🟠 S — Documented select_related('dog') requirement on effective_* (viewsets already do it)
+- [x] **B9** 🟠 M — Notification fan-out deferred via on_commit + daemon thread
+- [x] **B10** 🟡 S — Firebase `send_each` batch API
+- [~] **B17** 🟡 S — Already covered: Django auto-indexes FK columns (audit premise was wrong); no change needed
+- [x] **B21** ⚪ S — Dropped the save-profile-on-every-User-save signal
+- [x] **B29** 🟡 S — SupportQuery count/last-message read from prefetch cache
+- [x] **B31** 🟡 L — Single-decode image pair for feed + dog photos (full async needs a task queue — deferred)
+- [x] **B32** 🟡 M — Inline geocode kept but provider timeout lowered to 4s + honest docstring (true async breaks the sync test contract)
+- [x] **B33** 🟡 S — Added `prune_device_tokens` command (cross-user already handled by unique token + reassignment)
+- [x] **B36** ⚪ S — `geocode_dogs` streams with iterator() and stops at --limit
+- [x] **B38** 🟠 S — `DailyDogAssignment` admin: list_select_related + RelatedOnlyFieldListFilter
+- [x] **B39** 🟡 S — Admin changelists: annotated counts, prefetch, RelatedOnlyFieldListFilter
+- [x] **B40** ⚪ M — list_select_related across single-FK admins
+- [x] **B23** ⚪ S — Prune used PasswordResetOTP; index (user,is_used)
+- [x] **B37** ⚪ S — notifications use logging instead of print()
 
 ## Batch 4 — Backend data-model / maintainability / integrations
 - [ ] **B20** 🟡 M — Dog.owner deletion lifecycle (cleanup or admin filter for orphans)

@@ -45,6 +45,10 @@ class PasswordResetOTP(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            # Supports the user+otp verification and the invalidation update (B23).
+            models.Index(fields=['user', 'is_used']),
+        ]
 
     def is_expired(self):
         return timezone.now() > self.expires_at
@@ -56,6 +60,9 @@ class PasswordResetOTP(models.Model):
     def create_for_user(cls, user):
         # Invalidate any existing unused OTPs for this user
         cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        # Prune used/invalidated OTPs so the table (short-lived credentials)
+        # doesn't grow unbounded (B23).
+        cls.objects.filter(user=user, is_used=True).delete()
         otp = f"{secrets.randbelow(1000000):06d}"
         expires_at = timezone.now() + timezone.timedelta(minutes=15)
         return cls.objects.create(user=user, otp=otp, expires_at=expires_at)
@@ -135,14 +142,11 @@ from django.core.exceptions import ObjectDoesNotExist
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
-        UserProfile.objects.create(user=instance)
+        UserProfile.objects.get_or_create(user=instance)
 
-@receiver(post_save, sender=User)
-def save_user_profile(sender, instance, **kwargs):
-    try:
-        instance.profile.save()
-    except ObjectDoesNotExist:
-        UserProfile.objects.create(user=instance)
+    # Note: the profile is intentionally NOT re-saved on every User save. Code
+    # that edits the profile saves it explicitly; an implicit save on each User
+    # write was a wasted query and could clobber concurrent edits (B21).
 
 class Photo(models.Model):
     MEDIA_TYPE_CHOICES = [
@@ -331,6 +335,11 @@ class DailyDogAssignment(models.Model):
     def __str__(self):
         return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
 
+    # The effective_* helpers below dereference self.dog, so any queryset that
+    # serializes or iterates assignments must select_related('dog') (and
+    # 'dog__owner__profile' for the serializer) or it issues a query per row.
+    # The DailyDogAssignmentViewSet querysets and the notification signals do
+    # this; new callers must too (B8).
     @property
     def effective_owner_brings(self) -> bool:
         return self.owner_brings if self.owner_brings is not None else self.dog.owner_brings_default

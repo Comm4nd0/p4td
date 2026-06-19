@@ -107,6 +107,38 @@ def process_image(image_file, max_size=(1280, 1280), quality=85):
         image_file.seek(0)
         return image_file
 
+def process_image_pair(image_file, main_size=(1280, 1280), thumb_size=(400, 400), main_quality=85, thumb_quality=70):
+    """Decode an image once and return (main, thumbnail) ContentFiles.
+
+    Avoids decoding the original a second time just to build the thumbnail (B31).
+    Falls back to (process_image(...), None) on any failure.
+    """
+    try:
+        image_file.seek(0)
+        img = Image.open(image_file)
+        from PIL import ImageOps
+        img = ImageOps.exif_transpose(img)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        base_name = os.path.splitext(image_file.name)[0]
+
+        def _encode(size, quality, suffix):
+            im = img.copy()
+            if im.width > size[0] or im.height > size[1]:
+                im.thumbnail(size, Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            im.save(out, format='JPEG', quality=quality, optimize=True)
+            out.seek(0)
+            return ContentFile(out.read(), name=f"{base_name}{suffix}.jpg")
+
+        return _encode(main_size, main_quality, ''), _encode(thumb_size, thumb_quality, '_thumb')
+    except Exception as e:
+        print(f"Error processing image pair: {e}")
+        image_file.seek(0)
+        return process_image(image_file, max_size=main_size, quality=main_quality), None
+
+
 def generate_video_thumbnail(file_obj):
     """Generate a thumbnail image from a video file.
 
@@ -312,8 +344,12 @@ class DogViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        # Staff can see all dogs, Clients see dogs they own or co-own
-        base = Dog.objects.prefetch_related('vaccinations')
+        # Staff can see all dogs, Clients see dogs they own or co-own.
+        # select_related/prefetch the owner profiles the serializer renders so a
+        # kennel listing stays at a constant query count (B5).
+        base = Dog.objects.select_related('owner__profile').prefetch_related(
+            'vaccinations', 'additional_owners__profile'
+        )
         if self.request.user.is_staff:
             return base.all()
         from django.db.models import Q
@@ -691,7 +727,9 @@ class DogViewSet(viewsets.ModelViewSet):
 
     def _maybe_geocode(self, dog):
         """Best-effort refresh of the dog's cached pickup coordinates after a
-        save. Never lets a slow or failed address lookup block the request."""
+        save. Blocks only briefly — the postcode lookup is bounded by a short
+        provider timeout — and failures are swallowed so a save is never lost.
+        Cron (geocode_dogs) is the backstop for any address it couldn't reach (B32)."""
         try:
             from .geocoding import geocode_dog
             geocode_dog(dog)
@@ -762,7 +800,7 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         dog.refresh_from_db()
         # Refresh cached pickup coordinates if an approved change altered the
-        # address. Best-effort — never block approval on the address lookup.
+        # address. Best-effort, bounded by the short provider timeout (B32).
         try:
             from .geocoding import geocode_dog
             geocode_dog(dog)
@@ -882,13 +920,11 @@ class PhotoViewSet(viewsets.ModelViewSet):
         elif media_type == 'PHOTO':
             image_file = serializer.validated_data.get('file')
             if image_file:
-                # Resize main photo to max 1280x1280
-                processed_image = process_image(image_file, max_size=(1280, 1280))
+                # Decode once, derive both the resized photo and its thumbnail (B31)
+                processed_image, thumbnail = process_image_pair(image_file)
                 serializer.validated_data['file'] = processed_image
-
-                # Generate a 400x400 thumbnail for the photo
-                thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
-                serializer.validated_data['thumbnail'] = thumbnail
+                if thumbnail:
+                    serializer.validated_data['thumbnail'] = thumbnail
 
         instance = serializer.save()
         self._notify_owners_of_new_photo(instance)
@@ -1211,13 +1247,11 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             elif media_type == 'PHOTO':
                 image_file = serializer.validated_data.get('file')
                 if image_file:
-                    # Resize main photo to max 1280x1280
-                    processed_image = process_image(image_file, max_size=(1280, 1280))
+                    # Decode once, derive both the resized photo and its thumbnail (B31)
+                    processed_image, thumbnail = process_image_pair(image_file)
                     serializer.validated_data['file'] = processed_image
-
-                    # Generate a 400x400 thumbnail for the photo
-                    thumbnail = process_image(image_file, max_size=(400, 400), quality=70)
-                    serializer.validated_data['thumbnail'] = thumbnail
+                    if thumbnail:
+                        serializer.validated_data['thumbnail'] = thumbnail
 
             instance = serializer.save(uploaded_by=self.request.user)
 
@@ -1391,6 +1425,19 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(staff_member_id=staff_id)
         return queryset
 
+    def _boarding_context(self, target_date):
+        # Compute the set of dogs boarding on target_date once, so the serializer
+        # answers is_boarding with a set lookup instead of a query per row (B7).
+        ctx = self.get_serializer_context()
+        ctx['boarding_dog_ids'] = set(
+            BoardingRequest.objects.filter(
+                status='APPROVED',
+                start_date__lte=target_date,
+                end_date__gte=target_date,
+            ).values_list('dogs__id', flat=True)
+        )
+        return ctx
+
     def perform_create(self, serializer):
         serializer.save()
 
@@ -1525,7 +1572,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return error
         self._materialize_roster_for_date(target_date)
         assignments = self.get_queryset().filter(date=target_date).exclude(status='REMOVED')
-        serializer = self.get_serializer(assignments, many=True)
+        serializer = self.get_serializer(assignments, many=True, context=self._boarding_context(target_date))
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -1538,7 +1585,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         assignments = self.get_queryset().filter(
             staff_member=request.user, date=target_date
         ).exclude(status='REMOVED')
-        serializer = self.get_serializer(assignments, many=True)
+        serializer = self.get_serializer(assignments, many=True, context=self._boarding_context(target_date))
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -1717,7 +1764,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             date=target_date
         ).values_list('dog_id', flat=True)
 
-        unassigned = scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids)
+        unassigned = scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids).select_related(
+            'owner__profile'
+        ).prefetch_related('additional_owners__profile', 'vaccinations')
         serializer = DogSerializer(unassigned, many=True, context={'request': request})
         return Response(serializer.data)
 

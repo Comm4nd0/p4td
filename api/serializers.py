@@ -127,11 +127,12 @@ class DogSerializer(serializers.ModelSerializer):
         }
 
     def get_owner_details(self, obj):
+        if obj.owner is None:
+            return None
         try:
-            if obj.owner is None:
-                return None
             return OwnerDetailSerializer(obj.owner.profile).data
-        except:
+        except UserProfile.DoesNotExist:
+            # Owner has no profile row — don't swallow other errors (B5).
             return None
 
     def get_additional_owners_details(self, obj):
@@ -139,7 +140,7 @@ class DogSerializer(serializers.ModelSerializer):
         for user in obj.additional_owners.all():
             try:
                 details.append(OwnerDetailSerializer(user.profile).data)
-            except:
+            except UserProfile.DoesNotExist:
                 pass
         return details
 
@@ -430,6 +431,11 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             return None
 
     def get_is_boarding(self, obj):
+        # When the view supplies the per-date boarding set (computed once for the
+        # whole roster), use it instead of an exists() query per row (B7).
+        boarding = self.context.get('boarding_dog_ids')
+        if boarding is not None:
+            return obj.dog_id in boarding
         return BoardingRequest.objects.filter(
             dogs=obj.dog,
             status='APPROVED',
@@ -494,13 +500,14 @@ class SupportQuerySerializer(serializers.ModelSerializer):
         return obj.owner.username
 
     def get_last_message_at(self, obj):
-        last = obj.messages.order_by('-created_at').first()
-        if last:
-            return last.created_at.isoformat()
+        # Read from the prefetched messages cache instead of a fresh query/row (B29).
+        msgs = list(obj.messages.all())
+        if msgs:
+            return max(m.created_at for m in msgs).isoformat()
         return obj.created_at.isoformat()
 
     def get_message_count(self, obj):
-        return obj.messages.count()
+        return len(obj.messages.all())
 
 class SupportQueryListSerializer(serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
@@ -522,13 +529,14 @@ class SupportQueryListSerializer(serializers.ModelSerializer):
         return obj.owner.username
 
     def get_last_message_at(self, obj):
-        last = obj.messages.order_by('-created_at').first()
-        if last:
-            return last.created_at.isoformat()
+        # Read from the prefetched messages cache instead of a fresh query/row (B29).
+        msgs = list(obj.messages.all())
+        if msgs:
+            return max(m.created_at for m in msgs).isoformat()
         return obj.created_at.isoformat()
 
     def get_message_count(self, obj):
-        return obj.messages.count()
+        return len(obj.messages.all())
 
 
 class ClosureDaySerializer(serializers.ModelSerializer):

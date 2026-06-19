@@ -61,9 +61,14 @@ class Command(BaseCommand):
         sleep = options['sleep']
         prefix = '[DRY RUN] ' if dry_run else ''
 
-        candidates = [d for d in Dog.objects.all().order_by('name') if _needs_geocode(d, force)]
-        if limit is not None:
-            candidates = candidates[:limit]
+        # Stream dogs with .iterator() (lower memory) and stop as soon as --limit
+        # candidates are found, instead of materialising the whole table (B36).
+        candidates = []
+        for dog in Dog.objects.order_by('name').iterator():
+            if _needs_geocode(dog, force):
+                candidates.append(dog)
+                if limit is not None and len(candidates) >= limit:
+                    break
 
         self.stdout.write(f'{prefix}{len(candidates)} dog(s) need geocoding.')
 

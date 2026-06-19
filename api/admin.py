@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from django.db.models import Count, Q
 from django.utils.html import format_html
 from django.utils import timezone
 from datetime import date
@@ -142,8 +143,8 @@ class StaffUserAdmin(BaseUserAdmin):
         return ('username', 'first_name', 'last_name', 'todays_dogs')
 
     def todays_dogs(self, obj):
-        assignments = obj.dog_assignments.filter(date=date.today()).select_related('dog')
-        if not assignments.exists():
+        assignments = list(obj.dog_assignments.filter(date=date.today()).select_related('dog'))
+        if not assignments:
             return format_html('<span style="color: #999;">None</span>')
         dogs = []
         for a in assignments:
@@ -168,8 +169,9 @@ admin.site.register(User, StaffUserAdmin)
 @admin.register(DailyDogAssignment)
 class DailyDogAssignmentAdmin(admin.ModelAdmin):
     list_display = ('dog_name', 'owner_name', 'staff_member_name', 'date', 'status_display', 'transport_display')
-    list_filter = ('date', 'status', 'staff_member', 'owner_brings', 'owner_collects')
+    list_filter = ('date', 'status', ('staff_member', admin.RelatedOnlyFieldListFilter), 'owner_brings', 'owner_collects')
     search_fields = ('dog__name', 'dog__owner__username', 'staff_member__username', 'staff_member__first_name')
+    list_select_related = ('dog', 'dog__owner', 'staff_member')
     list_per_page = 30
     date_hierarchy = 'date'
     ordering = ['-date', 'dog__name']
@@ -246,6 +248,7 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
     list_filter = ('status', 'request_type', 'is_charged', 'created_at')
     search_fields = ('dog__name', 'dog__owner__username')
     readonly_fields = ('dog', 'request_type', 'original_date', 'new_date', 'is_charged', 'created_at', 'updated_at')
+    list_select_related = ('dog', 'dog__owner')
     list_per_page = 20
     ordering = ['-created_at']
     actions = ['approve_requests', 'deny_requests']
@@ -349,6 +352,10 @@ class SupportQueryAdmin(admin.ModelAdmin):
     list_per_page = 20
     ordering = ['-updated_at']
     inlines = [SupportMessageInline]
+    list_select_related = ('owner',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(_message_count=Count('messages'))
 
     def owner_name(self, obj):
         return obj.owner.first_name or obj.owner.username
@@ -356,8 +363,9 @@ class SupportQueryAdmin(admin.ModelAdmin):
     owner_name.admin_order_field = 'owner__first_name'
 
     def message_count(self, obj):
-        return obj.messages.count()
+        return obj._message_count
     message_count.short_description = 'Messages'
+    message_count.admin_order_field = '_message_count'
 
     def status_display(self, obj):
         colors = {'OPEN': '#ffc107', 'RESOLVED': '#198754'}
@@ -399,6 +407,7 @@ class PhotoAdmin(admin.ModelAdmin):
     search_fields = ('dog__name', 'dog__owner__username')
     raw_id_fields = ('dog',)
     readonly_fields = ('created_at', 'thumbnail_preview_large')
+    list_select_related = ('dog',)
     list_per_page = 30
     ordering = ['-taken_at']
 
@@ -429,6 +438,7 @@ class CommentAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'text')
     raw_id_fields = ('user', 'group_media', 'photo')
     readonly_fields = ('created_at',)
+    list_select_related = ('user', 'photo__dog', 'group_media')
     list_per_page = 30
     ordering = ['-created_at']
 
@@ -530,6 +540,10 @@ class BoardingRequestAdmin(admin.ModelAdmin):
     list_per_page = 20
     ordering = ['-created_at']
     actions = ['approve_requests', 'deny_requests']
+    list_select_related = ('owner',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('owner').prefetch_related('dogs')
 
     def get_readonly_fields(self, request, obj=None):
         readonly = super().get_readonly_fields(request, obj)
@@ -605,6 +619,7 @@ class ClosureDayAdmin(admin.ModelAdmin):
     list_display = ('date', 'closure_type_display', 'reason', 'capacity_override', 'created_by_name', 'created_at')
     list_filter = ('closure_type', 'date')
     search_fields = ('reason',)
+    list_select_related = ('created_by',)
     ordering = ['-date']
     list_per_page = 30
 
@@ -630,6 +645,7 @@ class DogNoteAdmin(admin.ModelAdmin):
     list_filter = ('note_type', 'is_positive', 'created_at')
     search_fields = ('dog__name', 'related_dog__name', 'text')
     raw_id_fields = ('dog', 'related_dog', 'created_by')
+    list_select_related = ('dog', 'related_dog', 'created_by')
     ordering = ['-created_at']
     list_per_page = 30
 
@@ -690,7 +706,7 @@ class DayOffRequestAdmin(admin.ModelAdmin):
     """Staff holiday / day-off requests. Managers approve or deny them here;
     the requesting staff member is notified automatically on status change."""
     list_display = ('staff_name', 'date', 'reason_preview', 'status_display', 'reviewed_by_name', 'created_at')
-    list_filter = ('status', 'staff_member', 'date')
+    list_filter = ('status', ('staff_member', admin.RelatedOnlyFieldListFilter), 'date')
     search_fields = ('staff_member__username', 'staff_member__first_name', 'staff_member__last_name', 'reason')
     date_hierarchy = 'date'
     readonly_fields = ('staff_member', 'date', 'reason', 'reviewed_by', 'reviewed_at', 'created_at')
@@ -839,6 +855,7 @@ class VaccinationRecordAdmin(admin.ModelAdmin):
     list_filter = ('name', 'expiry_date')
     search_fields = ('dog__name', 'name')
     raw_id_fields = ('dog', 'created_by')
+    list_select_related = ('dog', 'created_by')
     ordering = ['expiry_date']
     list_per_page = 30
 
@@ -870,6 +887,7 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
     list_filter = ('status', 'date')
     search_fields = ('dog__name', 'requested_by__username')
     raw_id_fields = ('dog', 'requested_by')
+    list_select_related = ('dog', 'requested_by')
     ordering = ['date', 'created_at']
     list_per_page = 30
 
@@ -929,6 +947,11 @@ class VehicleAdmin(admin.ModelAdmin):
         ('Metadata', {'fields': ('created_at', 'updated_at')}),
     )
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(
+            _open_defects=Count('defects', filter=~Q(defects__status='RESOLVED'))
+        )
+
     def _due_badge(self, status):
         colors = {'overdue': '#dc3545', 'due_soon': '#ffc107', 'ok': '#198754'}
         labels = {'overdue': 'Overdue', 'due_soon': 'Due soon', 'ok': 'OK'}
@@ -949,7 +972,7 @@ class VehicleAdmin(admin.ModelAdmin):
     service_badge.short_description = 'Service'
 
     def open_defects(self, obj):
-        return obj.defects.exclude(status='RESOLVED').count()
+        return obj._open_defects
     open_defects.short_description = 'Open Defects'
 
     def image_preview(self, obj):
@@ -983,12 +1006,13 @@ class VehicleDefectImageInline(admin.TabularInline):
 @admin.register(VehicleDefect)
 class VehicleDefectAdmin(admin.ModelAdmin):
     list_display = ('vehicle', 'title', 'severity', 'status_display', 'reported_by_name', 'created_at')
-    list_filter = ('status', 'severity', 'vehicle')
+    list_filter = ('status', 'severity', ('vehicle', admin.RelatedOnlyFieldListFilter))
     search_fields = ('title', 'description', 'vehicle__name', 'vehicle__registration')
     raw_id_fields = ('reported_by', 'resolved_by')
     readonly_fields = ('created_at', 'updated_at')
     list_per_page = 30
     inlines = [VehicleDefectImageInline]
+    list_select_related = ('vehicle', 'reported_by')
 
     def reported_by_name(self, obj):
         if obj.reported_by:

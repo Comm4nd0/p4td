@@ -144,7 +144,9 @@ def _fetch_postcodes_io(postcode):
     url = f'https://api.postcodes.io/postcodes/{pc}'
     req = urllib.request.Request(url, headers={'User-Agent': 'p4td-backend'})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # Short timeout: this runs inline on the dog-save path, so a slow
+        # provider must not hold a worker for long (B32).
+        with urllib.request.urlopen(req, timeout=4) as resp:
             return _json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
