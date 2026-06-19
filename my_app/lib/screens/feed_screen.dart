@@ -1,19 +1,16 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
-import 'package:image_picker/image_picker.dart';
 import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
+import '../services/media_upload_flow.dart';
 import '../services/service_locator.dart';
 import '../widgets/feed_item_card.dart';
 import '../widgets/dog_typeahead.dart';
-import '../widgets/media_tag_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
-import 'multi_photo_capture_screen.dart';
 import '../main.dart';
 
 class FeedScreen extends StatefulWidget {
@@ -45,6 +42,12 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   /// Debounces search keystrokes so we don't rebuild the whole list on every
   /// character typed.
   Timer? _searchDebounce;
+
+  /// One [GlobalKey] per post id, used by [_scrollToPost] to scroll a specific
+  /// card into view regardless of its (variable) height. Keys are created lazily
+  /// as cards are built and persist across rebuilds so the element stays
+  /// attached.
+  final Map<String, GlobalKey> _cardKeys = {};
 
   /// Cached filtered feed. Recomputed only when the feed, search query or date
   /// range change (see [_recomputeFilteredFeed]) rather than on every build.
@@ -192,279 +195,11 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   }
 
   Future<void> _uploadMedia() async {
-    final picker = ImagePicker();
-
-    // Show options
-    final choice = await showModalBottomSheet<String>(
+    await MediaUploadFlow(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Picon(PiconsDuotone.camera),
-              title: const Text('Take Photos'),
-              subtitle: const Text('Capture one or more shots in a row'),
-              onTap: () => Navigator.pop(context, 'camera_photo'),
-            ),
-            ListTile(
-              leading: Picon(PiconsDuotone.videoCamera),
-              title: const Text('Record Video'),
-              onTap: () => Navigator.pop(context, 'camera_video'),
-            ),
-            const Divider(),
-            ListTile(
-              leading: Picon(PiconsDuotone.uploadSimple),
-              title: const Text('Upload'),
-              onTap: () => Navigator.pop(context, 'multiple'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (choice == null) return;
-
-    // Handle multiple photos upload from gallery
-    if (choice == 'multiple') {
-      await _uploadMultiplePhotos(picker);
-      return;
-    }
-
-    // Multi-shot camera capture
-    if (choice == 'camera_photo') {
-      await _captureFromCamera();
-      return;
-    }
-
-    // Single video capture (camera) or gallery video pick — single file flow.
-    XFile? file;
-    final isVideo = choice.contains('video');
-    final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
-
-    if (isVideo) {
-      file = await picker.pickVideo(source: source);
-    } else {
-      file = await picker.pickImage(
-        source: source,
-        maxWidth: 1280,
-        maxHeight: 1280,
-        imageQuality: 85,
-      );
-    }
-
-    if (file == null) return;
-    final pickedFile = file;
-
-    // Show tagging dialog
-    final bytes = await pickedFile.readAsBytes();
-    final tagResult = await Navigator.push<MediaTagResult>(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => MediaTagDialog(files: [(bytes, pickedFile.name, isVideo)]),
-      ),
-    );
-    if (tagResult == null) return; // User cancelled
-
-    // Use the (possibly cropped) bytes returned from the tag dialog.
-    final uploadBytes = tagResult.bytesByFile.isNotEmpty
-        ? tagResult.bytesByFile[0]
-        : bytes;
-
-    // Upload
-    try {
-      _showUploadingDialog();
-      await _dataService.uploadGroupMedia(
-        fileBytes: uploadBytes,
-        fileName: pickedFile.name,
-        isVideo: isVideo,
-        caption: tagResult.caption,
-        taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty
-            ? tagResult.taggedDogIdsByFile[0]
-            : null,
-      );
-      if (mounted) {
-        Navigator.pop(context); // Close uploading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Upload successful!'), backgroundColor: AppColors.success),
-        );
-        _loadFeed();
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close uploading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
-  }
-
-  Future<void> _uploadMultiplePhotos(ImagePicker picker) async {
-    // Pick multiple media (images and videos)
-    final files = await picker.pickMultipleMedia();
-    if (files.isEmpty) return;
-
-    // Prepare files
-    final fileData = <(Uint8List, String)>[];
-    final tagDialogFiles = <(Uint8List, String, bool)>[];
-    for (final file in files) {
-      final bytes = await file.readAsBytes();
-      final ext = file.name.toLowerCase();
-      final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
-      fileData.add((bytes, file.name));
-      tagDialogFiles.add((bytes, file.name, isVideo));
-    }
-
-    await _processAndUploadFiles(fileData, tagDialogFiles);
-  }
-
-  Future<void> _captureFromCamera() async {
-    final captured = await Navigator.push<List<(Uint8List, String)>>(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => const MultiPhotoCaptureScreen(),
-      ),
-    );
-    if (captured == null || captured.isEmpty) return;
-
-    final tagDialogFiles =
-        captured.map((p) => (p.$1, p.$2, false)).toList();
-    await _processAndUploadFiles(captured, tagDialogFiles);
-  }
-
-  /// Shared tag-prompt + batch upload pipeline used by both gallery multi-pick
-  /// and in-app multi-photo capture.
-  Future<void> _processAndUploadFiles(
-    List<(Uint8List, String)> fileData,
-    List<(Uint8List, String, bool)> tagDialogFiles,
-  ) async {
-    final total = fileData.length;
-    // Ask whether to tag or upload straight away
-    if (!mounted) return;
-    final wantTag = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('$total file${total == 1 ? '' : 's'} selected'),
-        content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Upload Now')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tag & Caption')),
-        ],
-      ),
-    );
-    if (wantTag == null) return; // User cancelled
-
-    List<String?>? captionsByFile;
-    List<List<String>>? taggedDogIdsByFile;
-
-    if (wantTag) {
-      final tagResult = await Navigator.push<MediaTagResult>(
-        context,
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (_) => MediaTagDialog(files: tagDialogFiles),
-        ),
-      );
-      if (tagResult == null) return; // User cancelled
-      captionsByFile = tagResult.captionsByFile;
-      taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
-      // Replace the per-file bytes with whatever the user cropped to (or
-      // original bytes for items they left alone / videos).
-      if (tagResult.bytesByFile.length == fileData.length) {
-        for (var i = 0; i < fileData.length; i++) {
-          fileData[i] = (tagResult.bytesByFile[i], fileData[i].$2);
-        }
-      }
-    }
-
-    // Show progress dialog using a ValueNotifier so we can update it in place
-    final progress = ValueNotifier<int>(0);
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => PopScope(
-        canPop: false,
-        child: ValueListenableBuilder<int>(
-          valueListenable: progress,
-          builder: (context, completed, _) => AlertDialog(
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text('Uploading $completed/$total...'),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    try {
-      final failures = await _dataService.uploadMultipleGroupMedia(
-        files: fileData,
-        captionsByFile: captionsByFile,
-        taggedDogIdsByFile: taggedDogIdsByFile,
-        onProgress: (done, count) {
-          progress.value = done;
-        },
-      );
-      if (!mounted) return;
-      Navigator.pop(context); // Close progress dialog
-
-      final succeeded = total - failures.length;
-      if (failures.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      } else {
-        final failedNames = failures.map((f) => f.fileName).join(', ');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
-            backgroundColor: AppColors.warning,
-            duration: const Duration(seconds: 6),
-          ),
-        );
-      }
-      if (succeeded > 0) _loadFeed();
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close progress dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Upload failed: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  void _showUploadingDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('Uploading...'),
-          ],
-        ),
-      ),
-    );
+      dataService: _dataService,
+      onComplete: _loadFeed,
+    ).start();
   }
 
   Future<void> _deleteMedia(GroupMedia media) async {
@@ -722,26 +457,47 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     );
   }
 
-  void _scrollToPost(String postId) {
-    // Wait for the list to render, then scroll to the post
+  /// Scroll the post with [postId] into view. Height-independent: it looks up
+  /// the card's [GlobalKey] and uses [Scrollable.ensureVisible] so it lands
+  /// accurately regardless of how tall earlier cards are.
+  ///
+  /// Cards render lazily, so the target may not be built yet. In that case we
+  /// nudge the list toward an estimated offset and retry on the next frames,
+  /// giving up after a few attempts rather than scrolling somewhere wrong.
+  void _scrollToPost(String postId, {int attempt = 0}) {
+    const maxAttempts = 8;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final index = _feed.indexWhere((m) => m.id == postId);
-      if (index != -1 && _scrollController.hasClients) {
-        // Estimate position: each card is roughly 450px tall.
-        // Use animateTo to scroll close to the target post.
-        final estimatedOffset = index * 450.0;
-        _scrollController.animateTo(
-          estimatedOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+      if (!mounted) return;
+      final index = _filteredFeed.indexWhere((m) => m.id == postId);
+      if (index == -1) return; // Not loaded / filtered out — leave the list be.
+
+      final keyContext = _cardKeys[postId]?.currentContext;
+      if (keyContext != null) {
+        Scrollable.ensureVisible(
+          keyContext,
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeInOut,
+          alignment: 0.1,
         );
+        return;
       }
+
+      // Card not built yet: nudge toward a rough offset, then retry.
+      if (attempt >= maxAttempts || !_scrollController.hasClients) return;
+      final estimatedOffset = index * 450.0;
+      _scrollController.animateTo(
+        estimatedOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+      );
+      _scrollToPost(postId, attempt: attempt + 1);
     });
   }
 
   Widget _buildMediaCard(GroupMedia media) {
+    final cardKey = _cardKeys.putIfAbsent(media.id, () => GlobalKey());
     return FeedItemCard(
-      key: ValueKey(media.id),
+      key: cardKey,
       media: media,
       isStaff: widget.isStaff,
       canAddFeedMedia: widget.canAddFeedMedia,

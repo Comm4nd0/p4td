@@ -34,6 +34,40 @@ part 'data_service_exceptions.dart';
 part 'data_service_interface.dart';
 part 'data_service_mock.dart';
 
+/// Result of parsing a single feed page off the UI isolate.
+///
+/// [rawItems] is the still-JSON list of results (used to warm the offline
+/// cache); [items] is the parsed model list; [hasMore] reflects pagination.
+class _ParsedFeedPage {
+  final List<gm.GroupMedia> items;
+  final List<Map<String, dynamic>> rawItems;
+  final bool hasMore;
+  const _ParsedFeedPage(this.items, this.rawItems, this.hasMore);
+}
+
+/// Decodes a feed-endpoint response body and parses it into models.
+///
+/// Top-level so it can run on a background isolate via [compute]: it does the
+/// expensive `json.decode` + `GroupMedia.fromJson` work off the UI thread.
+/// Tolerates both the paginated `{count, next, previous, results}` shape and a
+/// plain JSON array (unpaginated fallback).
+_ParsedFeedPage _parseFeedResponseBody(String body) {
+  final decoded = json.decode(body);
+  List<dynamic> results;
+  bool hasMore;
+  if (decoded is Map<String, dynamic> && decoded.containsKey('results')) {
+    results = decoded['results'] as List<dynamic>;
+    hasMore = decoded['next'] != null;
+  } else {
+    // Unpaginated fallback: a plain array is the whole feed.
+    results = decoded as List<dynamic>;
+    hasMore = false;
+  }
+  final rawItems = results.cast<Map<String, dynamic>>();
+  final items = rawItems.map((j) => gm.GroupMedia.fromJson(j)).toList();
+  return _ParsedFeedPage(items, rawItems, hasMore);
+}
+
 class ApiDataService implements DataService {
   static final ApiDataService _instance = ApiDataService._internal();
 
@@ -916,23 +950,10 @@ class ApiDataService implements DataService {
       final response = await http.get(url, headers: headers);
 
       if (response.statusCode == 200) {
-        final decoded = json.decode(response.body);
-        List<dynamic> results;
-        bool hasMore;
-        if (decoded is Map<String, dynamic> && decoded.containsKey('results')) {
-          results = decoded['results'] as List<dynamic>;
-          hasMore = decoded['next'] != null;
-        } else {
-          // Unpaginated fallback: a plain array is the whole feed.
-          results = decoded as List<dynamic>;
-          hasMore = false;
-        }
-        final items = results.cast<Map<String, dynamic>>();
-        if (page == 1) cache.cacheFeed(items);
-        return FeedPage(
-          items: items.map((j) => gm.GroupMedia.fromJson(j)).toList(),
-          hasMore: hasMore,
-        );
+        // Decode + parse off the UI isolate to keep feed loads/refreshes smooth.
+        final parsed = await compute(_parseFeedResponseBody, response.body);
+        if (page == 1) cache.cacheFeed(parsed.rawItems);
+        return FeedPage(items: parsed.items, hasMore: parsed.hasMore);
       } else {
         throw Exception('Failed to load feed');
       }

@@ -1,8 +1,6 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
@@ -11,11 +9,11 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/media_upload_flow.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
-import '../widgets/media_tag_dialog.dart';
 import 'all_dogs_today_screen.dart';
 import 'pickup_map_screen.dart';
 import 'staff_dog_detail_screen.dart';
@@ -27,7 +25,6 @@ import 'dog_profile_changes_screen.dart';
 import 'facility_defects_screen.dart';
 import 'fleet_screen.dart';
 import 'staff_permissions_screen.dart';
-import 'multi_photo_capture_screen.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -65,21 +62,19 @@ class UnifiedDashboardScreen extends StatefulWidget {
 class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   final DataService _dataService = getIt<DataService>();
 
-  // Assignment cache
-  final Map<String, List<DailyDogAssignment>> _assignmentCache = {};
-  final Set<String> _loadingDates = {};
-
-  // Scheduled dogs that are not yet assigned for a date, excluding ad-hoc
-  // dogs (those are shown to admins separately). Used both for the
-  // unassigned banner count and the All Dogs view.
-  final Map<String, List<Dog>> _unassignedDogsCache = {};
+  // Per-day cache. One [DayData] per day holds that day's assignments,
+  // unassigned dogs, compatibility conflicts, closure, loading and error state,
+  // so a day loads and invalidates as a single unit (see [_loadDay]).
+  final Map<DateTime, DayData> _dayCache = {};
 
   // Date navigation
   List<DateTime> _dateOptions = [];
   final ScrollController _dateScrollController = ScrollController();
   late DateTime _selectedDate;
 
-  // Closure days
+  // Closure days for the whole visible date range. This batch-loaded map is the
+  // source of truth that drives the date strip and the reduced-capacity banner;
+  // each [DayData.closure] is a per-day copy taken from it.
   Map<DateTime, ClosureDay> _closureDays = {};
 
   // Staff
@@ -103,7 +98,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   int _unspayedMalesCount = 0;
   List<UnspayedMaleSummary> _unspayedMales = [];
   List<BoardingRequest> _boardingTonight = [];
-  final Map<String, List<CompatibilityConflict>> _conflictsCache = {};
 
   @override
   void initState() {
@@ -113,7 +107,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
     _selectedDate = _dateOptions[todayIndex >= 0 ? todayIndex : 0];
     _loadStaffMembers();
-    _loadAssignmentsForDate(_selectedDate);
+    _loadDay(_selectedDate);
     _loadClosureDays();
     _loadDashboardData();
     // Today now sits mid-strip (past weekdays precede it), so scroll it into
@@ -171,7 +165,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
+  /// Normalises a date to a date-only [DateTime] used to key [_dayCache] and
+  /// [_closureDays].
+  DateTime _dayKey(DateTime date) => DateTime(date.year, date.month, date.day);
+
+  /// The cached [DayData] for [date], or an empty placeholder if not loaded.
+  DayData _dayData(DateTime date) => _dayCache[_dayKey(date)] ?? const DayData();
 
   // ─── Data loading ─────────────────────────────────────────────────
 
@@ -213,35 +212,57 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               .toList();
           if (!_dateOptions.any((d) => _isSameDay(d, _selectedDate)) && _dateOptions.isNotEmpty) {
             _selectedDate = _dateOptions.first;
-            _loadAssignmentsForDate(_selectedDate);
+            _loadDay(_selectedDate);
           }
         });
       }
     } catch (_) {}
   }
 
-  Future<void> _loadAssignmentsForDate(DateTime date, {bool forceReload = false, bool prefetchAdjacent = true}) async {
+  /// Loads everything the dashboard shows for [date] — assignments, unassigned
+  /// dogs and compatibility conflicts — into a single [DayData] entry, together
+  /// with its loading/error state. This is the one place that populates the
+  /// per-day cache.
+  ///
+  /// Skips work if the day is already loaded unless [force] is set. The
+  /// unassigned-dog and conflict fetches run alongside the assignment fetch and
+  /// fold their results into the same [DayData].
+  Future<void> _loadDay(DateTime date, {bool force = false, bool prefetchAdjacent = true}) async {
     if (!mounted) return;
-    final key = _dateKey(date);
-    if (!forceReload && _assignmentCache.containsKey(key)) return;
-    setState(() => _loadingDates.add(key));
+    final key = _dayKey(date);
+    final existing = _dayCache[key];
+    if (!force && existing != null && existing.loaded) return;
+
+    final closure = _closureDays[key];
+    setState(() {
+      _dayCache[key] = (existing ?? const DayData())
+          .copyWith(loading: true, clearError: true, closure: closure, clearClosure: closure == null);
+    });
+
+    // Assignments — drives the loading/error state shown by the day view.
     try {
       final assignments = await _dataService.getTodayAssignments(date: date);
       if (mounted) {
         setState(() {
-          _assignmentCache[key] = assignments;
-          _loadingDates.remove(key);
+          _dayCache[key] = _dayData(date)
+              .copyWith(assignments: assignments, loading: false, loaded: true, clearError: true);
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loadingDates.remove(key));
+        setState(() {
+          _dayCache[key] = _dayData(date).copyWith(loading: false, loaded: true, error: e);
+        });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load assignments: $e')));
       }
     }
-    _loadUnassignedCountForDate(date, forceReload: forceReload);
-    _loadCompatibilityConflictsForDate(date, forceReload: forceReload);
-    // Pre-cache adjacent dates so swiping is instant
+
+    // Unassigned dogs + conflicts fold into the same DayData; they don't gate
+    // the loading flag (the day view renders once assignments arrive).
+    _loadUnassignedDogs(date);
+    _loadConflicts(date);
+
+    // Pre-cache adjacent dates so swiping is instant.
     if (prefetchAdjacent) _prefetchAdjacentDates(date);
   }
 
@@ -251,38 +272,37 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final currentIndex = _dateOptions.indexWhere((d) => _isSameDay(d, date));
     if (currentIndex < 0) return;
     if (currentIndex > 0) {
-      _loadAssignmentsForDate(_dateOptions[currentIndex - 1], prefetchAdjacent: false);
+      _loadDay(_dateOptions[currentIndex - 1], prefetchAdjacent: false);
       _loadAvailableStaff(_dateOptions[currentIndex - 1]);
     }
     if (currentIndex < _dateOptions.length - 1) {
-      _loadAssignmentsForDate(_dateOptions[currentIndex + 1], prefetchAdjacent: false);
+      _loadDay(_dateOptions[currentIndex + 1], prefetchAdjacent: false);
       _loadAvailableStaff(_dateOptions[currentIndex + 1]);
     }
   }
 
-  Future<void> _loadCompatibilityConflictsForDate(DateTime date, {bool forceReload = false}) async {
-    final key = _dateKey(date);
-    if (!forceReload && _conflictsCache.containsKey(key)) return;
+  Future<void> _loadConflicts(DateTime date) async {
     try {
       final conflicts = await _dataService.getCompatibilityConflicts(date: date);
-      if (mounted) setState(() => _conflictsCache[key] = conflicts);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] = _dayData(date).copyWith(conflicts: conflicts));
+      }
     } catch (_) {}
   }
 
-  Future<void> _loadUnassignedCountForDate(DateTime date, {bool forceReload = false}) async {
-    final key = _dateKey(date);
-    if (!forceReload && _unassignedDogsCache.containsKey(key)) return;
+  Future<void> _loadUnassignedDogs(DateTime date) async {
     try {
       final unassigned = await _dataService.getUnassignedDogs(date: date);
-      if (mounted) setState(() => _unassignedDogsCache[key] = unassigned);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] = _dayData(date).copyWith(unassignedDogs: unassigned));
+      }
     } catch (_) {}
   }
 
-  Future<void> _loadAssignments() {
-    _assignmentCache.clear();
-    _unassignedDogsCache.clear();
-    _conflictsCache.clear();
-    return _loadAssignmentsForDate(_selectedDate, forceReload: true);
+  /// Single invalidation path: drop all cached days and reload the selected one.
+  Future<void> _reloadSelectedDay() {
+    _dayCache.clear();
+    return _loadDay(_selectedDate, force: true);
   }
 
   Future<void> _loadDashboardData() async {
@@ -379,7 +399,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   void filterByStaff(int? staffId) {
     if (staffId != null) {
-      final assignments = _assignmentCache[_dateKey(_selectedDate)] ?? [];
+      final assignments = _dayData(_selectedDate).assignments;
       final staffAssignments = assignments.where((a) => a.staffMemberId == staffId).toList();
       final staffName = _staffMembers
           .where((s) => s['id'] == staffId)
@@ -413,7 +433,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         _selectedDate = picked;
       });
       _scrollToDateChip(existingIndex);
-      _loadAssignmentsForDate(picked);
+      _loadDay(picked);
       _loadAvailableStaff(picked);
     } else {
       // Regenerate date options centered on picked date
@@ -424,7 +444,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       });
       final newIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
       if (newIndex >= 0) _scrollToDateChip(newIndex);
-      _loadAssignmentsForDate(picked);
+      _loadDay(picked);
       _loadAvailableStaff(picked);
       _loadClosureDays();
     }
@@ -452,7 +472,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
     // Refresh after returning — statuses may have changed
     if (mounted) {
-      await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+      await _loadDay(_selectedDate, force: true);
     }
   }
 
@@ -474,7 +494,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       ),
     );
     if (mounted) {
-      await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+      await _loadDay(_selectedDate, force: true);
     }
   }
 
@@ -493,7 +513,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
     // Always refresh after returning — data may have changed
     if (mounted) {
-      await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+      await _loadDay(_selectedDate, force: true);
     }
   }
 
@@ -630,7 +650,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             SnackBar(content: Text('Already assigned: $names'), backgroundColor: AppColors.warning, duration: const Duration(seconds: 4)),
           );
         }
-        await _loadAssignments();
+        await _reloadSelectedDay();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign dogs: $e')));
@@ -798,7 +818,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           SnackBar(content: Text('Swapped $updated assignment(s).'), backgroundColor: AppColors.success),
         );
       }
-      await _loadAssignments();
+      await _reloadSelectedDay();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to swap staff: $e')));
     }
@@ -969,7 +989,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             );
           }
         }
-        await _loadAssignments();
+        await _reloadSelectedDay();
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add dog: $e')));
       }
@@ -981,189 +1001,13 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // ─── Upload media from dashboard ──────────────────────────────────
 
   Future<void> _uploadMediaFromDashboard() async {
-    final picker = ImagePicker();
-    final choice = await showModalBottomSheet<String>(
+    await MediaUploadFlow(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Picon(PiconsDuotone.camera),
-              title: const Text('Take Photos'),
-              subtitle: const Text('Capture one or more shots in a row'),
-              onTap: () => Navigator.pop(context, 'camera_photo'),
-            ),
-            ListTile(
-              leading: Picon(PiconsDuotone.videoCamera),
-              title: const Text('Record Video'),
-              onTap: () => Navigator.pop(context, 'camera_video'),
-            ),
-            const Divider(),
-            ListTile(
-              leading: Picon(PiconsDuotone.uploadSimple),
-              title: const Text('Upload'),
-              onTap: () => Navigator.pop(context, 'multiple'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (choice == null) return;
-
-    if (choice == 'multiple') {
-      final files = await picker.pickMultipleMedia();
-      if (files.isEmpty) return;
-
-      final tagDialogFiles = <(Uint8List, String, bool)>[];
-      final fileData = <(Uint8List, String)>[];
-      for (final file in files) {
-        final bytes = await file.readAsBytes();
-        final ext = file.name.toLowerCase();
-        final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
-        tagDialogFiles.add((bytes, file.name, isVideo));
-        fileData.add((bytes, file.name));
-      }
-      await _processAndUploadFiles(fileData, tagDialogFiles);
-      return;
-    }
-
-    if (choice == 'camera_photo') {
-      final captured = await Navigator.push<List<(Uint8List, String)>>(
-        context,
-        MaterialPageRoute(fullscreenDialog: true, builder: (_) => const MultiPhotoCaptureScreen()),
-      );
-      if (captured == null || captured.isEmpty) return;
-      final tagDialogFiles = captured.map((p) => (p.$1, p.$2, false)).toList();
-      await _processAndUploadFiles(captured, tagDialogFiles);
-      return;
-    }
-
-    XFile? file;
-    final isVideo = choice.contains('video');
-    final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
-    if (isVideo) {
-      file = await picker.pickVideo(source: source);
-    } else {
-      file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85);
-    }
-    if (file == null) return;
-
-    final bytes = await file.readAsBytes();
-    final tagResult = await Navigator.push<MediaTagResult>(
-      context,
-      MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: [(bytes, file!.name, isVideo)])),
-    );
-    if (tagResult == null) return;
-
-    final uploadBytes = tagResult.bytesByFile.isNotEmpty
-        ? tagResult.bytesByFile[0]
-        : bytes;
-
-    try {
-      showDialog(context: context, barrierDismissible: false, builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Uploading...')])));
-      await _dataService.uploadGroupMedia(
-        fileBytes: uploadBytes, fileName: file.name, isVideo: isVideo,
-        caption: tagResult.caption,
-        taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty ? tagResult.taggedDogIdsByFile[0] : null,
-      );
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload successful!'), backgroundColor: AppColors.success));
-          }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error));
-      }
-    }
-  }
-
-  Future<void> _processAndUploadFiles(
-    List<(Uint8List, String)> fileData,
-    List<(Uint8List, String, bool)> tagDialogFiles,
-  ) async {
-    final total = fileData.length;
-    if (!mounted) return;
-    final wantTag = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('$total file${total == 1 ? '' : 's'} selected'),
-        content: const Text('Would you like to tag dogs and add a caption, or upload straight away?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Upload Now')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tag & Caption')),
-        ],
-      ),
-    );
-    if (wantTag == null) return;
-
-    List<String?>? captionsByFile;
-    List<List<String>>? taggedDogIdsByFile;
-
-    if (wantTag) {
-      final tagResult = await Navigator.push<MediaTagResult>(
-        context,
-        MaterialPageRoute(fullscreenDialog: true, builder: (_) => MediaTagDialog(files: tagDialogFiles)),
-      );
-      if (tagResult == null) return;
-      captionsByFile = tagResult.captionsByFile;
-      taggedDogIdsByFile = tagResult.taggedDogIdsByFile;
-      if (tagResult.bytesByFile.length == fileData.length) {
-        for (var i = 0; i < fileData.length; i++) {
-          fileData[i] = (tagResult.bytesByFile[i], fileData[i].$2);
-        }
-      }
-    }
-
-    final progress = ValueNotifier<int>(0);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => PopScope(
-        canPop: false,
-        child: ValueListenableBuilder<int>(
-          valueListenable: progress,
-          builder: (context, completed, _) => AlertDialog(
-            content: Column(mainAxisSize: MainAxisSize.min, children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              Text('Uploading $completed/$total...'),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(value: total > 0 ? completed / total : 0),
-            ]),
-          ),
-        ),
-      ),
-    );
-
-    try {
-      final failures = await _dataService.uploadMultipleGroupMedia(
-        files: fileData, captionsByFile: captionsByFile,
-        taggedDogIdsByFile: taggedDogIdsByFile,
-        onProgress: (done, count) => progress.value = done,
-      );
-      if (!mounted) return;
-      Navigator.pop(context);
-      final succeeded = total - failures.length;
-      if (failures.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Successfully uploaded $total file${total == 1 ? '' : 's'}!'), backgroundColor: AppColors.success));
-      } else {
-        final failedNames = failures.map((f) => f.fileName).join(', ');
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
-          backgroundColor: AppColors.warning,
-          duration: const Duration(seconds: 6),
-        ));
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error));
-      }
-    }
+      dataService: _dataService,
+      // After a feed upload the dashboard reloads assignments — tagged dogs may
+      // now reflect on the day's data.
+      onComplete: _reloadSelectedDay,
+    ).start();
   }
 
   // ─── Helper: scroll date chip into view ───────────────────────────
@@ -1191,7 +1035,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         _unassignedExpanded = false;
       });
       _scrollToDateChip(currentIndex + 1);
-      _loadAssignmentsForDate(nextDate);
+      _loadDay(nextDate);
       _loadAvailableStaff(nextDate);
     }
   }
@@ -1206,7 +1050,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         _unassignedExpanded = false;
       });
       _scrollToDateChip(currentIndex - 1);
-      _loadAssignmentsForDate(prevDate);
+      _loadDay(prevDate);
       _loadAvailableStaff(prevDate);
     }
   }
@@ -1215,9 +1059,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dateKey = _dateKey(_selectedDate);
-    final isLoading = _loadingDates.contains(dateKey);
-    final assignments = _assignmentCache[dateKey] ?? [];
+    // Stable string identity for the swipe AnimatedSwitcher.
+    final dateKey = '${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}';
+    final day = _dayData(_selectedDate);
+    final assignments = day.assignments;
 
     return Column(
       children: [
@@ -1247,7 +1092,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         Expanded(
           child: RefreshIndicator.adaptive(
             onRefresh: () async {
-              await _loadAssignmentsForDate(_selectedDate, forceReload: true);
+              await _loadDay(_selectedDate, force: true);
               await _loadDashboardData();
             },
             child: ListView(
@@ -1294,7 +1139,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         ),
                       );
                     },
-                    child: isLoading && !_assignmentCache.containsKey(dateKey)
+                    child: day.loading && !day.loaded
                         ? ListTileSkeletonList(key: const ValueKey('loading'))
                         : Column(
                             key: ValueKey(dateKey),
@@ -1358,7 +1203,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         _unassignedExpanded = false;
                       });
                       _scrollToDateChip(index);
-                      _loadAssignmentsForDate(date);
+                      _loadDay(date);
                       _loadAvailableStaff(date);
                     },
                     label: Column(
@@ -1398,7 +1243,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildUnassignedBanner(DateTime date) {
-    final dogs = _unassignedDogsCache[_dateKey(date)] ?? [];
+    final dogs = _dayData(date).unassignedDogs;
     if (dogs.isEmpty) return const SizedBox.shrink();
     final count = dogs.length;
     final label = count == 1 ? '1 dog unassigned' : '$count dogs unassigned';
@@ -1482,7 +1327,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildCompatibilityWarning(DateTime date) {
-    final conflicts = _conflictsCache[_dateKey(date)] ?? [];
+    final conflicts = _dayData(date).conflicts;
     if (conflicts.isEmpty) return const SizedBox.shrink();
     final label = conflicts.length == 1
         ? '1 grouping conflict'
@@ -1690,7 +1535,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           );
         }
       }
-      await _loadAssignments();
+      await _reloadSelectedDay();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign: $e')));
@@ -1714,7 +1559,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           );
         }
       }
-      await _loadAssignments();
+      await _reloadSelectedDay();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign: $e')));
@@ -1723,7 +1568,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildOverviewMetrics(List<DailyDogAssignment> assignments) {
-    final unassignedDogs = _unassignedDogsCache[_dateKey(_selectedDate)] ?? const <Dog>[];
+    final unassignedDogs = _dayData(_selectedDate).unassignedDogs;
     final uniqueAssignedDogs = assignments.map((a) => a.dogId).toSet().length;
     final allDogsCount = uniqueAssignedDogs + unassignedDogs.length;
     final myDogs = widget.myUserId != null
@@ -2092,4 +1937,61 @@ class _StaffSummary {
   int dogCount;
   final List<DailyDogAssignment> assignments;
   _StaffSummary(this.id, this.name) : dogCount = 0, assignments = [];
+}
+
+/// Immutable snapshot of everything the dashboard shows for a single day.
+///
+/// Previously the dashboard kept several parallel maps/sets (assignments,
+/// unassigned dogs, compatibility conflicts) keyed by an ad-hoc 'y-m-d' string,
+/// each loaded and invalidated independently. [DayData] folds them into one
+/// value object owned by a single `Map<DateTime, DayData>`, so a day loads and
+/// invalidates as a unit.
+///
+/// [closure] is a convenience copy of the day's closure (sourced from the
+/// batch-loaded closure-range map) so per-day consumers don't have to reach
+/// back into that map.
+class DayData {
+  final List<DailyDogAssignment> assignments;
+  final List<Dog> unassignedDogs;
+  final List<CompatibilityConflict> conflicts;
+  final ClosureDay? closure;
+  final bool loading;
+  final Object? error;
+
+  /// Whether the day's assignments have been fetched at least once (success or
+  /// failure). Mirrors the old "is there an entry in the assignment cache?"
+  /// check that gated the skeleton loader.
+  final bool loaded;
+
+  const DayData({
+    this.assignments = const [],
+    this.unassignedDogs = const [],
+    this.conflicts = const [],
+    this.closure,
+    this.loading = false,
+    this.error,
+    this.loaded = false,
+  });
+
+  DayData copyWith({
+    List<DailyDogAssignment>? assignments,
+    List<Dog>? unassignedDogs,
+    List<CompatibilityConflict>? conflicts,
+    ClosureDay? closure,
+    bool clearClosure = false,
+    bool? loading,
+    Object? error,
+    bool clearError = false,
+    bool? loaded,
+  }) {
+    return DayData(
+      assignments: assignments ?? this.assignments,
+      unassignedDogs: unassignedDogs ?? this.unassignedDogs,
+      conflicts: conflicts ?? this.conflicts,
+      closure: clearClosure ? null : (closure ?? this.closure),
+      loading: loading ?? this.loading,
+      error: clearError ? null : (error ?? this.error),
+      loaded: loaded ?? this.loaded,
+    );
+  }
 }
