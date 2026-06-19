@@ -10,6 +10,7 @@ import '../services/data_service.dart';
 import '../services/media_upload_flow.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'dashboard/action_items_section.dart';
@@ -580,40 +581,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
-  Future<int?> _pickStaffMember() async {
-    int? picked;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Select Staff Member'),
-          content: DropdownButtonFormField<int>(
-            decoration: const InputDecoration(labelText: 'Assign to'),
-            items: _staffMembers.map((s) {
-              final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
-                  ? s['first_name'].toString() : s['username'].toString();
-              final staffId = s['id'] as int;
-              final isAvailable = _availableStaffIds.isEmpty || _availableStaffIds.contains(staffId);
-              return DropdownMenuItem<int>(
-                value: staffId,
-                child: Row(children: [
-                  Picon(PiconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
-                  const SizedBox(width: 8),
-                  Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
-                  if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
-                ]),
-              );
-            }).toList(),
-            onChanged: (v) => setDialogState(() => picked = v),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            FilledButton(onPressed: picked == null ? null : () => Navigator.pop(context, true), child: const Text('Next')),
-          ],
-        ),
-      ),
+  Future<int?> _pickStaffMember() {
+    // F12: uses the already-loaded staff list (no lazy loading / sort here),
+    // matching the dashboard's original behaviour.
+    return pickStaffMemberFromList(
+      context,
+      title: 'Select Staff Member',
+      staffMembers: _staffMembers,
+      availableStaffIds: _availableStaffIds,
+      dropdownLabel: 'Assign to',
+      confirmLabel: 'Next',
     );
-    return (result == true) ? picked : null;
   }
 
   // ─── Swap staff dialog ────────────────────────────────────────────

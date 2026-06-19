@@ -13,6 +13,7 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/assignment_action_dialogs.dart';
 import 'staff_dog_detail_screen.dart';
 
 /// A staff member's route geometry: base → their dogs (in list order) → base.
@@ -398,7 +399,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
       confirmLabel: 'Reassign',
     );
     if (picked == null || !mounted) return;
-    final scope = await _promptAssignmentScope();
+    final scope = await promptAssignmentScope(context);
     if (scope == null) return;
     try {
       final updated = await _dataService.reassignDog(assignment.id, picked, scope: scope);
@@ -445,98 +446,32 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     }
   }
 
-  Future<AssignmentScope?> _promptAssignmentScope() {
-    return showDialog<AssignmentScope>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Apply change'),
-        content: const Text('Apply this change to only this day, or to every week going forward?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, AssignmentScope.justThisDay), child: const Text('Just this day')),
-          FilledButton(onPressed: () => Navigator.pop(context, AssignmentScope.fromNowOn), child: const Text('From now on')),
-        ],
-      ),
-    );
-  }
-
   Future<int?> _pickStaffMember({
     required String title,
     int? currentStaffId,
     String? subtitle,
     String confirmLabel = 'Assign',
-  }) async {
-    List<Map<String, dynamic>> staffMembers = List.of(widget.staffMembers);
-    Set<int> availableIds = Set.of(widget.availableStaffIds);
-    if (staffMembers.isEmpty) {
-      try {
-        staffMembers = await _dataService.getStaffMembers();
-        availableIds = staffMembers.map((s) => s['id'] as int).toSet();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load staff: $e')));
-        }
-        return null;
-      }
-    }
-    if (currentStaffId != null) {
-      staffMembers = staffMembers.where((s) => s['id'] != currentStaffId).toList();
-    }
-    if (!mounted || staffMembers.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No staff members available.')));
-      }
-      return null;
-    }
-
-    int? picked;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (subtitle != null) ...[
-                Text(subtitle, style: const TextStyle(color: AppColors.grey600, fontSize: 13)),
-                const SizedBox(height: 12),
-              ],
-              DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'Staff member'),
-                value: picked,
-                items: staffMembers.map((s) {
-                  final staffId = s['id'] as int;
-                  final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
-                      ? s['first_name'].toString()
-                      : s['username'].toString();
-                  final isAvailable = availableIds.isEmpty || availableIds.contains(staffId);
-                  return DropdownMenuItem<int>(
-                    value: staffId,
-                    child: Row(children: [
-                      Container(
-                        width: 10, height: 10,
-                        decoration: BoxDecoration(color: staffColor(staffId, _orderedStaffIds), shape: BoxShape.circle),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
-                      if (!isAvailable) const Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
-                    ]),
-                  );
-                }).toList(),
-                onChanged: (v) => setDialogState(() => picked = v),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            FilledButton(onPressed: picked == null ? null : () => Navigator.pop(context, true), child: Text(confirmLabel)),
-          ],
-        ),
+  }) {
+    // F12: delegate to the shared picker. Unlike the old map-only copy this now
+    // includes the getAvailableStaffForDate fallback + availability sort. The
+    // leading dot stays route-coloured (by staff order) rather than the default
+    // green/grey availability dot.
+    final ordered = _orderedStaffIds;
+    return pickStaffMember(
+      context,
+      title: title,
+      currentStaffId: currentStaffId,
+      subtitle: subtitle,
+      confirmLabel: confirmLabel,
+      initialStaffMembers: widget.staffMembers,
+      initialAvailableStaffIds: widget.availableStaffIds,
+      loadStaff: _dataService.getStaffMembers,
+      loadAvailableIds: () => _dataService.getAvailableStaffForDate(widget.date),
+      leadingDotBuilder: (staffId, isAvailable) => Container(
+        width: 10, height: 10,
+        decoration: BoxDecoration(color: staffColor(staffId, ordered), shape: BoxShape.circle),
       ),
     );
-    return (result == true) ? picked : null;
   }
 
   // ─── Build ──────────────────────────────────────────────────────────
