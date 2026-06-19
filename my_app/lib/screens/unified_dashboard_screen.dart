@@ -973,6 +973,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add dog: $e')));
       }
     }
+
+    searchController.dispose();
   }
 
   // ─── Upload media from dashboard ──────────────────────────────────

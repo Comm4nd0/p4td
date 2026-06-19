@@ -119,7 +119,11 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
                   child: CircleAvatar(
                     backgroundColor: AppColors.primaryLight.withOpacity(0.2),
                     backgroundImage: widget.media.uploadedByProfilePhoto != null
-                        ? CachedNetworkImageProvider(widget.media.uploadedByProfilePhoto!)
+                        ? CachedNetworkImageProvider(
+                            widget.media.uploadedByProfilePhoto!,
+                            maxWidth: 120,
+                            maxHeight: 120,
+                          )
                         : null,
                     child: widget.media.uploadedByProfilePhoto == null
                         ? Text(
@@ -230,6 +234,11 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
                       // image is loaded only when opening the full-screen viewer.
                       imageUrl: widget.media.thumbnailUrl ?? widget.media.fileUrl,
                       width: double.infinity,
+                      // Decode at the display width (full bleed) rather than the
+                      // image's native resolution.
+                      memCacheWidth: (MediaQuery.of(context).size.width *
+                              MediaQuery.of(context).devicePixelRatio)
+                          .round(),
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
                         height: 200,
@@ -282,7 +291,11 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
                 children: widget.media.taggedDogs.map((dog) => Chip(
                   avatar: dog.profileImageUrl != null
                       ? CircleAvatar(
-                          backgroundImage: CachedNetworkImageProvider(dog.profileImageUrl!),
+                          backgroundImage: CachedNetworkImageProvider(
+                            dog.profileImageUrl!,
+                            maxWidth: 96,
+                            maxHeight: 96,
+                          ),
                         )
                       : CircleAvatar(
                           backgroundColor: AppColors.primaryLight.withAlpha(40),
@@ -729,16 +742,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     await _controller!.initialize();
     if (mounted) {
-      _controller!.addListener(_onVideoUpdate);
       setState(() => _initialized = true);
       _controller!.play();
       setState(() => _isPlaying = true);
       _startHideTimer();
     }
-  }
-
-  void _onVideoUpdate() {
-    if (mounted) setState(() {});
   }
 
   void _togglePlayPause() {
@@ -816,9 +824,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       );
     }
 
-    final position = _controller!.value.position;
-    final duration = _controller!.value.duration;
-
     return GestureDetector(
       onTap: _toggleControls,
       child: Stack(
@@ -874,18 +879,21 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                       padding: const EdgeInsets.symmetric(vertical: 4),
                     ),
                     const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _formatDuration(position),
-                          style: const TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                        Text(
-                          _formatDuration(duration),
-                          style: const TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                      ],
+                    ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: _controller!,
+                      builder: (context, value, _) => Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDuration(value.position),
+                            style: const TextStyle(color: Colors.white, fontSize: 11),
+                          ),
+                          Text(
+                            _formatDuration(value.duration),
+                            style: const TextStyle(color: Colors.white, fontSize: 11),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

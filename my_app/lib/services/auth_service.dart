@@ -34,14 +34,31 @@ class Account {
         'token': token,
       };
 
-  factory Account.fromJson(Map<String, dynamic> json) => Account(
-        userId: json['userId'] as int,
-        username: json['username'] as String,
-        email: json['email'] as String,
-        displayName: json['displayName'] as String?,
-        profilePhotoUrl: json['profilePhotoUrl'] as String?,
-        token: json['token'] as String,
-      );
+  factory Account.fromJson(Map<String, dynamic> json) {
+    // Validate the required fields up front so a single malformed entry throws
+    // here (and is dropped by the caller) rather than producing a half-built,
+    // unusable account.
+    final rawUserId = json['userId'];
+    final userId = rawUserId is int ? rawUserId : int.tryParse('$rawUserId');
+    final username = json['username'];
+    final email = json['email'];
+    final token = json['token'];
+    if (userId == null ||
+        username is! String ||
+        email is! String ||
+        token is! String ||
+        token.isEmpty) {
+      throw const FormatException('Malformed saved account entry');
+    }
+    return Account(
+      userId: userId,
+      username: username,
+      email: email,
+      displayName: json['displayName'] as String?,
+      profilePhotoUrl: json['profilePhotoUrl'] as String?,
+      token: token,
+    );
+  }
 
   Account copyWith({
     String? username,
@@ -70,6 +87,14 @@ class AuthService {
   AuthService._internal();
 
   final _storage = const FlutterSecureStorage();
+
+  /// Logs the raw exception only in debug builds so we never surface internal
+  /// error details (stack traces, URLs, server internals) to end users.
+  void _logError(String context, Object error) {
+    if (kDebugMode) {
+      debugPrint('AuthService.$context: $error');
+    }
+  }
 
   static const _kActiveToken = 'auth_token';
   static const _kAccounts = 'accounts';
@@ -132,7 +157,8 @@ class AuthService {
       if (NoConnectionException.isNetworkError(e)) {
         throw const NoConnectionException();
       }
-      return 'Error: $e';
+      _logError('login', e);
+      return 'Could not log in. Please try again.';
     }
   }
 
@@ -185,16 +211,25 @@ class AuthService {
     return await _storage.read(key: _kActiveToken);
   }
 
-  /// All accounts saved on this device.
+  /// All accounts saved on this device. Malformed individual entries are
+  /// dropped rather than discarding the whole list.
   Future<List<Account>> getAccounts() async {
     final raw = await _storage.read(key: _kAccounts);
     if (raw == null || raw.isEmpty) return <Account>[];
     try {
       final list = json.decode(raw) as List;
-      return list
-          .map((e) => Account.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-    } catch (_) {
+      final accounts = <Account>[];
+      for (final e in list) {
+        try {
+          accounts.add(Account.fromJson(Map<String, dynamic>.from(e as Map)));
+        } catch (entryError) {
+          // Skip just this corrupt entry; keep the rest of the accounts usable.
+          _logError('getAccounts (dropping malformed entry)', entryError);
+        }
+      }
+      return accounts;
+    } catch (e) {
+      _logError('getAccounts', e);
       return <Account>[];
     }
   }
@@ -292,7 +327,8 @@ class AuthService {
       if (NoConnectionException.isNetworkError(e)) {
         throw const NoConnectionException();
       }
-      return 'Error: $e';
+      _logError('requestPasswordReset', e);
+      return 'Could not send a reset code. Please try again.';
     }
   }
 
@@ -314,7 +350,8 @@ class AuthService {
       if (NoConnectionException.isNetworkError(e)) {
         throw const NoConnectionException();
       }
-      return {'success': false, 'error': 'Error: $e'};
+      _logError('verifyOTP', e);
+      return {'success': false, 'error': 'Could not verify the code. Please try again.'};
     }
   }
 
@@ -347,7 +384,8 @@ class AuthService {
       if (NoConnectionException.isNetworkError(e)) {
         throw const NoConnectionException();
       }
-      return 'Error: $e';
+      _logError('resetPassword', e);
+      return 'Could not reset your password. Please try again.';
     }
   }
 
@@ -377,7 +415,8 @@ class AuthService {
       if (NoConnectionException.isNetworkError(e)) {
         throw const NoConnectionException();
       }
-      return 'Error: $e';
+      _logError('deleteAccount', e);
+      return 'Could not delete your account. Please try again.';
     }
   }
 

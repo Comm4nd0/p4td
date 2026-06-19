@@ -27,6 +27,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   static const _privacyPolicyUrl = 'https://paws4thoughtdogs.com/privacy-policy/';
 
+  /// Basic email shape check — not exhaustive, just enough to catch obvious
+  /// typos before submitting.
+  static final _emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
   Future<void> _openPrivacyPolicy() async {
     final uri = Uri.parse(_privacyPolicyUrl);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -46,15 +50,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
 
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    super.dispose();
+  }
+
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
-
-    if (_passwordController.text != _confirmPasswordController.text) {
-      setState(() {
-        _errorMessage = 'Passwords do not match';
-      });
-      return;
-    }
 
     if (!_acceptedPrivacy) {
       setState(() {
@@ -229,7 +238,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 keyboardType: TextInputType.emailAddress,
                 validator: (v) {
                   if (v?.isEmpty ?? true) return 'Required';
-                  if (!v!.contains('@')) return 'Enter a valid email';
+                  if (!_emailRegex.hasMatch(v!.trim())) return 'Enter a valid email';
                   return null;
                 },
               ),
@@ -263,7 +272,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                 ),
                 obscureText: _obscureConfirm,
-                validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                validator: (v) {
+                  if (v?.isEmpty ?? true) return 'Required';
+                  if (v != _passwordController.text) return 'Passwords do not match';
+                  return null;
+                },
               ),
               const SizedBox(height: 24),
               Text(

@@ -39,6 +39,8 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -49,15 +51,35 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Basic email shape check — not exhaustive, just enough to catch obvious
+  /// typos before hitting the network.
+  static final _emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
   Future<void> _login() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    // Validate before doing any network work.
+    if (email.isEmpty || password.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter your email and password.';
+        _isOffline = false;
+      });
+      return;
+    }
+    if (!_emailRegex.hasMatch(email)) {
+      setState(() {
+        _errorMessage = 'Please enter a valid email address.';
+        _isOffline = false;
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _isOffline = false;
       _errorMessage = null;
     });
-
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
 
     try {
       // Email is the username

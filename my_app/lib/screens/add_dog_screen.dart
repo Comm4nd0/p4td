@@ -58,6 +58,20 @@ class _AddDogScreenState extends State<AddDogScreen> {
     _checkUserRole();
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _foodController.dispose();
+    _medicalController.dispose();
+    _vetController.dispose();
+    _addressController.dispose();
+    _postcodeController.dispose();
+    _accessController.dispose();
+    _vanPlacementController.dispose();
+    _generalNotesController.dispose();
+    super.dispose();
+  }
+
   Future<void> _checkUserRole() async {
     try {
       final profile = await _dataService.getProfile();

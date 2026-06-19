@@ -864,33 +864,42 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     final staffPickups = assignments.where((a) => !a.effectiveOwnerBrings).toList();
     final ownerDropoffs = assignments.where((a) => a.effectiveOwnerBrings).toList();
 
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-      children: [
-        if (unassigned.isNotEmpty) ...[
-          _buildUnassignedSectionHeader(unassigned.length),
-          ...unassigned.map((d) => _buildUnassignedCard(d)),
-          const SizedBox(height: 12),
-        ],
-        ...staffPickups.map((a) => _buildAssignmentCard(a)),
-        if (ownerDropoffs.isNotEmpty) ...[
-          Padding(
+    // Build a flat list of lazy row builders so only visible rows are built.
+    final rows = <Widget Function(BuildContext)>[];
+    if (unassigned.isNotEmpty) {
+      rows.add((_) => _buildUnassignedSectionHeader(unassigned.length));
+      for (final d in unassigned) {
+        rows.add((_) => _buildUnassignedCard(d));
+      }
+      rows.add((_) => const SizedBox(height: 12));
+    }
+    for (final a in staffPickups) {
+      rows.add((_) => _buildAssignmentCard(a));
+    }
+    if (ownerDropoffs.isNotEmpty) {
+      rows.add((ctx) => Padding(
             padding: const EdgeInsets.only(top: 16, bottom: 8),
             child: Row(
               children: [
                 Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                 const SizedBox(width: 8),
                 Text('Owner Drop-offs',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
                 Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
               ],
             ),
-          ),
-          ...ownerDropoffs.map((a) => _buildAssignmentCard(a)),
-        ],
-      ],
+          ));
+      for (final a in ownerDropoffs) {
+        rows.add((_) => _buildAssignmentCard(a));
+      }
+    }
+
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+      itemCount: rows.length,
+      itemBuilder: (context, index) => rows[index](context),
     );
   }
 
@@ -905,63 +914,66 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     final sortedStaffIds = groups.keys.toList()
       ..sort((a, b) => staffNames[a]!.toLowerCase().compareTo(staffNames[b]!.toLowerCase()));
 
-    return ListView(
+    // Flatten into lazy row builders so only visible rows are built.
+    final rows = <Widget Function(BuildContext)>[];
+    if (unassigned.isNotEmpty) {
+      rows.add((_) => _buildUnassignedSectionHeader(unassigned.length));
+      for (final d in unassigned) {
+        rows.add((_) => _buildUnassignedCard(d));
+      }
+      rows.add((_) => const SizedBox(height: 12));
+    }
+    for (var i = 0; i < sortedStaffIds.length; i++) {
+      final staffId = sortedStaffIds[i];
+      final staffAssignments = groups[staffId]!;
+      final staffName = staffNames[staffId]!;
+      final staffPickups = staffAssignments.where((a) => !a.effectiveOwnerBrings).toList();
+      final ownerDropoffs = staffAssignments.where((a) => a.effectiveOwnerBrings).toList();
+      final isFirst = i == 0;
+      rows.add((ctx) => Padding(
+            padding: EdgeInsets.only(top: isFirst ? 0 : 12, bottom: 8),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor: AppColors.primary,
+                  child: Text(staffName[0], style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 8),
+                Text(staffName,
+                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Text('${staffAssignments.length} dog${staffAssignments.length == 1 ? '' : 's'}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ],
+            ),
+          ));
+      for (final a in staffPickups) {
+        rows.add((_) => _buildAssignmentCard(a));
+      }
+      if (ownerDropoffs.isNotEmpty) {
+        rows.add((ctx) => Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 6, left: 4),
+              child: Row(
+                children: [
+                  Picon(PiconsDuotone.houseLine, size: 16, color: Colors.teal),
+                  const SizedBox(width: 6),
+                  Text('Owner Drop-offs',
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal)),
+                ],
+              ),
+            ));
+        for (final a in ownerDropoffs) {
+          rows.add((_) => _buildAssignmentCard(a));
+        }
+      }
+    }
+
+    return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-      children: [
-        if (unassigned.isNotEmpty) ...[
-          _buildUnassignedSectionHeader(unassigned.length),
-          ...unassigned.map((d) => _buildUnassignedCard(d)),
-          const SizedBox(height: 12),
-        ],
-        ...sortedStaffIds.asMap().entries.map((entry) {
-          final i = entry.key;
-          final staffId = entry.value;
-          final staffAssignments = groups[staffId]!;
-          final staffName = staffNames[staffId]!;
-          final staffPickups = staffAssignments.where((a) => !a.effectiveOwnerBrings).toList();
-          final ownerDropoffs = staffAssignments.where((a) => a.effectiveOwnerBrings).toList();
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (i > 0) const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 14,
-                      backgroundColor: AppColors.primary,
-                      child: Text(staffName[0], style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(staffName,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 8),
-                    Text('${staffAssignments.length} dog${staffAssignments.length == 1 ? '' : 's'}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                  ],
-                ),
-              ),
-              ...staffPickups.map((a) => _buildAssignmentCard(a)),
-              if (ownerDropoffs.isNotEmpty) ...[
-                Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 6, left: 4),
-                  child: Row(
-                    children: [
-                      Picon(PiconsDuotone.houseLine, size: 16, color: Colors.teal),
-                      const SizedBox(width: 6),
-                      Text('Owner Drop-offs',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal)),
-                    ],
-                  ),
-                ),
-                ...ownerDropoffs.map((a) => _buildAssignmentCard(a)),
-              ],
-            ],
-          );
-        }),
-      ],
+      itemCount: rows.length,
+      itemBuilder: (context, index) => rows[index](context),
     );
   }
 
@@ -985,6 +997,8 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 child: CachedNetworkImage(
                   imageUrl: dog.profileImageUrl!,
                   width: 44, height: 44, fit: BoxFit.cover,
+                  memCacheWidth: (44 * MediaQuery.of(context).devicePixelRatio).round(),
+                  memCacheHeight: (44 * MediaQuery.of(context).devicePixelRatio).round(),
                   placeholder: (context, url) => Container(
                     width: 44, height: 44, color: Colors.grey[200],
                     child: Picon(PiconsDuotone.pawPrint),
@@ -1096,6 +1110,8 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                     child: CachedNetworkImage(
                       imageUrl: assignment.dogProfileImage!,
                       width: 44, height: 44, fit: BoxFit.cover,
+                      memCacheWidth: (44 * MediaQuery.of(context).devicePixelRatio).round(),
+                      memCacheHeight: (44 * MediaQuery.of(context).devicePixelRatio).round(),
                       placeholder: (context, url) => Container(
                         width: 44, height: 44, color: Colors.grey[200],
                         child: Picon(PiconsDuotone.pawPrint),

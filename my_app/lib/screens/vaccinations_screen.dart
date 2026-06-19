@@ -211,6 +211,9 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
         },
       ),
     );
+
+    nameController.dispose();
+    notesController.dispose();
   }
 
   Future<void> _showRecordOptions(VaccinationRecord record) async {

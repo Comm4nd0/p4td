@@ -228,6 +228,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         }
       }
     }
+
+    subjectController.dispose();
+    messageController.dispose();
   }
 
   Future<void> _deleteDog() async {
@@ -958,11 +961,11 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
   }
 
-  void _showRequestBoarding() {
+  Future<void> _showRequestBoarding() async {
     DateTimeRange? selectedRange;
     final instructionsController = TextEditingController();
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
@@ -1056,6 +1059,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         },
       ),
     );
+
+    instructionsController.dispose();
   }
 
   Future<void> _submitBoardingRequest(DateTimeRange dateRange, String? instructions) async {

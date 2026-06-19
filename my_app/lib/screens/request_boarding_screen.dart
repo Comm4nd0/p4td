@@ -28,6 +28,12 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
     _loadDogs();
   }
 
+  @override
+  void dispose() {
+    _instructionsController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadDogs() async {
     try {
       final dogs = await _dataService.getDogs();
@@ -133,7 +139,9 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                         const SizedBox(height: 16),
                         Text(
                           'No dogs on your account',
-                          style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                          style: TextStyle(
+                              fontSize: 18,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                         const SizedBox(height: 8),
                         const Text(
@@ -192,8 +200,8 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                             : 'Select Date Range',
                         style: TextStyle(
                             color: _selectedDateRange != null
-                                ? Colors.black
-                                : Colors.grey[600]),
+                                ? Theme.of(context).colorScheme.onSurface
+                                : Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ),
                   ),

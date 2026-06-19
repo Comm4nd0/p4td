@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
@@ -40,10 +41,19 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   DateTimeRange? _dateRange;
   String? _selectedDogId;
 
-  /// Filtered feed based on search query and date range.
-  List<GroupMedia> get _filteredFeed {
+  /// Debounces search keystrokes so we don't rebuild the whole list on every
+  /// character typed.
+  Timer? _searchDebounce;
+
+  /// Cached filtered feed. Recomputed only when the feed, search query or date
+  /// range change (see [_recomputeFilteredFeed]) rather than on every build.
+  List<GroupMedia> _filteredFeed = [];
+
+  /// Recomputes [_filteredFeed] from the current feed, search query and date
+  /// range. Call whenever any of those inputs change.
+  void _recomputeFilteredFeed() {
     final query = _searchController.text.toLowerCase();
-    return _feed.where((post) {
+    _filteredFeed = _feed.where((post) {
       // Caption text search
       if (query.isNotEmpty) {
         final caption = post.caption?.toLowerCase() ?? '';
@@ -98,6 +108,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
     _scrollController.removeListener(_onScroll);
@@ -134,6 +145,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           _page = 1;
           _hasMore = result.hasMore;
           _loading = false;
+          _recomputeFilteredFeed();
         });
         // Scroll to specific post if requested (e.g. from notification tap)
         if (!_hasScrolledToPost && widget.scrollToPostId != null) {
@@ -170,6 +182,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           _page += 1;
           _hasMore = result.hasMore;
           _loadingMore = false;
+          _recomputeFilteredFeed();
         });
       }
     } catch (_) {
@@ -477,15 +490,26 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
     try {
       await _dataService.deleteGroupMedia(media.id);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Deleted'), backgroundColor: AppColors.success),
       );
       _loadFeed();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to delete: $e'), backgroundColor: AppColors.error),
       );
     }
+  }
+
+  /// Debounces search input so the filtered list is recomputed at most once
+  /// every ~250ms rather than on every keystroke.
+  void _onSearchChanged(String _) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(_recomputeFilteredFeed);
+    });
   }
 
   Future<void> _pickDateRange() async {
@@ -497,7 +521,10 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       initialDateRange: _dateRange,
     );
     if (picked != null) {
-      setState(() => _dateRange = picked);
+      setState(() {
+        _dateRange = picked;
+        _recomputeFilteredFeed();
+      });
     }
   }
 
@@ -519,14 +546,15 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                           ? IconButton(
                               icon: Picon(PiconsDuotone.x, size: 20),
                               onPressed: () {
+                                _searchDebounce?.cancel();
                                 _searchController.clear();
-                                setState(() {});
+                                setState(_recomputeFilteredFeed);
                               },
                             )
                           : null,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),                    ),
-                    onChanged: (_) => setState(() {}),
+                    onChanged: _onSearchChanged,
                   ),
                   const SizedBox(height: 8),
                   // Date range chip
@@ -545,7 +573,10 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                         const SizedBox(width: 4),
                         IconButton(
                           icon: Picon(PiconsDuotone.x, size: 18),
-                          onPressed: () => setState(() => _dateRange = null),
+                          onPressed: () => setState(() {
+                            _dateRange = null;
+                            _recomputeFilteredFeed();
+                          }),
                           visualDensity: VisualDensity.compact,
                         ),
                       ],
@@ -553,10 +584,12 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                       if (_searchController.text.isNotEmpty || _dateRange != null || _selectedDogId != null)
                         TextButton(
                           onPressed: () {
+                            _searchDebounce?.cancel();
                             _searchController.clear();
                             setState(() {
                               _dateRange = null;
                               _selectedDogId = null;
+                              _recomputeFilteredFeed();
                             });
                             _loadFeed();
                           },
@@ -707,6 +740,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
   Widget _buildMediaCard(GroupMedia media) {
     return FeedItemCard(
+      key: ValueKey(media.id),
       media: media,
       isStaff: widget.isStaff,
       canAddFeedMedia: widget.canAddFeedMedia,
@@ -747,11 +781,13 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
         caption: result.caption,
         taggedDogIds: result.taggedDogIds,
       );
+      if (!mounted) return;
       setState(() {
         final index = _feed.indexWhere((m) => m.id == media.id);
         if (index != -1) {
           _feed[index] = updated;
         }
+        _recomputeFilteredFeed();
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -783,11 +819,13 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
   Future<void> _toggleReaction(String mediaId, String emoji) async {
     try {
       final updatedMedia = await _dataService.toggleReaction(mediaId, emoji);
+      if (!mounted) return;
       setState(() {
         final index = _feed.indexWhere((m) => m.id == mediaId);
         if (index != -1) {
           _feed[index] = updatedMedia;
         }
+        _recomputeFilteredFeed();
       });
     } catch (e) {
       if (mounted) {

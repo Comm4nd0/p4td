@@ -255,6 +255,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
         // Sort by takenAt descending (newest first)
         photos.sort((a, b) => b.takenAt.compareTo(a.takenAt));
 
+        // Size the decoded bitmap to the grid cell (3 columns) so we don't
+        // decode full-resolution images for tiny thumbnails.
+        final media = MediaQuery.of(context);
+        final cellWidth = (media.size.width - 4 * 2 - 4 * 2) / 3;
+        final cellCacheWidth = (media.devicePixelRatio * cellWidth).round();
+
         return GridView.builder(
           padding: const EdgeInsets.all(4),
           shrinkWrap: widget.embed,
@@ -282,7 +288,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       CachedNetworkImage(
                         imageUrl: photo.isVideo && photo.thumbnailUrl != null
                           ? photo.thumbnailUrl!
-                          : photo.url,
+                          : (photo.thumbnailUrl ?? photo.url),
+                        memCacheWidth: cellCacheWidth,
                         fit: BoxFit.cover,
                         errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: Picon(PiconsDuotone.warningCircle)),
                       ),
@@ -457,16 +464,11 @@ class _VideoViewerState extends State<VideoViewer> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     await _controller!.initialize();
     if (mounted) {
-      _controller!.addListener(_onVideoUpdate);
       setState(() => _initialized = true);
       _controller!.play();
       setState(() => _isPlaying = true);
       _startHideTimer();
     }
-  }
-
-  void _onVideoUpdate() {
-    if (mounted) setState(() {});
   }
 
   void _togglePlayPause() {
@@ -542,9 +544,6 @@ class _VideoViewerState extends State<VideoViewer> {
       );
     }
 
-    final position = _controller!.value.position;
-    final duration = _controller!.value.duration;
-
     return GestureDetector(
       onTap: _toggleControls,
       child: Stack(
@@ -600,18 +599,21 @@ class _VideoViewerState extends State<VideoViewer> {
                       padding: const EdgeInsets.symmetric(vertical: 4),
                     ),
                     const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _formatDuration(position),
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                        Text(
-                          _formatDuration(duration),
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      ],
+                    ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: _controller!,
+                      builder: (context, value, _) => Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDuration(value.position),
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                          Text(
+                            _formatDuration(value.duration),
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

@@ -51,6 +51,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadProfile();
   }
 
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _phoneController.dispose();
+    _pickupController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadProfile() async {
     try {
       final profile = await _dataService.getProfile();
