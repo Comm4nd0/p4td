@@ -7,7 +7,7 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
 from django.db.models import Prefetch
-from .pagination import FeedPagination
+from .pagination import FeedPagination, OptInPagination
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer
 from website.models import ContactInquiry
@@ -340,6 +340,7 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
 class DogViewSet(viewsets.ModelViewSet):
     serializer_class = DogSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = OptInPagination
 
     def get_permissions(self):
         # Only staff can create or delete dogs
@@ -351,9 +352,12 @@ class DogViewSet(viewsets.ModelViewSet):
         # Staff can see all dogs, Clients see dogs they own or co-own.
         # select_related/prefetch the owner profiles the serializer renders so a
         # kennel listing stays at a constant query count (B5).
+        # Deterministic order (name, then id as a tie-breaker) so opt-in
+        # pagination can't drop or duplicate rows across pages — Dog has no
+        # Meta.ordering of its own (B6).
         base = Dog.objects.select_related('owner__profile').prefetch_related(
             'vaccinations', 'additional_owners__profile'
-        )
+        ).order_by('name', 'id')
         if self.request.user.is_staff:
             return base.all()
         from django.db.models import Q
@@ -1010,6 +1014,7 @@ class PhotoViewSet(viewsets.ModelViewSet):
 class DateChangeRequestViewSet(viewsets.ModelViewSet):
     serializer_class = DateChangeRequestSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = OptInPagination
 
     def get_queryset(self):
         base = DateChangeRequest.objects.select_related('dog', 'dog__owner', 'approved_by')
@@ -1352,6 +1357,7 @@ class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
 class BoardingRequestViewSet(viewsets.ModelViewSet):
     serializer_class = BoardingRequestSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = OptInPagination
 
     def get_queryset(self):
         base = BoardingRequest.objects.select_related('owner', 'approved_by').prefetch_related(
@@ -2615,6 +2621,7 @@ class VaccinationRecordViewSet(viewsets.ModelViewSet):
     send_vaccination_reminders management command.
     """
     permission_classes = [IsAuthenticated]
+    pagination_class = OptInPagination
 
     def get_serializer_class(self):
         from .serializers import VaccinationRecordSerializer

@@ -90,6 +90,56 @@ class ApiDataService implements DataService {
     return headers;
   }
 
+  /// Fetches every page of a (possibly) paginated list endpoint and returns the
+  /// aggregated raw JSON list.
+  ///
+  /// The backend uses opt-in pagination (B6): asking for `?page=1` gets a
+  /// `{count, next, previous, results}` envelope, while an old/unpaginated
+  /// endpoint returns a bare JSON array. This helper handles both — it requests
+  /// `page=1&page_size=200`, collects `results`, and follows the absolute `next`
+  /// URLs until exhausted; if the body is a plain array it is returned as-is.
+  ///
+  /// Goes through [_getHeaders] and the [http] wrapper so auth, timeouts and the
+  /// 401 sign-out handling apply to every page.
+  Future<List<dynamic>> _fetchAllPages(Uri url) async {
+    final headers = await _getHeaders();
+
+    // Add pagination opt-in params without dropping any the caller already set.
+    final firstUrl = url.replace(queryParameters: {
+      ...url.queryParameters,
+      'page': '1',
+      'page_size': '200',
+    });
+
+    var response = await http.get(firstUrl, headers: headers);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load list: ${response.statusCode}');
+    }
+
+    final decoded = json.decode(response.body);
+
+    // Back-compat: a bare array is the whole (unpaginated) list.
+    if (decoded is List) {
+      return decoded;
+    }
+
+    // Paginated envelope: collect results and walk the `next` links.
+    final aggregated = <dynamic>[];
+    Map<String, dynamic> page = decoded as Map<String, dynamic>;
+    aggregated.addAll(page['results'] as List<dynamic>);
+    var next = page['next'];
+    while (next != null) {
+      response = await http.get(Uri.parse(next as String), headers: headers);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load list page: ${response.statusCode}');
+      }
+      page = json.decode(response.body) as Map<String, dynamic>;
+      aggregated.addAll(page['results'] as List<dynamic>);
+      next = page['next'];
+    }
+    return aggregated;
+  }
+
   List<Dog> _parseDogsList(List<dynamic> data) {
     return data.map((json) {
       final daysInDaycare = (json['daycare_days'] as List<dynamic>?)
@@ -142,17 +192,10 @@ class ApiDataService implements DataService {
   Future<List<Dog>> getDogs() async {
     final cache = CacheService();
     try {
-      final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/dogs/'), headers: headers);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        // Cache the raw JSON for offline use
-        cache.cacheDogs(data.cast<Map<String, dynamic>>());
-        return _parseDogsList(data);
-      } else {
-        throw Exception('Failed to load dogs');
-      }
+      final data = await _fetchAllPages(Uri.parse('${AuthService.baseUrl}/api/dogs/'));
+      // Cache the raw JSON for offline use
+      cache.cacheDogs(data.cast<Map<String, dynamic>>());
+      return _parseDogsList(data);
     } catch (e) {
       // On network error, try to return cached data
       final cached = cache.getCachedDogs();
@@ -882,25 +925,17 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
+    final data = await _fetchAllPages(
       Uri.parse('${AuthService.baseUrl}/api/date-change-requests/'),
-      headers: headers,
     );
+    var requests = data.map((json) => DateChangeRequest.fromJson(json)).toList();
 
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      var requests = data.map((json) => DateChangeRequest.fromJson(json)).toList();
-
-      // Filter by dogId if specified
-      if (dogId != null) {
-        requests = requests.where((r) => r.dogId == dogId).toList();
-      }
-
-      return requests;
-    } else {
-      throw Exception('Failed to load requests');
+    // Filter by dogId if specified
+    if (dogId != null) {
+      requests = requests.where((r) => r.dogId == dogId).toList();
     }
+
+    return requests;
   }
 
   @override
@@ -1201,18 +1236,10 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<BoardingRequest>> getBoardingRequests() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
+    final data = await _fetchAllPages(
       Uri.parse('${AuthService.baseUrl}/api/boarding-requests/'),
-      headers: headers,
     );
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((json) => BoardingRequest.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to load boarding requests');
-    }
+    return data.map((json) => BoardingRequest.fromJson(json)).toList();
   }
 
   @override
@@ -1966,16 +1993,10 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<VaccinationRecord>> getVaccinations(String dogId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
+    final data = await _fetchAllPages(
       Uri.parse('${AuthService.baseUrl}/api/vaccinations/?dog=$dogId'),
-      headers: headers,
     );
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((e) => VaccinationRecord.fromJson(e)).toList();
-    }
-    throw Exception('Failed to load vaccinations: ${response.statusCode}');
+    return data.map((e) => VaccinationRecord.fromJson(e)).toList();
   }
 
   @override

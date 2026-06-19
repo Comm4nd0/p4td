@@ -211,6 +211,47 @@ class DogCRUDTests(TestCase):
         self.assertEqual(dog.name, 'NewName')
 
 
+class OptInPaginationTests(TestCase):
+    """Opt-in pagination (B6): the now-paginated list endpoints return a bare
+    list by default (back-compat) and a paginated dict only when ?page is sent."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.client = APIClient()
+        for i in range(5):
+            Dog.objects.create(owner=self.staff, name=f'Dog{i}')
+
+    def test_no_page_param_returns_bare_list(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/dogs/')
+        self.assertEqual(resp.status_code, 200)
+        # Bare list, not a paginated envelope — old clients/tests unaffected.
+        self.assertIsInstance(resp.data, list)
+        self.assertEqual(len(resp.data), 5)
+
+    def test_opt_in_pagination_pages_through_all_items(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/dogs/?page=1&page_size=2')
+        self.assertEqual(resp.status_code, 200)
+        # Paginated envelope when the client opts in.
+        self.assertIn('results', resp.data)
+        self.assertIn('next', resp.data)
+        self.assertIn('count', resp.data)
+        self.assertEqual(resp.data['count'], 5)
+        self.assertEqual(len(resp.data['results']), 2)
+        self.assertIsNotNone(resp.data['next'])
+
+        # Follow the pages to collect everything.
+        collected = list(resp.data['results'])
+        next_url = resp.data['next']
+        while next_url:
+            page = self.client.get(next_url)
+            self.assertEqual(page.status_code, 200)
+            collected.extend(page.data['results'])
+            next_url = page.data['next']
+        self.assertEqual(len(collected), 5)
+
+
 class DogSpayStatusTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
