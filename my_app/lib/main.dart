@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'constants/app_colors.dart';
 import 'screens/home_screen.dart';
 import 'screens/landing_screen.dart';
+import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/http_client.dart' as http;
 import 'services/theme_service.dart';
 import 'services/cache_service.dart';
 import 'services/service_locator.dart';
@@ -23,11 +25,32 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// Guards against handling many concurrent 401s at once (F3).
+bool _handlingUnauthorized = false;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Register services in the locator (idempotent).
   setupLocator();
+
+  // If the server ever rejects the auth token (HTTP 401), sign out and return
+  // to the login screen so an invalidated/rotated token can't leave the app
+  // permanently stuck (F3). 403 ("authenticated but not permitted") is handled
+  // by http_client as a normal response, not an auth failure.
+  http.onUnauthorized = () async {
+    if (_handlingUnauthorized) return;
+    _handlingUnauthorized = true;
+    try {
+      await AuthService().logoutAll();
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    } finally {
+      _handlingUnauthorized = false;
+    }
+  };
 
   // Initialize local cache
   await getIt<CacheService>().init();

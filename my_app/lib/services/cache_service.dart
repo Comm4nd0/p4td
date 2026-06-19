@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// Lightweight local cache using Hive for stale-while-revalidate patterns.
@@ -24,12 +25,42 @@ class CacheService {
   Box? _box;
   bool _isInitialized = false;
 
-  /// Open the Hive box. Call once at startup.
+  static const _encryptionKeyName = 'p4td_cache_hive_key';
+
+  /// Open the Hive box (encrypted at rest). Call once at startup.
+  ///
+  /// The box caches owner addresses, phone numbers, access instructions and dog
+  /// medical notes (UK-GDPR personal data), so it's encrypted with a 256-bit key
+  /// kept in flutter_secure_storage rather than left as plaintext on disk (F4).
   Future<void> init() async {
     if (_isInitialized) return;
     await Hive.initFlutter();
-    _box = await Hive.openBox(_boxName);
+    final cipher = await _encryptionCipher();
+    try {
+      _box = await Hive.openBox(_boxName, encryptionCipher: cipher);
+    } catch (_) {
+      // A pre-existing un-encrypted (or differently-keyed) box can't be opened
+      // with a cipher. This is only stale-while-revalidate cache, so drop it and
+      // recreate it encrypted — the data is re-fetched from the network.
+      await Hive.deleteBoxFromDisk(_boxName);
+      _box = await Hive.openBox(_boxName, encryptionCipher: cipher);
+    }
     _isInitialized = true;
+  }
+
+  /// Build the AES cipher from a key stored in the OS secure store, generating
+  /// and persisting one on first run.
+  Future<HiveAesCipher> _encryptionCipher() async {
+    const storage = FlutterSecureStorage();
+    final existing = await storage.read(key: _encryptionKeyName);
+    List<int> key;
+    if (existing == null) {
+      key = Hive.generateSecureKey();
+      await storage.write(key: _encryptionKeyName, value: base64Encode(key));
+    } else {
+      key = base64Decode(existing);
+    }
+    return HiveAesCipher(key);
   }
 
   /// Test hook: inject an already-open box instead of [init], which needs
