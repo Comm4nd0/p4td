@@ -46,6 +46,18 @@ class _Pin {
   });
 }
 
+/// Remembers the map's legend/toggle choices so they survive leaving the map
+/// and coming back within an app session (the screen is pushed fresh each
+/// time, so plain widget state would otherwise reset). Stays null until the
+/// map is first opened, at which point the screen seeds it with the defaults.
+/// In-memory only — resets on app restart.
+class _MapFilterPrefs {
+  static Set<int>? hiddenStaffIds;
+  static bool? showUnassigned;
+  static bool? showBase;
+  static bool? showRoutes;
+}
+
 /// Staff pickup map: a pin per dog at its pickup address, coloured by the staff
 /// member assigned to it, with per-staff show/hide toggles. Dogs with no
 /// address are pinned at base. Built to make geographic workload obvious so
@@ -102,19 +114,43 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     super.initState();
     _assignments = List.of(widget.assignments);
     _unassignedDogs = List.of(widget.unassignedDogs);
-    // Default-hide the P4TD pseudo-staff member's pins (still toggleable).
-    _staffNames().forEach((id, name) {
-      if (_defaultHiddenStaffNames.contains(name.trim().toLowerCase())) {
-        _hiddenStaffIds.add(id);
-      }
-    });
+    _restoreFilters();
     _routeAnim = AnimationController(vsync: this, duration: const Duration(seconds: 5))..repeat();
   }
 
   @override
   void dispose() {
+    _saveFilters();
     _routeAnim.dispose();
     super.dispose();
+  }
+
+  /// Restore the toggle choices the user last left the map with. The first
+  /// time the map is opened this session there's nothing saved yet, so we
+  /// apply the defaults instead (hide the P4TD pseudo-staff member's pins).
+  void _restoreFilters() {
+    final savedHidden = _MapFilterPrefs.hiddenStaffIds;
+    if (savedHidden != null) {
+      _hiddenStaffIds.addAll(savedHidden);
+    } else {
+      _staffNames().forEach((id, name) {
+        if (_defaultHiddenStaffNames.contains(name.trim().toLowerCase())) {
+          _hiddenStaffIds.add(id);
+        }
+      });
+    }
+    _showUnassigned = _MapFilterPrefs.showUnassigned ?? _showUnassigned;
+    _showBase = _MapFilterPrefs.showBase ?? _showBase;
+    _showRoutes = _MapFilterPrefs.showRoutes ?? _showRoutes;
+  }
+
+  /// Snapshot the current toggle choices so they're restored next time the map
+  /// is opened. Called on dispose, which runs when the map is popped.
+  void _saveFilters() {
+    _MapFilterPrefs.hiddenStaffIds = Set.of(_hiddenStaffIds);
+    _MapFilterPrefs.showUnassigned = _showUnassigned;
+    _MapFilterPrefs.showBase = _showBase;
+    _MapFilterPrefs.showRoutes = _showRoutes;
   }
 
   /// All staff ids in a stable order, so each staff member maps to a fixed
@@ -697,6 +733,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
 
   Marker _buildMarker(_Pin pin) {
     final collected = pin.assignment != null && _isCollected(pin.assignment!);
+    final droppedOff = pin.assignment?.status == AssignmentStatus.droppedOff;
     return Marker(
       point: pin.position,
       width: 44,
@@ -709,7 +746,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
           children: [
             _pawBadge(pin.color),
             if (collected)
-              Positioned(right: 3, bottom: 3, child: _collectedTick()),
+              Positioned(right: 3, bottom: 3, child: _collectedTick(droppedOff: droppedOff)),
           ],
         ),
       ),
@@ -731,8 +768,10 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     );
   }
 
-  /// Small green tick shown on a paw once the dog is with the team / collected.
-  Widget _collectedTick() {
+  /// Small green tick shown on a paw once the dog is collected. A single tick
+  /// means the dog is with the team (picked up); a double tick means it's been
+  /// dropped off at daycare.
+  Widget _collectedTick({bool droppedOff = false}) {
     return Container(
       width: 16,
       height: 16,
@@ -742,7 +781,11 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
           width: 14,
           height: 14,
           decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
-          child: const Icon(Icons.check, color: Colors.white, size: 10),
+          child: Icon(
+            droppedOff ? Icons.done_all : Icons.check,
+            color: Colors.white,
+            size: droppedOff ? 9 : 10,
+          ),
         ),
       ),
     );
