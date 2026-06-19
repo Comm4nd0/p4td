@@ -155,7 +155,7 @@ Note F18's *goal* (centralise HTTP cross-cutting concerns) is partially met:
 http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 - [ ] **F18** 🟡 L — Full ApiClient extraction / split the 116-method god-class into repositories
 - [x] **F11** 🟠 L — Routed 39 screens/widgets (incl pickup_map) through `getIt<DataService>()` (+3 interface methods)
-- [ ] **F12** 🟠 L — Shared AssignmentActions controller (status state-machine + transport/staff-pick dialogs, 4 screens) — REMAINING (now unblocked)
+- [x] **F12** 🟠 L — Shared assignment_action_dialogs (scope/transport/staff-pick) across 4 screens; also fixed pickup_map's missing staff-availability fallback (dev branch — TEST the map Reassign/Assign)
 - [x] **F13** 🟠 M — Shared MediaUploadFlow (feed + dashboard) (dev branch)
 - [x] **F16** 🟡 M — Shared AssignmentCard widget (490-line widget, 10 drift params; screens −255/−261) (dev branch)
 - [x] **F14** 🟡 L — Decomposed UnifiedDashboardScreen 1998→1496 (DashboardCounts controller + dialogs + sections under lib/screens/dashboard/) (dev branch)
