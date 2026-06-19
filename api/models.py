@@ -907,6 +907,18 @@ class VaccinationRecord(models.Model):
         ordering = ['-expiry_date']
         indexes = [models.Index(fields=['expiry_date'])]
 
+    def save(self, *args, **kwargs):
+        # Re-arm reminder flags when the expiry date changes (e.g. a booster is
+        # recorded) so the daily command notifies for the new milestone. Central
+        # so no update path can forget to reset them (B22).
+        if self.pk:
+            old = type(self).objects.filter(pk=self.pk).values('expiry_date').first()
+            if old and old['expiry_date'] != self.expiry_date:
+                self.reminder_30_sent = False
+                self.reminder_7_sent = False
+                self.expired_notice_sent = False
+        super().save(*args, **kwargs)
+
     @property
     def status(self):
         from datetime import date, timedelta
@@ -1022,6 +1034,24 @@ class Vehicle(models.Model):
             models.Index(fields=['mot_due_date']),
             models.Index(fields=['service_due_date']),
         ]
+
+    def save(self, *args, **kwargs):
+        # Re-arm MOT/service reminder flags when the corresponding due date
+        # changes, centrally instead of relying on each caller (B22).
+        if self.pk:
+            old = type(self).objects.filter(pk=self.pk).values(
+                'mot_due_date', 'service_due_date'
+            ).first()
+            if old:
+                if old['mot_due_date'] != self.mot_due_date:
+                    self.mot_reminder_30_sent = False
+                    self.mot_reminder_7_sent = False
+                    self.mot_overdue_notice_sent = False
+                if old['service_due_date'] != self.service_due_date:
+                    self.service_reminder_30_sent = False
+                    self.service_reminder_7_sent = False
+                    self.service_overdue_notice_sent = False
+        super().save(*args, **kwargs)
 
     def _date_status(self, due_date):
         from datetime import date, timedelta

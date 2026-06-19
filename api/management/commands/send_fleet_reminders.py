@@ -48,16 +48,17 @@ class Command(BaseCommand):
             )
             for vehicle in overdue:
                 due = getattr(vehicle, date_field)
+                # Mark sent before dispatching (prefer at-most-once) (B34).
+                setattr(vehicle, flag_overdue, True)
+                setattr(vehicle, flag_7, True)
+                setattr(vehicle, flag_30, True)
+                vehicle.save(update_fields=[flag_overdue, flag_7, flag_30])
                 self._notify_managers(
                     vehicle, event,
                     f'{label} overdue',
                     f"{vehicle.name} ({vehicle.registration}) {label} was due on "
                     f"{due.strftime('%d %b %Y')}.",
                 )
-                setattr(vehicle, flag_overdue, True)
-                setattr(vehicle, flag_7, True)
-                setattr(vehicle, flag_30, True)
-                vehicle.save(update_fields=[flag_overdue, flag_7, flag_30])
                 sent += 1
 
             week_window = Vehicle.objects.filter(
@@ -71,15 +72,15 @@ class Command(BaseCommand):
                 due = getattr(vehicle, date_field)
                 days_left = (due - today).days
                 when = 'today' if days_left == 0 else f"in {days_left} day{'s' if days_left != 1 else ''}"
+                setattr(vehicle, flag_7, True)
+                setattr(vehicle, flag_30, True)
+                vehicle.save(update_fields=[flag_7, flag_30])
                 self._notify_managers(
                     vehicle, event,
                     f'{label} due soon',
                     f"{vehicle.name} ({vehicle.registration}) {label} is due {when} "
                     f"({due.strftime('%d %b %Y')}).",
                 )
-                setattr(vehicle, flag_7, True)
-                setattr(vehicle, flag_30, True)
-                vehicle.save(update_fields=[flag_7, flag_30])
                 sent += 1
 
             month_window = Vehicle.objects.filter(
@@ -91,14 +92,14 @@ class Command(BaseCommand):
             )
             for vehicle in month_window:
                 due = getattr(vehicle, date_field)
+                setattr(vehicle, flag_30, True)
+                vehicle.save(update_fields=[flag_30])
                 self._notify_managers(
                     vehicle, event,
                     f'{label} due for booking',
                     f"{vehicle.name} ({vehicle.registration}) {label} is due on "
                     f"{due.strftime('%d %b %Y')}. Time to book it in!",
                 )
-                setattr(vehicle, flag_30, True)
-                vehicle.save(update_fields=[flag_30])
                 sent += 1
 
         self.stdout.write(f'Sent {sent} fleet reminder(s).')

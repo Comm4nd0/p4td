@@ -47,10 +47,27 @@ class DogAssignmentInline(admin.TabularInline):
         return False
 
 
+class HasOwnerFilter(admin.SimpleListFilter):
+    """Surface dogs orphaned by an owner account deletion (owner=NULL) so they
+    aren't invisible to every owner-scoped view (B20)."""
+    title = 'owner'
+    parameter_name = 'has_owner'
+
+    def lookups(self, request, model_admin):
+        return [('no', 'No owner (orphaned)'), ('yes', 'Has owner')]
+
+    def queryset(self, request, queryset):
+        if self.value() == 'no':
+            return queryset.filter(owner__isnull=True)
+        if self.value() == 'yes':
+            return queryset.filter(owner__isnull=False)
+        return queryset
+
+
 @admin.register(Dog)
 class DogAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner_name', 'daycare_days_display', 'profile_image_preview', 'created_at')
-    list_filter = ('created_at',)
+    list_filter = (HasOwnerFilter, 'created_at')
     search_fields = ('name', 'owner__username', 'owner__first_name', 'owner__last_name')
     raw_id_fields = ('owner',)
     filter_horizontal = ('additional_owners',)

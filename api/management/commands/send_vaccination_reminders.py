@@ -41,16 +41,18 @@ class Command(BaseCommand):
 
         newly_expired = list(base.filter(expiry_date__lt=today, expired_notice_sent=False))
         for record in newly_expired:
+            # Mark sent before dispatching so a crash mid-send can't re-notify on
+            # the next run — prefer at-most-once for reminders (B34).
+            record.expired_notice_sent = True
+            record.reminder_7_sent = True
+            record.reminder_30_sent = True
+            record.save(update_fields=['expired_notice_sent', 'reminder_7_sent', 'reminder_30_sent'])
             self._notify_owners(
                 record,
                 'Vaccination expired',
                 f"{record.dog.name}'s {record.name} vaccination expired on "
                 f"{record.expiry_date.strftime('%d %b %Y')}. Please update it and let us know.",
             )
-            record.expired_notice_sent = True
-            record.reminder_7_sent = True
-            record.reminder_30_sent = True
-            record.save(update_fields=['expired_notice_sent', 'reminder_7_sent', 'reminder_30_sent'])
             sent += 1
 
         week_window = base.filter(
@@ -61,15 +63,15 @@ class Command(BaseCommand):
         for record in week_window:
             days_left = (record.expiry_date - today).days
             when = 'today' if days_left == 0 else f"in {days_left} day{'s' if days_left != 1 else ''}"
+            record.reminder_7_sent = True
+            record.reminder_30_sent = True
+            record.save(update_fields=['reminder_7_sent', 'reminder_30_sent'])
             self._notify_owners(
                 record,
                 'Vaccination expiring soon',
                 f"{record.dog.name}'s {record.name} vaccination expires {when} "
                 f"({record.expiry_date.strftime('%d %b %Y')}).",
             )
-            record.reminder_7_sent = True
-            record.reminder_30_sent = True
-            record.save(update_fields=['reminder_7_sent', 'reminder_30_sent'])
             sent += 1
 
         month_window = base.filter(
@@ -78,14 +80,14 @@ class Command(BaseCommand):
             reminder_30_sent=False,
         )
         for record in month_window:
+            record.reminder_30_sent = True
+            record.save(update_fields=['reminder_30_sent'])
             self._notify_owners(
                 record,
                 'Vaccination due for renewal',
                 f"{record.dog.name}'s {record.name} vaccination expires on "
                 f"{record.expiry_date.strftime('%d %b %Y')}. Time to book a booster!",
             )
-            record.reminder_30_sent = True
-            record.save(update_fields=['reminder_30_sent'])
             sent += 1
 
         if newly_expired:

@@ -62,12 +62,12 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **B23** ⚪ S — Prune used PasswordResetOTP; index (user,is_used)
 - [x] **B37** ⚪ S — notifications use logging instead of print()
 
-## Batch 4 — Backend data-model / maintainability / integrations
-- [ ] **B20** 🟡 M — Dog.owner deletion lifecycle (cleanup or admin filter for orphans)
-- [ ] **B22** ⚪ M — Centralise reminder-flag re-arm in save()/signal
-- [ ] **B34** ⚪ M — Reminder crons: set flag before/with dispatch; lock
-- [ ] **B35** ⚪ S — `geocode_dogs`: fix help text/counters (postcodes.io)
-- [ ] **B43** 🟡 M — Token lifecycle (expiry/rotation + purge job)
+## Batch 4 — Backend data-model / maintainability / integrations ✅ (236 tests OK)
+- [x] **B20** 🟡 M — delete_account promotes a co-owner to owner; admin orphan filter for the rest
+- [x] **B22** ⚪ M — Re-arm reminder flags centrally in VaccinationRecord/Vehicle save()
+- [x] **B34** ⚪ M — Reminder crons set the flag before dispatch (at-most-once)
+- [x] **B35** ⚪ S — `geocode_dogs` help text says postcodes.io
+- [x] **B43** 🟡 M — `prune_auth_tokens` command (cron purge) + B3 rotation on password change
 
 ## Batch 5 — Backend tests
 - [ ] **B46** 🟠 M — Tests: password reset / change / delete-account flows

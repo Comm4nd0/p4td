@@ -25,7 +25,7 @@ def _needs_geocode(dog, force):
 
 class Command(BaseCommand):
     help = (
-        'Geocode dog pickup addresses (via getAddress.io) and cache the '
+        'Geocode dog pickup addresses (via postcodes.io, keyless) and cache the '
         'coordinates on each Dog for the staff pickup map. Idempotent: only '
         'touches dogs whose address is new, changed, or not yet geocoded.'
     )

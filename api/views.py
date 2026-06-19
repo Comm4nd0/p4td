@@ -3250,8 +3250,10 @@ def change_password(request):
 def delete_account(request):
     """Permanently delete the currently authenticated user's account.
 
-    Requires password confirmation. Dogs owned by this user are NOT deleted;
-    their owner field is set to null (handled by SET_NULL on the FK).
+    Requires password confirmation. Dogs owned by this user are NOT deleted: a
+    remaining co-owner is promoted to primary owner where one exists (B20), and
+    any dog with no remaining owner keeps owner=NULL (SET_NULL on the FK) and is
+    surfaced via the admin owner filter so it isn't silently orphaned.
     The user is also removed from any additional_owners M2M relationships.
     """
     password = request.data.get('password')
@@ -3268,12 +3270,21 @@ def delete_account(request):
             status=drf_status.HTTP_400_BAD_REQUEST,
         )
 
+    # Promote a remaining co-owner to primary owner so the dog doesn't become an
+    # invisible, un-ownable orphan when its only owner deletes their account (B20).
+    for dog in Dog.objects.filter(owner=user):
+        next_owner = dog.additional_owners.exclude(id=user.id).first()
+        if next_owner is not None:
+            dog.owner = next_owner
+            dog.additional_owners.remove(next_owner)
+            dog.save(update_fields=['owner'])
+
     # Remove user from additional_owners on any dogs (M2M cleanup)
     for dog in Dog.objects.filter(additional_owners=user):
         dog.additional_owners.remove(user)
 
     # Delete the user — cascades to profile, tokens, reactions, comments, etc.
-    # Dogs are preserved because owner FK uses on_delete=SET_NULL.
+    # Any dog still owned only by this user keeps owner=NULL (SET_NULL).
     user.delete()
 
     return Response(
