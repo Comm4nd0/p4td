@@ -163,7 +163,7 @@ http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 - [x] **F17** ⚪ M — DayData value object for dashboard caches (dev branch)
 
 ## Also deferred
-- [ ] **B6** 🟠 M — List pagination (coordinated backend + Flutter client)
+- [x] **B6** 🟠 M — Opt-in list pagination on Dog/DateChange/Boarding/Vaccination viewsets (bare list by default, paginates on ?page; app aggregates via _fetchAllPages) + Dog ordering fix (dev branch; 292 tests OK)
 - [~] **I3** 🟠 M — UUID filenames for processed-image uploads done (unguessable URLs); full auth-gating still deferred (needs coordinated Flutter image-auth / signed URLs). Video files still keep original names.
 - [ ] **I7** 🟡 M — Cron failure alerting (folds into deploy cron wiring)
 
