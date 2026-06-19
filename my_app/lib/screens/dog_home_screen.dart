@@ -10,6 +10,7 @@ import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../utils/dog_schedule.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
@@ -403,57 +404,15 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   List<DateTime> _getUpcomingDaycareDates() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final threeMonthsLater = DateTime(now.year, now.month + 3, now.day);
-
-    final dayNumbers = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
-
-    DateTime norm(DateTime d) => DateTime(d.year, d.month, d.day);
-    bool isActive(DateChangeRequest r) => r.status != RequestStatus.denied;
-
-    // Dates removed from the schedule: cancellations and the *original* date of
-    // a change (a change moves a day from its original date to its new date).
-    final removedDates = _requests
-        .where((r) =>
-            isActive(r) &&
-            (r.requestType == RequestType.cancel ||
-                r.requestType == RequestType.change) &&
-            r.originalDate != null)
-        .map((r) => norm(r.originalDate!))
-        .toSet();
-
-    // Dates added to the schedule: additional days and the *new* date of a
-    // change. These may fall on non-recurring weekdays, so add them explicitly.
-    final addedDates = _requests
-        .where((r) =>
-            isActive(r) &&
-            (r.requestType == RequestType.addDay ||
-                r.requestType == RequestType.change) &&
-            r.newDate != null)
-        .map((r) => norm(r.newDate!))
-        .where((d) => !d.isBefore(today) && d.isBefore(threeMonthsLater))
-        .toSet();
-
-    final dates = <DateTime>{};
-    var current = today;
-    while (current.isBefore(threeMonthsLater)) {
-      if (dayNumbers.contains(current.weekday)) {
-        dates.add(norm(current));
-      }
-      current = current.add(const Duration(days: 1));
-    }
-    dates.addAll(addedDates);
-    dates.removeAll(removedDates);
-
-    final result = dates.toList()..sort();
-    return result;
+    return upcomingDaycareDates(
+      now: DateTime.now(),
+      daycareWeekdays: _dog.daysInDaycare.map((d) => d.dayNumber).toSet(),
+      requests: _requests,
+    );
   }
 
   bool _isConfirmed(DateTime date) {
-    final now = DateTime.now();
-    final oneMonthLater = DateTime(now.year, now.month + 1, now.day);
-    return date.isBefore(oneMonthLater);
+    return isDateConfirmed(date, now: DateTime.now());
   }
 
   void _showDateChangeRequest(DateTime date) {
@@ -576,14 +535,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     );
   }
 
-  /// Latest date selectable on the dog's daycare calendar.
-  ///
-  /// Staff can edit which days a dog is at (or not at) daycare effectively
-  /// without limit — years into the future. Owners are still capped a few
-  /// months ahead, since their changes are *requests* that staff must approve.
-  DateTime _calendarLastDay(DateTime now) => widget.isStaff
-      ? DateTime(now.year + 5, now.month, now.day)
-      : DateTime(now.year, now.month + 3, now.day);
+  DateTime _calendarLastDay(DateTime now) =>
+      calendarLastDay(now, isStaff: widget.isStaff);
 
   Future<void> _showDatePicker(DateTime originalDate, bool isConfirmed) async {
     final now = DateTime.now();
