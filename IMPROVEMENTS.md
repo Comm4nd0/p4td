@@ -108,18 +108,18 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [ ] **I1** 🔴 M — Nightly off-box pg_dump backup script *(deploy)*
 - [ ] **I3** 🟠 M — Authenticated media serving (X-Accel/internal) *(deploy)*
 
-## Batch 8 — Docs
-- [ ] **D1** 🟠 S — Remove non-existent `breed` field from docs
-- [ ] **D2** 🟡 S — Fix permission-flag list in CLAUDE.md
-- [ ] **D3** 🟡 S — Add missing endpoints to CLAUDE.md table
-- [ ] **D4** 🟡 S — Add missing management commands to CLAUDE.md
-- [ ] **D5** 🟡 S — Fix icon library (picons, not Phosphor)
-- [ ] **D6** ⚪ S — Note prune cron runs `--include-orphans`
-- [ ] **D7** ⚪ S — Document POSTCODE_LOOKUP_API_KEY
-- [ ] **D8** ⚪ S — Add schedule_type to integration doc
-- [ ] **D9** ⚪ S — Fix Dart SDK constraint (>=3.3.0)
-- [ ] **D10** ⚪ S — Real `my_app/README.md`
-- [ ] **D11** ⚪ M — Expand root README (3 components, tests, links)
+## Batch 8 — Docs ✅
+- [x] **D1** 🟠 S — Removed non-existent `breed` field (FUNCTIONALITY_GUIDE had none)
+- [x] **D2** 🟡 S — Fixed permission-flag list in CLAUDE.md (real seven flags)
+- [x] **D3** 🟡 S — Added missing endpoints to CLAUDE.md table + source-of-truth note
+- [x] **D4** 🟡 S — Rebuilt management-commands table with cron column
+- [x] **D5** 🟡 S — Fixed icon library (picons, not Phosphor)
+- [x] **D6** ⚪ S — Noted prune cron runs `--include-orphans`
+- [x] **D7** ⚪ S — Documented POSTCODE_LOOKUP_API_KEY
+- [x] **D8** ⚪ S — Added schedule_type + real field list to integration doc
+- [x] **D9** ⚪ S — Fixed Dart SDK constraint (>=3.3.0 <4.0.0)
+- [x] **D10** ⚪ S — Real project `my_app/README.md`
+- [x] **D11** ⚪ M — Expanded root README (3 components, tests, links)
 
 ## Batch 9 — Flutter security / correctness / performance (small–medium)
 - [ ] **F1** 🟠 S — Re-enable TLS enforcement (iOS ATS, Android cleartext); drop stale IP

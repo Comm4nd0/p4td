@@ -60,7 +60,6 @@ Added the ability for dog owners to select which days of the week their dog atte
 ```dart
 await dataService.createDog(
   name: 'Buddy',
-  breed: 'Golden Retriever',
   daysInDaycare: [Weekday.monday, Weekday.tuesday, Weekday.wednesday, Weekday.thursday, Weekday.friday],
 );
 ```
@@ -81,7 +80,6 @@ The Django API should accept/return a `daycare_days` field that is a list of day
 {
   "id": 1,
   "name": "Buddy",
-  "breed": "Golden Retriever",
   "daycare_days": [1, 2, 3, 4, 5],  # Mon-Fri
   ...
 }

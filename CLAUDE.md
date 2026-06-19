@@ -62,7 +62,7 @@ flutter pub get
 flutter run
 ```
 
-- **Dart SDK**: >=3.2.6
+- **Dart SDK**: >=3.3.0 <4.0.0
 - **Flutter channel**: stable
 
 ## Running Tests
@@ -91,33 +91,45 @@ Linting uses `flutter_lints` (config in `my_app/analysis_options.yaml`).
 
 All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted at `/api/`:
 
+> **Source of truth:** `api/urls.py` defines the full set of router registrations and non-router routes. If this table and `api/urls.py` disagree, the code wins.
+
 | Endpoint | Resource |
 |---|---|
-| `api/dogs/` | Dog profiles |
 | `api/profile/` | User profiles |
-| `api/feed/` | Activity feed / media |
-| `api/comments/` | Feed comments |
+| `api/dogs/` | Dog profiles |
+| `api/photos/` | Dog photos/videos |
 | `api/date-change-requests/` | Schedule change requests |
+| `api/feed/` | Activity feed / group media |
+| `api/comments/` | Feed comments |
 | `api/boarding-requests/` | Boarding requests |
+| `api/device-tokens/` | Push notification tokens |
 | `api/daily-assignments/` | Staff-dog daily assignments |
 | `api/support-queries/` | Support tickets |
 | `api/closure-days/` | Facility closures |
 | `api/dog-notes/` | Behavioral/compatibility notes |
 | `api/staff-availability/` | Staff coverage |
 | `api/day-off-requests/` | Staff day-off requests |
-| `api/device-tokens/` | Push notification tokens |
 | `api/contact-inquiries/` | Website contact form |
+| `api/dog-profile-changes/` | Owner-requested dog profile change requests |
+| `api/vaccinations/` | Dog vaccination records |
+| `api/waitlist/` | Daycare waitlist entries |
 | `api/vehicles/` | Fleet vehicles (MOT/service tracking) |
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
+| `api/facility-defects/` | Facility defect reports |
 
-Additional non-router endpoints: password reset/change, account deletion.
+Additional non-router endpoints:
+- `api/daycare-settings/` — facility-wide daycare settings
+- `api/password/reset/request/`, `api/password/reset/verify/`, `api/password/reset/confirm/` — password reset OTP flow
+- `api/password/change/` — change password while logged in
+- `api/account/delete/` — account deletion
+- `api/postcode/lookup/` — UK postcode address lookup (getAddress.io)
 
 ## Architecture & Key Patterns
 
 ### Backend
 
 - **ViewSets + DefaultRouter** for REST endpoints
-- **Custom permissions** via `UserProfile` flags: `can_manage_requests`, `can_assign_dogs`, `can_reply_queries`, `can_view_all_dogs`, `can_upload_media`
+- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_approve_timeoff`, `can_view_inquiries`, `can_manage_vehicles`
 - **Token + Session auth** via djoser
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
@@ -129,7 +141,7 @@ Additional non-router endpoints: password reset/change, account deletion.
 - **StatefulWidget** patterns with service-layer data management
 - **Hive** for local offline caching
 - **Firebase Messaging** + local notifications
-- **Phosphor Icons** (Duotone variant), **Nunito** font via google_fonts
+- **Picons** icon set (`picons` package), **Nunito** font via google_fonts
 
 ## Naming Conventions
 
@@ -161,15 +173,22 @@ See `.env.example` for required variables. Key ones:
 - `DOMAIN` — production domain
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD` — PostgreSQL credentials (prod)
 - `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` — security origins
+- `POSTCODE_LOOKUP_API_KEY` — getAddress.io API key powering the `/api/postcode/lookup/` endpoint (UK postcode → address). Optional; leave blank to disable the lookup feature. Distinct from the keyless postcodes.io geocoding used by `geocode_dogs`.
 - Firebase and AWS S3 credentials for notifications and media storage
 
 ## Management Commands
 
-| Command | Purpose |
-|---|---|
-| `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files |
-| `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` (daily 8:05am cron) |
-| `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` |
+All commands live in `api/management/commands/` (ignore `__init__.py`).
+
+| Command | Purpose | Cron |
+|---|---|---|
+| `python manage.py import_dogs` | Bulk import dogs from a text file (one name per line) or CSV (`owner_username,dog_name`). `--owner`, `--dry-run` | — |
+| `python manage.py seed_demo_data` | Seed/refresh the demo owner account (with a demo dog, gallery, and feed) used for App Store / Play Store screenshots. Idempotent; `--no-media` | — |
+| `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` | — |
+| `python manage.py send_vaccination_reminders` | Send push reminders to owners for vaccinations that are expiring or expired | Daily 8:00am |
+| `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
+| `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files | Weekly, Sun 3am (with `--include-orphans`) |
+| `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
 
 ### Feed Media Pruning
 
@@ -190,7 +209,7 @@ python manage.py prune_feed_media --include-orphans
 ```
 
 - **Default retention**: 90 days
-- **Production schedule**: Runs automatically every Sunday at 3am via host cron (set up by `scripts/deploy-to-hetzner.sh`)
+- **Production schedule**: Runs automatically every Sunday at 3am via host cron (set up by `scripts/deploy-to-hetzner.sh`). The production cron runs **with `--include-orphans`**, so orphaned files are also removed.
 - **Log file**: `/var/log/p4td-prune.log` (on production server)
 - **Tests**: `python manage.py test api.tests.PruneFeedMediaTests`
 

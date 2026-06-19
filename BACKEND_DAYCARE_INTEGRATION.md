@@ -28,12 +28,26 @@ daycare_days = models.JSONField(
 ## API Integration
 
 ### DogSerializer (`api/serializers.py`)
-Updated to include `daycare_days` field in serialization:
+The serializer exposes the daycare schedule alongside the rest of the Dog
+fields. The real `Meta.fields` list (source of truth: `api/serializers.py`) is:
 
 ```python
-fields = ['id', 'owner', 'name', 'breed', 'profile_image', 
-          'food_instructions', 'medical_notes', 'daycare_days', 'created_at']
+fields = ['id', 'owner', 'owner_details', 'additional_owners',
+          'additional_owners_details', 'name', 'profile_image',
+          'food_instructions', 'medical_notes', 'registered_vet', 'address',
+          'postcode', 'access_instructions', 'van_placement', 'general_notes',
+          'daycare_days', 'schedule_type', 'owner_brings_default',
+          'owner_collects_default', 'owner_brings_default_time',
+          'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed',
+          'vaccination_summary', 'latitude', 'longitude', 'geocode_source',
+          'created_at']
 ```
+
+**`schedule_type`** records how often the dog attends and is one of
+`weekly`, `fortnightly`, or `ad_hoc` (default `weekly`). The
+`owner_brings_default` / `owner_collects_default` booleans (with optional
+`owner_brings_default_time` / `owner_collects_default_time`) capture whether the
+owner usually handles drop-off/collection rather than staff transport.
 
 ## API Endpoints
 
@@ -44,10 +58,10 @@ Request body:
 ```json
 {
   "name": "Buddy",
-  "breed": "Golden Retriever",
   "food_instructions": "1 cup dry food twice a day",
   "medical_notes": "None",
-  "daycare_days": [1, 2, 3, 4, 5]  // Mon-Fri
+  "daycare_days": [1, 2, 3, 4, 5],  // Mon-Fri
+  "schedule_type": "weekly"
 }
 ```
 
@@ -57,11 +71,11 @@ Response (201):
   "id": 1,
   "owner": 1,
   "name": "Buddy",
-  "breed": "Golden Retriever",
   "profile_image": "https://...",
   "food_instructions": "1 cup dry food twice a day",
   "medical_notes": "None",
   "daycare_days": [1, 2, 3, 4, 5],
+  "schedule_type": "weekly",
   "created_at": "2026-01-31T10:00:00Z"
 }
 ```
