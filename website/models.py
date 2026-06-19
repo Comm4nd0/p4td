@@ -1,8 +1,33 @@
+import nh3
+
+from django.core.cache import cache
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
+
+# Tags/attributes allowed in admin-authored rich text (Summernote output).
+# Built on nh3's safe defaults plus image support, so basic formatting,
+# headings, links, lists and images survive sanitisation while scripts and
+# event handlers are stripped.
+SANITIZE_TAGS = nh3.ALLOWED_TAGS | {'img', 'h1', 'h2', 'h3', 'span'}
+SANITIZE_ATTRIBUTES = {
+    **nh3.ALLOWED_ATTRIBUTES,
+    'img': {'src', 'alt', 'title', 'width', 'height'},
+    'span': {'style'},
+}
+
+
+def sanitize_html(value):
+    """Strip dangerous HTML (scripts, event handlers, etc.) from rich text."""
+    if not value:
+        return value
+    return nh3.clean(
+        value,
+        tags=SANITIZE_TAGS,
+        attributes=SANITIZE_ATTRIBUTES,
+    )
 
 
 class BlogPost(models.Model):
@@ -35,11 +60,17 @@ class BlogPost(models.Model):
     def __str__(self):
         return self.title
 
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse('website:blog_detail', args=[self.slug])
+
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
         if self.status == 'published' and not self.published_at:
             self.published_at = timezone.now()
+        # Sanitise admin-authored HTML before storing (rendered with |safe).
+        self.body = sanitize_html(self.body)
         super().save(*args, **kwargs)
 
 
@@ -178,17 +209,31 @@ class SiteSettings(models.Model):
         verbose_name = 'Site settings'
         verbose_name_plural = 'Site settings'
 
+    # Rich-text fields rendered with |safe in templates.
+    RICH_TEXT_FIELDS = (
+        'welcome_text', 'daycare_text', 'puppy_classes_text', 'training_text',
+    )
+    CACHE_KEY = 'website:sitesettings'
+
     def __str__(self):
         return 'Site Settings'
 
     def save(self, *args, **kwargs):
         # Ensure only one instance exists
         self.pk = 1
+        # Sanitise admin-authored HTML before storing.
+        for field in self.RICH_TEXT_FIELDS:
+            setattr(self, field, sanitize_html(getattr(self, field)))
         super().save(*args, **kwargs)
+        # Refresh the cached singleton.
+        cache.set(self.CACHE_KEY, self, None)
 
     @classmethod
     def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+        obj = cache.get(cls.CACHE_KEY)
+        if obj is None:
+            obj, _ = cls.objects.get_or_create(pk=1)
+            cache.set(cls.CACHE_KEY, obj, None)
         return obj
 
 
@@ -256,16 +301,23 @@ class ServicePricing(models.Model):
         verbose_name = 'Service pricing'
         verbose_name_plural = 'Service pricing'
 
+    CACHE_KEY = 'website:servicepricing'
+
     def __str__(self):
         return 'Service Pricing'
 
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
+        # Refresh the cached singleton.
+        cache.set(self.CACHE_KEY, self, None)
 
     @classmethod
     def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+        obj = cache.get(cls.CACHE_KEY)
+        if obj is None:
+            obj, _ = cls.objects.get_or_create(pk=1)
+            cache.set(cls.CACHE_KEY, obj, None)
         return obj
 
 

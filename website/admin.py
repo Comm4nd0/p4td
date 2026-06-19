@@ -54,8 +54,8 @@ class BlogPostAdmin(ResizableSummernoteAdmin):
     publish_posts.short_description = 'Publish selected posts'
 
     def unpublish_posts(self, request, queryset):
-        queryset.update(status='draft')
-        self.message_user(request, 'Selected posts set to draft.')
+        updated = queryset.filter(status='published').update(status='draft')
+        self.message_user(request, f'{updated} post(s) set to draft.')
     unpublish_posts.short_description = 'Unpublish selected posts'
 
 

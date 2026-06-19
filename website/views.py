@@ -1,12 +1,26 @@
 from django.core.paginator import Paginator
 from django.shortcuts import render, get_object_or_404, redirect
-from django.core.mail import send_mail
+from django.core.cache import cache
+from django.core.mail import EmailMessage
 from django.conf import settings
 from django.contrib import messages
 from django.views.decorators.cache import cache_control
 
 from .models import BlogPost, ServicePricing, SiteSettings, Testimonial
 from .forms import ContactForm
+
+# Per-IP throttle on the contact form: at most CONTACT_RATE_LIMIT submissions
+# per CONTACT_RATE_WINDOW seconds.
+CONTACT_RATE_LIMIT = 5
+CONTACT_RATE_WINDOW = 60 * 60  # 1 hour
+
+
+def _client_ip(request):
+    """Best-effort client IP, honouring the first X-Forwarded-For hop."""
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '') or 'unknown'
 
 
 def home(request):
@@ -55,22 +69,53 @@ def field_hire(request):
 
 def contact(request):
     if request.method == 'POST':
+        # Per-IP rate limit before doing any real work.
+        cache_key = f'contact-rl:{_client_ip(request)}'
+        attempts = cache.get(cache_key, 0)
+        if attempts >= CONTACT_RATE_LIMIT:
+            form = ContactForm(request.POST)
+            messages.error(
+                request,
+                'You have sent several messages recently. '
+                'Please try again later.'
+            )
+            return render(request, 'website/contact.html', {
+                'form': form,
+            }, status=429)
+
         form = ContactForm(request.POST)
         if form.is_valid():
+            # Count every valid submission attempt against the throttle.
+            cache.set(cache_key, attempts + 1, CONTACT_RATE_WINDOW)
+
+            # Honeypot tripped -> silently drop as spam (look successful, but
+            # don't save or email).
+            if form.is_spam():
+                messages.success(
+                    request,
+                    'Thank you! Your message has been received. '
+                    'We will be in touch soon.'
+                )
+                return redirect('website:contact')
+
             inquiry = form.save()
+            recipient = getattr(
+                settings, 'CONTACT_INQUIRY_EMAIL', settings.DEFAULT_FROM_EMAIL
+            )
             try:
-                send_mail(
+                email = EmailMessage(
                     subject=f'New Contact Inquiry: {inquiry.get_service_display()}',
-                    message=(
+                    body=(
                         f'Name: {inquiry.name}\n'
                         f'Email: {inquiry.email}\n'
                         f'Service: {inquiry.get_service_display()}\n\n'
                         f'Message:\n{inquiry.message}'
                     ),
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[settings.DEFAULT_FROM_EMAIL],
-                    fail_silently=True,
+                    to=[recipient],
+                    reply_to=[inquiry.email],
                 )
+                email.send(fail_silently=True)
             except Exception:
                 pass
             messages.success(

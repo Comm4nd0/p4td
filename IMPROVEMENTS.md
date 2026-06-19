@@ -79,15 +79,15 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [ ] **B52** ⚪ M — Tests: auto_assign/suggested/reorder/send_traffic_alert
 - [ ] **B53** ⚪ S — Tests: defect notification reporter self-skip
 
-## Batch 6 — Website
-- [ ] **W1** 🟡 S — Contact form: guard blank reCAPTCHA keys / system check
-- [ ] **W2** 🟡 M — Contact form: rate limit + honeypot + message max_length
-- [ ] **W3** 🟡 M — Sanitize admin rich-text HTML on save (nh3/bleach)
-- [ ] **W4** 🟡 M — Add website tests
-- [ ] **W5** ⚪ S — Inquiry emails: reply_to + monitored recipient
-- [ ] **W6** ⚪ S — Add services page to sitemap
-- [ ] **W7** ⚪ S — Cache singleton `.load()` rows / cache_page
-- [ ] **W8** ⚪ S — Blog unpublish action: status filter + count
+## Batch 6 — Website ✅ (20 website tests OK; migration 0008 = help_text only)
+- [x] **W1** 🟡 S — Captcha field dropped when key blank (forms.py)
+- [x] **W2** 🟡 M — Cache-based per-IP throttle + honeypot + message max_length
+- [x] **W3** 🟡 M — nh3 sanitization in BlogPost/SiteSettings save()
+- [x] **W4** 🟡 M — website/tests.py (20 tests)
+- [x] **W5** ⚪ S — EmailMessage reply_to + optional CONTACT_INQUIRY_EMAIL recipient
+- [x] **W6** ⚪ S — services added to sitemap (+ fixed BlogPost.get_absolute_url)
+- [x] **W7** ⚪ S — Cached SiteSettings/ServicePricing singletons, invalidated on save
+- [x] **W8** ⚪ S — Blog unpublish filters to published + reports count
 
 ## Batch 7 — Infra / config (repo changes; deploy steps flagged)
 - [ ] **I2** 🟠 S — Backend CI workflow (postgres service, test + makemigrations --check)

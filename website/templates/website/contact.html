@@ -65,9 +65,16 @@
                     {% endif %}
                 </div>
 
+                {# Honeypot: hidden from real users, catches bots. #}
+                <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px;">
+                    {{ form.website }}
+                </div>
+
+                {% if form.captcha %}
                 {{ form.captcha }}
                 {% if form.captcha.errors %}
                 <div class="form-errors">{{ form.captcha.errors.0 }}</div>
+                {% endif %}
                 {% endif %}
 
                 <button type="submit" class="btn btn-primary">Submit</button>
