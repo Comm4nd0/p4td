@@ -122,40 +122,50 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **D10** ⚪ S — Real project `my_app/README.md`
 - [x] **D11** ⚪ M — Expanded root README (3 components, tests, links)
 
-## Batch 9 — Flutter security / correctness / performance (small–medium)
-- [ ] **F1** 🟠 S — Re-enable TLS enforcement (iOS ATS, Android cleartext); drop stale IP
-- [ ] **F2** 🟠 M — HTTP timeouts on all data_service calls (central client)
-- [ ] **F3** 🟠 M — 401/403 handling → auto sign-out; typed exceptions
-- [ ] **F5** 🟡 S — `_getHeaders`: throw on null token, not `Token null`
-- [ ] **F6** 🟡 S — `uploadMultiplePhotos`: continue on failure, report partials
-- [ ] **F7** 🟡 S — Notification payload: jsonEncode/Decode
-- [ ] **F8** 🟡 S — Feed actions: `mounted` guard after await
-- [ ] **F4** 🟡 M — Encrypt Hive box (HiveAesCipher key in secure storage)
-- [ ] **F9** 🟠 S — Gallery grid: use thumbnailUrl + memCacheWidth
-- [ ] **F10** 🟠 M — memCacheWidth on feed/list CachedNetworkImages
-- [ ] **F19** 🟡 M — `all_dogs_today`: ListView.builder
-- [ ] **F20** 🟡 S — Map route anim: stop when idle/paused; precompute lengths
-- [ ] **F21** 🟡 S — Video player: ValueListenableBuilder for time text
-- [ ] **F22** 🟡 M — Feed: ValueKey, debounce search, cache filtered list
-- [ ] **F25** 🟡 S — Dispose text controllers (8+ screens)
-- [ ] **F23** ⚪ M — Feed scrollToPost: ensureVisible instead of 450px estimate
-- [ ] **F24** ⚪ M — Feed JSON parse off main isolate (compute)
-- [ ] **F26** ⚪ M — Map `_assign`: refresh + scope prompt parity
-- [ ] **F27** ⚪ S — Auth errors: friendly messages, log raw in debug only
-- [ ] **F28** ⚪ S — Multi-account blob: validate + log decode errors
-- [ ] **F29** ⚪ S — Login: client-side validation
-- [ ] **F30** ⚪ S — Register: stronger email regex, inline match check
-- [ ] **F31** ⚪ S — Theme-derived text colours (dark mode)
+## Batch 9 — Flutter security / correctness / performance ✅ mostly (analyze clean)
+- [x] **F1** 🟠 S — Re-enable TLS enforcement (iOS ATS, Android cleartext); dropped stale IP
+- [x] **F2** 🟠 M — 30s timeout in http_client wrapper (covers all data_service/auth calls)
+- [x] **F3** 🟠 M — http_client onUnauthorized on 401 → main.dart signs out + routes to login (403 left as permission-denied)
+- [x] **F5** 🟡 S — `_getHeaders` omits Authorization when no token
+- [x] **F6** 🟡 S — `uploadMultiplePhotos` continues on failure; errors only if none succeed
+- [x] **F7** 🟡 S — Notification payload jsonEncode/Decode
+- [x] **F8** 🟡 S — Feed actions `mounted` guard after await
+- [x] **F4** 🟡 M — Encrypt Hive box (HiveAesCipher key in secure storage)
+- [x] **F9** 🟠 S — Gallery grid thumbnailUrl + memCacheWidth
+- [x] **F10** 🟠 M — memCacheWidth/Height on feed/list/avatar images
+- [x] **F19** 🟡 M — `all_dogs_today` ListView.builder
+- [ ] **F20** 🟡 S — Map route anim stop-when-idle — NOT done (pickup_map_screen.dart has local WIP; left untouched)
+- [x] **F21** 🟡 S — Video player ValueListenableBuilder for time text
+- [x] **F22** 🟡 M — Feed ValueKey + debounced search + cached filter
+- [x] **F25** 🟡 S — Dispose controllers across 8+ screens/dialogs
+- [ ] **F23** ⚪ M — Feed scrollToPost ensureVisible — NOT done (deferred)
+- [ ] **F24** ⚪ M — Feed JSON parse off main isolate — NOT done (deferred)
+- [ ] **F26** ⚪ M — Map `_assign` refresh/scope — NOT done (pickup_map WIP)
+- [x] **F27** ⚪ S — Auth errors friendly + debug-only raw log
+- [x] **F28** ⚪ S — Multi-account blob validate + log + drop bad entry
+- [x] **F29** ⚪ S — Login client-side validation
+- [x] **F30** ⚪ S — Register stronger email regex + inline match
+- [x] **F31** ⚪ S — Theme-derived text colours (dark mode)
 
-## Batch 10 — Flutter large refactors
-- [ ] **F18** 🟡 L — Extract ApiClient (headers/timeout/status mapping/decode); enables F2/F3/F5
-- [ ] **F11** 🟠 L — Route screens through `getIt<DataService>()`
-- [ ] **F12** 🟠 L — Shared AssignmentActions controller/mixin (4 screens)
+## Batch 10 — Flutter large refactors — NOT done (documented follow-up)
+Large architectural rewrites of working code that can't be runtime-verified here
+(no device/emulator); attempting them unverified risks logic/UI regressions
+`flutter analyze` won't catch. Recommended as a focused, separately-reviewed pass.
+Note F18's *goal* (centralise HTTP cross-cutting concerns) is partially met:
+http_client now owns timeouts (F2) + 401 handling (F3) for every call.
+- [ ] **F18** 🟡 L — Full ApiClient extraction / split the 116-method god-class into repositories
+- [ ] **F11** 🟠 L — Route 36 screens through `getIt<DataService>()` (DI already wired in main)
+- [ ] **F12** 🟠 L — Shared AssignmentActions controller (touches pickup_map WIP)
 - [ ] **F13** 🟠 M — Shared media-upload flow (feed + dashboard)
-- [ ] **F16** 🟡 M — Shared AssignmentCard widget
-- [ ] **F14** 🟡 L — Decompose UnifiedDashboardScreen
-- [ ] **F15** 🟡 L — Decompose DogHomeScreen
+- [ ] **F16** 🟡 M — Shared AssignmentCard widget (touches pickup_map WIP)
+- [ ] **F14** 🟡 L — Decompose UnifiedDashboardScreen (2090 lines)
+- [ ] **F15** 🟡 L — Decompose DogHomeScreen (1770 lines)
 - [ ] **F17** ⚪ M — DayData value object for dashboard caches
+
+## Also deferred
+- [ ] **B6** 🟠 M — List pagination (coordinated backend + Flutter client)
+- [ ] **I3** 🟠 M — Authenticated private media (coordinated backend + Flutter image-auth)
+- [ ] **I7** 🟡 M — Cron failure alerting (folds into deploy cron wiring)
 
 ---
 
