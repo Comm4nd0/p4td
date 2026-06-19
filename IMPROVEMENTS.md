@@ -138,8 +138,8 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **F21** 🟡 S — Video player ValueListenableBuilder for time text
 - [x] **F22** 🟡 M — Feed ValueKey + debounced search + cached filter
 - [x] **F25** 🟡 S — Dispose controllers across 8+ screens/dialogs
-- [ ] **F23** ⚪ M — Feed scrollToPost ensureVisible — NOT done (deferred)
-- [ ] **F24** ⚪ M — Feed JSON parse off main isolate — NOT done (deferred)
+- [x] **F23** ⚪ M — Feed scrollToPost via GlobalKey + ensureVisible (dev branch)
+- [x] **F24** ⚪ M — Feed JSON parsed off the main isolate via compute() (dev branch; optimistic-comment micro-part skipped)
 - [ ] **F26** ⚪ M — Map `_assign` refresh/scope — NOT done (pickup_map WIP)
 - [x] **F27** ⚪ S — Auth errors friendly + debug-only raw log
 - [x] **F28** ⚪ S — Multi-account blob validate + log + drop bad entry
@@ -156,11 +156,11 @@ http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 - [ ] **F18** 🟡 L — Full ApiClient extraction / split the 116-method god-class into repositories
 - [x] **F11** 🟠 L — Routed 38 screens/widgets through `getIt<DataService>()` (+3 interface methods); analyze 0/0, 37 tests pass
 - [ ] **F12** 🟠 L — Shared AssignmentActions controller (touches pickup_map WIP)
-- [ ] **F13** 🟠 M — Shared media-upload flow (feed + dashboard)
+- [x] **F13** 🟠 M — Shared MediaUploadFlow (feed + dashboard) (dev branch)
 - [ ] **F16** 🟡 M — Shared AssignmentCard widget (touches pickup_map WIP)
 - [ ] **F14** 🟡 L — Decompose UnifiedDashboardScreen (2090 lines)
 - [ ] **F15** 🟡 L — Decompose DogHomeScreen (1770 lines)
-- [ ] **F17** ⚪ M — DayData value object for dashboard caches
+- [x] **F17** ⚪ M — DayData value object for dashboard caches (dev branch)
 
 ## Also deferred
 - [ ] **B6** 🟠 M — List pagination (coordinated backend + Flutter client)
