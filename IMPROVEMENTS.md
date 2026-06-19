@@ -134,13 +134,13 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **F9** 🟠 S — Gallery grid thumbnailUrl + memCacheWidth
 - [x] **F10** 🟠 M — memCacheWidth/Height on feed/list/avatar images
 - [x] **F19** 🟡 M — `all_dogs_today` ListView.builder
-- [ ] **F20** 🟡 S — Map route anim stop-when-idle — NOT done (pickup_map_screen.dart has local WIP; left untouched)
+- [x] **F20** 🟡 S — Map route anim stops when routes hidden / app backgrounded (lifecycle-aware) (dev branch)
 - [x] **F21** 🟡 S — Video player ValueListenableBuilder for time text
 - [x] **F22** 🟡 M — Feed ValueKey + debounced search + cached filter
 - [x] **F25** 🟡 S — Dispose controllers across 8+ screens/dialogs
 - [x] **F23** ⚪ M — Feed scrollToPost via GlobalKey + ensureVisible (dev branch)
 - [x] **F24** ⚪ M — Feed JSON parsed off the main isolate via compute() (dev branch; optimistic-comment micro-part skipped)
-- [ ] **F26** ⚪ M — Map `_assign` refresh/scope — NOT done (pickup_map WIP)
+- [→] **F26** ⚪ M — Map `_assign` scope/refresh — SKIPPED (low value; backend already persists recurring roster on assign, so a scope prompt would mislead)
 - [x] **F27** ⚪ S — Auth errors friendly + debug-only raw log
 - [x] **F28** ⚪ S — Multi-account blob validate + log + drop bad entry
 - [x] **F29** ⚪ S — Login client-side validation
@@ -154,10 +154,10 @@ Large architectural rewrites of working code that can't be runtime-verified here
 Note F18's *goal* (centralise HTTP cross-cutting concerns) is partially met:
 http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 - [ ] **F18** 🟡 L — Full ApiClient extraction / split the 116-method god-class into repositories
-- [x] **F11** 🟠 L — Routed 38 screens/widgets through `getIt<DataService>()` (+3 interface methods); analyze 0/0, 37 tests pass
-- [ ] **F12** 🟠 L — Shared AssignmentActions controller (touches pickup_map WIP)
+- [x] **F11** 🟠 L — Routed 39 screens/widgets (incl pickup_map) through `getIt<DataService>()` (+3 interface methods)
+- [ ] **F12** 🟠 L — Shared AssignmentActions controller (status state-machine + transport/staff-pick dialogs, 4 screens) — REMAINING (now unblocked)
 - [x] **F13** 🟠 M — Shared MediaUploadFlow (feed + dashboard) (dev branch)
-- [ ] **F16** 🟡 M — Shared AssignmentCard widget (touches pickup_map WIP)
+- [x] **F16** 🟡 M — Shared AssignmentCard widget (490-line widget, 10 drift params; screens −255/−261) (dev branch)
 - [x] **F14** 🟡 L — Decomposed UnifiedDashboardScreen 1998→1496 (DashboardCounts controller + dialogs + sections under lib/screens/dashboard/) (dev branch)
 - [~] **F15** 🟡 L — Extracted + unit-tested pure scheduling logic (utils/dog_schedule.dart, +11 tests); dialog/staff flows left in place (State-coupled, behaviour-risk) (dev branch)
 - [x] **F17** ⚪ M — DayData value object for dashboard caches (dev branch)
