@@ -158,8 +158,8 @@ http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 - [ ] **F12** 🟠 L — Shared AssignmentActions controller (touches pickup_map WIP)
 - [x] **F13** 🟠 M — Shared MediaUploadFlow (feed + dashboard) (dev branch)
 - [ ] **F16** 🟡 M — Shared AssignmentCard widget (touches pickup_map WIP)
-- [ ] **F14** 🟡 L — Decompose UnifiedDashboardScreen (2090 lines)
-- [ ] **F15** 🟡 L — Decompose DogHomeScreen (1770 lines)
+- [x] **F14** 🟡 L — Decomposed UnifiedDashboardScreen 1998→1496 (DashboardCounts controller + dialogs + sections under lib/screens/dashboard/) (dev branch)
+- [~] **F15** 🟡 L — Extracted + unit-tested pure scheduling logic (utils/dog_schedule.dart, +11 tests); dialog/staff flows left in place (State-coupled, behaviour-risk) (dev branch)
 - [x] **F17** ⚪ M — DayData value object for dashboard caches (dev branch)
 
 ## Also deferred
