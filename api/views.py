@@ -75,6 +75,7 @@ from PIL import Image
 import os
 import tempfile
 import subprocess
+import uuid
 
 def process_image(image_file, max_size=(1280, 1280), quality=85):
     """Resizes and compresses an image while maintaining aspect ratio."""
@@ -99,8 +100,10 @@ def process_image(image_file, max_size=(1280, 1280), quality=85):
         img.save(output, format='JPEG', quality=quality, optimize=True)
         output.seek(0)
         
-        # Return a new ContentFile that can be saved to a Django FileField
-        new_name = os.path.splitext(image_file.name)[0] + '.jpg'
+        # Random filename so stored media URLs aren't guessable from the
+        # original name (partial mitigation for I3 — full auth-gating is a
+        # separate coordinated change).
+        new_name = f'{uuid.uuid4().hex}.jpg'
         return ContentFile(output.read(), name=new_name)
     except Exception as e:
         print(f"Error processing image: {e}")
@@ -121,7 +124,8 @@ def process_image_pair(image_file, main_size=(1280, 1280), thumb_size=(400, 400)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
 
-        base_name = os.path.splitext(image_file.name)[0]
+        # Random filename so stored media URLs aren't guessable (I3 partial).
+        base_name = uuid.uuid4().hex
 
         def _encode(size, quality, suffix):
             im = img.copy()

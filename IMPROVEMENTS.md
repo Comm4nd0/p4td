@@ -154,7 +154,7 @@ Large architectural rewrites of working code that can't be runtime-verified here
 Note F18's *goal* (centralise HTTP cross-cutting concerns) is partially met:
 http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 - [ ] **F18** 🟡 L — Full ApiClient extraction / split the 116-method god-class into repositories
-- [ ] **F11** 🟠 L — Route 36 screens through `getIt<DataService>()` (DI already wired in main)
+- [x] **F11** 🟠 L — Routed 38 screens/widgets through `getIt<DataService>()` (+3 interface methods); analyze 0/0, 37 tests pass
 - [ ] **F12** 🟠 L — Shared AssignmentActions controller (touches pickup_map WIP)
 - [ ] **F13** 🟠 M — Shared media-upload flow (feed + dashboard)
 - [ ] **F16** 🟡 M — Shared AssignmentCard widget (touches pickup_map WIP)
@@ -164,7 +164,7 @@ http_client now owns timeouts (F2) + 401 handling (F3) for every call.
 
 ## Also deferred
 - [ ] **B6** 🟠 M — List pagination (coordinated backend + Flutter client)
-- [ ] **I3** 🟠 M — Authenticated private media (coordinated backend + Flutter image-auth)
+- [~] **I3** 🟠 M — UUID filenames for processed-image uploads done (unguessable URLs); full auth-gating still deferred (needs coordinated Flutter image-auth / signed URLs). Video files still keep original names.
 - [ ] **I7** 🟡 M — Cron failure alerting (folds into deploy cron wiring)
 
 ---
