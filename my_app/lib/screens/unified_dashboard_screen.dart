@@ -5,8 +5,6 @@ import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
-import '../models/date_change_request.dart';
-import '../models/boarding_request.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/media_upload_flow.dart';
@@ -14,6 +12,13 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
+import 'dashboard/action_items_section.dart';
+import 'dashboard/add_dog_to_day_dialog.dart';
+import 'dashboard/boarding_tonight_section.dart';
+import 'dashboard/compatibility_conflicts_dialog.dart';
+import 'dashboard/dashboard_counts.dart';
+import 'dashboard/quick_actions_section.dart';
+import 'dashboard/unspayed_males_dialog.dart';
 import 'all_dogs_today_screen.dart';
 import 'pickup_map_screen.dart';
 import 'staff_dog_detail_screen.dart';
@@ -87,21 +92,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // Swipe direction for slide animation: 1 = forward (next), -1 = backward (prev)
   int _swipeDirection = 1;
 
-  // Dashboard data
-  int _pendingRequestCount = 0;
-  int _pendingBoardingCount = 0;
-  int _unresolvedQueryCount = 0;
-  int _unreadInquiryCount = 0;
-  int _pendingProfileChangeCount = 0;
-  int _unresolvedDefectCount = 0;
-  int _unresolvedVehicleDefectCount = 0;
-  int _unspayedMalesCount = 0;
-  List<UnspayedMaleSummary> _unspayedMales = [];
-  List<BoardingRequest> _boardingTonight = [];
+  // Action-item counts + boarding-tonight list. Owns the ~8 count loaders that
+  // used to live here; the screen listens and rebuilds (see [_onCountsChanged]).
+  late final DashboardCounts _counts;
 
   @override
   void initState() {
     super.initState();
+    _counts = DashboardCounts(
+      dataService: _dataService,
+      canViewInquiries: widget.canViewInquiries,
+      canManageRequests: widget.canManageRequests,
+    )..addListener(_onCountsChanged);
     _dateOptions = _generateWeekdays(DateTime.now());
     final today = DateTime.now();
     final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
@@ -109,7 +111,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadStaffMembers();
     _loadDay(_selectedDate);
     _loadClosureDays();
-    _loadDashboardData();
+    _counts.refresh();
     // Today now sits mid-strip (past weekdays precede it), so scroll it into
     // view once the list is laid out.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -120,8 +122,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   @override
   void dispose() {
+    _counts.removeListener(_onCountsChanged);
+    _counts.dispose();
     _dateScrollController.dispose();
     super.dispose();
+  }
+
+  /// Rebuild when any action-item count changes. Guards on [mounted] so a late
+  /// async count load after disposal is a no-op (the controller swallows its
+  /// own errors, but the notification still has to be safe).
+  void _onCountsChanged() {
+    if (mounted) setState(() {});
   }
 
   // ─── Date generation ──────────────────────────────────────────────
@@ -303,96 +314,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Future<void> _reloadSelectedDay() {
     _dayCache.clear();
     return _loadDay(_selectedDate, force: true);
-  }
-
-  Future<void> _loadDashboardData() async {
-    _loadPendingRequestCount();
-    _loadUnresolvedQueryCount();
-    if (widget.canViewInquiries) _loadUnreadInquiryCount();
-    _loadBoardingTonight();
-    if (widget.canManageRequests) _loadPendingProfileChangeCount();
-    _loadUnresolvedDefectCount();
-    _loadUnresolvedVehicleDefectCount();
-    _loadUnspayedMales();
-  }
-
-  Future<void> _loadUnspayedMales() async {
-    try {
-      final result = await _dataService.getUnspayedMales();
-      if (mounted) {
-        setState(() {
-          _unspayedMalesCount = result.count;
-          _unspayedMales = result.dogs;
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadPendingProfileChangeCount() async {
-    try {
-      final count = await _dataService.getPendingDogProfileChangeCount();
-      if (mounted) setState(() => _pendingProfileChangeCount = count);
-    } catch (_) {}
-  }
-
-  Future<void> _loadPendingRequestCount() async {
-    try {
-      final dateRequests = await _dataService.getDateChangeRequests();
-      final boardingRequests = await _dataService.getBoardingRequests();
-      final pendingDateCount = dateRequests.where((r) => r.status == RequestStatus.pending).length;
-      final pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
-      if (mounted) {
-        setState(() {
-          _pendingRequestCount = pendingDateCount + pendingBoardingCount;
-          _pendingBoardingCount = pendingBoardingCount;
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadUnresolvedQueryCount() async {
-    try {
-      final count = await _dataService.getUnresolvedQueryCount();
-      if (mounted) setState(() => _unresolvedQueryCount = count);
-    } catch (_) {}
-  }
-
-  Future<void> _loadUnresolvedDefectCount() async {
-    try {
-      final count = await _dataService.getUnresolvedFacilityDefectCount();
-      if (mounted) setState(() => _unresolvedDefectCount = count);
-    } catch (_) {}
-  }
-
-  Future<void> _loadUnresolvedVehicleDefectCount() async {
-    try {
-      final count = await _dataService.getUnresolvedVehicleDefectCount();
-      if (mounted) setState(() => _unresolvedVehicleDefectCount = count);
-    } catch (_) {}
-  }
-
-  Future<void> _loadUnreadInquiryCount() async {
-    try {
-      final count = await _dataService.getUnreadInquiryCount();
-      if (mounted) setState(() => _unreadInquiryCount = count);
-    } catch (_) {}
-  }
-
-  Future<void> _loadBoardingTonight() async {
-    try {
-      final requests = await _dataService.getBoardingRequests();
-      final today = DateTime.now();
-      final tonight = DateTime(today.year, today.month, today.day);
-      if (mounted) {
-        setState(() {
-          _boardingTonight = requests.where((r) =>
-            r.status == BoardingRequestStatus.approved &&
-            !r.startDate.isAfter(tonight) &&
-            r.endDate.isAfter(tonight)
-          ).toList();
-        });
-      }
-    } catch (_) {}
   }
 
   // ─── Public methods for parent ─────────────────────────────────────
@@ -852,130 +773,24 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }).toList();
 
     final dateLabel = ukDateWithDay(_selectedDate);
-    int? selectedDogId;
-    int? selectedStaffId;
-    final searchController = TextEditingController();
-    List<Dog> filteredExtraDogs = List.of(extraDogs);
 
-    final sortedStaff = List<Map<String, dynamic>>.from(_staffMembers)
-      ..sort((a, b) {
-        final aAvail = _availableStaffIds.isEmpty || _availableStaffIds.contains(a['id'] as int);
-        final bAvail = _availableStaffIds.isEmpty || _availableStaffIds.contains(b['id'] as int);
-        if (aAvail && !bAvail) return -1;
-        if (!aAvail && bAvail) return 1;
-        return 0;
-      });
-
-    final result = await showDialog<bool>(
+    final selection = await showAddDogToDayDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: Text('Add Dog to $dateLabel'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (widget.canAssignDogs) ...[
-                      DropdownButtonFormField<int>(
-                        decoration: const InputDecoration(labelText: 'Assign to staff'),
-                        value: selectedStaffId,
-                        items: sortedStaff.map((s) {
-                          final name = (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
-                              ? s['first_name'].toString() : s['username'].toString();
-                          final staffId = s['id'] as int;
-                          final isAvailable = _availableStaffIds.isEmpty || _availableStaffIds.contains(staffId);
-                          return DropdownMenuItem<int>(
-                            value: staffId,
-                            child: Row(children: [
-                              Picon(PiconsDuotone.circle, size: 10, color: isAvailable ? AppColors.success : AppColors.grey400),
-                              const SizedBox(width: 8),
-                              Text(name, style: TextStyle(color: isAvailable ? null : AppColors.grey500)),
-                              if (!isAvailable) Text(' (off)', style: TextStyle(fontSize: 11, color: AppColors.grey400)),
-                            ]),
-                          );
-                        }).toList(),
-                        onChanged: (v) => setDialogState(() => selectedStaffId = v),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    const Text('Search for a dog to add to this day:', style: TextStyle(fontSize: 13)),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search by name...',
-                        prefixIcon: Picon(PiconsDuotone.magnifyingGlass),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                      ),
-                      onChanged: (query) {
-                        setDialogState(() {
-                          filteredExtraDogs = extraDogs
-                              .where((d) => d.name.toLowerCase().contains(query.toLowerCase()))
-                              .toList();
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.3),
-                      child: filteredExtraDogs.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text('No additional dogs found', style: TextStyle(color: Colors.grey[500])),
-                            )
-                          : ListView.builder(
-                              shrinkWrap: true,
-                              itemCount: filteredExtraDogs.length,
-                              itemBuilder: (context, index) {
-                                final dog = filteredExtraDogs[index];
-                                final dogId = int.parse(dog.id);
-                                return RadioListTile<int>(
-                                  value: dogId,
-                                  groupValue: selectedDogId,
-                                  onChanged: (v) => setDialogState(() => selectedDogId = v),
-                                  title: Text(dog.name),
-                                  subtitle: dog.ownerDetails != null ? Text('Owner: ${dog.ownerDetails!.username}') : null,
-                                  secondary: dog.profileImageUrl != null
-                                      ? ClipRRect(
-                                          borderRadius: BorderRadius.circular(20),
-                                          child: CachedNetworkImage(imageUrl: dog.profileImageUrl!, width: 40, height: 40, fit: BoxFit.cover),
-                                        )
-                                      : CircleAvatar(child: Picon(PiconsDuotone.pawPrint)),
-                                  dense: true,
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: selectedDogId == null || (widget.canAssignDogs && selectedStaffId == null)
-                    ? null
-                    : () => Navigator.pop(context, true),
-                child: const Text('Add to Day'),
-              ),
-            ],
-          );
-        },
-      ),
+      date: _selectedDate,
+      dateLabel: dateLabel,
+      extraDogs: extraDogs,
+      staffMembers: _staffMembers,
+      availableStaffIds: _availableStaffIds,
+      canAssignDogs: widget.canAssignDogs,
     );
 
-    if (result == true && selectedDogId != null) {
+    if (selection != null) {
       try {
         final AssignDogsResult assignResult;
-        if (widget.canAssignDogs && selectedStaffId != null) {
-          assignResult = await _dataService.assignDogs([selectedDogId!], selectedStaffId!, date: _selectedDate);
+        if (widget.canAssignDogs && selection.staffId != null) {
+          assignResult = await _dataService.assignDogs([selection.dogId], selection.staffId!, date: _selectedDate);
         } else {
-          assignResult = await _dataService.assignDogsToMe([selectedDogId!], date: _selectedDate);
+          assignResult = await _dataService.assignDogsToMe([selection.dogId], date: _selectedDate);
         }
         if (mounted) {
           if (assignResult.hasSkipped) {
@@ -994,8 +809,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add dog: $e')));
       }
     }
-
-    searchController.dispose();
   }
 
   // ─── Upload media from dashboard ──────────────────────────────────
@@ -1093,7 +906,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           child: RefreshIndicator.adaptive(
             onRefresh: () async {
               await _loadDay(_selectedDate, force: true);
-              await _loadDashboardData();
+              await _counts.refresh();
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -1339,7 +1152,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => _showCompatibilityConflictsDialog(conflicts),
+          onTap: () => showCompatibilityConflictsDialog(context, conflicts),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
@@ -1366,77 +1179,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  void _showCompatibilityConflictsDialog(List<CompatibilityConflict> conflicts) {
-    final byStaff = <String, List<CompatibilityConflict>>{};
-    for (final c in conflicts) {
-      byStaff.putIfAbsent(c.staffMemberName, () => []).add(c);
-    }
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Grouping conflicts'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'These dogs are flagged as incompatible but are assigned to the same staff member. Reassign one of them or update the note.',
-              ),
-              const SizedBox(height: 12),
-              ...byStaff.entries.map((entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(entry.key,
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        ...entry.value.map((c) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(children: [
-                                    const Picon(PiconsDuotone.pawPrint, size: 16),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        '${c.dogAName} + ${c.dogBName}',
-                                        style: const TextStyle(fontWeight: FontWeight.w600),
-                                      ),
-                                    ),
-                                  ]),
-                                  if (c.reasons.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 22, top: 2),
-                                      child: Text(
-                                        c.reasons.first,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.grey700,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            )),
-                      ],
-                    ),
-                  )),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
-          ),
-        ],
       ),
     );
   }
@@ -1627,144 +1369,52 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildActionItems() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Action Items', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        ActionItemTile(
-          icon: PiconsDuotone.clockCountdown,
-          label: 'Pending Requests',
-          count: _pendingRequestCount,
-          countColor: _pendingRequestCount > 0 ? Colors.red : null,
-          onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(
-              builder: (_) => StaffNotificationsScreen(canManageRequests: widget.canManageRequests),
-            ));
-            _loadPendingRequestCount();
-          },
-        ),
-        const SizedBox(height: 4),
-        ActionItemTile(
-          icon: PiconsDuotone.chats,
-          label: 'Unresolved Queries',
-          count: _unresolvedQueryCount,
-          countColor: _unresolvedQueryCount > 0 ? Colors.red : null,
-          onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(
-              builder: (_) => QueryListScreen(isStaff: widget.isStaff, canReplyQueries: widget.canReplyQueries),
-            ));
-            _loadUnresolvedQueryCount();
-          },
-        ),
-        if (widget.canViewInquiries) ...[
-          const SizedBox(height: 4),
-          ActionItemTile(
-            icon: PiconsDuotone.envelope,
-            label: 'Unread Inquiries',
-            count: _unreadInquiryCount,
-            countColor: _unreadInquiryCount > 0 ? Colors.red : null,
-            onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
-              _loadUnreadInquiryCount();
-            },
-          ),
-        ],
-        if (widget.canManageRequests) ...[
-          const SizedBox(height: 4),
-          ActionItemTile(
-            icon: PiconsDuotone.dog,
-            label: 'Profile Changes',
-            count: _pendingProfileChangeCount,
-            countColor: _pendingProfileChangeCount > 0 ? Colors.red : null,
-            onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const DogProfileChangesScreen()));
-              _loadPendingProfileChangeCount();
-            },
-          ),
-        ],
-        const SizedBox(height: 4),
-        ActionItemTile(
-          icon: PiconsDuotone.bed,
-          label: 'Boarding Requests',
-          count: _pendingBoardingCount,
-          countColor: _pendingBoardingCount > 0 ? Colors.red : null,
-          onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()));
-            _loadPendingRequestCount();
-          },
-        ),
-        const SizedBox(height: 4),
-        ActionItemTile(
-          icon: PiconsDuotone.wrench,
-          label: 'Site Defects',
-          count: _unresolvedDefectCount,
-          countColor: _unresolvedDefectCount > 0 ? Colors.red : null,
-          onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const FacilityDefectsScreen()));
-            _loadUnresolvedDefectCount();
-          },
-        ),
-        const SizedBox(height: 4),
-        ActionItemTile(
-          icon: PiconsDuotone.van,
-          label: 'Vehicle Defects',
-          count: _unresolvedVehicleDefectCount,
-          countColor: _unresolvedVehicleDefectCount > 0 ? Colors.red : null,
-          onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(
-              builder: (_) => FleetScreen(canManageVehicles: widget.canManageVehicles),
-            ));
-            _loadUnresolvedVehicleDefectCount();
-          },
-        ),
-        if (_unspayedMalesCount > 0) ...[
-          const SizedBox(height: 4),
-          ActionItemTile(
-            icon: PiconsDuotone.warningCircle,
-            label: 'Spay status to confirm',
-            count: _unspayedMalesCount,
-            countColor: _unspayedMalesCount > 0 ? Colors.red : null,
-            onTap: _showUnspayedMalesDialog,
-          ),
-        ],
-      ],
-    );
-  }
-
-  void _showUnspayedMalesDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Spay status to confirm'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'These male dogs are over 1 year old and not yet marked as spayed/neutered. '
-              'Please ask the owner whether their dog has been spayed yet.',
-            ),
-            const SizedBox(height: 12),
-            ..._unspayedMales.map((d) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    children: [
-                      const Picon(PiconsDuotone.dog, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(d.name)),
-                    ],
-                  ),
-                )),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
+    return ActionItemsSection(
+      pendingRequestCount: _counts.pendingRequestCount,
+      unresolvedQueryCount: _counts.unresolvedQueryCount,
+      unreadInquiryCount: _counts.unreadInquiryCount,
+      pendingProfileChangeCount: _counts.pendingProfileChangeCount,
+      pendingBoardingCount: _counts.pendingBoardingCount,
+      unresolvedDefectCount: _counts.unresolvedDefectCount,
+      unresolvedVehicleDefectCount: _counts.unresolvedVehicleDefectCount,
+      unspayedMalesCount: _counts.unspayedMalesCount,
+      canViewInquiries: widget.canViewInquiries,
+      canManageRequests: widget.canManageRequests,
+      onOpenPendingRequests: () async {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => StaffNotificationsScreen(canManageRequests: widget.canManageRequests),
+        ));
+        _counts.reloadPendingRequestCount();
+      },
+      onOpenQueries: () async {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => QueryListScreen(isStaff: widget.isStaff, canReplyQueries: widget.canReplyQueries),
+        ));
+        _counts.reloadUnresolvedQueryCount();
+      },
+      onOpenInquiries: () async {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
+        _counts.reloadUnreadInquiryCount();
+      },
+      onOpenProfileChanges: () async {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const DogProfileChangesScreen()));
+        _counts.reloadPendingProfileChangeCount();
+      },
+      onOpenBoardingRequests: () async {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()));
+        _counts.reloadPendingRequestCount();
+      },
+      onOpenSiteDefects: () async {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const FacilityDefectsScreen()));
+        _counts.reloadUnresolvedDefectCount();
+      },
+      onOpenVehicleDefects: () async {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => FleetScreen(canManageVehicles: widget.canManageVehicles),
+        ));
+        _counts.reloadUnresolvedVehicleDefectCount();
+      },
+      onOpenUnspayedMales: () => showUnspayedMalesDialog(context, _counts.unspayedMales),
     );
   }
 
@@ -1862,71 +1512,21 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildBoardingSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Boarding Tonight', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        if (_boardingTonight.isEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(child: Text('No boarding tonight', style: TextStyle(color: Colors.grey[500]))),
-            ),
-          )
-        else
-          ...(_boardingTonight.map((request) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(children: [
-                  Picon(PiconsDuotone.bed, size: 18, color: AppColors.primary),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('${request.dogNames.join(", ")} (${request.ownerName})', style: const TextStyle(fontSize: 14))),
-                ]),
-              ))),
-      ],
-    );
+    return BoardingTonightSection(boardingTonight: _counts.boardingTonight);
   }
 
   Widget _buildQuickActions() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Quick Actions', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ActionChip(
-              avatar: Picon(PiconsDuotone.uploadSimple, size: 18),
-              label: const Text('Upload to Feed'),
-              onPressed: _uploadMediaFromDashboard,
-            ),
-            if (widget.canAssignDogs)
-              ActionChip(
-                avatar: Picon(PiconsDuotone.plusCircle, size: 18),
-                label: const Text('Add Dog to Day'),
-                onPressed: _showAddDogToDayDialog,
-              ),
-            if (widget.canAssignDogs)
-              ActionChip(
-                avatar: Picon(PiconsDuotone.arrowsLeftRight, size: 18),
-                label: const Text('Swap Staff'),
-                onPressed: _showSwapStaffDialog,
-              ),
-            if (widget.isSuperuser)
-              ActionChip(
-                avatar: Picon(PiconsDuotone.shieldStar, size: 18),
-                label: const Text('Manage Staff Permissions'),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
-                  );
-                },
-              ),
-          ],
-        ),
-      ],
+    return QuickActionsSection(
+      canAssignDogs: widget.canAssignDogs,
+      isSuperuser: widget.isSuperuser,
+      onUploadMedia: _uploadMediaFromDashboard,
+      onAddDogToDay: _showAddDogToDayDialog,
+      onSwapStaff: _showSwapStaffDialog,
+      onManagePermissions: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
+        );
+      },
     );
   }
 }
