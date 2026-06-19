@@ -1,30 +1,17 @@
-# Production requirements for p4td_backend
+# Production requirements for p4td_backend — the single install source.
 # Install with: pip install -r requirements-prod.txt
+#
+# This is a strict superset of dev: it pulls in everything from requirements.txt
+# (Django, DRF, Pillow, firebase-admin, nh3, sentry-sdk, …) and then adds the
+# prod-only server/database/static extras below.
 
-# Django core
-Django>=5.0,<6.0
-djangorestframework>=3.14
-djoser>=2.2
-django-cors-headers>=4.3
+-r requirements.txt
 
-# Production server
-gunicorn>=21.0
+# Production WSGI server
+gunicorn==23.0.0
 
-# Database
-psycopg2-binary>=2.9
+# PostgreSQL driver (prod DB; dev uses SQLite so this isn't in the base file)
+psycopg2-binary>=2.9,<3.0
 
-# Static files
-whitenoise>=6.6
-
-# Environment variables
-python-dotenv>=1.0
-
-# Image processing (for thumbnails)
-Pillow>=10.0
-firebase-admin>=6.5.0
-
-# Rich text editor for admin
-django-summernote>=0.8
-
-# reCAPTCHA v3 (contact form)
-django-recaptcha>=4.0
+# Efficient static file serving
+whitenoise==6.8.2

@@ -1,0 +1,73 @@
+name: Backend CI
+
+# Run the Django checks, migration check, and test suite against a real
+# PostgreSQL 15 (matching production) on every push/PR that touches the backend.
+on:
+  push:
+    paths:
+      - 'api/**'
+      - 'p4td_backend/**'
+      - 'website/**'
+      - 'requirements*.txt'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'p4td_backend/**'
+      - 'website/**'
+      - 'requirements*.txt'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: p4td
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Wait until Postgres is ready before the job steps run.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DJANGO_DEBUG: 'true'
+      # Setting RDS_* switches settings.py onto the PostgreSQL backend, pointed
+      # at the postgres service above (reachable on localhost from the runner).
+      RDS_DB_NAME: p4td
+      RDS_USERNAME: postgres
+      RDS_PASSWORD: postgres
+      RDS_HOSTNAME: localhost
+      RDS_PORT: '5432'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        # requirements-prod.txt is the consolidated install source (it pulls in
+        # requirements.txt), so this installs everything dev + prod needs.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-prod.txt
+
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Django system check
+        run: python manage.py check
+
+      - name: Run tests
+        run: python manage.py test

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.contrib.sitemaps.views import sitemap
+from django.http import HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
@@ -11,7 +12,18 @@ sitemaps = {
     'static': StaticPagesSitemap,
 }
 
+
+def healthz(request):
+    """Liveness probe for Docker/compose healthchecks and the deploy script.
+
+    Returns a plain 200 with no database or external dependency so it stays
+    cheap and reflects only that the WSGI app is up and serving requests.
+    """
+    return HttpResponse('ok', content_type='text/plain')
+
+
 urlpatterns = [
+    path('healthz/', healthz, name='healthz'),
     path('admin/', admin.site.urls),
     path('summernote/', include('django_summernote.urls')),
     path('api/', include('api.urls')),

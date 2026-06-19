@@ -9,11 +9,14 @@ services:
     environment:
       POSTGRES_DB: p4td
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: CuIPpvG1ENqLQDvu7Vn8xJ4r
+      # Sourced from the environment (.env); defaults to 'postgres' for a
+      # throwaway local DB. No real credential is committed here.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bind to loopback only so the dev DB isn't reachable from the LAN.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

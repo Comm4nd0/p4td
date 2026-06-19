@@ -48,7 +48,15 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
-# Always allow localhost and 127.0.0.1 for health checks
+# Always allow localhost and 127.0.0.1 for health checks.
+# This is safe even in production: the container/compose healthcheck curls
+# http://localhost:8000/healthz/ from *inside* the container, and prod does
+# NOT publish the app port externally (see docker-compose.prod.yml / I8) — only
+# Caddy can reach the app, over the internal Docker network. The usual risk of a
+# permissive ALLOWED_HOSTS (Host-header poisoning of password-reset links) does
+# not apply here because the reset flow is OTP-based (a 6-digit code emailed to
+# the user, exchanged for a token — see api/views.py request_password_reset);
+# no absolute reset URLs are built from the request Host.
 if 'localhost' not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append('localhost')
 if '127.0.0.1' not in ALLOWED_HOSTS:
@@ -286,10 +294,20 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'SAMEORIGIN'  # Required for Summernote editor iframes
-    # Enable these when you have HTTPS set up:
-    # SECURE_SSL_REDIRECT = True
-    # SESSION_COOKIE_SECURE = True
-    # CSRF_COOKIE_SECURE = True
+
+    # HTTPS is provisioned and terminated by Caddy (see Caddyfile). Django learns
+    # the request was HTTPS via SECURE_PROXY_SSL_HEADER (set above), so these
+    # flags are safe to enable in production.
+    SECURE_SSL_REDIRECT = True          # Redirect any plain HTTP to HTTPS
+    SESSION_COOKIE_SECURE = True        # Session cookie only sent over HTTPS
+    CSRF_COOKIE_SECURE = True           # CSRF cookie only sent over HTTPS
+    SESSION_COOKIE_HTTPONLY = True      # Block JS access to the session cookie
+
+    # HTTP Strict Transport Security: tell browsers to use HTTPS for a year,
+    # cover subdomains, and allow preload-list inclusion.
+    SECURE_HSTS_SECONDS = 31536000      # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 # =============================================================================
 # DEFAULT PRIMARY KEY
@@ -379,3 +397,26 @@ SUMMERNOTE_CONFIG = {
     },
     'attachment_require_authentication': True,
 }
+
+# =============================================================================
+# ERROR MONITORING (Sentry — optional)
+# =============================================================================
+
+# Enabled only when SENTRY_DSN is set in the environment. Dev and CI/tests have
+# no DSN, so this stays a complete no-op there. The import is guarded so a
+# missing sentry-sdk package can never break startup.
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '')
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            # Sample a small fraction of transactions for performance tracing.
+            traces_sample_rate=float(os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05')),
+            environment=os.environ.get('SENTRY_ENVIRONMENT', 'production'),
+            # Do not attach PII (user emails, request bodies) to events.
+            send_default_pii=False,
+        )
+    except ImportError:
+        # sentry-sdk not installed; skip monitoring rather than crash.
+        pass

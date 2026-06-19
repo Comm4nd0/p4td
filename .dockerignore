@@ -1,0 +1,28 @@
+# Keep secrets, local state, and the (unrelated) Flutter app out of the image
+# build context — smaller, faster builds and no accidental secret leakage.
+
+# Secrets / environment
+.env
+.env.*
+
+# Version control
+.git
+
+# Local databases
+*.sqlite3
+
+# Runtime / generated data (mounted as volumes in prod)
+media/
+staticfiles/
+
+# Flutter mobile app (built and deployed separately)
+my_app/
+
+# Python virtualenvs and caches
+venv/
+__pycache__/
+*.pyc
+
+# Tooling / editor state
+.claude/
+node_modules/

@@ -1,11 +1,31 @@
+# Base (dev + shared) requirements for p4td_backend.
+# Production installs requirements-prod.txt, which pulls this file in via
+# "-r requirements.txt" and adds prod-only extras (gunicorn, psycopg2, whitenoise).
+# Pinned to the versions currently resolved in dev so dev/CI/prod stay aligned.
+
+# Django core
 Django==5.2.10
-djangorestframework
-djoser
-django-cors-headers
-python-dotenv
-django-storages
-boto3
-Pillow
-firebase-admin
-django-summernote
-django-recaptcha>=4.0
+djangorestframework==3.15.1
+djoser==2.2.3
+django-cors-headers==4.3.1
+
+# Environment variables
+python-dotenv==1.2.2
+
+# Image processing (thumbnails, EXIF rotation)
+Pillow==10.3.0
+
+# Push notifications
+firebase-admin==7.3.0
+
+# Rich text editor for admin
+django-summernote==0.8.20.0
+
+# reCAPTCHA v3 (contact form)
+django-recaptcha==4.1.0
+
+# HTML sanitisation (website user-generated content)
+nh3==0.3.5
+
+# Error monitoring (optional; only active when SENTRY_DSN is set — see settings.py)
+sentry-sdk>=2.0,<3.0

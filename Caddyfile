@@ -1,4 +1,9 @@
-:80 {
+# Caddy serves the real site over HTTPS and auto-provisions/renews certificates
+# for DOMAIN_NAME. DOMAIN_NAME MUST be set in the deploy environment (e.g. in
+# .env, consumed by docker compose) — it falls back to the production domain.
+# Because a real hostname (not :80) is used, Caddy obtains a Let's Encrypt cert
+# and automatically redirects plain HTTP on :80 to HTTPS.
+{$DOMAIN_NAME:paws4thoughtdogs.com} {
     # Serve media files directly (must be before reverse_proxy)
     handle_path /media/* {
         root * /srv/media

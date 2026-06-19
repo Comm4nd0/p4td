@@ -141,15 +141,21 @@ if [ -d "$MIGRATION_DIR/media" ]; then
     $DOCKER_COMPOSE -f docker-compose.prod.yml up -d web
     sleep 5
 
-    # Get the media volume mount path
+    # Get the media volume mount path. The prod compose file mounts the named
+    # volume 'media_data' into web at /app/media; docker prefixes it with the
+    # compose project name, so it is 'p4td_media_data' (see docker-compose.prod.yml).
     MEDIA_VOLUME=$($DOCKER volume inspect p4td_media_data --format '{{ .Mountpoint }}' 2>/dev/null || echo "")
     if [ -n "$MEDIA_VOLUME" ]; then
-        sudo cp -r "$MIGRATION_DIR/media/"* "$MEDIA_VOLUME/" 2>/dev/null || true
+        # No '|| true' here: if the copy fails we want setup to abort loudly
+        # (set -e) rather than silently leaving media missing in production.
+        sudo cp -r "$MIGRATION_DIR/media/"* "$MEDIA_VOLUME/"
         # Fix permissions for the appuser (UID 1000 in the container)
         sudo chown -R 1000:1000 "$MEDIA_VOLUME/"
         echo "   Media files copied to volume."
     else
-        echo "   Warning: Could not find media volume. Copy media manually."
+        echo "   ERROR: Could not find media volume p4td_media_data." >&2
+        echo "   Ensure the web service started so the volume exists, then re-run." >&2
+        exit 1
     fi
 else
     echo "   No media directory found at $MIGRATION_DIR/media"

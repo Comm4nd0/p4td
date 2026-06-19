@@ -40,19 +40,21 @@ RUN mkdir -p /app/staticfiles /app/media && chown -R appuser:appuser /app/static
 # Switch to non-root user
 USER appuser
 
-# Set build-time environment variables for collectstatic
-ENV DJANGO_SECRET_KEY=build-time-secret-not-used-in-production
-ENV DJANGO_DEBUG=True
-
-# Collect static files
-RUN python manage.py collectstatic --noinput
+# Collect static files. DEBUG and a throwaway secret are set inline for this
+# single RUN only (collectstatic needs them) — they are NOT persisted as ENV, so
+# the running container defaults to DJANGO_DEBUG unset (i.e. False) and requires
+# a real DJANGO_SECRET_KEY from the environment at runtime.
+RUN DJANGO_DEBUG=True DJANGO_SECRET_KEY=build-only python manage.py collectstatic --noinput
 
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check — hit the dependency-free liveness endpoint (see urls.py healthz)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/admin/', timeout=5)" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/', timeout=5)" || exit 1
 
-# Run with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "2", "p4td_backend.wsgi:application"]
+# Run with gunicorn. --max-requests + jitter recycle each worker after ~1000
+# requests (staggered) to cap memory growth from any slow leaks.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "2", \
+     "--max-requests", "1000", "--max-requests-jitter", "100", \
+     "p4td_backend.wsgi:application"]

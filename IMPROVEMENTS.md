@@ -89,24 +89,25 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **W7** ⚪ S — Cached SiteSettings/ServicePricing singletons, invalidated on save
 - [x] **W8** ⚪ S — Blog unpublish filters to published + reports count
 
-## Batch 7 — Infra / config (repo changes; deploy steps flagged)
-- [ ] **I2** 🟠 S — Backend CI workflow (postgres service, test + makemigrations --check)
-- [ ] **I4** 🟠 S — Enable HTTPS flags (Secure cookies, SSL redirect, HSTS)
-- [ ] **I5** 🟠 M — Consolidate requirements (`-r`) + pin; drop dead django-storages/boto3
-- [ ] **I6** 🟠 M — Add Sentry (guarded by SENTRY_DSN env)
-- [ ] **I8** 🟡 S — Don't publish prod 8000 to 0.0.0.0
-- [ ] **I9** 🟡 S — Caddyfile: real site address for auto-HTTPS *(deploy)*
-- [ ] **I10** 🟡 S — Add `.dockerignore`
-- [ ] **I11** 🟡 S — Don't bake DJANGO_DEBUG=True as runtime ENV
-- [ ] **I12** 🟡 S — `/healthz` endpoint + compose healthcheck
-- [ ] **I14** ⚪ S — Dev compose: param Postgres password; bind PG to localhost
-- [ ] **I15** ⚪ S — Point Dockerfile HEALTHCHECK at /healthz (with I12)
-- [ ] **I16** ⚪ S — Gunicorn: --max-requests + jitter
-- [ ] **I17** ⚪ S — Standardise prod media location *(deploy)*
-- [ ] **I13** 🟡 M — Deploy script: rollback + health gate + readiness loop *(deploy)*
-- [ ] **I7** 🟡 M — Cron failure alerting (heartbeat/non-zero exit) *(deploy)*
-- [ ] **I1** 🔴 M — Nightly off-box pg_dump backup script *(deploy)*
-- [ ] **I3** 🟠 M — Authenticated media serving (X-Accel/internal) *(deploy)*
+## Batch 7 — Infra / config ✅ (check clean DEBUG on+off; YAML+shell validated)
+- [x] **I2** 🟠 S — `.github/workflows/backend-ci.yml` (postgres service, test + makemigrations --check)
+- [x] **I4** 🟠 S — Enabled HTTPS flags (Secure cookies, HttpOnly, SSL redirect, HSTS)
+- [x] **I5** 🟠 M — requirements-prod `-r requirements.txt` + pins; dropped dead django-storages/boto3; added nh3, sentry-sdk
+- [x] **I6** 🟠 M — Optional Sentry guarded by SENTRY_DSN (try/except import)
+- [x] **I8** 🟡 S — Removed prod `8000:8000` publish
+- [x] **I9** 🟡 S — Caddyfile uses `{$DOMAIN_NAME}` for auto-HTTPS *(deploy: set DOMAIN_NAME)*
+- [x] **I10** 🟡 S — Added `.dockerignore`
+- [x] **I11** 🟡 S — DEBUG no longer a runtime ENV (inline on collectstatic RUN)
+- [x] **I12** 🟡 S — `/healthz/` endpoint + compose healthcheck
+- [x] **I14** ⚪ S — Dev compose param password + PG bound to 127.0.0.1
+- [x] **I15** ⚪ S — Dockerfile HEALTHCHECK → /healthz/
+- [x] **I16** ⚪ S — Gunicorn `--max-requests 1000 --max-requests-jitter 100`
+- [x] **I17** ⚪ S — Standardised prod media on named volume `media_data` *(deploy: migrate media)*
+- [x] **I13** 🟡 M — Deploy script: readiness loop + post-migrate health gate + rollback record *(deploy)*
+- [x] **I1** 🔴 M — `scripts/backup-db.sh` nightly pg_dump + retention *(deploy: cron + off-box ship)*
+- [→] **B44** ⚪ S — Kept localhost for healthcheck; risk mitigated by I8 + OTP-based reset (documented)
+- [ ] **I7** 🟡 M — Cron failure alerting — NOT done (folds into the deploy cron wiring; see notes)
+- [ ] **I3** 🟠 M — Authenticated media — DEFERRED (needs coordinated Flutter image-auth or signed URLs; would break all image loading if done piecemeal)
 
 ## Batch 8 — Docs ✅
 - [x] **D1** 🟠 S — Removed non-existent `breed` field (FUNCTIONALITY_GUIDE had none)
@@ -160,6 +161,18 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 
 ## Manual deploy steps (to run after merge)
 
-Collected here as items are implemented — server-side actions I can't perform from the repo.
+Server-side actions that can't be done from the repo:
 
-_(populated during Batch 7)_
+1. **I9 — DOMAIN_NAME**: set `DOMAIN_NAME` in the deploy env/`.env` so Caddy provisions the right cert (falls back to `paws4thoughtdogs.com`). `setup-hetzner.sh` already writes it into the generated `.env`.
+2. **I17 — media volume migration**: prod switched from the `./media` bind-mount to the named volume `media_data`. On the next deploy, copy existing media into the `p4td_media_data` volume once; if Caddy is a separate container, mount `media_data` at `/srv/media` (read-only).
+3. **I1 — backups**: wire `scripts/backup-db.sh` to host cron and configure off-box shipping (rclone/restic/S3).
+4. **I7 — cron alerting**: add a heartbeat (e.g. healthchecks.io ping) to the cron entries for backups + reminders so silent failures surface.
+5. **I13 — rollback**: automated rollback isn't performed; the deploy script records the prior commit + image id to `.deploy-history` and prints the manual rollback command.
+6. **CONTACT_INQUIRY_EMAIL** (W5): set this to route contact-form inquiries to a monitored inbox (falls back to DEFAULT_FROM_EMAIL).
+7. **Constraint migrations** (B15/B16): the Comment "exactly one parent" CheckConstraint and the DayOffRequest active-uniqueness constraint will fail to apply if existing prod rows already violate them — dedupe first if `migrate` errors.
+
+## Deferred / follow-up (not done this pass)
+
+- **I3 — authenticated private media** 🟠: dog/staff/defect photos are still served without auth. Doing this right needs a coordinated change: serve via an auth-checking Django view with `X-Accel-Redirect`/Caddy internal (or move to S3 signed URLs), AND update the Flutter app to send the token with image requests (CachedNetworkImage `httpHeaders`) — otherwise every image breaks. UUID-randomising new upload filenames is a low-risk partial mitigation worth doing first.
+- **B6 — list pagination** 🟠: deferred; needs the Flutter client to follow paginated responses (Batch 9/10 scope).
+- **Flutter batches 9 & 10**: see below — partially done (security/correctness items); the larger perf + refactor items remain.
