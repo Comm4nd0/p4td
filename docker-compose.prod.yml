@@ -31,11 +31,13 @@ services:
     # volume — Caddy would then serve an empty/stale directory.
     volumes:
       - ./media:/app/media
-    # The host's Caddy container reverse-proxies to 172.17.0.1:8000 (it's on a
-    # different Docker network), so the app port MUST be published on the host.
-    # Restrict external access to :8000 via the host firewall.
+    # The host's Caddy container reverse-proxies to 172.17.0.1:8000 (Caddy is on
+    # a DIFFERENT Docker network), so the app port MUST be published on the host.
+    # Bind it to the docker0 gateway only: Caddy can reach it, but it is NOT
+    # exposed on the public interface (the server has no firewall). See
+    # DEPLOYMENT.md. Do not remove this, and do not move media to a named volume.
     ports:
-      - "8000:8000"
+      - "172.17.0.1:8000:8000"
     healthcheck:
       # Send X-Forwarded-Proto so SECURE_SSL_REDIRECT doesn't 301 this loopback
       # check to https (which nothing serves on localhost).

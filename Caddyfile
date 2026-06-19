@@ -1,20 +1,29 @@
-# Caddy serves the real site over HTTPS and auto-provisions/renews certificates
-# for DOMAIN_NAME. DOMAIN_NAME MUST be set in the deploy environment (e.g. in
-# .env, consumed by docker compose) — it falls back to the production domain.
-# Because a real hostname (not :80) is used, Caddy obtains a Let's Encrypt cert
-# and automatically redirects plain HTTP on :80 to HTTPS.
-{$DOMAIN_NAME:paws4thoughtdogs.com} {
-    # Serve media files directly (must be before reverse_proxy)
+# =============================================================================
+# REFERENCE ONLY — this is NOT the file Caddy actually loads in production.
+# =============================================================================
+# In production, Caddy runs as its OWN separate container (`caddy-caddy-1`,
+# compose project at /root/caddy) that fronts MANY apps on this host. Its real,
+# live config is /root/caddy/Caddyfile on the server — edit THAT to change
+# routing, then reload Caddy. This file is kept only to mirror the p4td block so
+# the repo documents how the site is served. See DEPLOYMENT.md.
+#
+# Key facts the live config depends on (do not break these in docker-compose.prod.yml):
+#   * Caddy is on a DIFFERENT Docker network than the p4td web container, so it
+#     reaches the app via the HOST-published port at 172.17.0.1:8000 — the app
+#     port MUST stay published (we bind it to 172.17.0.1 only).
+#   * Caddy serves /media/* straight from the host directory /root/p4td/media
+#     (mounted into Caddy as /srv/p4td-media) — the SAME dir the web container
+#     bind-mounts at /app/media. Media must NOT move to a Docker named volume.
+
+paws4thoughtdogs.com, www.paws4thoughtdogs.com {
+    # Serve uploaded media straight from the shared host directory.
     handle_path /media/* {
-        root * /srv/media
+        root * /srv/p4td-media
         file_server
     }
 
-    # Reverse proxy everything else to Django
-    handle {
-        reverse_proxy web:8000
-    }
+    # Everything else -> the Django app via the host-published port.
+    reverse_proxy 172.17.0.1:8000
 
-    # Compression
     encode gzip
 }

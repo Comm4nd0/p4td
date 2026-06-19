@@ -152,6 +152,12 @@ Additional non-router endpoints:
 
 ## Deployment
 
+> **Read [`DEPLOYMENT.md`](DEPLOYMENT.md) before changing anything that serves the app.**
+> The prod box is multi-tenant: a *separate* Caddy container fronts several apps and
+> reaches p4td via the host port `172.17.0.1:8000` (not the Docker network), and media
+> is a host bind-mount Caddy serves directly. The committed `Caddyfile` is reference
+> only; the live one is `/root/caddy/Caddyfile` on the server.
+
 - **Infrastructure**: Hetzner CX22, Docker Compose, Caddy reverse proxy
 - **Backend deploy**: `scripts/deploy-to-hetzner.sh` (manual SSH-based)
 - **Mobile deploy**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
