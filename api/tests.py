@@ -3264,3 +3264,689 @@ class GeocodingTests(TestCase):
         d1.refresh_from_db()
         self.assertIsNone(d1.latitude)
         mock_fetch.assert_not_called()
+
+
+# A password that passes Django's default validators (length, not too common,
+# not all numeric) — reused across the account-security tests below.
+STRONG_PW = 'Str0ngNewP@ss99'
+
+
+class PasswordAndAccountSecurityTests(TestCase):
+    """B46 — OTP reset flow, change_password (old-password + token rotation),
+    and delete_account (password gate + co-owner promotion / NULL owner)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        # Anon reset endpoints are throttled per-IP; the throttle cache survives
+        # between tests in-process, so clear it to keep each case independent.
+        cache.clear()
+        self.user = User.objects.create_user(
+            username='resetme', email='resetme@example.com', password='OldPass123!',
+            first_name='Rita',
+        )
+        self.client = APIClient()
+
+    # ── request reset (enumeration-safe) ────────────────────────────────
+
+    def test_request_reset_known_email_sends_mail(self):
+        from django.core import mail
+        from api.models import PasswordResetOTP
+        resp = self.client.post(
+            '/api/password/reset/request/',
+            {'email': 'resetme@example.com'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['resetme@example.com'])
+        self.assertTrue(PasswordResetOTP.objects.filter(user=self.user).exists())
+
+    def test_request_reset_unknown_email_is_200_but_silent(self):
+        from django.core import mail
+        resp = self.client.post(
+            '/api/password/reset/request/',
+            {'email': 'nobody@example.com'}, format='json',
+        )
+        # Same 200 as the known case (no account enumeration), but no mail.
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+
+    # ── verify OTP ──────────────────────────────────────────────────────
+
+    def _make_otp(self, **over):
+        from api.models import PasswordResetOTP
+        defaults = {
+            'user': self.user,
+            'otp': '123456',
+            'expires_at': timezone.now() + timedelta(minutes=15),
+        }
+        defaults.update(over)
+        return PasswordResetOTP.objects.create(**defaults)
+
+    def test_verify_otp_success_returns_token(self):
+        self._make_otp()
+        resp = self.client.post(
+            '/api/password/reset/verify/',
+            {'email': 'resetme@example.com', 'otp': '123456'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data.get('reset_token'))
+
+    def test_verify_otp_expired_rejected(self):
+        self._make_otp(expires_at=timezone.now() - timedelta(minutes=1))
+        resp = self.client.post(
+            '/api/password/reset/verify/',
+            {'email': 'resetme@example.com', 'otp': '123456'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_verify_otp_wrong_code_rejected(self):
+        self._make_otp()
+        resp = self.client.post(
+            '/api/password/reset/verify/',
+            {'email': 'resetme@example.com', 'otp': '000000'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    # ── reset password (consumes the token once) ────────────────────────
+
+    def test_reset_password_changes_password_and_consumes_token(self):
+        otp = self._make_otp()
+        token = otp.generate_reset_token()
+        resp = self.client.post(
+            '/api/password/reset/confirm/',
+            {'reset_token': token, 'new_password': STRONG_PW}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(STRONG_PW))
+        otp.refresh_from_db()
+        self.assertTrue(otp.is_used)
+
+        # A second use of the same token is rejected.
+        resp2 = self.client.post(
+            '/api/password/reset/confirm/',
+            {'reset_token': token, 'new_password': 'An0therP@ss77'}, format='json',
+        )
+        self.assertEqual(resp2.status_code, 400)
+
+    # ── change password (authenticated, requires old password) ──────────
+
+    def _token_for(self, user):
+        from rest_framework.authtoken.models import Token
+        return Token.objects.create(user=user).key
+
+    def test_change_password_wrong_old_password_rejected(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(
+            '/api/password/change/',
+            {'old_password': 'WRONG', 'new_password': STRONG_PW}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('OldPass123!'))
+
+    def test_change_password_rotates_token(self):
+        old_token = self._token_for(self.user)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Token {old_token}')
+        resp = client.post(
+            '/api/password/change/',
+            {'old_password': 'OldPass123!', 'new_password': STRONG_PW}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        new_token = resp.data.get('token')
+        self.assertTrue(new_token)
+        self.assertNotEqual(new_token, old_token)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(STRONG_PW))
+
+        # The old token no longer authenticates (it was deleted).
+        stale = APIClient()
+        stale.credentials(HTTP_AUTHORIZATION=f'Token {old_token}')
+        self.assertEqual(stale.get('/api/profile/').status_code, 401)
+        # The new token does.
+        fresh = APIClient()
+        fresh.credentials(HTTP_AUTHORIZATION=f'Token {new_token}')
+        self.assertEqual(fresh.get('/api/profile/').status_code, 200)
+
+    # ── delete account (password gate + dog ownership handling) ─────────
+
+    def test_delete_account_wrong_password_keeps_user(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(
+            '/api/account/delete/', {'password': 'WRONG'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
+    def test_delete_account_promotes_co_owner_and_nulls_solely_owned(self):
+        co_owner = User.objects.create_user(username='coowner', password='pw')
+        solo_dog = Dog.objects.create(owner=self.user, name='Solo')
+        shared_dog = Dog.objects.create(owner=self.user, name='Shared')
+        shared_dog.additional_owners.add(co_owner)
+
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(
+            '/api/account/delete/', {'password': 'OldPass123!'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+
+        # Solely-owned dog persists with a NULL owner (SET_NULL).
+        solo_dog.refresh_from_db()
+        self.assertIsNone(solo_dog.owner)
+
+        # Co-owned dog: the remaining co-owner is promoted to primary owner and
+        # removed from the additional_owners set.
+        shared_dog.refresh_from_db()
+        self.assertEqual(shared_dog.owner, co_owner)
+        self.assertNotIn(co_owner, shared_dog.additional_owners.all())
+
+
+class DeviceTokenViewSetTests(TestCase):
+    """B47 — DeviceToken create/dedupe/reassign and per-user scoping."""
+
+    def setUp(self):
+        self.user_a = User.objects.create_user(username='dta', password='pw')
+        self.user_b = User.objects.create_user(username='dtb', password='pw')
+        self.client = APIClient()
+
+    def test_first_post_creates(self):
+        from api.models import DeviceToken
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.post(
+            '/api/device-tokens/', {'token': 'tok-1', 'device_type': 'ANDROID'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(DeviceToken.objects.filter(token='tok-1', user=self.user_a).count(), 1)
+
+    def test_same_user_repost_is_idempotent(self):
+        from api.models import DeviceToken
+        self.client.force_authenticate(self.user_a)
+        self.client.post('/api/device-tokens/', {'token': 'tok-1'}, format='json')
+        resp = self.client.post('/api/device-tokens/', {'token': 'tok-1'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(DeviceToken.objects.filter(token='tok-1').count(), 1)
+
+    def test_different_user_repost_reassigns_ownership(self):
+        from api.models import DeviceToken
+        DeviceToken.objects.create(user=self.user_a, token='tok-1')
+        self.client.force_authenticate(self.user_b)
+        resp = self.client.post('/api/device-tokens/', {'token': 'tok-1'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(DeviceToken.objects.filter(token='tok-1').count(), 1)
+        self.assertEqual(DeviceToken.objects.get(token='tok-1').user, self.user_b)
+
+    def test_list_only_returns_callers_tokens(self):
+        from api.models import DeviceToken
+        DeviceToken.objects.create(user=self.user_a, token='a-tok')
+        DeviceToken.objects.create(user=self.user_b, token='b-tok')
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.get('/api/device-tokens/')
+        self.assertEqual(resp.status_code, 200)
+        tokens = [t['token'] for t in resp.data]
+        self.assertEqual(tokens, ['a-tok'])
+
+
+class DaycareSettingsEndpointTests(TestCase):
+    """B48 — daycare_settings GET open to any authed user; PATCH gated."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='dsowner', password='pw')
+        self.staff = User.objects.create_user(username='dsstaff', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='dsmgr', password='pw', is_staff=True)
+        self.manager.profile.can_manage_requests = True
+        self.manager.profile.save()
+        self.superuser = User.objects.create_user(
+            username='dsadmin', password='pw', is_staff=True, is_superuser=True,
+        )
+        self.client = APIClient()
+
+    def _capacity(self):
+        from api.models import DaycareSettings
+        return DaycareSettings.load().default_daily_capacity
+
+    def test_get_allowed_for_any_authed_user(self):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.get('/api/daycare-settings/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('default_daily_capacity', resp.data)
+
+    def test_plain_owner_patch_forbidden(self):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': 5}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_plain_staff_patch_forbidden(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': 5}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_superuser_patch_sets_capacity(self):
+        self.client.force_authenticate(self.superuser)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': 7}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._capacity(), 7)
+
+    def test_manager_with_can_manage_requests_patch_sets_capacity(self):
+        self.client.force_authenticate(self.manager)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': 9}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._capacity(), 9)
+
+    def test_zero_means_unlimited(self):
+        self.client.force_authenticate(self.superuser)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': 0}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(self._capacity())
+
+    def test_null_means_unlimited(self):
+        self.client.force_authenticate(self.superuser)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': None}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(self._capacity())
+
+    def test_negative_rejected(self):
+        self.client.force_authenticate(self.superuser)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': -3}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_non_numeric_rejected(self):
+        self.client.force_authenticate(self.superuser)
+        resp = self.client.patch(
+            '/api/daycare-settings/', {'default_daily_capacity': 'lots'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+class IDORTests(TestCase):
+    """B49 — owner A must not reach owner B's records by id (404, not 200)."""
+
+    def setUp(self):
+        self.a = User.objects.create_user(username='ownera', password='pw')
+        self.b = User.objects.create_user(username='ownerb', password='pw')
+        self.b_dog = Dog.objects.create(owner=self.b, name='BDog')
+        self.client = APIClient()
+        self.client.force_authenticate(self.a)
+
+    def test_cannot_retrieve_others_dog(self):
+        resp = self.client.get(f'/api/dogs/{self.b_dog.id}/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_cannot_patch_others_dog(self):
+        resp = self.client.patch(
+            f'/api/dogs/{self.b_dog.id}/', {'name': 'Hacked'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.b_dog.refresh_from_db()
+        self.assertEqual(self.b_dog.name, 'BDog')
+
+    def test_cannot_retrieve_others_support_query(self):
+        query = SupportQuery.objects.create(owner=self.b, subject='Private')
+        resp = self.client.get(f'/api/support-queries/{query.id}/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_cannot_add_message_to_others_support_query(self):
+        query = SupportQuery.objects.create(owner=self.b, subject='Private')
+        resp = self.client.post(
+            f'/api/support-queries/{query.id}/add_message/', {'text': 'sneaky'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(SupportMessage.objects.filter(query=query).count(), 0)
+
+    def test_cannot_retrieve_others_boarding_request(self):
+        br = BoardingRequest.objects.create(
+            owner=self.b, start_date='2026-04-01', end_date='2026-04-05',
+        )
+        resp = self.client.get(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_cannot_retrieve_others_date_change_request(self):
+        dcr = DateChangeRequest.objects.create(
+            dog=self.b_dog, request_type='CANCEL', original_date='2026-05-10',
+        )
+        resp = self.client.get(f'/api/date-change-requests/{dcr.id}/')
+        self.assertEqual(resp.status_code, 404)
+
+
+class OwnerProfileStaffEndpointTests(TestCase):
+    """B50 — get_owner / update_owner are staff-only and id-validated."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='gpowner', password='pw')
+        self.target = User.objects.create_user(
+            username='gptarget', password='pw', first_name='Tara',
+        )
+        self.staff = User.objects.create_user(username='gpstaff', password='pw', is_staff=True)
+        self.client = APIClient()
+
+    def test_non_staff_forbidden(self):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.get(f'/api/profile/get_owner/?user_id={self.target.id}')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_staff_missing_user_id_400(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.get('/api/profile/get_owner/')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_staff_unknown_id_404(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.get('/api/profile/get_owner/?user_id=999999')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_staff_valid_id_reads(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.get(f'/api/profile/get_owner/?user_id={self.target.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['user_id'], self.target.id)
+        self.assertEqual(resp.data['first_name'], 'Tara')
+
+    def test_staff_update_persists(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.post(
+            f'/api/profile/update_owner/?user_id={self.target.id}',
+            {'phone_number': '07999000111', 'address': '7 Walk Lane'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.target.profile.refresh_from_db()
+        self.assertEqual(self.target.profile.phone_number, '07999000111')
+        self.assertEqual(self.target.profile.address, '7 Walk Lane')
+
+    def test_update_owner_non_staff_forbidden(self):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post(
+            f'/api/profile/update_owner/?user_id={self.target.id}',
+            {'phone_number': '07000000000'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
+class PostcodeLookupTests(TestCase):
+    """B51 — postcode_lookup proxy: auth, key, and provider error mapping."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='pcuser', password='pw')
+        self.client = APIClient()
+
+    def test_requires_authentication(self):
+        resp = self.client.get('/api/postcode/lookup/?postcode=SL7 2HE')
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(POSTCODE_LOOKUP_API_KEY='k', POSTCODE_LOOKUP_PROVIDER='getaddress')
+    def test_missing_postcode_400(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.get('/api/postcode/lookup/')
+        self.assertEqual(resp.status_code, 400)
+
+    @override_settings(POSTCODE_LOOKUP_API_KEY='')
+    def test_no_key_503(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.get('/api/postcode/lookup/?postcode=SL7 2HE')
+        self.assertEqual(resp.status_code, 503)
+
+    @override_settings(POSTCODE_LOOKUP_API_KEY='k', POSTCODE_LOOKUP_PROVIDER='getaddress')
+    @patch('api.views.lookup_addresses')
+    def test_not_found_404(self, mock_lookup):
+        from api.geocoding import PostcodeNotFound
+        mock_lookup.side_effect = PostcodeNotFound()
+        self.client.force_authenticate(self.user)
+        resp = self.client.get('/api/postcode/lookup/?postcode=SL7 2HE')
+        self.assertEqual(resp.status_code, 404)
+
+    @override_settings(POSTCODE_LOOKUP_API_KEY='k', POSTCODE_LOOKUP_PROVIDER='getaddress')
+    @patch('api.views.lookup_addresses')
+    def test_provider_error_502(self, mock_lookup):
+        from api.geocoding import PostcodeLookupError
+        mock_lookup.side_effect = PostcodeLookupError('upstream boom')
+        self.client.force_authenticate(self.user)
+        resp = self.client.get('/api/postcode/lookup/?postcode=SL7 2HE')
+        self.assertEqual(resp.status_code, 502)
+
+    @override_settings(POSTCODE_LOOKUP_API_KEY='k', POSTCODE_LOOKUP_PROVIDER='getaddress')
+    @patch('api.views.lookup_addresses')
+    def test_success_200(self, mock_lookup):
+        mock_lookup.return_value = [
+            {'formatted': '1 High St, RG1 1AA', 'lines': ['1 High St'], 'postcode': 'RG1 1AA'},
+        ]
+        self.client.force_authenticate(self.user)
+        resp = self.client.get('/api/postcode/lookup/?postcode=rg1 1aa')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['postcode'], 'RG1 1AA')
+        self.assertEqual(len(resp.data['addresses']), 1)
+
+
+class SchedulingActionsTests(TestCase):
+    """B52 — auto_assign / suggested_assignments / reorder / send_traffic_alert."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='schowner', password='pw')
+        self.staff_a = User.objects.create_user(
+            username='scha', password='pw', is_staff=True, first_name='Alice',
+        )
+        self.staff_a.profile.can_assign_dogs = True
+        self.staff_a.profile.save()
+        self.staff_b = User.objects.create_user(
+            username='schb', password='pw', is_staff=True, first_name='Bob',
+        )
+        self.today = date.today()
+        self.weekday = self.today.isoweekday()
+        self.dog = Dog.objects.create(
+            owner=self.owner, name='Rex', daycare_days=[self.weekday], schedule_type='weekly',
+        )
+        self.client = APIClient()
+
+    def test_auto_assign_requires_can_assign_dogs(self):
+        self.client.force_authenticate(self.staff_b)  # no can_assign_dogs
+        resp = self.client.post(
+            '/api/daily-assignments/auto_assign/',
+            {'date': self.today.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_auto_assign_uses_same_weekday_history(self):
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            self.skipTest('daycare_days JSON contains lookup needs PostgreSQL')
+        # Last week's same-weekday assignment to staff_b should repeat.
+        last_week = self.today - timedelta(weeks=1)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_b, date=last_week,
+        )
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/auto_assign/',
+            {'date': self.today.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.today)
+        self.assertEqual(assignment.staff_member, self.staff_b)
+
+    def test_auto_assign_frequency_fallback(self):
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            self.skipTest('daycare_days JSON contains lookup needs PostgreSQL')
+        # No same-weekday history; staff_b appears more often overall, so the
+        # frequency fallback should pick them.
+        other_weekday_date = self.today - timedelta(days=1)
+        while other_weekday_date.isoweekday() == self.weekday:
+            other_weekday_date -= timedelta(days=1)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_b, date=other_weekday_date,
+        )
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_b, date=other_weekday_date - timedelta(weeks=1),
+        )
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/auto_assign/',
+            {'date': self.today.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.today)
+        self.assertEqual(assignment.staff_member, self.staff_b)
+
+    def test_suggested_assignments_reports_source(self):
+        last_week = self.today - timedelta(weeks=1)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_b, date=last_week,
+        )
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.get(
+            f'/api/daily-assignments/suggested_assignments/?date={self.today.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        # The view keys suggestions by integer dog id (resp.data is the raw dict
+        # before JSON string-key coercion).
+        entry = resp.data[self.dog.id]
+        self.assertEqual(entry['staff_member_id'], self.staff_b.id)
+        self.assertEqual(entry['source'], 'same_weekday')
+
+    def test_reorder_persists_sort_order(self):
+        a1 = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today,
+        )
+        dog2 = Dog.objects.create(owner=self.owner, name='Buddy')
+        a2 = DailyDogAssignment.objects.create(
+            dog=dog2, staff_member=self.staff_a, date=self.today,
+        )
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/reorder/',
+            {'assignment_ids': [a2.id, a1.id]}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        a1.refresh_from_db()
+        a2.refresh_from_db()
+        self.assertEqual(a2.sort_order, 0)
+        self.assertEqual(a1.sort_order, 1)
+
+    def test_reorder_rejects_empty(self):
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/reorder/', {'assignment_ids': []}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_reorder_rejects_non_list(self):
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/reorder/', {'assignment_ids': 'nope'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('api.notifications.send_traffic_alert')
+    def test_send_traffic_alert_invalid_type_400(self, mock_alert):
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/send_traffic_alert/',
+            {'alert_type': 'sideways', 'date': self.today.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        mock_alert.assert_not_called()
+
+    @patch('api.notifications.send_traffic_alert')
+    def test_send_traffic_alert_valid_type_ok(self, mock_alert):
+        self.client.force_authenticate(self.staff_a)
+        resp = self.client.post(
+            '/api/daily-assignments/send_traffic_alert/',
+            {'alert_type': 'pickup', 'date': self.today.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_alert.assert_called_once()
+
+
+class DefectStatusNotificationTests(TestCase):
+    """B53 — a defect status change notifies the reporter only when changed by
+    someone else; never the actor themselves."""
+
+    def setUp(self):
+        from api.models import Vehicle
+        self.reporter = User.objects.create_user(
+            username='reporter', password='pw', is_staff=True,
+        )
+        self.manager = User.objects.create_user(
+            username='defmgr', password='pw', is_staff=True,
+        )
+        self.manager.profile.can_manage_vehicles = True
+        self.manager.profile.save()
+        self.vehicle = Vehicle.objects.create(name='Blue Van', registration='AB12 CDE')
+        self.client = APIClient()
+
+    # ── vehicle defects ─────────────────────────────────────────────────
+
+    @patch('api.notifications.send_push_notification')
+    def test_vehicle_status_change_by_other_notifies_reporter(self, mock_push):
+        from api.models import VehicleDefect
+        defect = VehicleDefect.objects.create(
+            vehicle=self.vehicle, title='Cracked mirror', reported_by=self.reporter,
+        )
+        self.client.force_authenticate(self.manager)
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_push.assert_called_once()
+        self.assertEqual(mock_push.call_args.args[0], self.reporter)
+
+    @patch('api.notifications.send_push_notification')
+    def test_vehicle_status_change_by_reporter_does_not_notify(self, mock_push):
+        from api.models import VehicleDefect
+        # Reporter is also a vehicle manager so they may change the status.
+        self.reporter.profile.can_manage_vehicles = True
+        self.reporter.profile.save()
+        defect = VehicleDefect.objects.create(
+            vehicle=self.vehicle, title='Cracked mirror', reported_by=self.reporter,
+        )
+        self.client.force_authenticate(self.reporter)
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_push.assert_not_called()
+
+    # ── facility defects ────────────────────────────────────────────────
+
+    @patch('api.notifications.send_push_notification')
+    def test_facility_status_change_by_other_notifies_reporter(self, mock_push):
+        from api.models import FacilityDefect
+        other_staff = User.objects.create_user(
+            username='fdother', password='pw', is_staff=True,
+        )
+        defect = FacilityDefect.objects.create(title='Broken gate', reported_by=self.reporter)
+        self.client.force_authenticate(other_staff)
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_push.assert_called_once()
+        self.assertEqual(mock_push.call_args.args[0], self.reporter)
+
+    @patch('api.notifications.send_push_notification')
+    def test_facility_status_change_by_reporter_does_not_notify(self, mock_push):
+        from api.models import FacilityDefect
+        defect = FacilityDefect.objects.create(title='Broken gate', reported_by=self.reporter)
+        self.client.force_authenticate(self.reporter)
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/change_status/',
+            {'status': 'RESOLVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_push.assert_not_called()

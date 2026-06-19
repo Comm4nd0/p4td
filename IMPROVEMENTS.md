@@ -69,15 +69,15 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [x] **B35** ⚪ S — `geocode_dogs` help text says postcodes.io
 - [x] **B43** 🟡 M — `prune_auth_tokens` command (cron purge) + B3 rotation on password change
 
-## Batch 5 — Backend tests
-- [ ] **B46** 🟠 M — Tests: password reset / change / delete-account flows
-- [ ] **B47** 🟡 S — Tests: DeviceToken viewset + cross-user reassignment
-- [ ] **B48** 🟡 S — Tests: daycare_settings PATCH auth/validation
-- [ ] **B49** 🟡 M — Tests: object-level cross-owner (IDOR) access
-- [ ] **B50** 🟡 S — Tests: get_owner/update_owner negative paths
-- [ ] **B51** ⚪ S — Tests: postcode_lookup branches
-- [ ] **B52** ⚪ M — Tests: auto_assign/suggested/reorder/send_traffic_alert
-- [ ] **B53** ⚪ S — Tests: defect notification reporter self-skip
+## Batch 5 — Backend tests ✅ (290 tests OK, +54 new)
+- [x] **B46** 🟠 M — Tests: password reset / change (old_password + token rotation) / delete-account (co-owner promotion)
+- [x] **B47** 🟡 S — Tests: DeviceToken viewset + cross-user reassignment
+- [x] **B48** 🟡 S — Tests: daycare_settings PATCH auth/validation
+- [x] **B49** 🟡 M — Tests: object-level cross-owner (IDOR) access
+- [x] **B50** 🟡 S — Tests: get_owner/update_owner negative paths
+- [x] **B51** ⚪ S — Tests: postcode_lookup branches
+- [x] **B52** ⚪ M — Tests: auto_assign/suggested/reorder/send_traffic_alert
+- [x] **B53** ⚪ S — Tests: defect notification reporter self-skip
 
 ## Batch 6 — Website ✅ (20 website tests OK; migration 0008 = help_text only)
 - [x] **W1** 🟡 S — Captcha field dropped when key blank (forms.py)
