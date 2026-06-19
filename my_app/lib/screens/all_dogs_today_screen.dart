@@ -9,6 +9,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
+import '../widgets/assignment_card.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
 
@@ -176,38 +177,6 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
           SnackBar(content: Text('Failed to update status: $e')),
         );
       }
-    }
-  }
-
-  AssignmentStatus? _nextStatus(AssignmentStatus current) {
-    switch (current) {
-      case AssignmentStatus.assigned: return AssignmentStatus.pickedUp;
-      case AssignmentStatus.pickedUp: return AssignmentStatus.droppedOff;
-      case AssignmentStatus.droppedOff: return null;
-    }
-  }
-
-  AssignmentStatus? _previousStatus(AssignmentStatus current) {
-    switch (current) {
-      case AssignmentStatus.assigned: return null;
-      case AssignmentStatus.pickedUp: return AssignmentStatus.assigned;
-      case AssignmentStatus.droppedOff: return AssignmentStatus.pickedUp;
-    }
-  }
-
-  PiconDuotoneData _statusIcon(AssignmentStatus status) {
-    switch (status) {
-      case AssignmentStatus.assigned: return PiconsDuotone.clipboardText;
-      case AssignmentStatus.pickedUp: return PiconsDuotone.pawPrint;
-      case AssignmentStatus.droppedOff: return PiconsDuotone.checkCircle;
-    }
-  }
-
-  Color _statusColor(AssignmentStatus status) {
-    switch (status) {
-      case AssignmentStatus.assigned: return Colors.orange;
-      case AssignmentStatus.pickedUp: return AppColors.primary;
-      case AssignmentStatus.droppedOff: return Colors.green;
     }
   }
 
@@ -1088,254 +1057,31 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
   }
 
   Widget _buildAssignmentCard(DailyDogAssignment assignment) {
-    final next = _nextStatus(assignment.status);
-    final previous = _previousStatus(assignment.status);
-    final statusColor = _statusColor(assignment.status);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _openQuickInfo(assignment: assignment),
-        child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Dog info row
-            Row(
-              children: [
-                if (assignment.dogProfileImage != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
-                    child: CachedNetworkImage(
-                      imageUrl: assignment.dogProfileImage!,
-                      width: 44, height: 44, fit: BoxFit.cover,
-                      memCacheWidth: (44 * MediaQuery.of(context).devicePixelRatio).round(),
-                      memCacheHeight: (44 * MediaQuery.of(context).devicePixelRatio).round(),
-                      placeholder: (context, url) => Container(
-                        width: 44, height: 44, color: Colors.grey[200],
-                        child: Picon(PiconsDuotone.pawPrint),
-                      ),
-                      errorWidget: (context, url, error) =>
-                          CircleAvatar(radius: 22, child: Picon(PiconsDuotone.pawPrint)),
-                    ),
-                  )
-                else
-                  CircleAvatar(radius: 22, child: Picon(PiconsDuotone.pawPrint)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(assignment.dogName,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                      Text('Owner: ${assignment.ownerName}', style: Theme.of(context).textTheme.bodySmall),
-                      if (_sortOption != _SortOption.staffMember)
-                        Text('Staff: ${assignment.staffMemberName}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.primary)),
-                      if (assignment.isBoarding)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Row(children: [
-                            Picon(PiconsDuotone.house, size: 14, color: Colors.deepPurple),
-                            const SizedBox(width: 4),
-                            Text('Boarding',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.deepPurple, fontWeight: FontWeight.w600)),
-                          ]),
-                        ),
-                    ],
-                  ),
-                ),
-                // Status chip with full action menu
-                PopupMenuButton<String>(
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'next':
-                        if (next != null) _updateStatus(assignment, next);
-                      case 'previous':
-                        if (previous != null) _updateStatus(assignment, previous);
-                      case 'transport':
-                        _showTransportDialog(assignment);
-                      case 'reassign':
-                        _showReassignDialog(assignment);
-                      case 'unassign':
-                        _confirmUnassign(assignment);
-                      case 'remove_from_day':
-                        _confirmRemoveFromDay(assignment);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (next != null)
-                      PopupMenuItem(
-                        value: 'next',
-                        child: Row(children: [
-                          Picon(_statusIcon(next), size: 18),
-                          const SizedBox(width: 8),
-                          Text('Mark ${next.displayName}'),
-                        ]),
-                      ),
-                    if (previous != null)
-                      PopupMenuItem(
-                        value: 'previous',
-                        child: Row(children: [
-                          Picon(_statusIcon(previous), size: 18),
-                          const SizedBox(width: 8),
-                          Text('Revert to ${previous.displayName}'),
-                        ]),
-                      ),
-                    if (widget.canAssignDogs) ...[
-                      const PopupMenuDivider(),
-                      PopupMenuItem(
-                        value: 'transport',
-                        child: Row(children: [
-                          Picon(PiconsDuotone.car, size: 18),
-                          const SizedBox(width: 8),
-                          const Text('Transport…'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'reassign',
-                        child: Row(children: [
-                          Picon(PiconsDuotone.arrowsLeftRight, size: 18),
-                          const SizedBox(width: 8),
-                          const Text('Reassign'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'unassign',
-                        child: Row(children: [
-                          Picon(PiconsDuotone.userMinus, size: 18, color: Colors.red[700]),
-                          const SizedBox(width: 8),
-                          Text('Unassign', style: TextStyle(color: Colors.red[700])),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'remove_from_day',
-                        child: Row(children: [
-                          Picon(PiconsDuotone.calendarX, size: 18, color: Colors.red[900]),
-                          const SizedBox(width: 8),
-                          Text('Remove from this day', style: TextStyle(color: Colors.red[900])),
-                        ]),
-                      ),
-                    ],
-                  ],
-                  child: Chip(
-                    avatar: Picon(_statusIcon(assignment.status), size: 16, color: statusColor),
-                    label: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(assignment.status.displayName, style: TextStyle(color: statusColor, fontSize: 11)),
-                        Picon(PiconsDuotone.caretDown, size: 14, color: statusColor),
-                      ],
-                    ),
-                    backgroundColor: statusColor.withValues(alpha: 0.1),
-                    side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            // Transport indicators
-            if (assignment.effectiveOwnerBrings || assignment.effectiveOwnerCollects)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (assignment.effectiveOwnerBrings)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.teal.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.teal.withValues(alpha: 0.35)),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Picon(PiconsDuotone.houseLine, size: 14, color: Colors.teal),
-                          const SizedBox(width: 4),
-                          Text(
-                            assignment.effectiveOwnerBringsTime != null
-                                ? 'Owner drops off ${_formatTime(assignment.effectiveOwnerBringsTime!)}'
-                                : 'Owner drops off',
-                            style: const TextStyle(fontSize: 12, color: Colors.teal),
-                          ),
-                        ]),
-                      ),
-                    if (assignment.effectiveOwnerCollects)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.indigo.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Picon(PiconsDuotone.houseLine, size: 14, color: Colors.indigo),
-                          const SizedBox(width: 4),
-                          Text(
-                            assignment.effectiveOwnerCollectsTime != null
-                                ? 'Owner picks up ${_formatTime(assignment.effectiveOwnerCollectsTime!)}'
-                                : 'Owner picks up',
-                            style: const TextStyle(fontSize: 12, color: Colors.indigo),
-                          ),
-                        ]),
-                      ),
-                  ],
-                ),
-              ),
-            // Address
-            if (assignment.ownerAddress != null && assignment.ownerAddress!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: InkWell(
-                  onTap: () => _openMaps(assignment.ownerAddress!),
-                  child: Row(children: [
-                    Picon(PiconsDuotone.mapPin, size: 16, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(assignment.ownerAddress!,
-                          style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
-                    ),
-                  ]),
-                ),
-              ),
-            // Phone
-            if (assignment.ownerPhone != null && assignment.ownerPhone!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: InkWell(
-                  onTap: () => _callPhone(assignment.ownerPhone!),
-                  child: Row(children: [
-                    Picon(PiconsDuotone.phone, size: 16, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 4),
-                    Text(assignment.ownerPhone!,
-                        style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
-                  ]),
-                ),
-              ),
-            // Pickup instructions
-            if (assignment.pickupInstructions != null && assignment.pickupInstructions!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: InkWell(
-                  onTap: () => _showPickupInstructions(assignment),
-                  child: Row(children: [
-                    Picon(PiconsDuotone.info, size: 16, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 4),
-                    Text('Pickup Instructions',
-                        style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
-                  ]),
-                ),
-              ),
-          ],
-        ),
-        ),
-      ),
+    return AssignmentCard(
+      assignment: assignment,
+      canAssignDogs: widget.canAssignDogs,
+      onTap: () => _openQuickInfo(assignment: assignment),
+      onUpdateStatus: (newStatus) => _updateStatus(assignment, newStatus),
+      onTransport: () => _showTransportDialog(assignment),
+      onReassign: () => _showReassignDialog(assignment),
+      onUnassign: () => _confirmUnassign(assignment),
+      onRemoveFromDay: () => _confirmRemoveFromDay(assignment),
+      onOpenMaps: _openMaps,
+      onCallPhone: _callPhone,
+      onShowPickupInstructions: () => _showPickupInstructions(assignment),
+      formatTime: _formatTime,
+      // Drift values for this screen.
+      bottomMargin: 8,
+      avatarRadius: 22,
+      cacheAvatar: true,
+      showStaffLine: _sortOption != _SortOption.staffMember,
+      staffLineAfterBoarding: false,
+      boardingLabel: 'Boarding',
+      rowSpacing: 6,
+      statusIconSize: 16,
+      statusFontSize: 11,
+      statusCaretSize: 14,
+      statusChipCompact: true,
     );
   }
 }
