@@ -26,16 +26,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Media lives in a named volume (single source of truth — see I17). If Caddy
-    # runs as a separate service/container, it must mount this same volume at
-    # /srv/media (read-only) to serve /media/* (see Caddyfile).
+    # Media is a host bind-mount: the separate Caddy container serves it from the
+    # same host directory (root * /srv/p4td-media). Do NOT switch this to a named
+    # volume — Caddy would then serve an empty/stale directory.
     volumes:
-      - media_data:/app/media
-    # NOT published to the host: Caddy reaches the app at web:8000 over the
-    # internal Docker network, so there's no reason to expose 8000 externally
-    # (I8). To debug locally, temporarily add: ports: ["127.0.0.1:8000:8000"].
+      - ./media:/app/media
+    # The host's Caddy container reverse-proxies to 172.17.0.1:8000 (it's on a
+    # different Docker network), so the app port MUST be published on the host.
+    # Restrict external access to :8000 via the host firewall.
+    ports:
+      - "8000:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/', timeout=5)"]
+      # Send X-Forwarded-Proto so SECURE_SSL_REDIRECT doesn't 301 this loopback
+      # check to https (which nothing serves on localhost).
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen(u.Request('http://localhost:8000/healthz/', headers={'X-Forwarded-Proto':'https'}), timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 15s
@@ -46,4 +50,3 @@ services:
 
 volumes:
   postgres_data:
-  media_data:
