@@ -12,6 +12,30 @@ from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeReques
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer
 from website.models import ContactInquiry
 
+# Dog fields an owner may propose to change via a profile-change request. Used
+# both when building the request and when applying it on approval, so the
+# approval step can re-enforce the whitelist (defense in depth — B19).
+OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
+
+
+def _compute_date_change_is_charged(request_type, original_date):
+    """Late-change fee rule, computed server-side so an owner can't dodge it by
+    sending is_charged=false (B2). Mirrors the app: a CANCEL/CHANGE is charged
+    when the original date is within one month of today; ADD_DAY is never
+    charged."""
+    if request_type == 'ADD_DAY' or not original_date:
+        return False
+    from datetime import date, timedelta
+    from django.utils import timezone
+    today = timezone.localdate()
+    # One month from today, matching the Flutter DateTime(y, m + 1, d) rollover.
+    y, m, d = today.year, today.month + 1, today.day
+    y += (m - 1) // 12
+    m = (m - 1) % 12 + 1
+    one_month_later = date(y, m, 1) + timedelta(days=d - 1)
+    return original_date < one_month_later
+
+
 class DeviceTokenViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceTokenSerializer
     permission_classes = [IsAuthenticated]
@@ -394,6 +418,9 @@ class DogViewSet(viewsets.ModelViewSet):
         """Staff-only endpoint to bulk import dog names.
         Accepts: {"names": ["Buddy", "Max", "Luna"], "owner": 1}
         Owner is optional."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can bulk import dogs.")
         names = request.data.get('names', [])
         owner_id = request.data.get('owner')
 
@@ -451,8 +478,9 @@ class DogViewSet(viewsets.ModelViewSet):
 
     def _create_change_request(self, request, dog):
         """Build a DogProfileChangeRequest from the incoming PATCH data."""
-        # Fields an owner may propose to change
-        ALLOWED_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
+        # Fields an owner may propose to change (shared whitelist, also re-checked
+        # at approval time).
+        ALLOWED_FIELDS = OWNER_EDITABLE_DOG_FIELDS
 
         proposed_changes = {}
         for field in ALLOWED_FIELDS:
@@ -708,9 +736,11 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         dog = change_request.dog
 
-        # Apply proposed text/JSON field changes
+        # Apply proposed text/JSON field changes. Re-enforce the whitelist here
+        # so a malformed/stale proposed_changes can never write a field an owner
+        # was never allowed to edit, e.g. owner (B19).
         for field, value in change_request.proposed_changes.items():
-            if hasattr(dog, field):
+            if field in OWNER_EDITABLE_DOG_FIELDS and hasattr(dog, field):
                 setattr(dog, field, value)
 
         # Apply image changes
@@ -960,7 +990,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         # Auto-approve any date change request created by staff — owner-created
         # requests stay PENDING and go through the normal approval workflow.
         if not self.request.user.is_staff:
-            serializer.save()
+            # Compute the late-change fee server-side; never trust the client (B2).
+            serializer.save(is_charged=_compute_date_change_is_charged(
+                serializer.validated_data.get('request_type'),
+                serializer.validated_data.get('original_date'),
+            ))
             return
 
         # Staff auto-approval puts the dog straight onto new_date, so enforce
@@ -2803,7 +2837,17 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         from .models import DayOffRequest
-        return DayOffRequest.objects.select_related('staff_member', 'reviewed_by').all()
+        qs = DayOffRequest.objects.select_related('staff_member', 'reviewed_by')
+        user = self.request.user
+        if not user.is_staff:
+            return qs.none()
+        profile = getattr(user, 'profile', None)
+        if profile and profile.can_approve_timeoff:
+            return qs.all()
+        # Ordinary staff only see (and can touch) their own requests; this scopes
+        # retrieve/update/destroy so private day-off reasons can't be read or
+        # tampered with by enumerating ids (B4).
+        return qs.filter(staff_member=user)
 
     def get_serializer_class(self):
         from .serializers import DayOffRequestSerializer
@@ -3078,11 +3122,24 @@ def change_password(request):
     serializer.is_valid(raise_exception=True)
 
     user = request.user
+    # Require the current password so a borrowed session / leaked token can't be
+    # used to silently take over the account (B3).
+    if not user.check_password(serializer.validated_data['old_password']):
+        return Response(
+            {'detail': 'Current password is incorrect.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
     user.set_password(serializer.validated_data['new_password'])
     user.save()
 
+    # Rotate the auth token so any other session using the old token is logged
+    # out, and hand the new token back for the client to store.
+    from rest_framework.authtoken.models import Token
+    Token.objects.filter(user=user).delete()
+    new_token = Token.objects.create(user=user)
+
     return Response(
-        {'detail': 'Password changed successfully.'},
+        {'detail': 'Password changed successfully.', 'token': new_token.key},
         status=drf_status.HTTP_200_OK,
     )
 

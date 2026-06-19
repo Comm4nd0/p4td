@@ -256,6 +256,16 @@ if _cors_allow_all_env or (DEBUG and not CORS_ALLOWED_ORIGINS):
 else:
     CORS_ALLOW_ALL_ORIGINS = False
 
+# Make an open CORS policy loud — it must never silently resolve True in
+# production (e.g. if DEBUG is flipped on during an incident with no origins
+# configured). The warning surfaces in logs at startup (B45).
+if CORS_ALLOW_ALL_ORIGINS:
+    import logging
+    logging.getLogger('django.security').warning(
+        'CORS_ALLOW_ALL_ORIGINS is enabled — every origin can call the API. '
+        'This is only safe for local development; never enable it in production.'
+    )
+
 
 # =============================================================================
 # CSRF TRUSTED ORIGINS

@@ -16,16 +16,16 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 
 ---
 
-## Batch 1 — Backend security quick wins
-- [ ] **B1** 🔴 S — Lock permission flags out of self-service `/api/profile/` (read_only_fields)
-- [ ] **B2** 🟠 S — Compute `is_charged` server-side; read-only for non-staff
-- [ ] **B3** 🟠 S — `change_password`: verify old password + rotate token
-- [ ] **B4** 🟠 S — Scope `DayOffRequest` queryset; gate retrieve/update
-- [ ] **B13** 🟡 S — `bulk_import` dog endpoint: add staff-only check
-- [ ] **B19** ⚪ S — Re-enforce ALLOWED_FIELDS whitelist in change-request approve; `proposed_changes` read-only
-- [ ] **B42** ⚪ S — Remove permission flags from admin `list_editable`; add list_per_page
-- [ ] **B44** ⚪ S — Only append localhost to ALLOWED_HOSTS under DEBUG
-- [ ] **B45** ⚪ S — Don't derive CORS allow-all from DEBUG; warn loudly
+## Batch 1 — Backend security quick wins ✅ (236 tests OK)
+- [x] **B1** 🔴 S — Lock permission flags out of self-service `/api/profile/` (read_only_fields)
+- [x] **B2** 🟠 S — Compute `is_charged` server-side; read-only for non-staff
+- [x] **B3** 🟠 S — `change_password`: verify old password + rotate token *(needs Flutter: old-password field + store rotated token — see Batch 9)*
+- [x] **B4** 🟠 S — Scope `DayOffRequest` queryset; gate retrieve/update
+- [x] **B13** 🟡 S — `bulk_import` dog endpoint: add staff-only check
+- [x] **B19** ⚪ S — Re-enforce ALLOWED_FIELDS whitelist in change-request approve; `proposed_changes` read-only
+- [x] **B42** ⚪ S — Remove permission flags from admin `list_editable`; add list_per_page
+- [→] **B44** ⚪ S — Moved to Batch 7 (entangled with /healthz host header)
+- [x] **B45** ⚪ S — Don't derive CORS allow-all from DEBUG; warn loudly
 
 ## Batch 2 — Backend correctness / bugs
 - [ ] **B11** 🟡 M — Make capacity check + approval transactional (overbooking race)

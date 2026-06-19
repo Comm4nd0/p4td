@@ -23,6 +23,7 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField()
     new_password = serializers.CharField(min_length=10)
 
     def validate_new_password(self, value):
@@ -49,6 +50,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled']
+        # Capability flags are assignable ONLY by a superuser via
+        # update_staff_permissions. They must never be writable through this
+        # self-service endpoint, or any authenticated user could PATCH their own
+        # profile to grant themselves manager capabilities (privilege escalation).
+        read_only_fields = [
+            'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests',
+            'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries',
+            'can_manage_vehicles',
+        ]
 
     def get_postcode_lookup_enabled(self, obj):
         from django.conf import settings
@@ -199,9 +209,12 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         request = self.context.get('request')
-        # Only staff can modify status, regular users can't
+        # Only staff can modify status, regular users can't. is_charged drives
+        # the late-change fee and is computed server-side for owner requests, so
+        # a non-staff client must not be able to set it (B2).
         if request and not request.user.is_staff:
             self.fields['status'].read_only = True
+            self.fields['is_charged'].read_only = True
 
 class GroupMediaSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.SerializerMethodField()
@@ -601,6 +614,9 @@ class DogProfileChangeRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'requested_by', 'requested_by_name',
+            # proposed_changes/image/delete are only ever built server-side from
+            # a fixed whitelist; never accept them from the client (B19).
+            'proposed_changes', 'proposed_image', 'delete_image',
             'status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
             'created_at',
         ]

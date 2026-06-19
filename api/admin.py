@@ -233,7 +233,11 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles')
-    list_editable = ('can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles')
+    # Permission flags are shown read-only here and edited deliberately on the
+    # detail page. They are NOT list_editable: a bulk-toggle from the changelist
+    # let anyone with 'change userprofile' self-escalate in one Save (B42).
+    list_select_related = ('user',)
+    list_per_page = 50
     search_fields = ('user__username', 'phone_number', 'address')
 
 @admin.register(DateChangeRequest)
