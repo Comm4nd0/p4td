@@ -27,20 +27,20 @@ Severity: 🔴 critical · 🟠 high · 🟡 medium · ⚪ low. Effort: S/M/L.
 - [→] **B44** ⚪ S — Moved to Batch 7 (entangled with /healthz host header)
 - [x] **B45** ⚪ S — Don't derive CORS allow-all from DEBUG; warn loudly
 
-## Batch 2 — Backend correctness / bugs
-- [ ] **B11** 🟡 M — Make capacity check + approval transactional (overbooking race)
-- [ ] **B12** 🟡 S — Wrap date-change approval side effects in transaction; notify after commit
-- [ ] **B14** ⚪ M — Add capacity/closure guards to direct assign actions
-- [ ] **B15** 🟡 S — Comment FK pair CheckConstraint (exactly one parent)
-- [ ] **B16** 🟡 S — DayOffRequest (staff,date) conditional UniqueConstraint
-- [ ] **B18** 🟡 M — Validate `Dog.daycare_days` (unique ints 1–7)
-- [ ] **B24** ⚪ S — `set_my_availability`: coerce stringly-typed day_of_week
-- [ ] **B25** ⚪ S — Validate request_type/date coherence in serializer
-- [ ] **B26** ⚪ S — react/comment/add_message: re-fetch from base manager
-- [ ] **B27** ⚪ S — `swap_staff`: coerce ids before equality check
-- [ ] **B28** ⚪ S — `BoardingRequestSerializer.validate`: handle partial updates
-- [ ] **B30** 🟡 S — Feed pagination: add `-id` tie-breaker
-- [ ] **B41** 🟡 S — `approve_requests` admin action: transactional + confirmation
+## Batch 2 — Backend correctness / bugs ✅ (236 tests OK; migration 0056)
+- [x] **B11** 🟡 M — Make capacity check + approval transactional (overbooking race)
+- [x] **B12** 🟡 S — Wrap date-change approval side effects in transaction; notify after commit
+- [x] **B14** ⚪ M — Closed-day guard on direct assign actions (capacity is enforced at the scheduling layer, not when assigning already-scheduled dogs)
+- [x] **B15** 🟡 S — Comment FK pair CheckConstraint (exactly one parent)
+- [x] **B16** 🟡 S — DayOffRequest (staff,date) conditional UniqueConstraint + IntegrityError guard
+- [x] **B18** 🟡 M — Validate `Dog.daycare_days` (unique sorted ints 1–7) in serializer
+- [x] **B24** ⚪ S — `set_my_availability`: coerce stringly-typed day_of_week/is_available
+- [x] **B25** ⚪ S — Validate request_type/date coherence in serializer
+- [x] **B26** ⚪ S — react/comment re-fetch via `_feed_queryset` (add_message already used base manager)
+- [x] **B27** ⚪ S — `swap_staff`: coerce ids before equality check
+- [x] **B28** ⚪ S — `BoardingRequestSerializer.validate`: handle partial updates
+- [x] **B30** 🟡 S — Feed ordering `-id` tie-breaker (queryset + model Meta)
+- [x] **B41** 🟡 S — `approve_requests` admin action: transactional
 
 ## Batch 3 — Backend performance & queries
 - [ ] **B5** 🟠 S — Dog queryset select_related/prefetch owner profiles; fix bare except

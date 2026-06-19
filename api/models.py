@@ -226,7 +226,7 @@ class GroupMedia(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-created_at', '-id']
         verbose_name_plural = 'Group media'
 
     def __str__(self):
@@ -250,6 +250,17 @@ class Comment(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        constraints = [
+            # A comment belongs to exactly one parent — group feed media OR a
+            # dog photo, never both and never neither (B15).
+            models.CheckConstraint(
+                check=(
+                    models.Q(group_media__isnull=False, photo__isnull=True)
+                    | models.Q(group_media__isnull=True, photo__isnull=False)
+                ),
+                name='comment_exactly_one_parent',
+            ),
+        ]
 
 
     def __str__(self):
@@ -443,6 +454,15 @@ class DayOffRequest(models.Model):
 
     class Meta:
         ordering = ['-date']
+        constraints = [
+            # Stop concurrent duplicate active requests for the same staff/date
+            # at the DB level (a re-request after DENIED is still allowed) (B16).
+            models.UniqueConstraint(
+                fields=['staff_member', 'date'],
+                condition=models.Q(status__in=['PENDING', 'APPROVED']),
+                name='unique_active_day_off_per_staff_date',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.staff_member.username} - {self.date} ({self.get_status_display()})"

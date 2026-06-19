@@ -997,53 +997,60 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             ))
             return
 
-        # Staff auto-approval puts the dog straight onto new_date, so enforce
-        # the daily capacity here. override_capacity=true skips the check.
+        # Staff auto-approval puts the dog straight onto new_date. The capacity
+        # check, approval, history row and original-date unassignment all run in
+        # one transaction so a mid-way failure can't leave the request approved
+        # without history or with a stale assignment, and the capacity re-check
+        # sits inside the lock to narrow the overbooking race (B11/B12).
         request_type = serializer.validated_data.get('request_type')
         new_date = serializer.validated_data.get('new_date')
-        if request_type in ('ADD_DAY', 'CHANGE') and new_date:
-            from .scheduling import capacity_check
-            override = str(self.request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
-            fits, info = capacity_check(new_date, dog_id=dog.id)
-            if not fits and not override:
-                from rest_framework import serializers as drf_serializers
-                raise drf_serializers.ValidationError({
-                    'detail': (
-                        f"{new_date} is full ({info['booked']}/{info['capacity']} dogs). "
-                        "Send override_capacity=true to add anyway."
-                    ),
-                    'code': 'capacity_full',
-                })
+        override = str(self.request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
 
-        instance = serializer.save(
-            status='APPROVED',
-            approved_by=self.request.user,
-            approved_at=timezone.now(),
-        )
+        from django.db import transaction
+        with transaction.atomic():
+            if request_type in ('ADD_DAY', 'CHANGE') and new_date:
+                from .scheduling import capacity_check
+                fits, info = capacity_check(new_date, dog_id=dog.id)
+                if not fits and not override:
+                    from rest_framework import serializers as drf_serializers
+                    raise drf_serializers.ValidationError({
+                        'detail': (
+                            f"{new_date} is full ({info['booked']}/{info['capacity']} dogs). "
+                            "Send override_capacity=true to add anyway."
+                        ),
+                        'code': 'capacity_full',
+                    })
 
-        # Record history
-        DateChangeRequestHistory.objects.create(
-            request=instance,
-            changed_by=self.request.user,
-            from_status='PENDING',
-            to_status='APPROVED',
-        )
+            instance = serializer.save(
+                status='APPROVED',
+                approved_by=self.request.user,
+                approved_at=timezone.now(),
+            )
 
-        # A CANCEL or a CHANGE frees up the original date, so unassign the dog
-        # there. For a CHANGE the new date is picked up by the roster queries
-        # (which treat an approved CHANGE like an ADD_DAY for new_date).
-        if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
-            DailyDogAssignment.objects.filter(
-                dog=instance.dog,
-                date=instance.original_date,
-            ).delete()
-            try:
-                from .scheduling import process_waitlist_for_date
-                process_waitlist_for_date(instance.original_date)
-            except Exception as e:
-                print(f"Failed to process waitlist: {e}")
+            # Record history
+            DateChangeRequestHistory.objects.create(
+                request=instance,
+                changed_by=self.request.user,
+                from_status='PENDING',
+                to_status='APPROVED',
+            )
 
-        # Notify dog owners
+            # A CANCEL or a CHANGE frees up the original date, so unassign the dog
+            # there. For a CHANGE the new date is picked up by the roster queries
+            # (which treat an approved CHANGE like an ADD_DAY for new_date).
+            if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
+                DailyDogAssignment.objects.filter(
+                    dog=instance.dog,
+                    date=instance.original_date,
+                ).delete()
+                try:
+                    from .scheduling import process_waitlist_for_date
+                    process_waitlist_for_date(instance.original_date)
+                except Exception as e:
+                    print(f"Failed to process waitlist: {e}")
+
+        # Notify dog owners (best-effort, after the transaction commits — a push
+        # failure must never roll back the approval).
         try:
             from .notifications import send_push_notification
             if instance.request_type == 'ADD_DAY':
@@ -1082,44 +1089,58 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if old_status == new_status:
             return Response({'detail': 'Status unchanged'}, status=200)
 
-        # Approving a request that puts the dog onto new_date must respect the
-        # daily capacity. override_capacity=true skips the check.
-        if new_status == 'APPROVED' and instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date:
-            from .scheduling import capacity_check
-            override = str(request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
-            fits, info = capacity_check(instance.new_date, dog_id=instance.dog_id)
-            if not fits and not override:
-                return Response({
-                    'detail': (
-                        f"{instance.new_date} is full ({info['booked']}/{info['capacity']} dogs). "
-                        "Send override_capacity=true to approve anyway."
-                    ),
-                    'code': 'capacity_full',
-                }, status=400)
-
-        # Update approved metadata
+        override = str(request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
+        from django.db import transaction
         from django.utils import timezone
-        if new_status == 'APPROVED':
-            instance.approved_by = request.user
-            instance.approved_at = timezone.now()
-        instance.status = new_status
-        instance.save()
+        from .models import DateChangeRequestHistory
 
-        # Approving a CANCEL or CHANGE frees up the original date, so unassign
-        # the dog there. For a CHANGE the new date is surfaced by the roster
-        # queries (which treat an approved CHANGE like an ADD_DAY for new_date).
-        if new_status == 'APPROVED' and instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
-            DailyDogAssignment.objects.filter(
-                dog=instance.dog,
-                date=instance.original_date,
-            ).delete()
-            try:
-                from .scheduling import process_waitlist_for_date
-                process_waitlist_for_date(instance.original_date)
-            except Exception as e:
-                print(f"Failed to process waitlist: {e}")
+        # Status change, original-date unassignment and the history row run in
+        # one transaction; the capacity re-check sits inside it immediately
+        # before approving so concurrent approvals can't both overbook (B11/B12).
+        with transaction.atomic():
+            if new_status == 'APPROVED' and instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date:
+                from .scheduling import capacity_check
+                fits, info = capacity_check(instance.new_date, dog_id=instance.dog_id)
+                if not fits and not override:
+                    return Response({
+                        'detail': (
+                            f"{instance.new_date} is full ({info['booked']}/{info['capacity']} dogs). "
+                            "Send override_capacity=true to approve anyway."
+                        ),
+                        'code': 'capacity_full',
+                    }, status=400)
 
-        # Send push notification to all owners
+            if new_status == 'APPROVED':
+                instance.approved_by = request.user
+                instance.approved_at = timezone.now()
+            instance.status = new_status
+            instance.save()
+
+            # Approving a CANCEL or CHANGE frees up the original date, so unassign
+            # the dog there. For a CHANGE the new date is surfaced by the roster
+            # queries (which treat an approved CHANGE like an ADD_DAY for new_date).
+            if new_status == 'APPROVED' and instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
+                DailyDogAssignment.objects.filter(
+                    dog=instance.dog,
+                    date=instance.original_date,
+                ).delete()
+                try:
+                    from .scheduling import process_waitlist_for_date
+                    process_waitlist_for_date(instance.original_date)
+                except Exception as e:
+                    print(f"Failed to process waitlist: {e}")
+
+            # History is recorded in the same transaction so an approval always
+            # has its audit row (previously it could be skipped if notification
+            # setup raised) (B12).
+            DateChangeRequestHistory.objects.create(
+                request=instance,
+                changed_by=request.user,
+                from_status=old_status,
+                to_status=new_status,
+            )
+
+        # Send push notification to all owners — after commit, best-effort.
         try:
             from .notifications import send_push_notification
             title = f"Request {new_status.title()}"
@@ -1135,15 +1156,6 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
-        # Record history
-        from .models import DateChangeRequestHistory
-        DateChangeRequestHistory.objects.create(
-            request=instance,
-            changed_by=request.user,
-            from_status=old_status,
-            to_status=new_status,
-        )
-
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -1152,23 +1164,30 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     pagination_class = FeedPagination
 
-    def get_queryset(self):
+    def _feed_queryset(self):
         # Prefetch every relation the serializer touches so rendering a page of
         # feed items stays at a small, constant number of queries instead of
         # N+1 (uploader profile, comments + their authors, reactions, tags).
         # The current user's own reactions are prefetched into a separate
         # attribute so get_user_reaction() needs no extra per-item query.
+        # No request-param filtering here, so it is safe to re-fetch a single
+        # already-permitted item after a write (B26).
         user_reactions = Prefetch(
             'reactions',
             queryset=MediaReaction.objects.filter(user=self.request.user),
             to_attr='my_reactions',
         )
-        qs = (
+        return (
             GroupMedia.objects
             .select_related('uploaded_by', 'uploaded_by__profile')
             .prefetch_related('tagged_dogs', 'comments__user', 'reactions', user_reactions)
-            .order_by('-created_at')
+            # Deterministic tie-breaker so paging can't drop or duplicate rows
+            # when several items share a created_at second (B30).
+            .order_by('-created_at', '-id')
         )
+
+    def get_queryset(self):
+        qs = self._feed_queryset()
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
             qs = qs.filter(tagged_dogs__id=dog_id).distinct()
@@ -1245,7 +1264,7 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
 
         # Re-fetch so the response reflects the toggle instead of the stale
         # prefetched reactions on the original instance.
-        media = self.get_queryset().get(pk=media.pk)
+        media = self._feed_queryset().get(pk=media.pk)
         return Response(self.get_serializer(media).data)
 
     @action(detail=True, methods=['post'])
@@ -1266,7 +1285,7 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
 
         # Re-fetch so the response includes the new comment instead of the
         # stale prefetched comments on the original instance.
-        media = self.get_queryset().get(pk=media.pk)
+        media = self._feed_queryset().get(pk=media.pk)
         return Response(self.get_serializer(media).data)
 
     @action(detail=False, methods=['get'])
@@ -1727,6 +1746,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if not dog_ids:
             return Response({'detail': 'dog_ids is required'}, status=400)
 
+        # Nobody attends on a CLOSED closure day — refuse rather than create
+        # assignments roster materialisation would never produce (B14).
+        from .models import ClosureDay
+        if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
+            return Response({'detail': 'The daycare is closed on that date.'}, status=400)
+
         weekday = target_date.isoweekday()
         created = []
         skipped = []
@@ -1810,6 +1835,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             target_staff = User.objects.get(id=staff_member_id, is_staff=True)
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
+
+        # Nobody attends on a CLOSED closure day — refuse rather than create
+        # assignments roster materialisation would never produce (B14).
+        from .models import ClosureDay
+        if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
+            return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
         weekday = target_date.isoweekday()
         created = []
@@ -2208,6 +2239,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         if not from_staff_id or not to_staff_id:
             return Response({'detail': 'from_staff_id and to_staff_id are required'}, status=400)
+        # Normalise types before comparing so a mix of int/str ids can't slip
+        # past the no-op guard and "swap" a staff member with themselves (B27).
+        try:
+            from_staff_id = int(from_staff_id)
+            to_staff_id = int(to_staff_id)
+        except (TypeError, ValueError):
+            return Response({'detail': 'from_staff_id and to_staff_id must be integers'}, status=400)
         if from_staff_id == to_staff_id:
             return Response({'detail': 'from_staff_id and to_staff_id must differ'}, status=400)
         if scope not in ('just_this_day', 'this_weekday_forever', 'all_weekdays_forever'):
@@ -2686,10 +2724,15 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
 
         results = []
         for entry in availability_data:
-            day = entry.get('day_of_week')
-            if day is None or day < 1 or day > 7:
+            # Coerce defensively — a JSON client may send day_of_week/is_available
+            # as strings, which would otherwise raise a TypeError 500 (B24).
+            try:
+                day = int(entry.get('day_of_week'))
+            except (TypeError, ValueError):
                 continue
-            is_available = entry.get('is_available', True)
+            if day < 1 or day > 7:
+                continue
+            is_available = bool(entry.get('is_available', True))
             obj, _ = StaffAvailability.objects.update_or_create(
                 staff_member=request.user,
                 day_of_week=day,
@@ -2896,11 +2939,20 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        obj = DayOffRequest.objects.create(
-            staff_member=request.user,
-            date=target_date,
-            reason=request.data.get('reason', ''),
-        )
+        from django.db import IntegrityError
+        try:
+            obj = DayOffRequest.objects.create(
+                staff_member=request.user,
+                date=target_date,
+                reason=request.data.get('reason', ''),
+            )
+        except IntegrityError:
+            # Lost the race against a concurrent identical request; the DB
+            # constraint (B16) is the backstop for the check above.
+            return Response(
+                {'detail': 'You already have an active request for this date.'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
         serializer = DayOffRequestSerializer(obj)
         return Response(serializer.data, status=drf_status.HTTP_201_CREATED)
 

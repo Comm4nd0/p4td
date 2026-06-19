@@ -156,13 +156,30 @@ class DogSerializer(serializers.ModelSerializer):
         }
 
     def validate_daycare_days(self, value):
+        # Normalise to a sorted list of unique ints in 1-7 so downstream roster
+        # logic (ExtractIsoWeekDay membership tests) can rely on the contents
+        # instead of silently misbehaving on '1'/0/8/duplicates (B18).
         if isinstance(value, str):
             import json
             try:
-                return json.loads(value)
+                value = json.loads(value)
             except ValueError:
                 raise serializers.ValidationError("Invalid JSON for daycare_days")
-        return value
+        if value in (None, ''):
+            return []
+        if not isinstance(value, (list, tuple)):
+            raise serializers.ValidationError("daycare_days must be a list of day numbers (1-7).")
+        normalised = []
+        for item in value:
+            try:
+                day = int(item)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError("daycare_days must contain whole day numbers 1-7.")
+            if day < 1 or day > 7:
+                raise serializers.ValidationError("daycare_days values must be between 1 (Mon) and 7 (Sun).")
+            if day not in normalised:
+                normalised.append(day)
+        return sorted(normalised)
 
 class CommentSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
@@ -215,6 +232,23 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
         if request and not request.user.is_staff:
             self.fields['status'].read_only = True
             self.fields['is_charged'].read_only = True
+
+    def validate(self, data):
+        # Enforce request_type/date coherence so an incoherent combo can't skip
+        # the capacity guard or unassign a dog with nowhere to go (B25).
+        request_type = data.get('request_type', getattr(self.instance, 'request_type', None))
+        original_date = data.get('original_date', getattr(self.instance, 'original_date', None))
+        new_date = data.get('new_date', getattr(self.instance, 'new_date', None))
+        if request_type == 'ADD_DAY' and not new_date:
+            raise serializers.ValidationError({'new_date': 'An additional-day request needs a new date.'})
+        if request_type == 'CANCEL' and not original_date:
+            raise serializers.ValidationError({'original_date': 'A cancellation needs an original date.'})
+        if request_type == 'CHANGE':
+            if not original_date or not new_date:
+                raise serializers.ValidationError('A date change needs both an original and a new date.')
+            if original_date == new_date:
+                raise serializers.ValidationError({'new_date': 'The new date must differ from the original date.'})
+        return data
 
 class GroupMediaSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.SerializerMethodField()
@@ -319,7 +353,11 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
         return obj.owner.username
 
     def validate(self, data):
-        if data['start_date'] > data['end_date']:
+        # Fall back to the instance on partial updates so a PATCH that omits the
+        # dates doesn't KeyError into a 500 (B28).
+        start = data.get('start_date', getattr(self.instance, 'start_date', None))
+        end = data.get('end_date', getattr(self.instance, 'end_date', None))
+        if start and end and start > end:
             raise serializers.ValidationError("Start date must be before end date")
         return data
 
