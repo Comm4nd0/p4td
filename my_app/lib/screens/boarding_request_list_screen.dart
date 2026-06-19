@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -15,7 +16,7 @@ class BoardingRequestListScreen extends StatefulWidget {
 }
 
 class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   late Future<List<BoardingRequest>> _requestsFuture;
   
   // Calendar state

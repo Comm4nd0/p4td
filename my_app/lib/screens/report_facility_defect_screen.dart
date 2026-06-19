@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 class ReportFacilityDefectScreen extends StatefulWidget {
   const ReportFacilityDefectScreen({super.key});
@@ -14,7 +15,7 @@ class ReportFacilityDefectScreen extends StatefulWidget {
 
 class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen> {
   final _formKey = GlobalKey<FormState>();
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ImagePicker _picker = ImagePicker();
 
   final _titleController = TextEditingController();

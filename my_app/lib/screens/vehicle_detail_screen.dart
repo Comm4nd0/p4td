@@ -6,6 +6,7 @@ import '../models/vehicle.dart';
 import '../models/vehicle_defect.dart';
 import '../models/vehicle_maintenance_record.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'add_edit_vehicle_screen.dart';
 import 'defect_detail_screen.dart';
@@ -27,7 +28,7 @@ class VehicleDetailScreen extends StatefulWidget {
 }
 
 class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   Vehicle? _vehicle;
   List<VehicleDefect> _defects = [];
   List<VehicleMaintenanceRecord> _history = [];

@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dog_quick_info_sheet.dart';
@@ -50,7 +51,7 @@ class AllDogsTodayScreen extends StatefulWidget {
 
 class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
   static const _sortCacheKey = 'all_dogs_today';
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final CacheService _cacheService = CacheService();
   late List<DailyDogAssignment> _assignments;
   late List<Dog> _unassignedDogs;

@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import 'dog_typeahead.dart';
 
 /// Result returned from the media tagging dialog.
@@ -43,7 +44,7 @@ class MediaTagDialog extends StatefulWidget {
 }
 
 class _MediaTagDialogState extends State<MediaTagDialog> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final PageController _pageController = PageController();
 
   List<Dog> _allDogs = [];

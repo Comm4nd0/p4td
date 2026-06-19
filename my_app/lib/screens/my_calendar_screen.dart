@@ -4,6 +4,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../constants/app_colors.dart';
 import '../models/owner_calendar.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
@@ -18,7 +19,7 @@ class MyCalendarScreen extends StatefulWidget {
 }
 
 class _MyCalendarScreenState extends State<MyCalendarScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
 
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();

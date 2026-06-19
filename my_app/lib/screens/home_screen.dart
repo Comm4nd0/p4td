@@ -8,6 +8,7 @@ import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../widgets/grouped_section.dart';
@@ -44,7 +45,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   // final AuthService _authService = AuthService(); // Removed unused
   final NotificationService _notificationService = NotificationService();
   

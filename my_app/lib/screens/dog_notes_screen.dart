@@ -6,6 +6,7 @@ import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/dog_note.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../widgets/skeleton_loaders.dart';
 
 class DogNotesScreen extends StatefulWidget {
@@ -19,7 +20,7 @@ class DogNotesScreen extends StatefulWidget {
 }
 
 class _DogNotesScreenState extends State<DogNotesScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<DogNote> _notes = [];
   bool _loading = true;
   List<Dog> _allDogs = [];

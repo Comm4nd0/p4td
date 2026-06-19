@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/app_colors.dart';
 import '../models/vehicle.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 
 class AddEditVehicleScreen extends StatefulWidget {
@@ -20,7 +21,7 @@ class AddEditVehicleScreen extends StatefulWidget {
 
 class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   final _formKey = GlobalKey<FormState>();
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ImagePicker _picker = ImagePicker();
 
   late final TextEditingController _nameController;

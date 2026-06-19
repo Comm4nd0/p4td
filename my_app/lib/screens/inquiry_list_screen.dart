@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'inquiry_detail_screen.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -14,7 +15,7 @@ class InquiryListScreen extends StatefulWidget {
 }
 
 class _InquiryListScreenState extends State<InquiryListScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<ContactInquiry> _inquiries = [];
   bool _loading = true;
   String _filter = 'UNREAD';

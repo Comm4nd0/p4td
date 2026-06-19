@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 class OwnerDetailsDialog extends StatefulWidget {
   final OwnerProfile ownerProfile;
@@ -25,7 +26,7 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
   late TextEditingController _pickupController;
   bool _isEditing = false;
   bool _isSaving = false;
-  final _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
 
   @override
   void initState() {

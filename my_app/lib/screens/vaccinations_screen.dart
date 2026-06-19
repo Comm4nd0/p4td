@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/vaccination_record.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
@@ -21,7 +22,7 @@ class VaccinationsScreen extends StatefulWidget {
 }
 
 class _VaccinationsScreenState extends State<VaccinationsScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   late Future<List<VaccinationRecord>> _recordsFuture;
 
   static const _commonVaccines = ['DHP', 'Leptospirosis', 'Kennel Cough', 'Rabies'];

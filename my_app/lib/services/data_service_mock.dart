@@ -205,6 +205,19 @@ class MockDataService implements DataService {
     // Mock implementation
   }
 
+  @override
+  Future<void> submitDateChangeRequest({
+    required String dogId,
+    required DateTime originalDate,
+    DateTime? newDate,
+  }) async {}
+
+  @override
+  Future<void> submitAdditionalDayRequest({
+    required String dogId,
+    required DateTime requestedDate,
+  }) async {}
+
 
   @override
   Future<List<gm.GroupMedia>> getFeed({String? dogId}) async => [];
@@ -256,6 +269,9 @@ class MockDataService implements DataService {
   Future<List<BoardingRequest>> getBoardingRequests() async {
     return [];
   }
+
+  @override
+  Future<void> updateBoardingRequestStatus(int requestId, String status) async {}
 
   @override
   Future<void> createBoardingRequest({

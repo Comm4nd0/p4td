@@ -8,6 +8,7 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
@@ -29,7 +30,7 @@ class DogHomeScreen extends StatefulWidget {
 
 class _DogHomeScreenState extends State<DogHomeScreen> {
   late Dog _dog;
-  final _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<DateChangeRequest> _requests = [];
   bool _loadingRequests = false;
   List<BoardingRequest> _boardingRequests = [];

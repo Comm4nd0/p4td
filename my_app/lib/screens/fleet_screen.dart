@@ -4,6 +4,7 @@ import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/vehicle.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'add_edit_vehicle_screen.dart';
@@ -62,7 +63,7 @@ class FleetScreen extends StatefulWidget {
 }
 
 class _FleetScreenState extends State<FleetScreen> with WidgetsBindingObserver {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<Vehicle> _vehicles = [];
   bool _loading = true;
   bool _loadFailed = false;

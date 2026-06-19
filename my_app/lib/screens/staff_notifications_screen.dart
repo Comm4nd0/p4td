@@ -5,6 +5,7 @@ import '../utils/date_formats.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../widgets/request_timeline.dart';
 import '../widgets/skeleton_loaders.dart';
 
@@ -18,7 +19,7 @@ class StaffNotificationsScreen extends StatefulWidget {
 }
 
 class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
-  final _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<DateChangeRequest> _dateRequests = [];
   List<BoardingRequest> _boardingRequests = [];
   bool _loading = true;

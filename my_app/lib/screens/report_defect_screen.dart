@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 class ReportDefectScreen extends StatefulWidget {
   final int vehicleId;
@@ -21,7 +22,7 @@ class ReportDefectScreen extends StatefulWidget {
 
 class _ReportDefectScreenState extends State<ReportDefectScreen> {
   final _formKey = GlobalKey<FormState>();
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ImagePicker _picker = ImagePicker();
 
   final _titleController = TextEditingController();

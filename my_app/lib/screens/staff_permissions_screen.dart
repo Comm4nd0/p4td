@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../models/staff_permission.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 class StaffPermissionsScreen extends StatefulWidget {
   const StaffPermissionsScreen({super.key});
@@ -11,7 +12,7 @@ class StaffPermissionsScreen extends StatefulWidget {
 }
 
 class _StaffPermissionsScreenState extends State<StaffPermissionsScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<StaffPermission> _staff = [];
   bool _loading = true;
   final Set<int> _saving = {};

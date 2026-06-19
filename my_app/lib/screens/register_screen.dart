@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../models/user_profile.dart';
 import 'home_screen.dart';
 
@@ -18,7 +19,7 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
-  final _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;

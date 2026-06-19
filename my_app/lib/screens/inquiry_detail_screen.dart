@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 
 class InquiryDetailScreen extends StatefulWidget {
@@ -15,7 +16,7 @@ class InquiryDetailScreen extends StatefulWidget {
 }
 
 class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   late bool _isRead;
   late bool _isReplied;
 

@@ -5,6 +5,7 @@ import '../constants/app_colors.dart';
 import '../models/support_query.dart';
 import '../models/support_message.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 
 class QueryDetailScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class QueryDetailScreen extends StatefulWidget {
 }
 
 class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindingObserver {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   SupportQuery? _query;

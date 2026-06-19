@@ -21,6 +21,15 @@ abstract class DataService {
   Future<List<OwnerProfile>> getOwners();
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId});
   Future<void> updateDateChangeRequestStatus(String requestId, String status);
+  Future<void> submitDateChangeRequest({
+    required String dogId,
+    required DateTime originalDate,
+    DateTime? newDate,
+  });
+  Future<void> submitAdditionalDayRequest({
+    required String dogId,
+    required DateTime requestedDate,
+  });
   Future<List<gm.GroupMedia>> getFeed({String? dogId});
   Future<FeedPage> getFeedPage({String? dogId, int page = 1});
   Future<void> uploadGroupMedia({
@@ -45,6 +54,7 @@ abstract class DataService {
   Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false});
   Future<void> deleteComment(String commentId);
   Future<List<BoardingRequest>> getBoardingRequests();
+  Future<void> updateBoardingRequestStatus(int requestId, String status);
   Future<void> createBoardingRequest({
     required List<int> dogIds,
     required DateTime startDate,

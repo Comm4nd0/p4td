@@ -11,6 +11,7 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -62,7 +63,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
 }
 
 class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
 
   // Assignment cache
   final Map<String, List<DailyDogAssignment>> _assignmentCache = {};

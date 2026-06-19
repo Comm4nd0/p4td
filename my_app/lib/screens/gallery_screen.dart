@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import 'dart:typed_data';
 import '../models/photo.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 
 class GalleryScreen extends StatefulWidget {
@@ -27,7 +28,7 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   late Future<List<Photo>> _photosFuture;
   bool _uploading = false;
 

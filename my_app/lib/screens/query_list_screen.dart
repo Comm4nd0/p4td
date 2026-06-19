@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/support_query.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'query_detail_screen.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -23,7 +24,7 @@ class QueryListScreen extends StatefulWidget {
 }
 
 class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingObserver {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<SupportQuery> _queries = [];
   bool _loading = true;
   bool _loadFailed = false;

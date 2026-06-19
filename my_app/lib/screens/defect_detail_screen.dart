@@ -6,6 +6,7 @@ import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/vehicle_defect.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 
 class DefectDetailScreen extends StatefulWidget {
@@ -23,7 +24,7 @@ class DefectDetailScreen extends StatefulWidget {
 }
 
 class _DefectDetailScreenState extends State<DefectDetailScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ImagePicker _picker = ImagePicker();
   VehicleDefect? _defect;
   bool _loading = true;

@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 /// Quick-info popup for a dog, opened with a single tap from any staff dog
 /// list. Shows the owner, address, pickup info and care notes at a glance,
@@ -47,7 +48,7 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
     _dog = widget.dog;
     if (_dog == null) {
       _loading = true;
-      ApiDataService().getDogById(widget.assignment!.dogId.toString()).then((dog) {
+      getIt<DataService>().getDogById(widget.assignment!.dogId.toString()).then((dog) {
         if (mounted) setState(() { _dog = dog; _loading = false; });
       }).catchError((_) {
         if (mounted) setState(() { _loading = false; _loadFailed = true; });

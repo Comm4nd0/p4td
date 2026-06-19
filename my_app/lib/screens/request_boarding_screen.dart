@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 class RequestBoardingScreen extends StatefulWidget {
   const RequestBoardingScreen({super.key});
@@ -12,7 +13,7 @@ class RequestBoardingScreen extends StatefulWidget {
 
 class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
   final _formKey = GlobalKey<FormState>();
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
 
   bool _isLoading = false;
   bool _isLoadingDogs = true;

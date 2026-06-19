@@ -5,6 +5,7 @@ import '../constants/app_colors.dart';
 import '../utils/date_formats.dart';
 import '../models/day_off_request.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 
 class StaffAvailabilityScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -16,7 +17,7 @@ class StaffAvailabilityScreen extends StatefulWidget {
 }
 
 class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with SingleTickerProviderStateMixin {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   late TabController _tabController;
 
   // My Availability tab

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../services/auth_service.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../services/no_connection_exception.dart';
 import '../widgets/no_connection_widget.dart';
 import 'home_screen.dart';
@@ -95,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           // Don't block login on failures here — the user is still logged in
           // even if profile lookup fails, the active token is set.
           try {
-            final profile = await ApiDataService().getProfile();
+            final profile = await getIt<DataService>().getProfile();
             if (profile.userId != null) {
               await _authService.upsertActiveAccount(
                 userId: profile.userId!,

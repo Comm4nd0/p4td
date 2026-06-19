@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../models/dog.dart';
 import '../models/owner_profile.dart';
 import '../constants/app_colors.dart';
@@ -18,7 +19,7 @@ class AddDogScreen extends StatefulWidget {
 
 class _AddDogScreenState extends State<AddDogScreen> {
   final _formKey = GlobalKey<FormState>();
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ImagePicker _picker = ImagePicker();
 
   bool _isSaving = false;

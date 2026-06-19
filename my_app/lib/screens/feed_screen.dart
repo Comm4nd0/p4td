@@ -8,6 +8,7 @@ import '../utils/date_formats.dart';
 import '../models/dog.dart';
 import '../models/group_media.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../widgets/feed_item_card.dart';
 import '../widgets/dog_typeahead.dart';
 import '../widgets/media_tag_dialog.dart';
@@ -27,7 +28,7 @@ class FeedScreen extends StatefulWidget {
 }
 
 class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBindingObserver {
-  final _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   List<GroupMedia> _feed = [];

@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
 
@@ -15,7 +16,7 @@ class ClosureDaysScreen extends StatefulWidget {
 }
 
 class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<ClosureDay> _closureDays = [];
   bool _loading = true;
 

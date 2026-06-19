@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
@@ -20,7 +21,7 @@ class EditDogScreen extends StatefulWidget {
 }
 
 class _EditDogScreenState extends State<EditDogScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final ImagePicker _picker = ImagePicker();
   bool _isSaving = false;
 

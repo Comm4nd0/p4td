@@ -7,6 +7,7 @@ import '../constants/app_colors.dart';
 import '../models/group_media.dart';
 import '../services/cache_service.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../utils/media_actions.dart';
 import 'reaction_picker_sheet.dart';
@@ -38,7 +39,7 @@ class FeedItemCard extends StatefulWidget {
 class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMixin {
   bool _showAllComments = false;
   final TextEditingController _commentController = TextEditingController();
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
 
   /// Drives the Instagram-style heart overlay shown on photo double-tap.
   late final AnimationController _heartController;

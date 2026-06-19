@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog_profile_change_request.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../constants/app_colors.dart';
 
 /// Staff screen for reviewing pending dog profile change requests.
@@ -14,7 +15,7 @@ class DogProfileChangesScreen extends StatefulWidget {
 }
 
 class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   List<DogProfileChangeRequest> _requests = [];
   bool _loading = true;
   String? _error;

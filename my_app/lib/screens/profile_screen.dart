@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/app_colors.dart';
 import '../models/user_profile.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../services/auth_service.dart';
 import '../services/theme_service.dart';
 import '../widgets/app_sheets.dart';
@@ -23,7 +24,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final DataService _dataService = ApiDataService();
+  final DataService _dataService = getIt<DataService>();
   final AuthService _authService = AuthService();
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = true;
