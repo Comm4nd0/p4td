@@ -11,6 +11,7 @@ import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
+import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'staff_dog_detail_screen.dart';
 
@@ -84,8 +85,8 @@ class PickupMapScreen extends StatefulWidget {
   State<PickupMapScreen> createState() => _PickupMapScreenState();
 }
 
-class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProviderStateMixin {
-  final DataService _dataService = ApiDataService();
+class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  final DataService _dataService = getIt<DataService>();
   final MapController _mapController = MapController();
 
   /// Drives the dot that travels along each route to show direction of travel.
@@ -115,14 +116,30 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     _assignments = List.of(widget.assignments);
     _unassignedDogs = List.of(widget.unassignedDogs);
     _restoreFilters();
-    _routeAnim = AnimationController(vsync: this, duration: const Duration(seconds: 5))..repeat();
+    _routeAnim = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+    WidgetsBinding.instance.addObserver(this);
+    // Only animate the route dots while routes are actually shown — a perpetual
+    // repeat() rebuilt the MarkerLayer at 60fps even when routes were hidden or
+    // the app was backgrounded (F20).
+    if (_showRoutes) _routeAnim.repeat();
   }
 
   @override
   void dispose() {
     _saveFilters();
+    WidgetsBinding.instance.removeObserver(this);
     _routeAnim.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Don't burn frames animating route dots while the app is backgrounded (F20).
+    if (state == AppLifecycleState.resumed) {
+      if (_showRoutes && !_routeAnim.isAnimating) _routeAnim.repeat();
+    } else {
+      _routeAnim.stop();
+    }
   }
 
   /// Restore the toggle choices the user last left the map with. The first
@@ -543,7 +560,15 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
           IconButton(
             tooltip: _showRoutes ? 'Hide routes' : 'Show routes',
             icon: Icon(_showRoutes ? Icons.route : Icons.route_outlined),
-            onPressed: () => setState(() => _showRoutes = !_showRoutes),
+            onPressed: () => setState(() {
+              _showRoutes = !_showRoutes;
+              // Stop the per-frame route-dot animation when routes are hidden (F20).
+              if (_showRoutes) {
+                _routeAnim.repeat();
+              } else {
+                _routeAnim.stop();
+              }
+            }),
           ),
           IconButton(
             icon: _refreshing
