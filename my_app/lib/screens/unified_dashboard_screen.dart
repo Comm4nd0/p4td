@@ -107,9 +107,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       canManageRequests: widget.canManageRequests,
     )..addListener(_onCountsChanged);
     _dateOptions = _generateWeekdays(DateTime.now());
-    final today = DateTime.now();
-    final todayIndex = _dateOptions.indexWhere((d) => _isSameDay(d, today));
-    _selectedDate = _dateOptions[todayIndex >= 0 ? todayIndex : 0];
+    // Open on today when it's a working day; otherwise the next working day in
+    // the strip — i.e. the following Monday on a weekend (and the next open day
+    // after that once bank-holiday closures load).
+    _selectedDate = _defaultDate(_dateOptions, DateTime.now());
     _loadStaffMembers();
     _loadDay(_selectedDate);
     _loadClosureDays();
@@ -175,6 +176,20 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     return weekdays;
   }
 
+  /// The day the dashboard should open on: the first option on or after today.
+  /// Because [_dateOptions] only contains working days (weekends excluded, and
+  /// closed bank holidays pruned once closures load), this resolves to today
+  /// when it's a working day, the following Monday over a weekend, or the next
+  /// open day if that Monday is itself closed. Falls back to the last option
+  /// (then today) if everything is in the past.
+  DateTime _defaultDate(List<DateTime> options, DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    for (final d in options) {
+      if (!d.isBefore(today)) return d;
+    }
+    return options.isNotEmpty ? options.last : today;
+  }
+
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
@@ -224,7 +239,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               .where((d) => !closedDates.contains(DateTime(d.year, d.month, d.day)))
               .toList();
           if (!_dateOptions.any((d) => _isSameDay(d, _selectedDate)) && _dateOptions.isNotEmpty) {
-            _selectedDate = _dateOptions.first;
+            // The selected day was a closure that's now pruned — fall to the
+            // next working day rather than the oldest day in the strip.
+            _selectedDate = _defaultDate(_dateOptions, DateTime.now());
             _loadDay(_selectedDate);
           }
         });
