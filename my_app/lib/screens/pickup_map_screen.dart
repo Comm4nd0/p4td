@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -111,6 +112,11 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   bool _showRoutes = true;
   bool _refreshing = false;
 
+  // Live auto-refresh: re-pull the route every [_autoRefreshInterval] so staff
+  // can watch dogs get picked up / returned without manually refreshing.
+  Timer? _refreshTimer;
+  static const Duration _autoRefreshInterval = Duration(seconds: 30);
+
   @override
   void initState() {
     super.initState();
@@ -123,11 +129,13 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     // repeat() rebuilt the MarkerLayer at 60fps even when routes were hidden or
     // the app was backgrounded (F20).
     if (_showRoutes) _routeAnim.repeat();
+    _startAutoRefresh();
   }
 
   @override
   void dispose() {
     _saveFilters();
+    _refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _routeAnim.dispose();
     super.dispose();
@@ -135,11 +143,39 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Don't burn frames animating route dots while the app is backgrounded (F20).
+    // Don't burn frames animating route dots — or poll the network — while the
+    // app is backgrounded (F20).
     if (state == AppLifecycleState.resumed) {
       if (_showRoutes && !_routeAnim.isAnimating) _routeAnim.repeat();
+      _startAutoRefresh();
     } else {
       _routeAnim.stop();
+      _refreshTimer?.cancel();
+    }
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_autoRefreshInterval, (_) => _autoRefresh());
+  }
+
+  /// Silent background refresh for the live view — no spinner, no error
+  /// snackbars (the next tick retries). Pulls assignments and unassigned dogs
+  /// so newly assigned/added dogs appear too.
+  Future<void> _autoRefresh() async {
+    if (_refreshing) return; // don't collide with a manual refresh
+    try {
+      final results = await Future.wait([
+        _dataService.getTodayAssignments(date: widget.date),
+        _dataService.getUnassignedDogs(date: widget.date),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _assignments = results[0] as List<DailyDogAssignment>;
+        _unassignedDogs = results[1] as List<Dog>;
+      });
+    } catch (_) {
+      // Silent — the next tick will retry.
     }
   }
 
@@ -235,14 +271,46 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   }
 
   /// A dog counts as "collected" once it's no longer just assigned — i.e. it's
-  /// with the team (picked up) or already dropped off.
+  /// with the team (picked up) or already returned.
   bool _isCollected(DailyDogAssignment a) =>
       a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff;
 
-  Map<int, int> _collectedCountsByStaff() {
+  // Leg-aware denominators, matching the dashboard: a dog only counts toward a
+  // leg if the staff physically handle it (owner-handled legs are excluded).
+  Map<int, int> _pickupLegCountsByStaff() {
     final counts = <int, int>{};
     for (final a in _assignments) {
-      if (_isCollected(a)) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+      if (!a.effectiveOwnerBrings) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  Map<int, int> _dropoffLegCountsByStaff() {
+    final counts = <int, int>{};
+    for (final a in _assignments) {
+      if (!a.effectiveOwnerCollects) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  Map<int, int> _collectedCountsByStaff() {
+    // Pickup-leg dogs the staff have picked up (or already returned).
+    final counts = <int, int>{};
+    for (final a in _assignments) {
+      if (!a.effectiveOwnerBrings && _isCollected(a)) {
+        counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  Map<int, int> _returnedCountsByStaff() {
+    // Drop-off-leg dogs the staff have returned home.
+    final counts = <int, int>{};
+    for (final a in _assignments) {
+      if (!a.effectiveOwnerCollects && a.status == AssignmentStatus.droppedOff) {
+        counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+      }
     }
     return counts;
   }
@@ -815,6 +883,9 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   Widget _buildLegend() {
     final counts = _assignmentCountsByStaff();
     final collected = _collectedCountsByStaff();
+    final pickupLeg = _pickupLegCountsByStaff();
+    final returned = _returnedCountsByStaff();
+    final dropoffLeg = _dropoffLegCountsByStaff();
     final names = _staffNames();
     final staffIds = counts.keys.toList()..sort();
     final unassignedCount = _unassignedDogs.length;
@@ -861,6 +932,9 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
                   label: names[id] ?? 'Staff',
                   count: counts[id] ?? 0,
                   collected: collected[id] ?? 0,
+                  collectedOf: pickupLeg[id] ?? 0,
+                  returned: returned[id] ?? 0,
+                  returnedOf: dropoffLeg[id] ?? 0,
                   value: !_hiddenStaffIds.contains(id),
                   onTap: () => _openStaffList(id, names[id] ?? 'Staff'),
                   onChanged: (v) => setState(() {
@@ -903,6 +977,9 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     required ValueChanged<bool> onChanged,
     IconData? icon,
     int? collected,
+    int? collectedOf,
+    int? returned,
+    int? returnedOf,
     VoidCallback? onTap,
   }) {
     final content = Row(
@@ -921,10 +998,19 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
                       children: [
                         const Icon(Icons.check_circle, size: 13, color: AppColors.success),
                         const SizedBox(width: 4),
-                        Text('collected $collected of $count',
+                        Text('collected $collected of ${collectedOf ?? count}',
                             style: const TextStyle(fontSize: 12, color: AppColors.grey600)),
                       ],
                     ),
+                    if (returned != null)
+                      Row(
+                        children: [
+                          const Icon(Icons.done_all, size: 13, color: AppColors.success),
+                          const SizedBox(width: 4),
+                          Text('returned $returned of ${returnedOf ?? count}',
+                              style: const TextStyle(fontSize: 12, color: AppColors.grey600)),
+                        ],
+                      ),
                   ],
                 )
               : Text('$label  ($count)'),

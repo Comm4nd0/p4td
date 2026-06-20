@@ -1277,16 +1277,43 @@ class ApiDataService implements DataService {
     }
   }
 
-  Future<void> updateBoardingRequestStatus(int requestId, String status) async {
+  Future<void> updateBoardingRequestStatus(int requestId, String status, {int? assignedStaffId}) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/boarding-requests/$requestId/change_status/'),
       headers: headers,
-      body: json.encode({'status': status}),
+      body: json.encode({
+        'status': status,
+        if (assignedStaffId != null) 'assigned_staff_id': assignedStaffId,
+      }),
     );
 
     if (response.statusCode != 200) {
       String errorMessage = 'Failed to update request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
+  /// Set or change which staff member a boarding dog stays with. Pass null to
+  /// clear the assignment.
+  Future<void> assignBoardingStaff(int requestId, int? staffId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/$requestId/assign_staff/'),
+      headers: headers,
+      body: json.encode({'assigned_staff_id': staffId}),
+    );
+
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to assign boarding staff';
       try {
         final errorData = json.decode(response.body);
         if (errorData is Map) {

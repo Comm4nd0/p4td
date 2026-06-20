@@ -54,7 +54,8 @@ abstract class DataService {
   Future<void> addComment(String mediaId, String text, {bool isProfilePhoto = false});
   Future<void> deleteComment(String commentId);
   Future<List<BoardingRequest>> getBoardingRequests();
-  Future<void> updateBoardingRequestStatus(int requestId, String status);
+  Future<void> updateBoardingRequestStatus(int requestId, String status, {int? assignedStaffId});
+  Future<void> assignBoardingStaff(int requestId, int? staffId);
   Future<void> createBoardingRequest({
     required List<int> dogIds,
     required DateTime startDate,

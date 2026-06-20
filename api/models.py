@@ -286,6 +286,7 @@ class BoardingRequest(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='approved_boarding_requests')
     approved_at = models.DateTimeField(null=True, blank=True)
+    assigned_staff = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='assigned_boarding_requests', help_text='Staff member the dog boards with.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -308,7 +309,7 @@ class DailyDogAssignment(models.Model):
     STATUS_CHOICES = [
         ('ASSIGNED', 'Assigned'),
         ('PICKED_UP', 'With Team'),
-        ('DROPPED_OFF', 'Dropped Off'),
+        ('DROPPED_OFF', 'Returned'),
         ('REMOVED', 'Removed'),
     ]
 

@@ -59,7 +59,7 @@ enum AssignmentStatus {
       case AssignmentStatus.pickedUp:
         return 'With Team';
       case AssignmentStatus.droppedOff:
-        return 'Dropped Off';
+        return 'Returned';
     }
   }
 

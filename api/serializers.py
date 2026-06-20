@@ -337,16 +337,23 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(source='approved_by.username', read_only=True)
     approved_at = serializers.DateTimeField(read_only=True)
+    assigned_staff_name = serializers.SerializerMethodField()
     history = BoardingRequestHistorySerializer(many=True, read_only=True)
     dogs = serializers.PrimaryKeyRelatedField(many=True, queryset=Dog.objects.all())
 
     class Meta:
         model = BoardingRequest
-        fields = ['id', 'owner', 'owner_name', 'dogs', 'dog_names', 'start_date', 'end_date', 'special_instructions', 'status', 'approved_by_name', 'approved_at', 'created_at', 'updated_at', 'history']
-        read_only_fields = ['owner', 'status', 'approved_by_name', 'approved_at', 'created_at', 'updated_at', 'history']
+        fields = ['id', 'owner', 'owner_name', 'dogs', 'dog_names', 'start_date', 'end_date', 'special_instructions', 'status', 'approved_by_name', 'approved_at', 'assigned_staff', 'assigned_staff_name', 'created_at', 'updated_at', 'history']
+        read_only_fields = ['owner', 'status', 'approved_by_name', 'approved_at', 'assigned_staff', 'assigned_staff_name', 'created_at', 'updated_at', 'history']
 
     def get_dog_names(self, obj):
         return [dog.name for dog in obj.dogs.all()]
+
+    def get_assigned_staff_name(self, obj):
+        s = obj.assigned_staff
+        if not s:
+            return None
+        return s.first_name or s.username
 
     def get_owner_name(self, obj):
         if obj.owner.first_name:

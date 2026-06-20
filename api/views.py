@@ -1367,15 +1367,56 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             return base.all()
         return base.filter(owner=self.request.user)
 
+    def _resolve_assigned_staff(self, staff_id):
+        """Resolve a staff user id to a User, or None. Ignores non-staff ids."""
+        if staff_id in (None, ''):
+            return None
+        from django.contrib.auth.models import User
+        try:
+            return User.objects.get(pk=staff_id, is_staff=True)
+        except (User.DoesNotExist, ValueError, TypeError):
+            return None
+
+    def _notify_owner_boarding_status(self, instance, new_status):
+        try:
+            from .notifications import send_push_notification
+            title = f"Boarding Request {new_status.title()}"
+            body = f"Your boarding request for {', '.join([d.name for d in instance.dogs.all()])} has been {new_status.lower()}."
+            send_push_notification(instance.owner, title, body, {'type': 'boarding_status', 'id': str(instance.id)})
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
     def perform_create(self, serializer):
         # Ensure owner is set to current user (unless staff specifying owner)
         if self.request.user.is_staff and 'owner' in self.request.data:
             owner_id = self.request.data['owner']
             from django.contrib.auth.models import User
             owner = User.objects.get(pk=owner_id)
-            serializer.save(owner=owner)
         else:
-            serializer.save(owner=self.request.user)
+            owner = self.request.user
+
+        # Auto-approve any boarding request created by staff — owner-created
+        # requests stay PENDING and go through the normal approval workflow
+        # (mirrors the DateChangeRequest staff auto-approval).
+        if not self.request.user.is_staff:
+            serializer.save(owner=owner)
+            return
+
+        from django.utils import timezone
+        instance = serializer.save(
+            owner=owner,
+            status='APPROVED',
+            approved_by=self.request.user,
+            approved_at=timezone.now(),
+            assigned_staff=self._resolve_assigned_staff(self.request.data.get('assigned_staff_id')),
+        )
+        BoardingRequestHistory.objects.create(
+            request=instance,
+            changed_by=self.request.user,
+            from_status='PENDING',
+            to_status='APPROVED',
+        )
+        self._notify_owner_boarding_status(instance, 'APPROVED')
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
@@ -1396,17 +1437,14 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         if new_status == 'APPROVED':
             instance.approved_by = request.user
             instance.approved_at = timezone.now()
+            # Optionally record who the dog boards with, supplied at approval time.
+            assigned_staff = self._resolve_assigned_staff(request.data.get('assigned_staff_id'))
+            if assigned_staff is not None:
+                instance.assigned_staff = assigned_staff
         instance.status = new_status
         instance.save()
 
-        # Send push notification to owner
-        try:
-            from .notifications import send_push_notification
-            title = f"Boarding Request {new_status.title()}"
-            body = f"Your boarding request for {', '.join([d.name for d in instance.dogs.all()])} has been {new_status.lower()}."
-            send_push_notification(instance.owner, title, body, {'type': 'boarding_status', 'id': str(instance.id)})
-        except Exception as e:
-            print(f"Failed to send push notification: {e}")
+        self._notify_owner_boarding_status(instance, new_status)
 
         # Record history
         BoardingRequestHistory.objects.create(
@@ -1416,6 +1454,30 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             to_status=new_status,
         )
 
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=['post'])
+    def assign_staff(self, request, pk=None):
+        """Set or change which staff member a boarding dog stays with.
+
+        Used from the dashboard's Boarding Tonight section to (re)assign the
+        carer without touching the request's approval status. Pass
+        ``assigned_staff_id`` (or null/empty to clear).
+        """
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can assign boarding staff")
+
+        instance = self.get_object()
+        staff_id = request.data.get('assigned_staff_id')
+        if staff_id in (None, ''):
+            instance.assigned_staff = None
+        else:
+            staff = self._resolve_assigned_staff(staff_id)
+            if staff is None:
+                return Response({'detail': 'Invalid staff member'}, status=400)
+            instance.assigned_staff = staff
+        instance.save(update_fields=['assigned_staff', 'updated_at'])
         return Response(self.get_serializer(instance).data)
 
 

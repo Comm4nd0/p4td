@@ -271,7 +271,10 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<void> updateBoardingRequestStatus(int requestId, String status) async {}
+  Future<void> updateBoardingRequestStatus(int requestId, String status, {int? assignedStaffId}) async {}
+
+  @override
+  Future<void> assignBoardingStaff(int requestId, int? staffId) async {}
 
   @override
   Future<void> createBoardingRequest({

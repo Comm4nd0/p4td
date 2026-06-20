@@ -17,6 +17,8 @@ class BoardingRequest {
   final BoardingRequestStatus status;
   final String? approvedByName;
   final DateTime? approvedAt;
+  final int? assignedStaffId;
+  final String? assignedStaffName;
   final DateTime createdAt;
 
   BoardingRequest({
@@ -31,6 +33,8 @@ class BoardingRequest {
     required this.status,
     this.approvedByName,
     this.approvedAt,
+    this.assignedStaffId,
+    this.assignedStaffName,
     required this.createdAt,
   });
 
@@ -50,6 +54,8 @@ class BoardingRequest {
       ),
       approvedByName: json['approved_by_name'],
       approvedAt: json['approved_at'] != null ? DateTime.parse(json['approved_at']) : null,
+      assignedStaffId: json['assigned_staff'],
+      assignedStaffName: json['assigned_staff_name'],
       createdAt: DateTime.parse(json['created_at']),
     );
   }

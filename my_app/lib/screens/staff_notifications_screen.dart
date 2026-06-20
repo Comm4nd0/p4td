@@ -8,6 +8,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/request_timeline.dart';
 import '../widgets/skeleton_loaders.dart';
+import '../widgets/assignment_action_dialogs.dart';
 
 class StaffNotificationsScreen extends StatefulWidget {
   final bool canManageRequests;
@@ -86,6 +87,29 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     try {
       await _dataService.updateBoardingRequestStatus(request.id, newStatus);
       _showSuccess('Request ${newStatus.toLowerCase()}');
+      _loadRequests();
+    } catch (e) {
+      _showError('Failed to update: $e');
+    }
+  }
+
+  /// Approve a boarding request, first letting the approver pick which staff
+  /// member the dog boards with.
+  Future<void> _approveBoarding(BoardingRequest request) async {
+    final staffId = await pickStaffMember(
+      context,
+      title: 'Approve & assign carer',
+      subtitle: 'Who is ${request.dogNames.join(", ")} boarding with?',
+      confirmLabel: 'Approve',
+      initialStaffMembers: const [],
+      initialAvailableStaffIds: const {},
+      loadStaff: () => _dataService.getStaffMembers(),
+      loadAvailableIds: () => _dataService.getAvailableStaffForDate(request.startDate),
+    );
+    if (staffId == null) return; // cancelled
+    try {
+      await _dataService.updateBoardingRequestStatus(request.id, 'APPROVED', assignedStaffId: staffId);
+      _showSuccess('Request approved');
       _loadRequests();
     } catch (e) {
       _showError('Failed to update: $e');
@@ -505,6 +529,17 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                 ),
               ],
             ),
+            if (request.assignedStaffName != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Picon(PiconsDuotone.user, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Text('Boarding with ${request.assignedStaffName}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ],
             if (request.specialInstructions != null && request.specialInstructions!.isNotEmpty) ...[
               const SizedBox(height: 12),
               Container(
@@ -550,7 +585,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                   const SizedBox(width: 8),
                   if (request.status != BoardingRequestStatus.approved)
                     FilledButton(
-                      onPressed: () => _updateBoardingStatus(request, 'APPROVED'),
+                      onPressed: () => _approveBoarding(request),
                       child: const Text('Approve'),
                     ),
                 ],

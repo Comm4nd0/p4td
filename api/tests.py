@@ -6,7 +6,7 @@ from django.core.management import call_command
 from rest_framework.test import APIClient
 from .models import (
     Dog, DateChangeRequest, DateChangeRequestHistory,
-    BoardingRequest, DailyDogAssignment, DogWeekdayPickup,
+    BoardingRequest, BoardingRequestHistory, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
     GroupMedia,
@@ -1342,6 +1342,82 @@ class BoardingRequestTests(TestCase):
             'end_date': '2026-04-05',
         }, format='json')
         self.assertEqual(resp.status_code, 400)
+
+    # --- staff auto-approval + boarding-with staff (new) ---
+
+    def test_staff_created_boarding_auto_approves(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'owner': self.owner.id,
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'APPROVED')
+        br = BoardingRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(br.approved_by, self.staff)
+        self.assertIsNotNone(br.approved_at)
+        hist = BoardingRequestHistory.objects.filter(request=br).first()
+        self.assertIsNotNone(hist)
+        self.assertEqual(hist.from_status, 'PENDING')
+        self.assertEqual(hist.to_status, 'APPROVED')
+
+    def test_owner_created_boarding_stays_pending(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'PENDING')
+
+    def test_approve_with_assigned_staff_sets_boarding_with(self):
+        carer = User.objects.create_user(username='carer', password='pw', is_staff=True, first_name='Cara')
+        br = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        br.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/', {
+            'status': 'APPROVED',
+            'assigned_staff_id': carer.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['assigned_staff'], carer.id)
+        self.assertEqual(resp.data['assigned_staff_name'], 'Cara')
+        br.refresh_from_db()
+        self.assertEqual(br.assigned_staff, carer)
+
+    def test_assign_staff_action_reassigns_and_clears(self):
+        carer = User.objects.create_user(username='carer', password='pw', is_staff=True)
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        br.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/assign_staff/', {
+            'assigned_staff_id': carer.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertEqual(br.assigned_staff, carer)
+        # Passing null clears the assignment.
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/assign_staff/', {
+            'assigned_staff_id': None,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertIsNone(br.assigned_staff)
+
+    def test_non_staff_cannot_assign_boarding_staff(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/assign_staff/', {
+            'assigned_staff_id': self.staff.id,
+        }, format='json')
+        self.assertIn(resp.status_code, (401, 403))
 
 
 class SupportQueryTests(TestCase):

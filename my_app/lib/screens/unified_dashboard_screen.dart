@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
@@ -1465,7 +1466,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Row(children: [
                     Picon(PiconsDuotone.houseLine, size: 13, color: allDropped ? AppColors.success : AppColors.grey400),
                     const SizedBox(width: 3),
-                    Text('dropped home $droppedCount of ${dropoffLeg.length}',
+                    Text('returned $droppedCount of ${dropoffLeg.length}',
                         style: TextStyle(fontSize: 11, color: allDropped ? AppColors.success : AppColors.grey600)),
                   ]),
                   if (hasOwnerTransport) ...[
@@ -1505,7 +1506,36 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildBoardingSection() {
-    return BoardingTonightSection(boardingTonight: _counts.boardingTonight);
+    return BoardingTonightSection(
+      boardingTonight: _counts.boardingTonight,
+      onReassign: widget.canAssignDogs ? _reassignBoarding : null,
+    );
+  }
+
+  Future<void> _reassignBoarding(BoardingRequest request) async {
+    final staffId = await pickStaffMember(
+      context,
+      title: 'Boarding carer',
+      subtitle: '${request.dogNames.join(", ")} — currently ${request.assignedStaffName ?? "unassigned"}',
+      confirmLabel: 'Assign',
+      currentStaffId: request.assignedStaffId,
+      initialStaffMembers: _staffMembers,
+      initialAvailableStaffIds: _availableStaffIds,
+      loadStaff: () => _dataService.getStaffMembers(),
+      loadAvailableIds: () => _dataService.getAvailableStaffForDate(_selectedDate),
+    );
+    if (staffId == null || !mounted) return;
+    try {
+      await _dataService.assignBoardingStaff(request.id, staffId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Boarding carer updated'), backgroundColor: AppColors.success),
+      );
+      await _counts.refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to reassign: $e')));
+    }
   }
 
   Widget _buildQuickActions() {
