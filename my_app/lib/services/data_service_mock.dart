@@ -527,6 +527,9 @@ class MockDataService implements DataService {
   Future<VehicleDefect> changeDefectStatus(int defectId, String status) async =>
       VehicleDefect(id: defectId, vehicleId: 1, vehicleName: 'Test Van', title: 'Test', status: status, createdAt: DateTime.now());
   @override
+  Future<VehicleDefect> addVehicleDefectComment(int defectId, String text) async =>
+      VehicleDefect(id: defectId, vehicleId: 1, vehicleName: 'Test Van', title: 'Test', createdAt: DateTime.now());
+  @override
   Future<int> getUnresolvedVehicleDefectCount() async => 0;
   @override
   Future<List<FacilityDefect>> getFacilityDefects({String? status}) async => [];
@@ -542,6 +545,9 @@ class MockDataService implements DataService {
   @override
   Future<FacilityDefect> changeFacilityDefectStatus(int defectId, String status) async =>
       FacilityDefect(id: defectId, title: 'Test', status: status, createdAt: DateTime.now());
+  @override
+  Future<FacilityDefect> addFacilityDefectComment(int defectId, String text) async =>
+      FacilityDefect(id: defectId, title: 'Test', createdAt: DateTime.now());
   @override
   Future<int> getUnresolvedFacilityDefectCount() async => 0;
 }

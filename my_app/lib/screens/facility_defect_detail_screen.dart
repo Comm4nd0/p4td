@@ -8,6 +8,7 @@ import '../models/facility_defect.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/defect_comments_section.dart';
 
 class FacilityDefectDetailScreen extends StatefulWidget {
   final int defectId;
@@ -115,6 +116,11 @@ class _FacilityDefectDetailScreenState extends State<FacilityDefectDetailScreen>
         );
       }
     }
+  }
+
+  Future<void> _addComment(String text) async {
+    final updated = await _dataService.addFacilityDefectComment(widget.defectId, text);
+    if (mounted) setState(() => _defect = updated);
   }
 
   Widget _statusOption(
@@ -235,6 +241,11 @@ class _FacilityDefectDetailScreenState extends State<FacilityDefectDetailScreen>
                         ),
                       ),
                       const SizedBox(height: 16),
+                      DefectCommentsSection(
+                        comments: defect.comments,
+                        onSubmit: _addComment,
+                      ),
+                      const Divider(height: 32),
                       Row(
                         children: [
                           const Text('Photos',

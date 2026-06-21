@@ -1146,6 +1146,21 @@ class VehicleDefectImage(models.Model):
         return f"Image for defect #{self.defect_id}"
 
 
+class VehicleDefectComment(models.Model):
+    """A staff comment on a vehicle defect — used to track progress
+    (e.g. 'part ordered, awaiting delivery')."""
+    defect = models.ForeignKey(VehicleDefect, on_delete=models.CASCADE, related_name='comments')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='vehicle_defect_comments')
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment on defect #{self.defect_id} by {self.user_id}"
+
+
 class FacilityDefect(models.Model):
     """A general site/facility defect (e.g. a broken gate). Any staff member
     can report one and change its status."""
@@ -1191,3 +1206,18 @@ class FacilityDefectImage(models.Model):
 
     def __str__(self):
         return f"Image for facility defect #{self.defect_id}"
+
+
+class FacilityDefectComment(models.Model):
+    """A staff comment on a facility defect — used to track progress
+    (e.g. 'contractor booked for Tuesday')."""
+    defect = models.ForeignKey(FacilityDefect, on_delete=models.CASCADE, related_name='comments')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='facility_defect_comments')
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment on facility defect #{self.defect_id} by {self.user_id}"

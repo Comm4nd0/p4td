@@ -1,3 +1,5 @@
+import 'comment.dart';
+
 class FacilityDefectImage {
   final int id;
   final String? imageUrl;
@@ -33,6 +35,7 @@ class FacilityDefect {
   final String? resolvedByName;
   final DateTime? resolvedAt;
   final List<FacilityDefectImage> images;
+  final List<Comment> comments;
   final DateTime createdAt;
 
   FacilityDefect({
@@ -46,6 +49,7 @@ class FacilityDefect {
     this.resolvedByName,
     this.resolvedAt,
     this.images = const [],
+    this.comments = const [],
     required this.createdAt,
   });
 
@@ -88,6 +92,9 @@ class FacilityDefect {
           : null,
       images: (json['images'] as List<dynamic>? ?? [])
           .map((i) => FacilityDefectImage.fromJson(i))
+          .toList(),
+      comments: (json['comments'] as List<dynamic>? ?? [])
+          .map((c) => Comment.fromJson(c))
           .toList(),
       createdAt: DateTime.parse(json['created_at']),
     );

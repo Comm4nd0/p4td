@@ -2962,6 +2962,58 @@ class VehicleDefectTests(TestCase):
         base.update(kwargs)
         return VehicleDefect.objects.create(**base)
 
+    # --- comments ---
+
+    def test_staff_can_comment_on_vehicle_defect(self):
+        defect = self._create_defect()
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/comment/',
+            {'text': 'Part ordered, awaiting delivery'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['comments']), 1)
+        self.assertEqual(resp.data['comments'][0]['text'], 'Part ordered, awaiting delivery')
+        self.assertEqual(resp.data['comments'][0]['user_name'], 'defstaff')
+
+    def test_vehicle_defect_comment_requires_text(self):
+        defect = self._create_defect()
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/comment/', {'text': '   '}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_non_staff_cannot_comment_on_vehicle_defect(self):
+        defect = self._create_defect()
+        self.client.login(username='defowner', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/comment/', {'text': 'hello'}, format='json',
+        )
+        self.assertIn(resp.status_code, (401, 403))
+
+    @patch('api.notifications.send_push_notification')
+    def test_vehicle_comment_notifies_reporter_when_other_staff_comments(self, mock_push):
+        defect = self._create_defect(reported_by=self.staff)
+        self.client.login(username='defmanager', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/comment/', {'text': 'Booked in for Friday'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        notified = {c.args[0].id for c in mock_push.call_args_list}
+        self.assertIn(self.staff.id, notified)
+
+    @patch('api.notifications.send_push_notification')
+    def test_vehicle_comment_does_not_notify_self(self, mock_push):
+        defect = self._create_defect(reported_by=self.staff)
+        self.client.login(username='defstaff', password='pw')
+        resp = self.client.post(
+            f'/api/vehicle-defects/{defect.id}/comment/', {'text': 'Self note'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        notified = {c.args[0].id for c in mock_push.call_args_list}
+        self.assertNotIn(self.staff.id, notified)
+
     def test_any_staff_can_report_defect_with_images(self):
         from .models import VehicleDefect, VehicleDefectImage
         self.client.login(username='defstaff', password='pw')
@@ -3083,6 +3135,38 @@ class FacilityDefectTests(TestCase):
         base = {'title': 'Broken gate', 'reported_by': self.staff}
         base.update(kwargs)
         return FacilityDefect.objects.create(**base)
+
+    # --- comments ---
+
+    def test_staff_can_comment_on_facility_defect(self):
+        defect = self._create_defect()
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/comment/',
+            {'text': 'Contractor booked for Tuesday'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['comments']), 1)
+        self.assertEqual(resp.data['comments'][0]['text'], 'Contractor booked for Tuesday')
+
+    def test_facility_defect_comment_requires_text(self):
+        defect = self._create_defect()
+        self.client.login(username='fdefstaff', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/comment/', {'text': ''}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('api.notifications.send_push_notification')
+    def test_facility_comment_notifies_reporter_when_other_staff_comments(self, mock_push):
+        defect = self._create_defect(reported_by=self.staff)
+        self.client.login(username='fdefstaff2', password='pw')
+        resp = self.client.post(
+            f'/api/facility-defects/{defect.id}/comment/', {'text': 'Ordered a new latch'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        notified = {c.args[0].id for c in mock_push.call_args_list}
+        self.assertIn(self.staff.id, notified)
 
     def test_any_staff_can_report_defect_with_images(self):
         from .models import FacilityDefect, FacilityDefectImage

@@ -2754,6 +2754,20 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<VehicleDefect> addVehicleDefectComment(int defectId, String text) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$defectId/comment/'),
+      headers: headers,
+      body: json.encode({'text': text}),
+    );
+    if (response.statusCode == 200) {
+      return VehicleDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add comment: ${response.body}');
+  }
+
+  @override
   Future<int> getUnresolvedVehicleDefectCount() async {
     final headers = await _getHeaders();
     final response = await http.get(
@@ -2852,6 +2866,20 @@ class ApiDataService implements DataService {
       return FacilityDefect.fromJson(json.decode(response.body));
     }
     throw Exception('Failed to update defect status: ${response.body}');
+  }
+
+  @override
+  Future<FacilityDefect> addFacilityDefectComment(int defectId, String text) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/facility-defects/$defectId/comment/'),
+      headers: headers,
+      body: json.encode({'text': text}),
+    );
+    if (response.statusCode == 200) {
+      return FacilityDefect.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add comment: ${response.body}');
   }
 
   @override

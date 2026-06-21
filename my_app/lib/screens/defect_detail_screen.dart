@@ -8,6 +8,7 @@ import '../models/vehicle_defect.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/defect_comments_section.dart';
 
 class DefectDetailScreen extends StatefulWidget {
   final int defectId;
@@ -117,6 +118,11 @@ class _DefectDetailScreenState extends State<DefectDetailScreen> {
         );
       }
     }
+  }
+
+  Future<void> _addComment(String text) async {
+    final updated = await _dataService.addVehicleDefectComment(widget.defectId, text);
+    if (mounted) setState(() => _defect = updated);
   }
 
   Widget _statusOption(
@@ -235,6 +241,11 @@ class _DefectDetailScreenState extends State<DefectDetailScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      DefectCommentsSection(
+                        comments: defect.comments,
+                        onSubmit: _addComment,
+                      ),
+                      const Divider(height: 32),
                       Row(
                         children: [
                           const Text('Photos',

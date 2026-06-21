@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, FacilityDefect, FacilityDefectImage
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -775,18 +775,31 @@ class VehicleDefectImageSerializer(serializers.ModelSerializer):
         return data
 
 
+class VehicleDefectCommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VehicleDefectComment
+        fields = ['id', 'user', 'user_name', 'text', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
+
+    def get_user_name(self, obj):
+        return obj.user.first_name or obj.user.username
+
+
 class VehicleDefectSerializer(serializers.ModelSerializer):
     vehicle_name = serializers.CharField(source='vehicle.name', read_only=True)
     reported_by_name = serializers.SerializerMethodField()
     resolved_by_name = serializers.SerializerMethodField()
     images = VehicleDefectImageSerializer(many=True, read_only=True)
+    comments = VehicleDefectCommentSerializer(many=True, read_only=True)
 
     class Meta:
         model = VehicleDefect
         fields = [
             'id', 'vehicle', 'vehicle_name', 'title', 'description', 'severity',
             'status', 'reported_by_name', 'resolved_by_name', 'resolved_at',
-            'images', 'created_at', 'updated_at',
+            'images', 'comments', 'created_at', 'updated_at',
         ]
         # Status changes only happen through the change_status action so they
         # always stamp resolved_by/resolved_at and notify the reporter.
@@ -820,17 +833,30 @@ class FacilityDefectImageSerializer(serializers.ModelSerializer):
         return data
 
 
+class FacilityDefectCommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FacilityDefectComment
+        fields = ['id', 'user', 'user_name', 'text', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
+
+    def get_user_name(self, obj):
+        return obj.user.first_name or obj.user.username
+
+
 class FacilityDefectSerializer(serializers.ModelSerializer):
     reported_by_name = serializers.SerializerMethodField()
     resolved_by_name = serializers.SerializerMethodField()
     images = FacilityDefectImageSerializer(many=True, read_only=True)
+    comments = FacilityDefectCommentSerializer(many=True, read_only=True)
 
     class Meta:
         model = FacilityDefect
         fields = [
             'id', 'title', 'location', 'description', 'severity',
             'status', 'reported_by_name', 'resolved_by_name', 'resolved_at',
-            'images', 'created_at', 'updated_at',
+            'images', 'comments', 'created_at', 'updated_at',
         ]
         # Status changes only happen through the change_status action so they
         # always stamp resolved_by/resolved_at and notify the reporter.

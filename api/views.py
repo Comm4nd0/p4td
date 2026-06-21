@@ -3598,7 +3598,7 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         from .models import VehicleDefect
-        qs = VehicleDefect.objects.select_related('vehicle', 'reported_by', 'resolved_by').prefetch_related('images')
+        qs = VehicleDefect.objects.select_related('vehicle', 'reported_by', 'resolved_by').prefetch_related('images', 'comments__user')
         vehicle_id = self.request.query_params.get('vehicle')
         if vehicle_id:
             qs = qs.filter(vehicle_id=vehicle_id)
@@ -3679,6 +3679,23 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(defect).data)
 
+    @action(detail=True, methods=['post'])
+    def comment(self, request, pk=None):
+        """Add a progress comment to a vehicle defect (any staff member)."""
+        from .models import VehicleDefectComment
+        defect = self.get_object()
+        text = (request.data.get('text') or '').strip()
+        if not text:
+            return Response({'detail': 'Text is required'}, status=400)
+        comment = VehicleDefectComment.objects.create(defect=defect, user=request.user, text=text)
+        try:
+            from .notifications import notify_defect_comment
+            notify_defect_comment(comment, defect, defect_type='vehicle')
+        except Exception as e:
+            print(f"Failed to send defect comment notification: {e}")
+        defect = self.get_queryset().get(pk=defect.pk)
+        return Response(self.get_serializer(defect).data)
+
     @action(detail=False, methods=['get'])
     def unresolved_count(self, request):
         from .models import VehicleDefect
@@ -3697,7 +3714,7 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         from .models import FacilityDefect
-        qs = FacilityDefect.objects.select_related('reported_by', 'resolved_by').prefetch_related('images')
+        qs = FacilityDefect.objects.select_related('reported_by', 'resolved_by').prefetch_related('images', 'comments__user')
         status_param = self.request.query_params.get('status')
         if status_param:
             qs = qs.filter(status=status_param)
@@ -3768,6 +3785,23 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 print(f"Failed to send facility defect status notification: {e}")
 
+        return Response(self.get_serializer(defect).data)
+
+    @action(detail=True, methods=['post'])
+    def comment(self, request, pk=None):
+        """Add a progress comment to a facility defect (any staff member)."""
+        from .models import FacilityDefectComment
+        defect = self.get_object()
+        text = (request.data.get('text') or '').strip()
+        if not text:
+            return Response({'detail': 'Text is required'}, status=400)
+        comment = FacilityDefectComment.objects.create(defect=defect, user=request.user, text=text)
+        try:
+            from .notifications import notify_defect_comment
+            notify_defect_comment(comment, defect, defect_type='facility')
+        except Exception as e:
+            print(f"Failed to send facility defect comment notification: {e}")
+        defect = self.get_queryset().get(pk=defect.pk)
         return Response(self.get_serializer(defect).data)
 
     @action(detail=False, methods=['get'])

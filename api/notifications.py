@@ -272,6 +272,47 @@ def notify_post_comment(comment, post):
         send_push_notification(user, title, body, data, category='feed')
 
 
+def notify_defect_comment(comment, defect, defect_type='vehicle'):
+    """Notify the defect reporter and anyone who previously commented when a new
+    progress comment is added. The commenter themselves is always excluded.
+
+    ``defect_type`` is 'vehicle' or 'facility' and drives both the thread lookup
+    and the notification's deep-link type.
+    """
+    from django.contrib.auth.models import User
+    from .models import VehicleDefectComment, FacilityDefectComment
+
+    commenter = comment.user
+    commenter_name = commenter.first_name or commenter.username
+
+    user_ids = set()
+    if defect.reported_by_id and defect.reported_by_id != commenter.id:
+        user_ids.add(defect.reported_by_id)
+
+    if defect_type == 'vehicle':
+        prior = VehicleDefectComment.objects.filter(defect=defect)
+        notif_type = 'vehicle_defect'
+    else:
+        prior = FacilityDefectComment.objects.filter(defect=defect)
+        notif_type = 'facility_defect'
+    user_ids.update(
+        prior.exclude(user=commenter).values_list('user_id', flat=True).distinct()
+    )
+
+    if not user_ids:
+        return
+
+    title = f"New comment on '{defect.title}'"
+    body = f"{commenter_name}: {comment.text[:120]}"
+    data = {
+        'type': notif_type,
+        'id': str(defect.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+    for user in User.objects.filter(id__in=user_ids):
+        send_push_notification(user, title, body, data)
+
+
 def send_staff_notification(title, body, data=None, permission=None):
     """Sends a push notification to staff members individually.
 
