@@ -46,6 +46,18 @@ String? formatApiDate(DateTime? d) {
   return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }
 
+/// Parse a backend list of date strings (e.g. "2026-06-22") to DateTimes,
+/// skipping any null/unparseable entries.
+List<DateTime> parseApiDateList(dynamic value) {
+  if (value is! List) return const [];
+  final result = <DateTime>[];
+  for (final item in value) {
+    final d = parseApiDate(item);
+    if (d != null) result.add(d);
+  }
+  return result;
+}
+
 /// Parse a backend numeric value (int, double, or numeric string) to a double.
 double? parseApiDouble(dynamic value) {
   if (value == null) return null;
@@ -218,6 +230,10 @@ class Dog {
   final DogSex? sex;
   final DateTime? dateOfBirth;
   final bool isSpayed;
+  /// Upcoming dates staff have removed the dog from (server-side REMOVED
+  /// assignments with no matching cancellation request). The profile drops
+  /// these from the dog's upcoming booked dates so it matches the dashboard.
+  final List<DateTime> cancelledDates;
 
   Dog({
     required this.id,
@@ -246,6 +262,7 @@ class Dog {
     this.sex,
     this.dateOfBirth,
     this.isSpayed = false,
+    this.cancelledDates = const [],
   });
 
   /// All owners (primary + additional) for convenience
@@ -290,6 +307,7 @@ class Dog {
     DogSex? sex,
     DateTime? dateOfBirth,
     bool? isSpayed,
+    List<DateTime>? cancelledDates,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -318,6 +336,7 @@ class Dog {
       sex: sex ?? this.sex,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       isSpayed: isSpayed ?? this.isSpayed,
+      cancelledDates: cancelledDates ?? this.cancelledDates,
     );
   }
 }

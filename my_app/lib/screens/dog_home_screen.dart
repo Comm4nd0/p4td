@@ -408,6 +408,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       now: DateTime.now(),
       daycareWeekdays: _dog.daysInDaycare.map((d) => d.dayNumber).toSet(),
       requests: _requests,
+      staffRemovedDates: _dog.cancelledDates,
     );
   }
 

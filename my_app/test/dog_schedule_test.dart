@@ -142,6 +142,31 @@ void main() {
       expect(dates.contains(DateTime(2026, 6, 24)), isTrue);
     });
 
+    test('a staff-removed date is dropped even without a cancellation request', () {
+      // Staff "remove from day" creates a REMOVED assignment with no matching
+      // date-change request; the dog should still disappear from that day.
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: {1},
+        requests: const [],
+        staffRemovedDates: [DateTime(2026, 6, 22)],
+      );
+      expect(dates.contains(DateTime(2026, 6, 22)), isFalse);
+      // Later Mondays are untouched.
+      expect(dates.contains(DateTime(2026, 6, 29)), isTrue);
+    });
+
+    test('staff-removed dates are matched at day granularity', () {
+      // A removed date carrying a time component still matches the midnight date.
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: {1},
+        requests: const [],
+        staffRemovedDates: [DateTime(2026, 6, 22, 9, 30)],
+      );
+      expect(dates.contains(DateTime(2026, 6, 22)), isFalse);
+    });
+
     test('added dates outside the window are excluded', () {
       // newDate well beyond three months should not appear.
       final dates = upcomingDaycareDates(
