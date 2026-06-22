@@ -134,14 +134,17 @@ class DateChangeRequestCreateTests(TestCase):
 
 
 class DateChangeMoveTests(TestCase):
-    """Approving a CHANGE must move the dog onto the new date, not just free the
-    old one — otherwise the dog vanishes from the dashboard (REMOVED from the
-    old day with nothing created for the new day)."""
+    """Approving a CHANGE frees the old day and surfaces the dog in the
+    unassigned list for the new day (staff pick the driver). A move must never
+    leave the dog REMOVED from the old day with nothing on the new day, nor be
+    silently blocked by a stale removal on the new day."""
 
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
         self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        # daycare_days empty + no weekday roster -> the dog only attends the new
+        # day because of the approved CHANGE, so it can't be auto-materialised.
         self.dog = Dog.objects.create(owner=self.owner, name='Henry')
         self.original = date.today() + timedelta(days=7)
         self.new = date.today() + timedelta(days=8)
@@ -156,8 +159,21 @@ class DateChangeMoveTests(TestCase):
             'new_date': self.new.isoformat(),
         }, format='json')
 
-    def test_staff_change_creates_new_date_assignment(self):
-        # Henry had a driver on the original day; the move keeps that driver.
+    def _assert_in_unassigned(self, target):
+        # The unassigned_dogs query uses a JSON `contains` lookup that SQLite
+        # (the test DB) doesn't support; only assert membership on Postgres.
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            return
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/unassigned_dogs/?date={target.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.dog.id, [d['id'] for d in resp.data])
+
+    def test_staff_change_frees_old_day_and_unassigns_new_day(self):
+        # Henry had a driver on the original day.
         DailyDogAssignment.objects.create(
             dog=self.dog, staff_member=self.driver, date=self.original, status='ASSIGNED'
         )
@@ -167,25 +183,26 @@ class DateChangeMoveTests(TestCase):
         self.assertFalse(
             DailyDogAssignment.objects.filter(dog=self.dog, date=self.original).exists()
         )
-        # New day has an active assignment carrying the original driver.
-        moved = DailyDogAssignment.objects.get(dog=self.dog, date=self.new)
-        self.assertEqual(moved.status, 'ASSIGNED')
-        self.assertEqual(moved.staff_member, self.driver)
+        # New day is NOT auto-assigned — the dog goes to the unassigned list.
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.new).exists()
+        )
+        self._assert_in_unassigned(self.new)
 
-    def test_staff_change_reactivates_removed_new_date(self):
-        # The dog was previously REMOVED from the target day; the move must
-        # revive that row to ASSIGNED rather than silently failing on the
-        # unique (dog, date) constraint.
+    def test_staff_change_clears_stale_removal_on_new_day(self):
+        # The dog was previously REMOVED from the target day; the move must clear
+        # that marker, otherwise the dog never surfaces anywhere for the new day.
         DailyDogAssignment.objects.create(
             dog=self.dog, staff_member=self.driver, date=self.new, status='REMOVED'
         )
         resp = self._staff_change()
         self.assertEqual(resp.status_code, 201)
-        rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.new)
-        self.assertEqual(rows.count(), 1)
-        self.assertEqual(rows.get().status, 'ASSIGNED')
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.new).exists()
+        )
+        self._assert_in_unassigned(self.new)
 
-    def test_approve_owner_change_creates_new_date_assignment(self):
+    def test_approve_owner_change_unassigns_new_day(self):
         # Owner-created CHANGE stays pending, then staff approve via change_status.
         self.client.login(username='owner', password='pw')
         resp = self.client.post('/api/date-change-requests/', {
@@ -204,20 +221,10 @@ class DateChangeMoveTests(TestCase):
             {'status': 'APPROVED'}, format='json',
         )
         self.assertEqual(resp.status_code, 200)
-        moved = DailyDogAssignment.objects.get(dog=self.dog, date=self.new)
-        self.assertEqual(moved.status, 'ASSIGNED')
-
-    def test_change_for_owner_both_legs_creates_no_assignment(self):
-        # When the owner handles both transport legs no staff route touches the
-        # dog, so the move should not fabricate a staff assignment.
-        self.dog.owner_brings_default = True
-        self.dog.owner_collects_default = True
-        self.dog.save()
-        resp = self._staff_change()
-        self.assertEqual(resp.status_code, 201)
         self.assertFalse(
             DailyDogAssignment.objects.filter(dog=self.dog, date=self.new).exists()
         )
+        self._assert_in_unassigned(self.new)
 
 
 class DogCancelledDatesTests(TestCase):

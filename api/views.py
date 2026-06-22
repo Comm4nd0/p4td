@@ -1037,41 +1037,24 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         ).distinct()
 
     @staticmethod
-    def _apply_approved_schedule_change(instance, actor):
-        """Apply the roster side-effects of an approving a CANCEL/CHANGE request.
+    def _apply_approved_schedule_change(instance):
+        """Apply the roster side-effects of approving a CANCEL/CHANGE request.
 
         Must run inside the approval transaction so the request can never end up
         APPROVED with a stale roster.
 
         * CANCEL/CHANGE free the original date: the assignment there is removed
           and the waitlist is processed.
-        * CHANGE additionally *moves* the dog onto the new date. Previously the
-          new date was only surfaced as an "unassigned" dog and relied on a
-          human re-assigning it, so a move could leave the dog REMOVED from the
-          old day with nothing on the new day (it would vanish from the
-          dashboard). We now (re)create an ASSIGNED row on the new date in the
-          same transaction. If a REMOVED row already exists for the new date it
-          is reactivated rather than silently skipped by ``get_or_create``.
-
-        The new day's driver carries over from the dog's persistent weekday
-        roster, else the driver who had the dog on the original day, else the
-        acting staff member. Dogs whose owner handles both transport legs get no
-        staff assignment, mirroring ``_materialize_roster_for_date``.
+        * CHANGE additionally *moves* the dog onto the new date. We deliberately
+          do not assign a driver here — the dog shows up in the unassigned list
+          for staff to pick a driver — but we must clear any stale REMOVED marker
+          on the new date. Without that, the dog is treated as "already cancelled
+          for this day" and would never surface anywhere (the move would silently
+          do nothing on the target day).
         """
         from .scheduling import process_waitlist_for_date
 
-        original_driver = None
         if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
-            # Capture the original day's driver before removing the row so a
-            # CHANGE can keep the same staff member on the new date.
-            original = (
-                DailyDogAssignment.objects
-                .filter(dog=instance.dog, date=instance.original_date)
-                .select_related('staff_member')
-                .first()
-            )
-            if original is not None:
-                original_driver = original.staff_member
             DailyDogAssignment.objects.filter(
                 dog=instance.dog, date=instance.original_date,
             ).delete()
@@ -1081,31 +1064,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 print(f"Failed to process waitlist: {e}")
 
         if instance.request_type == 'CHANGE' and instance.new_date:
-            dog = instance.dog
-            # Owner handles both legs -> no staff route touches the dog.
-            if dog.owner_brings_default and dog.owner_collects_default:
-                return
-            weekday = instance.new_date.isoweekday()
-            roster = (
-                DogWeekdayPickup.objects
-                .filter(dog=dog, weekday=weekday)
-                .select_related('staff_member')
-                .first()
-            )
-            staff_member = (
-                (roster.staff_member if roster else None)
-                or original_driver
-                or actor
-            )
-            assignment, created = DailyDogAssignment.objects.get_or_create(
-                dog=dog,
-                date=instance.new_date,
-                defaults={'staff_member': staff_member, 'status': 'ASSIGNED'},
-            )
-            if not created and assignment.status == 'REMOVED':
-                assignment.status = 'ASSIGNED'
-                assignment.staff_member = staff_member
-                assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
+            # Clear a prior "removed from this day" marker so the move takes
+            # effect; the dog then surfaces in unassigned_dogs for the new date
+            # (an approved CHANGE counts as an added day there).
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog, date=instance.new_date, status='REMOVED',
+            ).delete()
 
     def perform_create(self, serializer):
         # Verify user owns the dog
@@ -1163,9 +1127,9 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             )
 
             # A CANCEL frees the original date; a CHANGE frees the original date
-            # and moves the dog onto the new one (creating/reactivating its
-            # assignment) so a move can't leave the dog off the dashboard.
-            self._apply_approved_schedule_change(instance, self.request.user)
+            # and moves the dog onto the new one (clearing any stale removal so
+            # it lands in the unassigned list for the new date).
+            self._apply_approved_schedule_change(instance)
 
         # Notify dog owners (best-effort, after the transaction commits — a push
         # failure must never roll back the approval).
@@ -1235,11 +1199,10 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             instance.save()
 
             # Approving a CANCEL frees the original date; approving a CHANGE frees
-            # the original date and moves the dog onto the new one (creating or
-            # reactivating its assignment) so a move can't leave the dog off the
-            # dashboard.
+            # the original date and moves the dog onto the new one (clearing any
+            # stale removal so it lands in the unassigned list for the new date).
             if new_status == 'APPROVED':
-                self._apply_approved_schedule_change(instance, request.user)
+                self._apply_approved_schedule_change(instance)
 
             # History is recorded in the same transaction so an approval always
             # has its audit row (previously it could be skipped if notification
