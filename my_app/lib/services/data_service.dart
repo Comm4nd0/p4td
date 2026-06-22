@@ -184,6 +184,7 @@ class ApiDataService implements DataService {
         sex: parseDogSex(json['sex']),
         dateOfBirth: parseApiDate(json['date_of_birth']),
         isSpayed: json['is_spayed'] ?? false,
+        cancelledDates: parseApiDateList(json['cancelled_dates']),
       );
     }).toList();
   }
@@ -851,6 +852,7 @@ class ApiDataService implements DataService {
       daysInDaycare: daysInDaycare,
       ownerDetails: ownerDetails,
       additionalOwners: additionalOwnersList,
+      cancelledDates: parseApiDateList(data['cancelled_dates']),
     );
   }
 
