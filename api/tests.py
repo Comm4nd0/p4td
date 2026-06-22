@@ -133,6 +133,128 @@ class DateChangeRequestCreateTests(TestCase):
         self.assertEqual(req.status, 'APPROVED')
 
 
+class DateChangeMoveTests(TestCase):
+    """Approving a CHANGE must move the dog onto the new date, not just free the
+    old one — otherwise the dog vanishes from the dashboard (REMOVED from the
+    old day with nothing created for the new day)."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Henry')
+        self.original = date.today() + timedelta(days=7)
+        self.new = date.today() + timedelta(days=8)
+        self.client = APIClient()
+
+    def _staff_change(self):
+        self.client.login(username='staff', password='pw')
+        return self.client.post('/api/date-change-requests/', {
+            'dog': self.dog.id,
+            'request_type': 'CHANGE',
+            'original_date': self.original.isoformat(),
+            'new_date': self.new.isoformat(),
+        }, format='json')
+
+    def test_staff_change_creates_new_date_assignment(self):
+        # Henry had a driver on the original day; the move keeps that driver.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=self.original, status='ASSIGNED'
+        )
+        resp = self._staff_change()
+        self.assertEqual(resp.status_code, 201)
+        # Original day is freed.
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.original).exists()
+        )
+        # New day has an active assignment carrying the original driver.
+        moved = DailyDogAssignment.objects.get(dog=self.dog, date=self.new)
+        self.assertEqual(moved.status, 'ASSIGNED')
+        self.assertEqual(moved.staff_member, self.driver)
+
+    def test_staff_change_reactivates_removed_new_date(self):
+        # The dog was previously REMOVED from the target day; the move must
+        # revive that row to ASSIGNED rather than silently failing on the
+        # unique (dog, date) constraint.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=self.new, status='REMOVED'
+        )
+        resp = self._staff_change()
+        self.assertEqual(resp.status_code, 201)
+        rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.new)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.get().status, 'ASSIGNED')
+
+    def test_approve_owner_change_creates_new_date_assignment(self):
+        # Owner-created CHANGE stays pending, then staff approve via change_status.
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog.id,
+            'request_type': 'CHANGE',
+            'original_date': self.original.isoformat(),
+            'new_date': self.new.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        req_id = resp.data['id']
+
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(
+            f'/api/date-change-requests/{req_id}/change_status/',
+            {'status': 'APPROVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        moved = DailyDogAssignment.objects.get(dog=self.dog, date=self.new)
+        self.assertEqual(moved.status, 'ASSIGNED')
+
+    def test_change_for_owner_both_legs_creates_no_assignment(self):
+        # When the owner handles both transport legs no staff route touches the
+        # dog, so the move should not fabricate a staff assignment.
+        self.dog.owner_brings_default = True
+        self.dog.owner_collects_default = True
+        self.dog.save()
+        resp = self._staff_change()
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.new).exists()
+        )
+
+
+class DogCancelledDatesTests(TestCase):
+    """The dog serializer surfaces upcoming staff-removed days so the profile can
+    drop them from the recurring-schedule view (matching the dashboard)."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.client = APIClient()
+
+    def test_future_removed_date_listed_for_owner(self):
+        future = date.today() + timedelta(days=5)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=future, status='REMOVED'
+        )
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(future.isoformat(), resp.data['cancelled_dates'])
+
+    def test_active_and_past_assignments_excluded(self):
+        future_active = date.today() + timedelta(days=5)
+        past_removed = date.today() - timedelta(days=5)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=future_active, status='ASSIGNED'
+        )
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=past_removed, status='REMOVED'
+        )
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['cancelled_dates'], [])
+
+
 class DogCRUDTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

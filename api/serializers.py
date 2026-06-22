@@ -116,11 +116,12 @@ class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
     additional_owners_details = serializers.SerializerMethodField()
     vaccination_summary = serializers.SerializerMethodField()
+    cancelled_dates = serializers.SerializerMethodField()
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'latitude', 'longitude', 'geocode_source', 'created_at']
-        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'vaccination_summary', 'cancelled_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates']
         extra_kwargs = {
             'owner': {'required': False},
             'additional_owners': {'required': False},
@@ -155,6 +156,28 @@ class DogSerializer(serializers.ModelSerializer):
             'expiring_soon': statuses.count('expiring_soon'),
             'next_expiry': min(r.expiry_date for r in records).isoformat(),
         }
+
+    def get_cancelled_dates(self, obj):
+        """Upcoming dates the dog has been removed from for the day.
+
+        A staff "remove from day" creates a REMOVED DailyDogAssignment without a
+        matching cancellation request, so the recurring-schedule view on the dog
+        profile would otherwise still show the dog as booked. Surfacing these
+        dates lets the app drop them from the upcoming bookings, keeping the
+        profile in step with the staff dashboard (which excludes REMOVED rows).
+
+        Reads ``obj.future_removed_assignments`` when the viewset has prefetched
+        it (avoids an N+1 in dog listings); otherwise falls back to a query.
+        """
+        prefetched = getattr(obj, 'future_removed_assignments', None)
+        if prefetched is not None:
+            rows = prefetched
+        else:
+            from datetime import date as date_cls
+            rows = obj.daily_assignments.filter(
+                status='REMOVED', date__gte=date_cls.today()
+            )
+        return sorted({a.date.isoformat() for a in rows})
 
     def validate_daycare_days(self, value):
         # Normalise to a sorted list of unique ints in 1-7 so downstream roster

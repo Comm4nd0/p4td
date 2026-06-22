@@ -16,11 +16,16 @@ import '../models/date_change_request.dart';
 ///  - additional days and the *new* date of a change add a date (only when it
 ///    falls within the [now, now + 3 months) window).
 ///
+/// [staffRemovedDates] are days staff have taken the dog off for the day
+/// (server-side REMOVED assignments with no matching cancellation request).
+/// They are dropped from the result so the profile matches the staff dashboard.
+///
 /// The returned list is normalised to midnight and sorted ascending.
 List<DateTime> upcomingDaycareDates({
   required DateTime now,
   required Set<int> daycareWeekdays,
   required List<DateChangeRequest> requests,
+  Iterable<DateTime> staffRemovedDates = const [],
 }) {
   final today = DateTime(now.year, now.month, now.day);
   final threeMonthsLater = DateTime(now.year, now.month + 3, now.day);
@@ -61,6 +66,11 @@ List<DateTime> upcomingDaycareDates({
   }
   dates.addAll(addedDates);
   dates.removeAll(removedDates);
+
+  // Staff "remove from day" actions create REMOVED assignments without a
+  // cancellation request, so subtract them too — otherwise the profile keeps
+  // showing the dog as booked on a day the dashboard has already dropped.
+  dates.removeAll(staffRemovedDates.map(norm));
 
   final result = dates.toList()..sort();
   return result;

@@ -355,8 +355,19 @@ class DogViewSet(viewsets.ModelViewSet):
         # Deterministic order (name, then id as a tie-breaker) so opt-in
         # pagination can't drop or duplicate rows across pages — Dog has no
         # Meta.ordering of its own (B6).
+        # Prefetch the dog's upcoming staff-removed days so the serializer's
+        # cancelled_dates field stays at a constant query count across a listing,
+        # and so the dog profile can drop those days from its upcoming bookings.
+        from datetime import date as date_cls
+        removed_assignments = Prefetch(
+            'daily_assignments',
+            queryset=DailyDogAssignment.objects.filter(
+                status='REMOVED', date__gte=date_cls.today()
+            ).only('id', 'dog_id', 'date', 'status'),
+            to_attr='future_removed_assignments',
+        )
         base = Dog.objects.select_related('owner__profile').prefetch_related(
-            'vaccinations', 'additional_owners__profile'
+            'vaccinations', 'additional_owners__profile', removed_assignments
         ).order_by('name', 'id')
         if self.request.user.is_staff:
             return base.all()
@@ -1025,6 +1036,77 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
         ).distinct()
 
+    @staticmethod
+    def _apply_approved_schedule_change(instance, actor):
+        """Apply the roster side-effects of an approving a CANCEL/CHANGE request.
+
+        Must run inside the approval transaction so the request can never end up
+        APPROVED with a stale roster.
+
+        * CANCEL/CHANGE free the original date: the assignment there is removed
+          and the waitlist is processed.
+        * CHANGE additionally *moves* the dog onto the new date. Previously the
+          new date was only surfaced as an "unassigned" dog and relied on a
+          human re-assigning it, so a move could leave the dog REMOVED from the
+          old day with nothing on the new day (it would vanish from the
+          dashboard). We now (re)create an ASSIGNED row on the new date in the
+          same transaction. If a REMOVED row already exists for the new date it
+          is reactivated rather than silently skipped by ``get_or_create``.
+
+        The new day's driver carries over from the dog's persistent weekday
+        roster, else the driver who had the dog on the original day, else the
+        acting staff member. Dogs whose owner handles both transport legs get no
+        staff assignment, mirroring ``_materialize_roster_for_date``.
+        """
+        from .scheduling import process_waitlist_for_date
+
+        original_driver = None
+        if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
+            # Capture the original day's driver before removing the row so a
+            # CHANGE can keep the same staff member on the new date.
+            original = (
+                DailyDogAssignment.objects
+                .filter(dog=instance.dog, date=instance.original_date)
+                .select_related('staff_member')
+                .first()
+            )
+            if original is not None:
+                original_driver = original.staff_member
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog, date=instance.original_date,
+            ).delete()
+            try:
+                process_waitlist_for_date(instance.original_date)
+            except Exception as e:
+                print(f"Failed to process waitlist: {e}")
+
+        if instance.request_type == 'CHANGE' and instance.new_date:
+            dog = instance.dog
+            # Owner handles both legs -> no staff route touches the dog.
+            if dog.owner_brings_default and dog.owner_collects_default:
+                return
+            weekday = instance.new_date.isoweekday()
+            roster = (
+                DogWeekdayPickup.objects
+                .filter(dog=dog, weekday=weekday)
+                .select_related('staff_member')
+                .first()
+            )
+            staff_member = (
+                (roster.staff_member if roster else None)
+                or original_driver
+                or actor
+            )
+            assignment, created = DailyDogAssignment.objects.get_or_create(
+                dog=dog,
+                date=instance.new_date,
+                defaults={'staff_member': staff_member, 'status': 'ASSIGNED'},
+            )
+            if not created and assignment.status == 'REMOVED':
+                assignment.status = 'ASSIGNED'
+                assignment.staff_member = staff_member
+                assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
+
     def perform_create(self, serializer):
         # Verify user owns the dog
         dog = serializer.validated_data['dog']
@@ -1080,19 +1162,10 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 to_status='APPROVED',
             )
 
-            # A CANCEL or a CHANGE frees up the original date, so unassign the dog
-            # there. For a CHANGE the new date is picked up by the roster queries
-            # (which treat an approved CHANGE like an ADD_DAY for new_date).
-            if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
-                DailyDogAssignment.objects.filter(
-                    dog=instance.dog,
-                    date=instance.original_date,
-                ).delete()
-                try:
-                    from .scheduling import process_waitlist_for_date
-                    process_waitlist_for_date(instance.original_date)
-                except Exception as e:
-                    print(f"Failed to process waitlist: {e}")
+            # A CANCEL frees the original date; a CHANGE frees the original date
+            # and moves the dog onto the new one (creating/reactivating its
+            # assignment) so a move can't leave the dog off the dashboard.
+            self._apply_approved_schedule_change(instance, self.request.user)
 
         # Notify dog owners (best-effort, after the transaction commits — a push
         # failure must never roll back the approval).
@@ -1161,19 +1234,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             instance.status = new_status
             instance.save()
 
-            # Approving a CANCEL or CHANGE frees up the original date, so unassign
-            # the dog there. For a CHANGE the new date is surfaced by the roster
-            # queries (which treat an approved CHANGE like an ADD_DAY for new_date).
-            if new_status == 'APPROVED' and instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
-                DailyDogAssignment.objects.filter(
-                    dog=instance.dog,
-                    date=instance.original_date,
-                ).delete()
-                try:
-                    from .scheduling import process_waitlist_for_date
-                    process_waitlist_for_date(instance.original_date)
-                except Exception as e:
-                    print(f"Failed to process waitlist: {e}")
+            # Approving a CANCEL frees the original date; approving a CHANGE frees
+            # the original date and moves the dog onto the new one (creating or
+            # reactivating its assignment) so a move can't leave the dog off the
+            # dashboard.
+            if new_status == 'APPROVED':
+                self._apply_approved_schedule_change(instance, request.user)
 
             # History is recorded in the same transaction so an approval always
             # has its audit row (previously it could be skipped if notification
