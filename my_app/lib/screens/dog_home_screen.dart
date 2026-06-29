@@ -665,6 +665,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     Set<DateTime> selectedDates = {};
+    DateTime focusedDay = today;
 
     // Build set of dates the dog is already booked for
     final bookedWeekdays = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
@@ -719,22 +720,26 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     child: TableCalendar(
                       firstDay: today,
                       lastDay: _calendarLastDay(now),
-                      focusedDay: today,
+                      focusedDay: focusedDay,
                       startingDayOfWeek: StartingDayOfWeek.monday,
                       calendarFormat: CalendarFormat.month,
                       enabledDayPredicate: (day) => !isAlreadyBooked(day),
                       selectedDayPredicate: (day) {
                         return selectedDates.contains(DateTime(day.year, day.month, day.day));
                       },
-                      onDaySelected: (selectedDay, focusedDay) {
+                      onDaySelected: (selectedDay, newFocusedDay) {
                         final normalized = DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
                         setDialogState(() {
+                          focusedDay = newFocusedDay;
                           if (selectedDates.contains(normalized)) {
                             selectedDates.remove(normalized);
                           } else {
                             selectedDates.add(normalized);
                           }
                         });
+                      },
+                      onPageChanged: (newFocusedDay) {
+                        focusedDay = newFocusedDay;
                       },
                       calendarStyle: CalendarStyle(
                         selectedDecoration: BoxDecoration(
