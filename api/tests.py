@@ -1517,6 +1517,120 @@ class BoardingRequestTests(TestCase):
         br.refresh_from_db()
         self.assertEqual(br.assigned_staff, carer)
 
+    # --- duplicate booking flag ---
+
+    def test_duplicate_boarding_same_dates_rejected(self):
+        existing = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        existing.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('Bella', str(resp.data))
+
+    def test_overlapping_boarding_rejected(self):
+        existing = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        existing.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        # Overlaps on 2026-04-05 only.
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-05',
+            'end_date': '2026-04-08',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_staff_created_duplicate_rejected(self):
+        existing = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        existing.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'owner': self.owner.id,
+            'start_date': '2026-04-03',
+            'end_date': '2026-04-06',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_denied_boarding_does_not_block_rebooking(self):
+        existing = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='DENIED',
+        )
+        existing.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+    def test_non_overlapping_boarding_allowed(self):
+        existing = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        existing.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-06',
+            'end_date': '2026-04-10',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+    def test_other_dog_not_blocked_by_duplicate(self):
+        other_dog = Dog.objects.create(owner=self.owner, name='Rex')
+        existing = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        existing.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [other_dog.id],
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+    def test_update_own_request_does_not_self_conflict(self):
+        br = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        br.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/', {
+            'end_date': '2026-04-06',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_approving_overlapping_pending_request_rejected(self):
+        approved = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        approved.dogs.add(self.dog)
+        pending = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-03', end_date='2026-04-07')
+        pending.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{pending.id}/change_status/', {
+            'status': 'APPROVED',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('Bella', resp.data['detail'])
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, 'PENDING')
+
+    def test_approving_non_overlapping_pending_request_allowed(self):
+        approved = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        approved.dogs.add(self.dog)
+        pending = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-06', end_date='2026-04-09')
+        pending.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{pending.id}/change_status/', {
+            'status': 'APPROVED',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+
     def test_assign_staff_action_reassigns_and_clears(self):
         carer = User.objects.create_user(username='carer', password='pw', is_staff=True)
         br = BoardingRequest.objects.create(
