@@ -1270,7 +1270,13 @@ class ApiDataService implements DataService {
       try {
         final errorData = json.decode(response.body);
         if (errorData is Map) {
-          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+          // Validation errors (e.g. duplicate booking) arrive as lists.
+          final first = errorData.values.first;
+          if (first is List && first.isNotEmpty) {
+            errorMessage = first.first.toString();
+          } else {
+            errorMessage = first?.toString() ?? errorMessage;
+          }
         }
       } catch (_) {
         errorMessage = 'Server error (${response.statusCode})';
