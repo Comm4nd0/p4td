@@ -23,6 +23,14 @@ class _DragItem {
   String? get imageUrl => assignment?.dogProfileImage ?? dog!.profileImageUrl;
 }
 
+/// Remembers which columns the user has manually shown/hidden so the choice
+/// survives leaving the board and coming back within an app session (the
+/// screen is pushed fresh each time). In-memory only — resets on app restart.
+class _BoardFilterPrefs {
+  static Map<int, bool>? columnOverrides;
+  static bool? showUnassigned;
+}
+
 /// The whole day on one screen: a colour-coded column per staff member (plus
 /// Unassigned first), each dog as a compact card with its photo, pickup-run
 /// number and status tick.
@@ -62,13 +70,41 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   bool _busy = false;
   bool _dataChanged = false;
 
+  /// Manual show/hide choices per staff column; anyone not in the map follows
+  /// the default (working staff shown, off staff hidden unless they have dogs).
+  final Map<int, bool> _columnOverrides = {};
+  bool _showUnassigned = true;
+
   @override
   void initState() {
     super.initState();
     _assignments = List.of(widget.assignments);
     _unassignedDogs = List.of(widget.unassignedDogs);
     _staffColors = StaffColorResolver(widget.staffMembers);
+    _columnOverrides.addAll(_BoardFilterPrefs.columnOverrides ?? {});
+    _showUnassigned = _BoardFilterPrefs.showUnassigned ?? true;
   }
+
+  @override
+  void dispose() {
+    _BoardFilterPrefs.columnOverrides = Map.of(_columnOverrides);
+    _BoardFilterPrefs.showUnassigned = _showUnassigned;
+    super.dispose();
+  }
+
+  /// Whether a staff member is on the rota for this date. An empty
+  /// availability set means availability is unknown — treat everyone as
+  /// working rather than hiding the whole board.
+  bool _isWorking(int staffId) =>
+      widget.availableStaffIds.isEmpty || widget.availableStaffIds.contains(staffId);
+
+  /// Default column visibility: staff who are working that day, or who have
+  /// dogs assigned anyway (an off member with dogs is a problem worth seeing).
+  bool _defaultVisible(int staffId) =>
+      _isWorking(staffId) || _assignments.any((a) => a.staffMemberId == staffId);
+
+  bool _isColumnVisible(int staffId) =>
+      _columnOverrides[staffId] ?? _defaultVisible(staffId);
 
   Future<void> _reload() async {
     try {
@@ -213,11 +249,63 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     return widget.canAssignDogs;
   }
 
+  /// Bottom sheet with a switch per column. Staff not working that day are
+  /// labelled "(off)" and start hidden; flipping a switch overrides the
+  /// default for the rest of the session.
+  void _showColumnFilter() {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          void update(void Function() change) {
+            setSheetState(change);
+            setState(() {});
+          }
+
+          return SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Text('Show columns',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+                SwitchListTile.adaptive(
+                  dense: true,
+                  title: const Text('Unassigned'),
+                  secondary: const CircleAvatar(
+                    radius: 10,
+                    backgroundColor: kUnassignedColor,
+                  ),
+                  value: _showUnassigned,
+                  onChanged: (v) => update(() => _showUnassigned = v),
+                ),
+                for (final staff in _staffColumns)
+                  SwitchListTile.adaptive(
+                    dense: true,
+                    title: Text(_isWorking(staff.id) ? staff.name : '${staff.name} (off)'),
+                    secondary: CircleAvatar(
+                      radius: 10,
+                      backgroundColor: _staffColors.of(staff.id),
+                    ),
+                    value: _isColumnVisible(staff.id),
+                    onChanged: (v) => update(() => _columnOverrides[staff.id] = v),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // ---- Build ----
 
   @override
   Widget build(BuildContext context) {
-    final columns = _staffColumns;
+    final columns = _staffColumns.where((s) => _isColumnVisible(s.id)).toList();
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -234,6 +322,11 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
             ],
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.filter_list),
+              tooltip: 'Show/hide columns',
+              onPressed: _showColumnFilter,
+            ),
             if (_busy)
               const Padding(
                 padding: EdgeInsets.only(right: 16),
@@ -244,26 +337,33 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
               IconButton(icon: const Icon(Icons.refresh), onPressed: _reload),
           ],
         ),
-        body: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(12),
-          children: [
-            _buildColumn(
-              staffId: null,
-              name: 'Unassigned',
-              color: kUnassignedColor,
-              dogs: const [],
-              unassigned: _unassignedDogs,
-            ),
-            for (final staff in columns)
-              _buildColumn(
-                staffId: staff.id,
-                name: staff.name,
-                color: _staffColors.of(staff.id),
-                dogs: _dogsFor(staff.id),
+        body: (!_showUnassigned && columns.isEmpty)
+            ? Center(
+                child: Text('All columns hidden — use the filter to show them.',
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              )
+            : ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.all(12),
+                children: [
+                  if (_showUnassigned)
+                    _buildColumn(
+                      staffId: null,
+                      name: 'Unassigned',
+                      color: kUnassignedColor,
+                      dogs: const [],
+                      unassigned: _unassignedDogs,
+                    ),
+                  for (final staff in columns)
+                    _buildColumn(
+                      staffId: staff.id,
+                      name: staff.name,
+                      color: _staffColors.of(staff.id),
+                      dogs: _dogsFor(staff.id),
+                    ),
+                ],
               ),
-          ],
-        ),
       ),
     );
   }
@@ -275,9 +375,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     required List<DailyDogAssignment> dogs,
     List<Dog> unassigned = const [],
   }) {
-    final isOff = staffId != null &&
-        widget.availableStaffIds.isNotEmpty &&
-        !widget.availableStaffIds.contains(staffId);
+    final isOff = staffId != null && !_isWorking(staffId);
 
     // Leg-aware collected progress, matching the dashboard staff cards.
     final pickupLeg = dogs.where((a) => !a.effectiveOwnerBrings).toList();

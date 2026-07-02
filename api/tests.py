@@ -1631,6 +1631,44 @@ class BoardingRequestTests(TestCase):
         }, format='json')
         self.assertEqual(resp.status_code, 200)
 
+    # --- deleting bookings (duplicate cleanup) ---
+
+    def test_staff_can_delete_any_boarding_request(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        br.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.delete(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(BoardingRequest.objects.filter(id=br.id).exists())
+
+    def test_owner_can_withdraw_own_pending_request(self):
+        br = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        br.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.delete(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(BoardingRequest.objects.filter(id=br.id).exists())
+
+    def test_owner_cannot_delete_approved_booking(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED',
+        )
+        br.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.delete(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(BoardingRequest.objects.filter(id=br.id).exists())
+
+    def test_owner_cannot_delete_others_requests(self):
+        other = User.objects.create_user(username='other2', password='pw')
+        br = BoardingRequest.objects.create(owner=other, start_date='2026-04-01', end_date='2026-04-05')
+        self.client.login(username='owner', password='pw')
+        resp = self.client.delete(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(BoardingRequest.objects.filter(id=br.id).exists())
+
     def test_assign_staff_action_reassigns_and_clears(self):
         carer = User.objects.create_user(username='carer', password='pw', is_staff=True)
         br = BoardingRequest.objects.create(

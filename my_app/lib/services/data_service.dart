@@ -1323,6 +1323,27 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
+  Future<void> deleteBoardingRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/$requestId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      String errorMessage = 'Failed to delete boarding request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          errorMessage = errorData.values.first?.toString() ?? errorMessage;
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
   /// Set or change which staff member a boarding dog stays with. Pass null to
   /// clear the assignment.
   Future<void> assignBoardingStaff(int requestId, int? staffId) async {

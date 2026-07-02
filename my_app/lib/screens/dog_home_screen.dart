@@ -1184,11 +1184,62 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   ],
                 ],
               ),
+              trailing: widget.isStaff
+                  ? IconButton(
+                      icon: Picon(PiconsDuotone.trash, size: 18, color: Colors.red[700]),
+                      tooltip: 'Delete booking',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _deleteBoardingRequest(request),
+                    )
+                  : null,
             ),
           );
         }).toList(),
       ),
     );
+  }
+
+  /// Staff-only: permanently delete a boarding booking (duplicate cleanup),
+  /// after confirmation.
+  Future<void> _deleteBoardingRequest(BoardingRequest request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete booking?'),
+        content: Text(
+          'Permanently delete the boarding booking for ${_dog.name} '
+          '(${ukDate(request.startDate)} - ${ukDate(request.endDate)})? '
+          'Use this to remove duplicates or mistakes.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _dataService.deleteBoardingRequest(request.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking deleted'), backgroundColor: AppColors.success),
+        );
+        _loadBoardingRequests();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
   }
 
   Color _getBoardingStatusColor(BoardingRequestStatus status) {

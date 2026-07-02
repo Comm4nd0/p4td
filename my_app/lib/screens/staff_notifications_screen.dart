@@ -93,6 +93,43 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     }
   }
 
+  /// Permanently delete a boarding booking (e.g. an accidental duplicate),
+  /// after confirmation. Unlike Deny, this removes it from history entirely.
+  Future<void> _deleteBoarding(BoardingRequest request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete booking?'),
+        content: Text(
+          'Permanently delete the boarding booking for '
+          '${request.dogNames.join(", ")} '
+          '(${ukDate(request.startDate)} - ${ukDate(request.endDate)})?\n\n'
+          'Use this to remove duplicates or mistakes. To turn down a request, '
+          'use Deny instead so the owner can see the outcome.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _dataService.deleteBoardingRequest(request.id);
+      _showSuccess('Booking deleted');
+      _loadRequests();
+    } catch (e) {
+      _showError('Failed to delete: $e');
+    }
+  }
+
   /// Approve a boarding request, first letting the approver pick which staff
   /// member the dog boards with.
   Future<void> _approveBoarding(BoardingRequest request) async {
@@ -571,6 +608,13 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  IconButton(
+                    onPressed: () => _deleteBoarding(request),
+                    icon: Picon(PiconsDuotone.trash, size: 20, color: Colors.red[700]),
+                    tooltip: 'Delete booking',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const Spacer(),
                    if (request.status != BoardingRequestStatus.pending)
                     TextButton(
                       onPressed: () => _updateBoardingStatus(request, 'PENDING'),
