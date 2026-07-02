@@ -390,6 +390,34 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
         end = data.get('end_date', getattr(self.instance, 'end_date', None))
         if start and end and start > end:
             raise serializers.ValidationError("Start date must be before end date")
+
+        # Flag duplicate bookings: the same dog can't board twice on the same
+        # day, so reject any request whose dates overlap an existing PENDING
+        # or APPROVED request for that dog. DENIED requests don't block.
+        dogs = data.get('dogs')
+        if dogs is None and self.instance is not None:
+            dogs = self.instance.dogs.all()
+        if start and end and dogs:
+            conflicts = []
+            for dog in dogs:
+                clash = dog.boarding_requests.filter(
+                    status__in=['PENDING', 'APPROVED'],
+                    start_date__lte=end,
+                    end_date__gte=start,
+                )
+                if self.instance is not None:
+                    clash = clash.exclude(pk=self.instance.pk)
+                clash = clash.first()
+                if clash:
+                    conflicts.append(
+                        f"{dog.name} is already booked in for boarding "
+                        f"{clash.start_date.strftime('%d/%m/%Y')} to {clash.end_date.strftime('%d/%m/%Y')} "
+                        f"({clash.get_status_display().lower()})"
+                    )
+            if conflicts:
+                raise serializers.ValidationError(
+                    '; '.join(conflicts) + ". Please check the existing booking before adding another."
+                )
         return data
 
     def __init__(self, *args, **kwargs):

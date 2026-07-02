@@ -1464,6 +1464,26 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
 
         from django.utils import timezone
         if new_status == 'APPROVED':
+            # Flag double bookings at approval time too: two separate pending
+            # requests for the same dog can both pass creation validation, so
+            # block approving one when it overlaps an already-approved booking.
+            conflicts = []
+            for dog in instance.dogs.all():
+                clash = dog.boarding_requests.filter(
+                    status='APPROVED',
+                    start_date__lte=instance.end_date,
+                    end_date__gte=instance.start_date,
+                ).exclude(pk=instance.pk).first()
+                if clash:
+                    conflicts.append(
+                        f"{dog.name} already has an approved boarding "
+                        f"{clash.start_date.strftime('%d/%m/%Y')} to {clash.end_date.strftime('%d/%m/%Y')}"
+                    )
+            if conflicts:
+                return Response(
+                    {'detail': '; '.join(conflicts) + ". Deny or amend the existing booking first."},
+                    status=400,
+                )
             instance.approved_by = request.user
             instance.approved_at = timezone.now()
             # Optionally record who the dog boards with, supplied at approval time.
