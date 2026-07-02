@@ -1396,6 +1396,16 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             return base.all()
         return base.filter(owner=self.request.user)
 
+    def perform_destroy(self, instance):
+        # Staff can delete any booking (e.g. removing duplicates); owners can
+        # only withdraw their own requests while they're still PENDING — an
+        # approved booking must be denied/changed by staff, not silently
+        # deleted by the owner.
+        if not self.request.user.is_staff and instance.status != 'PENDING':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can delete a booking that has been approved or denied.')
+        instance.delete()
+
     def _resolve_assigned_staff(self, staff_id):
         """Resolve a staff user id to a User, or None. Ignores non-staff ids."""
         if staff_id in (None, ''):

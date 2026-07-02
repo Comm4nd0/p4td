@@ -67,4 +67,38 @@ void main() {
 
     expect(find.text('No unassigned dogs'), findsOneWidget);
   });
+
+  testWidgets('staff not working that day are hidden unless they have dogs',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      home: DayBoardScreen(
+        date: DateTime(2030, 6, 3),
+        assignments: [
+          // Priya is off but still has a dog assigned — that's worth seeing.
+          make(1, 11, 'Priya', 'Milo', 0, AssignmentStatus.assigned),
+        ],
+        staffMembers: const [
+          {'id': 7, 'username': 'sarah', 'first_name': 'Sarah', 'staff_color': ''},
+          {'id': 9, 'username': 'james', 'first_name': 'James', 'staff_color': ''},
+          {'id': 11, 'username': 'priya', 'first_name': 'Priya', 'staff_color': ''},
+        ],
+        // Only Sarah is working today; James and Priya are off.
+        availableStaffIds: const {7},
+        canAssignDogs: true,
+      ),
+    ));
+
+    expect(find.text('Sarah'), findsOneWidget); // working → shown
+    expect(find.text('James'), findsNothing); // off, no dogs → hidden
+    expect(find.text('Priya (off)'), findsOneWidget); // off but has a dog
+
+    // The filter sheet lists hidden columns so they can be shown again.
+    await tester.tap(find.byIcon(Icons.filter_list));
+    await tester.pumpAndSettle();
+    expect(find.text('James (off)'), findsOneWidget);
+  });
 }
