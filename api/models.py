@@ -20,6 +20,10 @@ class UserProfile(models.Model):
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
     can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
 
+    # Personal identity colour used across the staff app (map pins, day board,
+    # dashboard cards). Blank = automatic palette colour by staff id.
+    staff_color = models.CharField(max_length=7, blank=True, default='', help_text='Hex colour (#RRGGBB) identifying this staff member across the app. Blank = automatic.')
+
     # Notification preferences (all enabled by default)
     notify_feed = models.BooleanField(default=True, help_text='Receive notifications for new feed posts and comments.')
     notify_traffic = models.BooleanField(default=True, help_text='Receive traffic delay alerts for pickups and drop-offs.')

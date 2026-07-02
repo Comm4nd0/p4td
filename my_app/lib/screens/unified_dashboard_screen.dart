@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
+import '../constants/pickup_map.dart';
 import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
@@ -22,6 +23,7 @@ import 'dashboard/dashboard_counts.dart';
 import 'dashboard/quick_actions_section.dart';
 import 'dashboard/unspayed_males_dialog.dart';
 import 'all_dogs_today_screen.dart';
+import 'day_board_screen.dart';
 import 'pickup_map_screen.dart';
 import 'staff_dog_detail_screen.dart';
 import 'staff_notifications_screen.dart';
@@ -416,6 +418,28 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
+  Future<void> _navigateToDayBoard(
+    List<DailyDogAssignment> assignments,
+    List<Dog> unassignedDogs,
+  ) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DayBoardScreen(
+          date: _selectedDate,
+          assignments: assignments,
+          unassignedDogs: unassignedDogs,
+          staffMembers: _staffMembers,
+          availableStaffIds: _availableStaffIds,
+          canAssignDogs: widget.canAssignDogs,
+        ),
+      ),
+    );
+    if (mounted) {
+      await _loadDay(_selectedDate, force: true);
+    }
+  }
+
   Future<void> _navigateToMap(
     List<DailyDogAssignment> assignments,
     List<Dog> unassignedDogs,
@@ -448,6 +472,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           date: _selectedDate,
           assignments: assignments,
           canAssignDogs: widget.canAssignDogs,
+          staffMembers: _staffMembers,
         ),
       ),
     );
@@ -1350,17 +1375,26 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           color: AppColors.primaryLight,
         )),
       ]),
-      if (widget.canAssignDogs) ...[
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
+      const SizedBox(height: 8),
+      Row(children: [
+        Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => _navigateToMap(assignments, unassignedDogs),
-            icon: const Icon(Icons.map_outlined, size: 18),
-            label: const Text('View routes on map'),
+            onPressed: () => _navigateToDayBoard(assignments, unassignedDogs),
+            icon: const Icon(Icons.view_kanban_outlined, size: 18),
+            label: const Text('Day board'),
           ),
         ),
-      ],
+        if (widget.canAssignDogs) ...[
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => _navigateToMap(assignments, unassignedDogs),
+              icon: const Icon(Icons.map_outlined, size: 18),
+              label: const Text('Routes map'),
+            ),
+          ),
+        ],
+      ]),
     ]);
   }
 
@@ -1414,6 +1448,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
   }
 
+  /// Same colour resolution the map/legend uses, so a staff member's card
+  /// matches their pins (honours the colour they picked on their profile).
+  StaffColorResolver get _staffColors => StaffColorResolver(_staffMembers);
+
   Widget _buildStaffCards(List<DailyDogAssignment> assignments) {
     // Group by staff member
     final Map<int, _StaffSummary> staffMap = {};
@@ -1456,10 +1494,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               .length;
           final allCollected = pickupLeg.isNotEmpty && collectedCount == pickupLeg.length;
           final allDropped = dropoffLeg.isNotEmpty && droppedCount == dropoffLeg.length;
+          final staffColor = _staffColors.of(staff.id);
           return Card(
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: AppColors.primary,
+                backgroundColor: staffColor,
                 child: Text(staff.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               title: Row(children: [
@@ -1508,7 +1547,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Chip(
                     label: Text('${staff.dogCount} dog${staff.dogCount == 1 ? '' : 's'}',
                         style: const TextStyle(color: Colors.white, fontSize: 12)),
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: staffColor,
                   ),
                   const SizedBox(width: 4),
                   Picon(PiconsDuotone.caretRight),

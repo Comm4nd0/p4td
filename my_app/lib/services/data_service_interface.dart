@@ -8,6 +8,7 @@ abstract class DataService {
   Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images);
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
+  Future<void> updateStaffColor(String hexColor);
   Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName);
   Future<UserProfile> deleteProfilePhoto();
   Future<OwnerProfile> getOwnerProfile(int userId);

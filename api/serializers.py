@@ -49,7 +49,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled', 'staff_color']
         # Capability flags are assignable ONLY by a superuser via
         # update_staff_permissions. They must never be writable through this
         # self-service endpoint, or any authenticated user could PATCH their own
@@ -63,6 +63,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_postcode_lookup_enabled(self, obj):
         from django.conf import settings
         return bool(getattr(settings, 'POSTCODE_LOOKUP_API_KEY', ''))
+
+    def validate_staff_color(self, value):
+        import re
+        if value and not re.fullmatch(r'#[0-9A-Fa-f]{6}', value):
+            raise serializers.ValidationError('Colour must be in #RRGGBB format (or blank for automatic).')
+        return value.upper()
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})

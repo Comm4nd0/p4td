@@ -39,6 +39,9 @@ class MockDataService implements DataService {
   Future<void> updateProfile(UserProfile profile) async {}
 
   @override
+  Future<void> updateStaffColor(String hexColor) async {}
+
+  @override
   Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
     return UserProfile(username: 'test', email: 'test@example.com');
   }

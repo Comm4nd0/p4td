@@ -2512,8 +2512,18 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def staff_members(self, request):
         """Get list of staff members for assignment dropdown."""
         from django.contrib.auth.models import User
-        staff = User.objects.filter(is_staff=True).values('id', 'username', 'first_name')
-        return Response(list(staff))
+        staff = User.objects.filter(is_staff=True).values(
+            'id', 'username', 'first_name', 'profile__staff_color'
+        )
+        return Response([
+            {
+                'id': s['id'],
+                'username': s['username'],
+                'first_name': s['first_name'],
+                'staff_color': s['profile__staff_color'] or '',
+            }
+            for s in staff
+        ])
 
     @action(detail=False, methods=['post'])
     def reorder(self, request):

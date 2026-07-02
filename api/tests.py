@@ -2206,6 +2206,44 @@ class UserProfileTests(TestCase):
         self.assertEqual(self.user.profile.phone_number, '07123456789')
         self.assertEqual(self.user.profile.address, '123 Test St')
 
+    # --- staff identity colour ---
+
+    def test_set_staff_color(self):
+        self.client.login(username='user1', password='pw')
+        resp = self.client.post('/api/profile/', {'staff_color': '#e53935'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.user.profile.refresh_from_db()
+        # Stored normalised to uppercase.
+        self.assertEqual(self.user.profile.staff_color, '#E53935')
+        self.assertEqual(resp.data['staff_color'], '#E53935')
+
+    def test_clear_staff_color(self):
+        self.user.profile.staff_color = '#E53935'
+        self.user.profile.save()
+        self.client.login(username='user1', password='pw')
+        resp = self.client.post('/api/profile/', {'staff_color': ''}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.staff_color, '')
+
+    def test_invalid_staff_color_rejected(self):
+        self.client.login(username='user1', password='pw')
+        for bad in ['red', '#12345', '#GGGGGG', 'E53935']:
+            resp = self.client.post('/api/profile/', {'staff_color': bad}, format='json')
+            self.assertEqual(resp.status_code, 400, f'{bad} should be rejected')
+
+    def test_staff_members_includes_color(self):
+        staff = User.objects.create_user(username='colourstaff', password='pw', is_staff=True)
+        staff.profile.staff_color = '#1E88E5'
+        staff.profile.save()
+        plain = User.objects.create_user(username='plainstaff', password='pw', is_staff=True)
+        self.client.login(username='colourstaff', password='pw')
+        resp = self.client.get('/api/daily-assignments/staff_members/')
+        self.assertEqual(resp.status_code, 200)
+        by_id = {s['id']: s for s in resp.data}
+        self.assertEqual(by_id[staff.id]['staff_color'], '#1E88E5')
+        self.assertEqual(by_id[plain.id]['staff_color'], '')
+
 
 class StaffPermissionsManagementTests(TestCase):
     def setUp(self):

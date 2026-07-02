@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -32,6 +33,11 @@ class StaffDogDetailScreen extends StatefulWidget {
   final List<DailyDogAssignment> assignments;
   final bool canAssignDogs;
 
+  /// Full staff list (from /staff_members/) so this member's identity colour
+  /// resolves the same way as on the dashboard and map. Optional — falls back
+  /// to the automatic palette when empty.
+  final List<Map<String, dynamic>> staffMembers;
+
   const StaffDogDetailScreen({
     super.key,
     required this.staffMemberId,
@@ -39,6 +45,7 @@ class StaffDogDetailScreen extends StatefulWidget {
     required this.date,
     required this.assignments,
     required this.canAssignDogs,
+    this.staffMembers = const [],
   });
 
   @override
@@ -547,6 +554,10 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       key: key,
       assignment: assignment,
       canAssignDogs: widget.canAssignDogs,
+      staffColor: widget.staffMemberId != null
+          ? StaffColorResolver(widget.staffMembers).of(widget.staffMemberId!)
+          : null,
+      pickupNumber: pickupRunNumbers(_assignments)[assignment.id],
       onTap: () => _openQuickInfo(assignment),
       onUpdateStatus: (newStatus) => _updateStatus(assignment, newStatus),
       onTransport: () => _showTransportDialog(assignment),
