@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -10,7 +12,9 @@ import '../services/cache_service.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dog_quick_info_sheet.dart';
+import 'dog_home_screen.dart';
 
 /// What gets dragged around the board: an existing assignment, or an
 /// unassigned rostered dog.
@@ -68,6 +72,55 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   /// the default (working staff shown, off staff hidden unless they have dogs).
   final Map<int, bool> _columnOverrides = {};
   bool _showUnassigned = true;
+
+  /// While a dog is being dragged, the board condenses into one-screen staff
+  /// tiles. Hovering a tile for a moment expands that member's run so the dog
+  /// can be placed at an exact position.
+  _DragItem? _dragging;
+  int? _expandedStaffId;
+  int? _hoverStaffId;
+  Timer? _hoverTimer;
+  static const Duration _expandHoverDelay = Duration(milliseconds: 650);
+
+  void _onDragStarted(_DragItem item) => setState(() => _dragging = item);
+
+  void _onDragFinished() {
+    _hoverTimer?.cancel();
+    _hoverTimer = null;
+    if (!mounted) return;
+    setState(() {
+      _dragging = null;
+      _expandedStaffId = null;
+      _hoverStaffId = null;
+    });
+  }
+
+  /// Hovering over [staffId]'s tile: expand their run after a short hold so a
+  /// quick pass-over doesn't flicker the board.
+  void _onTileHover(int staffId) {
+    if (_expandedStaffId == staffId || _hoverStaffId == staffId) return;
+    _hoverTimer?.cancel();
+    _hoverStaffId = staffId;
+    _hoverTimer = Timer(_expandHoverDelay, () {
+      if (mounted && _dragging != null) {
+        setState(() => _expandedStaffId = staffId);
+      }
+    });
+  }
+
+  void _onTileHoverEnd(int staffId) {
+    if (_hoverStaffId == staffId) {
+      _hoverTimer?.cancel();
+      _hoverTimer = null;
+      _hoverStaffId = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _hoverTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -198,44 +251,50 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     }
   }
 
-  /// Drop onto a staff column (append) or onto a card in it (insert there).
-  Future<void> _dropOnStaff(_DragItem item, int staffId, {DailyDogAssignment? before}) async {
+  /// The ids of a staff member's pickup run, in run order (excludes dogs the
+  /// owner both brings and collects — they hold no run position).
+  List<int> _runIds(int staffId) => _dogsFor(staffId)
+      .where((a) => !(a.effectiveOwnerBrings && a.effectiveOwnerCollects))
+      .map((a) => a.id)
+      .toList();
+
+  /// Drop onto a staff member: append to their run, or — when [insertIndex]
+  /// is given (from the expanded placement view) — slot in at that position.
+  Future<void> _dropOnStaff(_DragItem item, int staffId, {int? insertIndex}) async {
     final assignment = item.assignment;
     if (assignment == null) {
-      // Unassigned dog → assign to this staff member.
+      // Unassigned dog → assign to this staff member (positioned if asked).
       await _guarded(() async {
-        await _dataService.assignDogs([item.dog!.id].map(int.parse).toList(), staffId,
-            date: widget.date);
+        final result = await _dataService
+            .assignDogs([int.parse(item.dog!.id)], staffId, date: widget.date);
+        if (insertIndex != null && result.created.isNotEmpty) {
+          final ids = _runIds(staffId)
+            ..insert(insertIndex.clamp(0, _runIds(staffId).length), result.created.first.id);
+          await _dataService.reorderAssignments(ids);
+        }
         await _reload();
       });
       return;
     }
     if (assignment.staffMemberId == staffId) {
-      // Same column → reorder the pickup run.
-      if (before == null || before.id == assignment.id) return;
+      // Same staff → reorder the pickup run.
+      if (insertIndex == null) return; // dropped back on their own tile
       await _guarded(() async {
-        final run = _dogsFor(staffId)
-            .where((a) => !(a.effectiveOwnerBrings && a.effectiveOwnerCollects))
-            .toList();
-        final ids = run.map((a) => a.id).toList()..remove(assignment.id);
-        final targetIndex = ids.indexOf(before.id);
-        ids.insert(targetIndex < 0 ? ids.length : targetIndex, assignment.id);
+        final ids = _runIds(staffId)..remove(assignment.id);
+        ids.insert(insertIndex.clamp(0, ids.length), assignment.id);
         await _dataService.reorderAssignments(ids);
-        // Reflect the new order locally without waiting for a full reload.
-        setState(() {
-          for (final a in _assignments) {
-            final position = ids.indexOf(a.id);
-            if (position >= 0) {
-              _assignments[_assignments.indexOf(a)] = a.copyWith(sortOrder: position);
-            }
-          }
-        });
+        await _reload();
       });
       return;
     }
-    // Different column → reassign.
+    // Different staff → reassign, then position on the new run if asked.
     await _guarded(() async {
       await _dataService.reassignDog(assignment.id, staffId);
+      if (insertIndex != null) {
+        final ids = _runIds(staffId); // target run before the move
+        ids.insert(insertIndex.clamp(0, ids.length), assignment.id);
+        await _dataService.reorderAssignments(ids);
+      }
       await _reload();
     });
   }
@@ -348,34 +407,269 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
               IconButton(icon: const Icon(Icons.refresh), onPressed: _reload),
           ],
         ),
-        body: (!_showUnassigned && columns.isEmpty)
-            ? Center(
-                child: Text('All columns hidden — use the filter to show them.',
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              )
-            : ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.all(12),
+        body: _dragging != null
+            ? _buildDragOverview(columns)
+            : (!_showUnassigned && columns.isEmpty)
+                ? Center(
+                    child: Text('All columns hidden — use the filter to show them.',
+                        style:
+                            TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  )
+                : ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      if (_showUnassigned)
+                        _buildColumn(
+                          staffId: null,
+                          name: 'Unassigned',
+                          color: kUnassignedColor,
+                          dogs: const [],
+                          unassigned: _unassignedDogs,
+                        ),
+                      for (final staff in columns)
+                        _buildColumn(
+                          staffId: staff.id,
+                          name: staff.name,
+                          color: _staffColors.of(staff.id),
+                          dogs: _dogsFor(staff.id),
+                        ),
+                    ],
+                  ),
+      ),
+    );
+  }
+
+  // ---- Drag overview (shown while a dog is being dragged) ----
+
+  /// Condensed one-screen view: a tile per visible staff member (plus
+  /// Unassigned when the drag can unassign). Release over a tile to add the
+  /// dog to that member; hold over a tile to expand their run and place the
+  /// dog at an exact position.
+  Widget _buildDragOverview(List<({int id, String name})> columns) {
+    if (_expandedStaffId != null) {
+      final staff = _staffColumns.firstWhere(
+        (s) => s.id == _expandedStaffId,
+        orElse: () => (id: _expandedStaffId!, name: '?'),
+      );
+      return _buildExpandedPlacement(staff);
+    }
+
+    final showUnassignTile = _dragging?.assignment != null && widget.canAssignDogs;
+    final tiles = <Widget>[
+      if (showUnassignTile) _buildOverviewTile(staffId: null, name: 'Unassigned'),
+      for (final staff in columns) _buildOverviewTile(staffId: staff.id, name: staff.name),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+          child: Text(
+            'Drop on a staff member to add ${_dragging?.dogName ?? 'the dog'} — hold over them to pick a position.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const crossAxisCount = 3;
+              final rows = (tiles.length / crossAxisCount).ceil().clamp(1, 100);
+              final tileWidth = (constraints.maxWidth - 32 - (crossAxisCount - 1) * 8) / crossAxisCount;
+              final tileHeight =
+                  ((constraints.maxHeight - 16 - (rows - 1) * 8) / rows).clamp(56.0, 140.0);
+              return GridView.count(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: tileWidth / tileHeight,
+                children: tiles,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverviewTile({required int? staffId, required String name}) {
+    final color = staffId == null ? kUnassignedColor : _staffColors.of(staffId);
+    final count = staffId == null ? _unassignedDogs.length : _dogsFor(staffId).length;
+    final isOff = staffId != null && !_isWorking(staffId);
+
+    return DragTarget<_DragItem>(
+      onWillAcceptWithDetails: (details) => _canDrop(details.data, staffId),
+      onMove: staffId != null ? (_) => _onTileHover(staffId) : null,
+      onLeave: staffId != null ? (_) => _onTileHoverEnd(staffId) : null,
+      onAcceptWithDetails: (details) {
+        if (staffId != null) _onTileHoverEnd(staffId);
+        staffId == null
+            ? _dropOnUnassigned(details.data)
+            : _dropOnStaff(details.data, staffId);
+      },
+      builder: (context, candidates, rejected) {
+        final highlighted = candidates.isNotEmpty;
+        return Container(
+          decoration: BoxDecoration(
+            color: highlighted
+                ? color.withValues(alpha: 0.25)
+                : Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: highlighted ? color : color.withValues(alpha: 0.4),
+              width: highlighted ? 3 : 1.5,
+            ),
+          ),
+          padding: const EdgeInsets.all(6),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: color,
+                child: staffId == null
+                    ? const Icon(Icons.person_off_outlined, color: Colors.white, size: 16)
+                    : Text(name.isEmpty ? '?' : name[0],
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isOff ? '$name (off)' : name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+              ),
+              Text('$count dog${count == 1 ? '' : 's'}',
+                  style: TextStyle(
+                      fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Expanded placement view for one staff member during a drag: their pickup
+  /// run with a drop slot before each dog (and one at the end). Hovering the
+  /// bar at the top goes back to the staff tiles.
+  Widget _buildExpandedPlacement(({int id, String name}) staff) {
+    final color = _staffColors.of(staff.id);
+    final run = _dogsFor(staff.id)
+        .where((a) => !(a.effectiveOwnerBrings && a.effectiveOwnerCollects))
+        .toList();
+
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Hover here to collapse back to the tiles.
+          DragTarget<_DragItem>(
+            onWillAcceptWithDetails: (_) => false,
+            onMove: (_) {
+              _hoverTimer?.cancel();
+              _hoverStaffId = null;
+              setState(() => _expandedStaffId = null);
+            },
+            builder: (context, candidates, rejected) => Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (_showUnassigned)
-                    _buildColumn(
-                      staffId: null,
-                      name: 'Unassigned',
-                      color: kUnassignedColor,
-                      dogs: const [],
-                      unassigned: _unassignedDogs,
-                    ),
-                  for (final staff in columns)
-                    _buildColumn(
-                      staffId: staff.id,
-                      name: staff.name,
-                      color: _staffColors.of(staff.id),
-                      dogs: _dogsFor(staff.id),
-                    ),
+                  const Icon(Icons.arrow_back, size: 16),
+                  const SizedBox(width: 6),
+                  Text('All staff',
+                      style: TextStyle(
+                          fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: color,
+                child: Text(staff.name.isEmpty ? '?' : staff.name[0],
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 8),
+              Text(staff.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('drop where ${_dragging?.dogName ?? 'the dog'} should go',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ListView(
+              children: [
+                for (var i = 0; i < run.length; i++) ...[
+                  _buildPlacementSlot(staff.id, i, color),
+                  IgnorePointer(
+                    child: _DogRow(
+                      name: run[i].dogName,
+                      imageUrl: run[i].dogProfileImage,
+                      number: i + 1,
+                      color: color,
+                      status: run[i].status,
+                      isBoarding: run[i].isBoarding,
+                      onTap: () {},
+                    ),
+                  ),
+                ],
+                _buildPlacementSlot(staff.id, run.length, color, label: 'Add to end'),
+              ],
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  /// A drop slot at [insertIndex] on [staffId]'s run.
+  Widget _buildPlacementSlot(int staffId, int insertIndex, Color color, {String? label}) {
+    return DragTarget<_DragItem>(
+      onWillAcceptWithDetails: (details) => _canDrop(details.data, staffId),
+      onAcceptWithDetails: (details) =>
+          _dropOnStaff(details.data, staffId, insertIndex: insertIndex),
+      builder: (context, candidates, rejected) {
+        final highlighted = candidates.isNotEmpty;
+        return Container(
+          height: highlighted ? 40 : 26,
+          margin: const EdgeInsets.only(bottom: 6),
+          decoration: BoxDecoration(
+            color: highlighted ? color.withValues(alpha: 0.2) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: highlighted ? color : color.withValues(alpha: 0.35),
+              width: highlighted ? 2 : 1,
+              // Dashed feel via low-alpha solid border; keep it simple.
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label ?? (highlighted ? 'Place here' : ''),
+            style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+          ),
+        );
+      },
     );
   }
 
@@ -395,23 +689,18 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
             a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff)
         .length;
 
-    return DragTarget<_DragItem>(
-      onWillAcceptWithDetails: (details) => _canDrop(details.data, staffId),
-      onAcceptWithDetails: (details) => staffId == null
-          ? _dropOnUnassigned(details.data)
-          : _dropOnStaff(details.data, staffId),
-      builder: (context, candidates, rejected) {
-        final highlighted = candidates.isNotEmpty;
-        final count = staffId == null ? unassigned.length : dogs.length;
-        return Container(
+    // Drops land on the drag-overview tiles (the board condenses as soon as a
+    // drag starts), so the full column is display-only.
+    final count = staffId == null ? unassigned.length : dogs.length;
+    return Container(
           width: 260,
           margin: const EdgeInsets.only(right: 12),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: highlighted ? color : color.withValues(alpha: 0.35),
-              width: highlighted ? 2.5 : 1.5,
+              color: color.withValues(alpha: 0.35),
+              width: 1.5,
             ),
           ),
           child: Column(
@@ -486,7 +775,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                 child: (staffId == null ? unassigned.isEmpty : dogs.isEmpty)
                     ? Center(
                         child: Text(
-                          staffId == null ? 'No unassigned dogs' : 'Drop dogs here',
+                          staffId == null ? 'No unassigned dogs' : 'No dogs yet',
                           style: TextStyle(
                               color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
                         ),
@@ -501,8 +790,44 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
             ],
           ),
         );
-      },
+  }
+
+  /// Tap on a dog: quick-info sheet with a reassign shortcut in its corner
+  /// (permission-gated), and full-profile navigation.
+  Future<void> _openQuickInfo({DailyDogAssignment? assignment, Dog? dog}) async {
+    final fullDog = await DogQuickInfoSheet.show(
+      context,
+      assignment: assignment,
+      dog: dog,
+      onReassign: assignment != null && widget.canAssignDogs
+          ? () => _reassignViaPicker(assignment)
+          : null,
     );
+    if (fullDog != null && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DogHomeScreen(dog: fullDog, isStaff: true)),
+      );
+      if (mounted) _reload();
+    }
+  }
+
+  /// Reassign via the shared staff picker (same dialog as the other screens).
+  Future<void> _reassignViaPicker(DailyDogAssignment assignment) async {
+    final staffId = await pickStaffMember(
+      context,
+      title: 'Reassign ${assignment.dogName}',
+      currentStaffId: assignment.staffMemberId,
+      initialStaffMembers: widget.staffMembers,
+      initialAvailableStaffIds: widget.availableStaffIds,
+      loadStaff: () => _dataService.getStaffMembers(),
+      loadAvailableIds: () => _dataService.getAvailableStaffForDate(widget.date),
+    );
+    if (staffId == null || staffId == assignment.staffMemberId) return;
+    await _guarded(() async {
+      await _dataService.reassignDog(assignment.id, staffId);
+      await _reload();
+    });
   }
 
   Widget _buildDogRow(DailyDogAssignment a, int staffId) {
@@ -516,23 +841,9 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       ownerBrings: a.effectiveOwnerBrings,
       ownerCollects: a.effectiveOwnerCollects,
       isBoarding: a.isBoarding,
-      onTap: () => DogQuickInfoSheet.show(context, assignment: a),
+      onTap: () => _openQuickInfo(assignment: a),
     );
-    final item = _DragItem.assignment(a);
-    // Each row is also a drop target so a same-column drop can set the exact
-    // position on the pickup run.
-    return DragTarget<_DragItem>(
-      onWillAcceptWithDetails: (details) =>
-          details.data.assignment?.id != a.id && _canDrop(details.data, staffId),
-      onAcceptWithDetails: (details) => _dropOnStaff(details.data, staffId, before: a),
-      builder: (context, candidates, rejected) => Container(
-        decoration: candidates.isNotEmpty
-            ? BoxDecoration(
-                border: Border(top: BorderSide(color: _staffColors.of(staffId), width: 3)))
-            : null,
-        child: _draggable(item, row),
-      ),
-    );
+    return _draggable(_DragItem.assignment(a), row);
   }
 
   Widget _buildUnassignedRow(Dog d) {
@@ -543,7 +854,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       number: null,
       color: kUnassignedColor,
       status: null,
-      onTap: () => DogQuickInfoSheet.show(context, dog: d),
+      onTap: () => _openQuickInfo(dog: d),
     );
     return _draggable(_DragItem.dog(d), row);
   }
@@ -552,6 +863,9 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     return LongPressDraggable<_DragItem>(
       data: item,
       maxSimultaneousDrags: _busy ? 0 : 1,
+      onDragStarted: () => _onDragStarted(item),
+      onDragEnd: (_) => _onDragFinished(),
+      onDraggableCanceled: (_, __) => _onDragFinished(),
       feedback: Material(
         color: Colors.transparent,
         child: Container(

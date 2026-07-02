@@ -22,14 +22,20 @@ class DogQuickInfoSheet extends StatefulWidget {
   final Dog? dog;
   final DailyDogAssignment? assignment;
 
-  const DogQuickInfoSheet({super.key, this.dog, this.assignment})
+  /// When set, a reassign button shows in the top-right of the header. The
+  /// sheet closes itself before invoking the callback (so the staff picker
+  /// isn't buried under it). Pass null when the viewer lacks permission.
+  final VoidCallback? onReassign;
+
+  const DogQuickInfoSheet({super.key, this.dog, this.assignment, this.onReassign})
       : assert(dog != null || assignment != null, 'Provide a dog or an assignment');
 
-  static Future<Dog?> show(BuildContext context, {Dog? dog, DailyDogAssignment? assignment}) {
+  static Future<Dog?> show(BuildContext context,
+      {Dog? dog, DailyDogAssignment? assignment, VoidCallback? onReassign}) {
     return showModalBottomSheet<Dog>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => DogQuickInfoSheet(dog: dog, assignment: assignment),
+      builder: (_) => DogQuickInfoSheet(dog: dog, assignment: assignment, onReassign: onReassign),
     );
   }
 
@@ -221,6 +227,15 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
                 ],
               ),
             ),
+            if (widget.onReassign != null)
+              IconButton(
+                icon: const Picon(PiconsDuotone.arrowsLeftRight),
+                tooltip: 'Reassign to another staff member',
+                onPressed: () {
+                  Navigator.pop(context);
+                  widget.onReassign!();
+                },
+              ),
           ],
         ),
         if (chips.isNotEmpty) ...[
