@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/daily_dog_assignment.dart';
+
 /// Constants + helpers for the staff pickup map.
 
 /// Base / depot location, used when a dog has no geocodable address.
@@ -32,11 +34,76 @@ const Color kUnassignedColor = Color(0xFF9E9E9E);
 
 /// Deterministic, stable colour for a staff member.
 ///
-/// [orderedStaffIds] is the sorted list of staff ids on the map, so each member
-/// maps to a fixed palette slot (colours don't shuffle day to day). Falls back
+/// A colour the member chose themselves ([custom], keyed by staff id) always
+/// wins. Otherwise [orderedStaffIds] — the sorted list of staff ids — maps each
+/// member to a fixed palette slot (colours don't shuffle day to day). Falls back
 /// to the member's id when it isn't in the list, so a colour is always returned.
-Color staffColor(int staffMemberId, List<int> orderedStaffIds) {
+Color staffColor(int staffMemberId, List<int> orderedStaffIds,
+    {Map<int, Color> custom = const {}}) {
+  final chosen = custom[staffMemberId];
+  if (chosen != null) return chosen;
   final index = orderedStaffIds.indexOf(staffMemberId);
   final slot = index >= 0 ? index : staffMemberId.abs();
   return kStaffPalette[slot % kStaffPalette.length];
+}
+
+/// Parse a '#RRGGBB' hex string (as stored in UserProfile.staff_color) into a
+/// Color. Returns null for blank or malformed values so callers fall back to
+/// the automatic palette.
+Color? parseStaffColorHex(String? hex) {
+  if (hex == null || hex.isEmpty) return null;
+  final match = RegExp(r'^#([0-9A-Fa-f]{6})$').firstMatch(hex);
+  if (match == null) return null;
+  return Color(0xFF000000 | int.parse(match.group(1)!, radix: 16));
+}
+
+/// 1-based pickup-run position per assignment id, per staff member.
+///
+/// Matches the map's route order exactly: dogs the owner both brings and
+/// collects have no staff transport leg (no number), the rest sort by
+/// (sortOrder, then dog name) within each staff member's run. Shown as the
+/// numbered badges on assignment cards, day-board rows and map pins so every
+/// screen agrees on the order.
+Map<int, int> pickupRunNumbers(Iterable<DailyDogAssignment> assignments) {
+  final byStaff = <int, List<DailyDogAssignment>>{};
+  for (final a in assignments) {
+    if (a.effectiveOwnerBrings && a.effectiveOwnerCollects) continue;
+    byStaff.putIfAbsent(a.staffMemberId, () => []).add(a);
+  }
+  final numbers = <int, int>{};
+  byStaff.forEach((_, list) {
+    list.sort((a, b) {
+      final cmp = a.sortOrder.compareTo(b.sortOrder);
+      if (cmp != 0) return cmp;
+      return a.dogName.toLowerCase().compareTo(b.dogName.toLowerCase());
+    });
+    for (var i = 0; i < list.length; i++) {
+      numbers[list[i].id] = i + 1;
+    }
+  });
+  return numbers;
+}
+
+/// Resolves staff colours from the /staff_members/ payload: each member's own
+/// chosen colour when set, otherwise their stable palette slot. Build one per
+/// screen from `getStaffMembers()` and use [of] everywhere a staff colour is
+/// shown, so the dashboard, lists, day board and map all agree.
+class StaffColorResolver {
+  final List<int> orderedIds;
+  final Map<int, Color> custom;
+
+  StaffColorResolver(List<Map<String, dynamic>> staffMembers)
+      : orderedIds = staffMembers.map((s) => s['id'] as int).toList()..sort(),
+        custom = {
+          for (final s in staffMembers)
+            if (parseStaffColorHex(s['staff_color'] as String?) != null)
+              s['id'] as int: parseStaffColorHex(s['staff_color'] as String?)!,
+        };
+
+  const StaffColorResolver.empty()
+      : orderedIds = const [],
+        custom = const {};
+
+  Color of(int staffMemberId) =>
+      staffColor(staffMemberId, orderedIds, custom: custom);
 }

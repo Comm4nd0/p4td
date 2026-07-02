@@ -27,6 +27,9 @@ class UserProfile {
   /// whether the "look up postcode" button shows on the vet field).
   final bool postcodeLookupEnabled;
 
+  /// This staff member's chosen identity colour ('#RRGGBB', '' = automatic).
+  final String staffColor;
+
   UserProfile({
     this.userId,
     required this.username,
@@ -50,6 +53,7 @@ class UserProfile {
     this.notifyBookings = true,
     this.notifyDogUpdates = true,
     this.postcodeLookupEnabled = false,
+    this.staffColor = '',
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -76,6 +80,7 @@ class UserProfile {
       notifyBookings: json['notify_bookings'] ?? true,
       notifyDogUpdates: json['notify_dog_updates'] ?? true,
       postcodeLookupEnabled: json['postcode_lookup_enabled'] ?? false,
+      staffColor: json['staff_color'] ?? '',
     );
   }
 

@@ -29,6 +29,8 @@ class AssignmentCard extends StatelessWidget {
     required this.onCallPhone,
     required this.onShowPickupInstructions,
     required this.formatTime,
+    this.staffColor,
+    this.pickupNumber,
     // Drift parameters — each screen passes its current values.
     this.reorderIndex,
     this.bottomMargin = 8,
@@ -64,6 +66,16 @@ class AssignmentCard extends StatelessWidget {
 
   /// Formats a [TimeOfDay] for the transport chips (screens share the same impl).
   final String Function(TimeOfDay) formatTime;
+
+  /// The assigned staff member's identity colour (same resolution as the map).
+  /// Tints the "Staff: …" line and the pickup-number badge so cards visually
+  /// match the pins/legend. Null keeps the theme primary colour.
+  final Color? staffColor;
+
+  /// 1-based position of this dog on its staff member's pickup run. Shown as a
+  /// numbered badge on the avatar so drivers can see the order at a glance.
+  /// Null hides the badge (e.g. owner-handled legs or unsorted lists).
+  final int? pickupNumber;
 
   // ---- Drift parameters ----
 
@@ -106,6 +118,66 @@ class AssignmentCard extends StatelessWidget {
   /// (all-dogs: true, staff-detail: false).
   final bool statusChipCompact;
 
+  /// Dog avatar, with the pickup-order badge overlaid when [pickupNumber] is
+  /// set (coloured to match the staff member, like their map pins).
+  Widget _buildAvatar(BuildContext context, double avatarDiameter) {
+    final Widget avatar = assignment.dogProfileImage != null
+        ? ClipRRect(
+            borderRadius: BorderRadius.circular(avatarRadius),
+            child: CachedNetworkImage(
+              imageUrl: assignment.dogProfileImage!,
+              width: avatarDiameter,
+              height: avatarDiameter,
+              fit: BoxFit.cover,
+              memCacheWidth: cacheAvatar
+                  ? (avatarDiameter * MediaQuery.of(context).devicePixelRatio)
+                      .round()
+                  : null,
+              memCacheHeight: cacheAvatar
+                  ? (avatarDiameter * MediaQuery.of(context).devicePixelRatio)
+                      .round()
+                  : null,
+              placeholder: (context, url) => Container(
+                width: avatarDiameter,
+                height: avatarDiameter,
+                color: Colors.grey[200],
+                child: Picon(PiconsDuotone.pawPrint),
+              ),
+              errorWidget: (context, url, error) => CircleAvatar(
+                  radius: avatarRadius, child: Picon(PiconsDuotone.pawPrint)),
+            ),
+          )
+        : CircleAvatar(radius: avatarRadius, child: Picon(PiconsDuotone.pawPrint));
+
+    if (pickupNumber == null) return avatar;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(
+          left: -5,
+          top: -5,
+          child: Container(
+            width: 20,
+            height: 20,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: staffColor ?? AppColors.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 1.5),
+            ),
+            child: Text(
+              '$pickupNumber',
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final next = _nextStatus(assignment.status);
@@ -116,7 +188,8 @@ class AssignmentCard extends StatelessWidget {
     final staffLine = showStaffLine
         ? Text('Staff: ${assignment.staffMemberName}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
+                  color: staffColor ?? Theme.of(context).colorScheme.primary,
+                  fontWeight: staffColor != null ? FontWeight.w600 : null,
                 ))
         : null;
 
@@ -162,39 +235,7 @@ class AssignmentCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                  if (assignment.dogProfileImage != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(avatarRadius),
-                      child: CachedNetworkImage(
-                        imageUrl: assignment.dogProfileImage!,
-                        width: avatarDiameter,
-                        height: avatarDiameter,
-                        fit: BoxFit.cover,
-                        memCacheWidth: cacheAvatar
-                            ? (avatarDiameter *
-                                    MediaQuery.of(context).devicePixelRatio)
-                                .round()
-                            : null,
-                        memCacheHeight: cacheAvatar
-                            ? (avatarDiameter *
-                                    MediaQuery.of(context).devicePixelRatio)
-                                .round()
-                            : null,
-                        placeholder: (context, url) => Container(
-                          width: avatarDiameter,
-                          height: avatarDiameter,
-                          color: Colors.grey[200],
-                          child: Picon(PiconsDuotone.pawPrint),
-                        ),
-                        errorWidget: (context, url, error) => CircleAvatar(
-                            radius: avatarRadius,
-                            child: Picon(PiconsDuotone.pawPrint)),
-                      ),
-                    )
-                  else
-                    CircleAvatar(
-                        radius: avatarRadius,
-                        child: Picon(PiconsDuotone.pawPrint)),
+                  _buildAvatar(context, avatarDiameter),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

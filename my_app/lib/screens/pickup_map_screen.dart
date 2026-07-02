@@ -220,6 +220,14 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     return ids;
   }
 
+  /// Staff members' own chosen colours (from their profiles), overriding the
+  /// automatic palette slots.
+  late final Map<int, Color> _customStaffColors =
+      StaffColorResolver(widget.staffMembers).custom;
+
+  Color _colorForStaff(int staffId, List<int> ordered) =>
+      staffColor(staffId, ordered, custom: _customStaffColors);
+
   LatLng _positionFor(double? lat, double? lng) =>
       (lat != null && lng != null) ? LatLng(lat, lng) : const LatLng(kBaseLatitude, kBaseLongitude);
 
@@ -234,7 +242,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
       if (atBase && !_showBase) continue;
       pins.add(_Pin(
         position: _positionFor(a.latitude, a.longitude),
-        color: staffColor(a.staffMemberId, ordered),
+        color: _colorForStaff(a.staffMemberId, ordered),
         atBase: atBase,
         assignment: a,
         staffId: a.staffMemberId,
@@ -537,7 +545,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
       loadAvailableIds: () => _dataService.getAvailableStaffForDate(widget.date),
       leadingDotBuilder: (staffId, isAvailable) => Container(
         width: 10, height: 10,
-        decoration: BoxDecoration(color: staffColor(staffId, ordered), shape: BoxShape.circle),
+        decoration: BoxDecoration(color: _colorForStaff(staffId, ordered), shape: BoxShape.circle),
       ),
     );
   }
@@ -668,7 +676,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
       });
       routes.add(_Route(
         staffId,
-        staffColor(staffId, ordered),
+        _colorForStaff(staffId, ordered),
         <LatLng>[base, for (final a in list) LatLng(a.latitude!, a.longitude!), base],
       ));
     });
@@ -753,15 +761,22 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
           date: widget.date,
           assignments: staffAssignments,
           canAssignDogs: widget.canAssignDogs,
+          staffMembers: widget.staffMembers,
         ),
       ),
     );
     if (mounted) await _refresh();
   }
 
+  /// Pickup-run position per assignment id, matching the route line order and
+  /// the numbered badges on the staff dog lists.
+  Map<int, int> get _pickupNumbers => pickupRunNumbers(_assignments);
+
   Marker _buildMarker(_Pin pin) {
     final collected = pin.assignment != null && _isCollected(pin.assignment!);
     final droppedOff = pin.assignment?.status == AssignmentStatus.droppedOff;
+    final pickupNumber =
+        pin.assignment != null ? _pickupNumbers[pin.assignment!.id] : null;
     return Marker(
       point: pin.position,
       width: 44,
@@ -773,9 +788,33 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
           alignment: Alignment.center,
           children: [
             _pawBadge(pin.color),
+            if (pickupNumber != null)
+              Positioned(left: 1, top: 1, child: _orderBadge(pickupNumber, pin.color)),
             if (collected)
               Positioned(right: 3, bottom: 3, child: _collectedTick(droppedOff: droppedOff)),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Small white-ringed number showing the dog's position on its staff
+  /// member's pickup run, so the map order matches the reorderable list.
+  Widget _orderBadge(int number, Color color) {
+    return Container(
+      width: 16,
+      height: 16,
+      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+      child: Center(
+        child: Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          alignment: Alignment.center,
+          child: Text(
+            '$number',
+            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+          ),
         ),
       ),
     );
@@ -928,7 +967,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
               ),
               for (final id in staffIds)
                 _legendRow(
-                  color: staffColor(id, _orderedStaffIds),
+                  color: _colorForStaff(id, _orderedStaffIds),
                   label: names[id] ?? 'Staff',
                   count: counts[id] ?? 0,
                   collected: collected[id] ?? 0,

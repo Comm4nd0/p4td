@@ -258,6 +258,19 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<void> updateStaffColor(String hexColor) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/profile/'),
+      headers: headers,
+      body: json.encode({'staff_color': hexColor}),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Failed to update colour');
+    }
+  }
+
+  @override
   Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
     final token = await _authService.getToken();
     var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/profile/'));
