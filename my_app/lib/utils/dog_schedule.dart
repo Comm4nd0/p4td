@@ -8,7 +8,7 @@ import '../models/date_change_request.dart';
 /// (including `now`) and never read the clock or touch any service.
 
 /// Compute the dog's upcoming booked daycare dates, from today up to (but not
-/// including) three months from [now].
+/// including) [monthsAhead] months from [now] (three by default).
 ///
 /// Recurring days come from [daycareWeekdays] (1 = Monday ... 7 = Sunday).
 /// Active (non-denied) [requests] adjust the set:
@@ -26,9 +26,10 @@ List<DateTime> upcomingDaycareDates({
   required Set<int> daycareWeekdays,
   required List<DateChangeRequest> requests,
   Iterable<DateTime> staffRemovedDates = const [],
+  int monthsAhead = 3,
 }) {
   final today = DateTime(now.year, now.month, now.day);
-  final threeMonthsLater = DateTime(now.year, now.month + 3, now.day);
+  final windowEnd = DateTime(now.year, now.month + monthsAhead, now.day);
 
   DateTime norm(DateTime d) => DateTime(d.year, d.month, d.day);
   bool isActive(DateChangeRequest r) => r.status != RequestStatus.denied;
@@ -53,12 +54,12 @@ List<DateTime> upcomingDaycareDates({
               r.requestType == RequestType.change) &&
           r.newDate != null)
       .map((r) => norm(r.newDate!))
-      .where((d) => !d.isBefore(today) && d.isBefore(threeMonthsLater))
+      .where((d) => !d.isBefore(today) && d.isBefore(windowEnd))
       .toSet();
 
   final dates = <DateTime>{};
   var current = today;
-  while (current.isBefore(threeMonthsLater)) {
+  while (current.isBefore(windowEnd)) {
     if (daycareWeekdays.contains(current.weekday)) {
       dates.add(norm(current));
     }
