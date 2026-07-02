@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paws4thoughtdogs/models/daily_dog_assignment.dart';
@@ -100,5 +101,61 @@ void main() {
     await tester.tap(find.byIcon(Icons.filter_list));
     await tester.pumpAndSettle();
     expect(find.text('James (off)'), findsOneWidget);
+  });
+
+  testWidgets(
+      'long-press drag condenses the board to tiles and hover expands a run',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      home: DayBoardScreen(
+        date: DateTime(2030, 6, 3),
+        assignments: [
+          make(1, 7, 'Sarah', 'Bella', 0, AssignmentStatus.assigned),
+          make(2, 9, 'James', 'Rex', 0, AssignmentStatus.assigned),
+          make(3, 9, 'James', 'Poppy', 1, AssignmentStatus.assigned),
+        ],
+        staffMembers: const [
+          {'id': 7, 'username': 'sarah', 'first_name': 'Sarah', 'staff_color': ''},
+          {'id': 9, 'username': 'james', 'first_name': 'James', 'staff_color': ''},
+        ],
+        canAssignDogs: true,
+      ),
+    ));
+
+    // Long-press Bella and start dragging.
+    final gesture = await tester.startGesture(tester.getCenter(find.text('Bella')));
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+    await gesture.moveBy(const Offset(0, 30));
+    await tester.pump();
+
+    // Board condenses into the one-screen tile overview.
+    expect(find.textContaining('Drop on a staff member'), findsOneWidget);
+    expect(find.text('Unassigned'), findsOneWidget); // unassign tile
+    expect(find.text('James'), findsOneWidget);
+
+    // Hold over James's tile until his run expands for precise placement.
+    await gesture.moveTo(tester.getCenter(find.text('James')));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+    expect(find.text('Add to end'), findsOneWidget);
+    expect(find.text('Rex'), findsOneWidget);
+    expect(find.text('Poppy'), findsOneWidget);
+
+    // Hovering the back bar returns to the tiles.
+    await gesture.moveTo(tester.getCenter(find.text('All staff')));
+    await tester.pump();
+    expect(find.textContaining('Drop on a staff member'), findsOneWidget);
+
+    // Cancel the drag (release over the hint, not a drop target): the board
+    // returns to the full columns.
+    await gesture.moveTo(tester.getCenter(find.textContaining('Drop on a staff member')));
+    await gesture.up();
+    await tester.pump();
+    expect(find.textContaining('Drop on a staff member'), findsNothing);
+    expect(find.text('Bella'), findsOneWidget);
   });
 }
