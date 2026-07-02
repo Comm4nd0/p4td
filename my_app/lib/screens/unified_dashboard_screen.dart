@@ -12,6 +12,7 @@ import '../services/data_service.dart';
 import '../services/media_upload_flow.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../utils/staff_rota.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -89,6 +90,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // Staff
   List<Map<String, dynamic>> _staffMembers = [];
   Set<int> _availableStaffIds = {};
+  Map<String, dynamic> _staffCoverage = {};
 
   // Unassigned banner expansion state
   bool _unassignedExpanded = false;
@@ -209,8 +211,26 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       final staff = await _dataService.getStaffMembers();
       if (mounted) setState(() => _staffMembers = staff);
       _loadAvailableStaff(_selectedDate);
+      _loadStaffCoverage();
     } catch (_) {}
   }
+
+  /// Weekly rota (coverage per weekday) so the day board can hide staff who
+  /// simply don't work that day — `_availableStaffIds` only covers day-offs.
+  Future<void> _loadStaffCoverage() async {
+    try {
+      final coverage = await _dataService.getStaffCoverage();
+      if (mounted) setState(() => _staffCoverage = coverage);
+    } catch (_) {}
+  }
+
+  /// Staff actually working on the selected date: on the weekly rota for that
+  /// weekday and not on approved day off.
+  Set<int> get _workingStaffIds => workingStaffIds(
+        date: _selectedDate,
+        coverage: _staffCoverage,
+        notOnDayOff: _availableStaffIds,
+      );
 
   Future<void> _loadAvailableStaff(DateTime date) async {
     try {
@@ -430,7 +450,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           assignments: assignments,
           unassignedDogs: unassignedDogs,
           staffMembers: _staffMembers,
-          availableStaffIds: _availableStaffIds,
+          // Rota-aware: staff who don't work this weekday count as off, so
+          // the board hides them by default (not just approved day-offs).
+          availableStaffIds: _workingStaffIds,
           canAssignDogs: widget.canAssignDogs,
         ),
       ),

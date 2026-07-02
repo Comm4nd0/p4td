@@ -137,6 +137,21 @@ class CacheService {
     return _box!.get('$_sortPrefPrefix$screenKey') as String?;
   }
 
+  // ── Day board column visibility ─────────────────────────────────
+
+  static const _dayBoardColumnsKey = 'day_board_columns';
+
+  /// Persist the day board's show/hide column choices:
+  /// {'show_unassigned': bool, 'overrides': {'<staffId>': bool, ...}}.
+  Future<void> cacheDayBoardColumns(Map<String, dynamic> prefs) =>
+      _put(_dayBoardColumnsKey, prefs);
+
+  Map<String, dynamic>? getCachedDayBoardColumns() {
+    final data = _get(_dayBoardColumnsKey);
+    if (data == null) return null;
+    return Map<String, dynamic>.from(data as Map);
+  }
+
   // ── Recent reaction emojis ──────────────────────────────────────
 
   static const _recentReactionsKey = 'recent_reaction_emojis';
