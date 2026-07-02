@@ -4,6 +4,7 @@ import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/app_colors.dart';
+import '../constants/pickup_map.dart';
 import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -46,6 +47,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _notifyBookings = true;
   bool _notifyDogUpdates = true;
 
+  // Staff identity colour ('#RRGGBB', '' = automatic palette colour).
+  String _staffColor = '';
+  bool _savingStaffColor = false;
+
   @override
   void initState() {
     super.initState();
@@ -85,6 +90,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _notifyTraffic = profile.notifyTraffic;
         _notifyBookings = profile.notifyBookings;
         _notifyDogUpdates = profile.notifyDogUpdates;
+        _staffColor = profile.staffColor;
         _accounts = accounts;
         _activeAccountId = activeId;
         _isLoading = false;
@@ -97,6 +103,87 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     }
+  }
+
+  /// Convert a palette colour to the '#RRGGBB' form the API stores.
+  static String _hexFor(Color color) {
+    final rgb = color.toARGB32() & 0xFFFFFF;
+    return '#${rgb.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+  }
+
+  Future<void> _setStaffColor(String hex) async {
+    if (_savingStaffColor || hex == _staffColor) return;
+    final previous = _staffColor;
+    setState(() {
+      _staffColor = hex;
+      _savingStaffColor = true;
+    });
+    try {
+      await _dataService.updateStaffColor(hex);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _staffColor = previous);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save colour: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingStaffColor = false);
+    }
+  }
+
+  /// Staff-only picker for the colour that identifies this member across the
+  /// dashboard, day board and pickup map. "Auto" restores the palette slot.
+  Widget _buildStaffColorPicker() {
+    final selected = parseStaffColorHex(_staffColor);
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Used for your pins on the map, your day board column and your dashboard card.',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final color in kStaffPalette)
+                InkWell(
+                  onTap: () => _setStaffColor(_hexFor(color)),
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: selected == color
+                          ? Border.all(color: Theme.of(context).colorScheme.onSurface, width: 3)
+                          : null,
+                    ),
+                    child: selected == color
+                        ? const Icon(Icons.check, color: Colors.white, size: 20)
+                        : null,
+                  ),
+                ),
+              ActionChip(
+                label: const Text('Auto'),
+                avatar: _staffColor.isEmpty
+                    ? const Icon(Icons.check, size: 16)
+                    : null,
+                onPressed: () => _setStaffColor(''),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _switchAccount(Account account) async {
@@ -677,6 +764,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ],
                     ),
+                    if (_profile!.isStaff)
+                      GroupedSection(
+                        header: 'My Colour',
+                        children: [_buildStaffColorPicker()],
+                      ),
                     GroupedSection(
                       children: [
                         ListTile(

@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
@@ -672,6 +673,10 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     );
   }
 
+  /// Same colour resolution as the map and dashboard (honours each member's
+  /// chosen colour), so the grouped headers match their pins.
+  StaffColorResolver get _staffColors => StaffColorResolver(widget.staffMembers);
+
   Widget _buildGroupedByStaffList(List<DailyDogAssignment> assignments, List<Dog> unassigned) {
     // Group by staff member
     final Map<int, List<DailyDogAssignment>> groups = {};
@@ -705,7 +710,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
               children: [
                 CircleAvatar(
                   radius: 14,
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: _staffColors.of(staffId),
                   child: Text(staffName[0], style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 8),
@@ -855,10 +860,16 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     );
   }
 
+  /// Pickup-run numbers for the whole day (unfiltered), so badges stay stable
+  /// while searching/filtering.
+  Map<int, int> get _pickupNumbers => pickupRunNumbers(_assignments);
+
   Widget _buildAssignmentCard(DailyDogAssignment assignment) {
     return AssignmentCard(
       assignment: assignment,
       canAssignDogs: widget.canAssignDogs,
+      staffColor: _staffColors.of(assignment.staffMemberId),
+      pickupNumber: _pickupNumbers[assignment.id],
       onTap: () => _openQuickInfo(assignment: assignment),
       onUpdateStatus: (newStatus) => _updateStatus(assignment, newStatus),
       onTransport: () => _showTransportDialog(assignment),
