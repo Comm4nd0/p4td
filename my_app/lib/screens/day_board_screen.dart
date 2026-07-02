@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
+import '../services/cache_service.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
@@ -21,14 +22,6 @@ class _DragItem {
 
   String get dogName => assignment?.dogName ?? dog!.name;
   String? get imageUrl => assignment?.dogProfileImage ?? dog!.profileImageUrl;
-}
-
-/// Remembers which columns the user has manually shown/hidden so the choice
-/// survives leaving the board and coming back within an app session (the
-/// screen is pushed fresh each time). In-memory only — resets on app restart.
-class _BoardFilterPrefs {
-  static Map<int, bool>? columnOverrides;
-  static bool? showUnassigned;
 }
 
 /// The whole day on one screen: a colour-coded column per staff member (plus
@@ -63,6 +56,7 @@ class DayBoardScreen extends StatefulWidget {
 
 class _DayBoardScreenState extends State<DayBoardScreen> {
   final DataService _dataService = getIt<DataService>();
+  final CacheService _cacheService = CacheService();
 
   late List<DailyDogAssignment> _assignments;
   late List<Dog> _unassignedDogs;
@@ -81,15 +75,31 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     _assignments = List.of(widget.assignments);
     _unassignedDogs = List.of(widget.unassignedDogs);
     _staffColors = StaffColorResolver(widget.staffMembers);
-    _columnOverrides.addAll(_BoardFilterPrefs.columnOverrides ?? {});
-    _showUnassigned = _BoardFilterPrefs.showUnassigned ?? true;
+    _restoreColumnPrefs();
   }
 
-  @override
-  void dispose() {
-    _BoardFilterPrefs.columnOverrides = Map.of(_columnOverrides);
-    _BoardFilterPrefs.showUnassigned = _showUnassigned;
-    super.dispose();
+  /// Restore the show/hide column choices persisted on-device, so they
+  /// survive leaving the board and app restarts.
+  void _restoreColumnPrefs() {
+    final prefs = _cacheService.getCachedDayBoardColumns();
+    if (prefs == null) return;
+    _showUnassigned = prefs['show_unassigned'] is bool ? prefs['show_unassigned'] as bool : true;
+    final overrides = prefs['overrides'];
+    if (overrides is Map) {
+      overrides.forEach((key, value) {
+        final id = int.tryParse(key.toString());
+        if (id != null && value is bool) _columnOverrides[id] = value;
+      });
+    }
+  }
+
+  void _saveColumnPrefs() {
+    _cacheService.cacheDayBoardColumns({
+      'show_unassigned': _showUnassigned,
+      'overrides': {
+        for (final entry in _columnOverrides.entries) '${entry.key}': entry.value,
+      },
+    });
   }
 
   /// Whether a staff member is on the rota for this date. An empty
@@ -260,6 +270,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
           void update(void Function() change) {
             setSheetState(change);
             setState(() {});
+            _saveColumnPrefs();
           }
 
           return SafeArea(
