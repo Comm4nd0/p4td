@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
+import '../models/closure_day.dart';
 import '../models/owner_profile.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../utils/dog_schedule.dart';
+import '../widgets/dog_schedule_calendar.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
@@ -36,14 +37,31 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   bool _loadingRequests = false;
   List<BoardingRequest> _boardingRequests = [];
   bool _loadingBoardingRequests = false;
+  List<ClosureDay> _closureDays = [];
 
   @override
   void initState() {
     super.initState();
     _dog = widget.dog;
     _loadRequests();
-    if (widget.isStaff) {
-      _loadBoardingRequests();
+    // Boarding requests feed the schedule calendar for everyone; the
+    // boarding-requests list section below stays staff-only.
+    _loadBoardingRequests();
+    _loadClosureDays();
+  }
+
+  Future<void> _loadClosureDays() async {
+    try {
+      final now = DateTime.now();
+      final closures = await _dataService.getClosureDays(
+        fromDate: now,
+        toDate: calendarLastDay(now, isStaff: widget.isStaff),
+      );
+      if (mounted) {
+        setState(() => _closureDays = closures);
+      }
+    } catch (_) {
+      // Non-fatal: the calendar just won't mark closed days.
     }
   }
 
@@ -409,7 +427,57 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       daycareWeekdays: _dog.daysInDaycare.map((d) => d.dayNumber).toSet(),
       requests: _requests,
       staffRemovedDates: _dog.cancelledDates,
+      // Staff can browse (and edit) years ahead; owners a few months.
+      monthsAhead: widget.isStaff ? 60 : 3,
     );
+  }
+
+  static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Days awaiting approval to be added: pending ADD_DAY requests and the new
+  /// date of pending CHANGE requests.
+  Set<DateTime> _pendingAddDates() => _requests
+      .where((r) =>
+          r.status == RequestStatus.pending &&
+          (r.requestType == RequestType.addDay ||
+              r.requestType == RequestType.change) &&
+          r.newDate != null)
+      .map((r) => _dateOnly(r.newDate!))
+      .toSet();
+
+  /// Days awaiting approval to be removed: pending CANCEL requests and the
+  /// original date of pending CHANGE requests.
+  Set<DateTime> _pendingRemoveDates() => _requests
+      .where((r) =>
+          r.status == RequestStatus.pending &&
+          (r.requestType == RequestType.cancel ||
+              r.requestType == RequestType.change) &&
+          r.originalDate != null)
+      .map((r) => _dateOnly(r.originalDate!))
+      .toSet();
+
+  /// All days covered by this dog's boarding requests with [status].
+  Set<DateTime> _boardingDates(BoardingRequestStatus status) {
+    final dates = <DateTime>{};
+    for (final request in _boardingRequests.where((r) => r.status == status)) {
+      var day = _dateOnly(request.startDate);
+      final end = _dateOnly(request.endDate);
+      while (!day.isAfter(end)) {
+        dates.add(day);
+        day = DateTime(day.year, day.month, day.day + 1);
+      }
+    }
+    return dates;
+  }
+
+  Map<DateTime, ClosureDay> _closureMap() => {
+        for (final closure in _closureDays) _dateOnly(closure.date): closure,
+      };
+
+  /// Tap on a free calendar day: add it to the schedule (staff applies
+  /// immediately, owners submit a request) via the existing confirmation flow.
+  void _onCalendarFreeDayTap(DateTime date) {
+    _showAdditionalDaysConfirmation({date});
   }
 
   bool _isConfirmed(DateTime date) {
@@ -1553,80 +1621,45 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                     ),
                   ],
                   _buildDogInfoSection(),
-                  // Show upcoming booked dates whenever the dog has any — this
-                  // includes ad-hoc dogs whose dates come from additional-day
-                  // or change requests (they have no recurring daycare_days),
-                  // so owners/staff can still tap a date to edit or cancel it.
-                  if (upcomingDates.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Upcoming Dates',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[700],
-                          ),
+                  // Schedule calendar: shows the dog's pre-agreed days (plus
+                  // approved one-off changes, pending requests, boarding stays
+                  // and closures). Owners and staff tap days to make changes;
+                  // ad-hoc dogs with no recurring days can still add days here.
+                  const SizedBox(height: 16),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Schedule',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[700],
                         ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height: 80,
-                          child: ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: upcomingDates.length,
-                            itemBuilder: (context, index) {
-                              final date = upcomingDates[index];
-                              final isConfirmed = _isConfirmed(date);
-                              return GestureDetector(
-                                onTap: () => _showDateChangeRequest(date),
-                                child: Container(
-                                  width: 60,
-                                  margin: const EdgeInsets.only(right: 8),
-                                  decoration: BoxDecoration(
-                                    color: isConfirmed ? Colors.green[100] : Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isConfirmed ? Colors.green : Colors.grey[400]!,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        DateFormat('E').format(date),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: isConfirmed ? Colors.green[800] : Colors.grey[600],
-                                        ),
-                                      ),
-                                      Text(
-                                        DateFormat('d').format(date),
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: isConfirmed ? Colors.green[800] : Colors.grey[600],
-                                        ),
-                                      ),
-                                      Text(
-                                        DateFormat('MMM').format(date),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: isConfirmed ? Colors.green[700] : Colors.grey[500],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ],
-                    ),
-                  ],
+                        child: DogScheduleCalendar(
+                          firstDay: _dateOnly(DateTime.now()),
+                          lastDay: calendarLastDay(DateTime.now(), isStaff: widget.isStaff),
+                          bookedDates: upcomingDates.toSet(),
+                          pendingAddDates: _pendingAddDates(),
+                          pendingRemoveDates: _pendingRemoveDates(),
+                          boardingDates: _boardingDates(BoardingRequestStatus.approved),
+                          pendingBoardingDates: _boardingDates(BoardingRequestStatus.pending),
+                          closures: _closureMap(),
+                          isStaff: widget.isStaff,
+                          onBookedDayTap: _showDateChangeRequest,
+                          onFreeDayTap: _onCalendarFreeDayTap,
+                        ),
+                      ),
+                    ],
+                  ),
                   if (!widget.isStaff) ...[
                     const SizedBox(height: 12),
                     SizedBox(
