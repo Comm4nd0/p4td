@@ -171,6 +171,20 @@ abstract class DataService {
   Future<DayOffRequest> approveDayOffRequest(int requestId);
   Future<DayOffRequest> denyDayOffRequest(int requestId);
 
+  // Booking Forms (intake requests)
+  Future<List<IntakeRequest>> getIntakeRequests();
+  Future<IntakeRequest> submitIntakeRequest({
+    String? phoneNumber,
+    String? address,
+    String? postcode,
+    String? pickupInstructions,
+    String? additionalInfo,
+    required List<IntakeDog> dogs,
+  });
+  Future<IntakeRequest> approveIntakeRequest(int requestId);
+  Future<IntakeRequest> denyIntakeRequest(int requestId, {String? reason});
+  Future<void> deleteIntakeRequest(int requestId);
+
   // Dog Profile Change Requests
   Future<List<DogProfileChangeRequest>> getDogProfileChangeRequests({String? status});
   Future<DogProfileChangeRequest> approveDogProfileChange(int requestId);

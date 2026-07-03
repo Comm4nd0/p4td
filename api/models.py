@@ -1248,3 +1248,59 @@ class FacilityDefectComment(models.Model):
 
     def __str__(self):
         return f"Comment on facility defect #{self.defect_id} by {self.user_id}"
+
+
+class IntakeRequest(models.Model):
+    """An owner-submitted booking form asking to enrol one or more dogs.
+
+    This is the app's "Booking Form": after registering an account (step one),
+    owners whose dogs aren't in the daycare yet fill this in (step two) with
+    their contact details and each dog's care information. Staff review the
+    submission; approving it creates the Dog records and attaches them to the
+    owner, denying it records a reason the owner can see.
+    """
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('DENIED', 'Denied'),
+    ]
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='intake_requests')
+    phone_number = models.CharField(max_length=20, blank=True)
+    address = models.TextField(blank=True, help_text='Home address used for pickups/drop-offs; copied to each dog on approval.')
+    postcode = models.CharField(max_length=10, blank=True, help_text='UK postcode of the pickup address; copied to each dog on approval.')
+    pickup_instructions = models.TextField(blank=True, help_text='How staff should collect the dog(s) — keys, gates, where the dog waits.')
+    additional_info = models.TextField(blank=True, help_text='Anything else the owner wants staff to know.')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    denial_reason = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reviewed_intake_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Booking form from {self.owner.username} ({self.get_status_display()})"
+
+
+class IntakeDog(models.Model):
+    """One dog on a booking form. Mirrors the owner-supplied Dog fields so a
+    Dog record can be created verbatim when the request is approved."""
+    request = models.ForeignKey(IntakeRequest, on_delete=models.CASCADE, related_name='dogs')
+    name = models.CharField(max_length=100)
+    sex = models.CharField(max_length=1, choices=Dog.SEX_CHOICES, blank=True, null=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    is_spayed = models.BooleanField(default=False)
+    food_instructions = models.TextField(blank=True)
+    medical_notes = models.TextField(blank=True)
+    registered_vet = models.TextField(blank=True)
+    daycare_days = models.JSONField(default=list, blank=True, help_text='Requested day numbers (1-7) for daycare attendance.')
+    schedule_type = models.CharField(max_length=20, choices=Dog.SCHEDULE_TYPE_CHOICES, default='weekly')
+    created_dog = models.ForeignKey(Dog, null=True, blank=True, on_delete=models.SET_NULL, related_name='intake_dogs', help_text='The Dog record created when the request was approved.')
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.name} on booking form #{self.request_id}"
