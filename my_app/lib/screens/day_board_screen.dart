@@ -413,6 +413,9 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
         // draggable. Swapping it out of the tree meant the drag never
         // "finished", leaving the board stuck on the overview after a drop.
         body: Stack(
+          // Expand so the stack keeps the body's size while the column view
+          // is offstage (an offstage child otherwise collapses the stack).
+          fit: StackFit.expand,
           children: [
             Offstage(
               offstage: _dragging != null,
