@@ -1472,6 +1472,49 @@ class BoardingRequestTests(TestCase):
         }, format='json')
         self.assertEqual(resp.status_code, 400)
 
+    # --- editing bookings ---
+
+    def test_owner_can_edit_pending_boarding(self):
+        br = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        br.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/', {
+            'start_date': '2026-04-02',
+            'end_date': '2026-04-06',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertEqual(str(br.start_date), '2026-04-02')
+        self.assertEqual(str(br.end_date), '2026-04-06')
+
+    def test_owner_cannot_edit_approved_boarding(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED')
+        br.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/', {
+            'end_date': '2026-04-07',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        br.refresh_from_db()
+        self.assertEqual(str(br.end_date), '2026-04-05')
+
+    def test_staff_can_edit_approved_boarding(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05', status='APPROVED')
+        br.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/', {
+            'start_date': '2026-04-03',
+            'end_date': '2026-04-08',
+            'special_instructions': 'Bring her blanket',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertEqual(str(br.start_date), '2026-04-03')
+        self.assertEqual(str(br.end_date), '2026-04-08')
+        self.assertEqual(br.special_instructions, 'Bring her blanket')
+
     # --- staff auto-approval + boarding-with staff (new) ---
 
     def test_staff_created_boarding_auto_approves(self):
