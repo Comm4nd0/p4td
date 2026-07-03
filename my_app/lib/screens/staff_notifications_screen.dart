@@ -9,6 +9,8 @@ import '../services/service_locator.dart';
 import '../widgets/request_timeline.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/assignment_action_dialogs.dart';
+import '../widgets/boarding_request_card.dart';
+import 'request_boarding_screen.dart';
 
 class StaffNotificationsScreen extends StatefulWidget {
   final bool canManageRequests;
@@ -151,6 +153,15 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     } catch (e) {
       _showError('Failed to update: $e');
     }
+  }
+
+  /// Edit the dates/instructions of a booking (any status — staff only).
+  Future<void> _editBoarding(BoardingRequest request) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => RequestBoardingScreen(existing: request)),
+    );
+    if (changed == true) _loadRequests();
   }
 
   void _showSuccess(String message) {
@@ -491,153 +502,16 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   }
 
   Widget _buildBoardingRequestCard(BoardingRequest request) {
-    final isPending = request.status == BoardingRequestStatus.pending;
-    
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      // Highlight pending requests with a colored border
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isPending ? BorderSide(color: Colors.orange.shade300, width: 2) : BorderSide.none,
-      ),
-      elevation: isPending ? 4 : 1,
-      surfaceTintColor: isPending ? Colors.orange.shade50 : null,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Picon(PiconsDuotone.bed, size: 20, color: AppColors.primaryDark),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        request.dogNames.join(', '),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      Text(
-                        'Owner: ${request.ownerName}',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _buildStatusBadge(request.status.toString().split('.').last),
-                    if (request.status != BoardingRequestStatus.pending && request.approvedByName != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Text(
-                          'by ${request.approvedByName}',
-                          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-            const Divider(height: 24),
-            // Dates
-            Row(
-              children: [
-                Picon(PiconsDuotone.calendarDots, size: 18, color: Colors.grey),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${ukDateWithDay(request.startDate)} - ${ukDateWithDay(request.endDate)}',
-                        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-                      ),
-                      Text(
-                        '${request.endDate.difference(request.startDate).inDays} nights',
-                         style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (request.assignedStaffName != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Picon(PiconsDuotone.user, size: 18, color: AppColors.primary),
-                  const SizedBox(width: 8),
-                  Text('Boarding with ${request.assignedStaffName}',
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ],
-            if (request.specialInstructions != null && request.specialInstructions!.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Instructions:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
-                    Text(request.specialInstructions!, style: const TextStyle(fontSize: 13)),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            RequestTimeline(
-              status: request.status.toString().split('.').last,
-              createdAt: request.createdAt,
-              resolvedAt: request.approvedAt,
-              resolvedBy: request.approvedByName,
-            ),
-            // Actions
-            if (widget.canManageRequests) ...[
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  IconButton(
-                    onPressed: () => _deleteBoarding(request),
-                    icon: Picon(PiconsDuotone.trash, size: 20, color: Colors.red[700]),
-                    tooltip: 'Delete booking',
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  const Spacer(),
-                   if (request.status != BoardingRequestStatus.pending)
-                    TextButton(
-                      onPressed: () => _updateBoardingStatus(request, 'PENDING'),
-                      child: const Text('Set Pending'),
-                    ),
-                  if (request.status != BoardingRequestStatus.denied)
-                    OutlinedButton(
-                      onPressed: () => _updateBoardingStatus(request, 'DENIED'),
-                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                      child: const Text('Deny'),
-                    ),
-                  const SizedBox(width: 8),
-                  if (request.status != BoardingRequestStatus.approved)
-                    FilledButton(
-                      onPressed: () => _approveBoarding(request),
-                      child: const Text('Approve'),
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
+    final canManage = widget.canManageRequests;
+    return BoardingRequestCard(
+      request: request,
+      showOwner: true,
+      canManage: canManage,
+      onApprove: canManage ? () => _approveBoarding(request) : null,
+      onDeny: canManage ? () => _updateBoardingStatus(request, 'DENIED') : null,
+      onSetPending: canManage ? () => _updateBoardingStatus(request, 'PENDING') : null,
+      onDelete: canManage ? () => _deleteBoarding(request) : null,
+      onEdit: canManage ? () => _editBoarding(request) : null,
     );
   }
 

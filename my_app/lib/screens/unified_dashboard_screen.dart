@@ -1453,7 +1453,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         _counts.reloadPendingProfileChangeCount();
       },
       onOpenBoardingRequests: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()));
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => BoardingRequestListScreen(
+            isStaff: widget.isStaff,
+            canManageRequests: widget.canManageRequests,
+          ),
+        ));
         _counts.reloadPendingRequestCount();
       },
       onOpenSiteDefects: () async {
