@@ -8,8 +8,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.db.models import Prefetch
 from .pagination import FeedPagination, OptInPagination
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
 from website.models import ContactInquiry
 
 # Dog fields an owner may propose to change via a profile-change request. Used
@@ -3946,3 +3946,146 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
         from .models import FacilityDefect
         count = FacilityDefect.objects.exclude(status='RESOLVED').count()
         return Response({'count': count})
+
+
+class IntakeRequestViewSet(viewsets.ModelViewSet):
+    """The app's booking form: owners submit their contact details plus the
+    dog(s) they want to enrol; staff approve (creating the Dog records) or
+    deny. Owners can withdraw a submission while it's still pending."""
+    serializer_class = IntakeRequestSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = OptInPagination
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        base = IntakeRequest.objects.select_related('owner', 'reviewed_by').prefetch_related('dogs')
+        if self.request.user.is_staff:
+            return base.all()
+        return base.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        instance = serializer.save(owner=self.request.user)
+
+        # The form doubles as the owner's contact details, so mirror them onto
+        # the profile — the profile is what staff screens read from.
+        try:
+            profile = instance.owner.profile
+            changed = False
+            for src, dest in (
+                ('phone_number', 'phone_number'),
+                ('address', 'address'),
+                ('pickup_instructions', 'pickup_instructions'),
+            ):
+                value = getattr(instance, src)
+                if value and getattr(profile, dest) != value:
+                    setattr(profile, dest, value)
+                    changed = True
+            if changed:
+                profile.save()
+        except UserProfile.DoesNotExist:
+            pass
+
+        # Tell managers there's a new booking form to review.
+        try:
+            from .notifications import send_push_notification
+            dog_names = ', '.join(d.name for d in instance.dogs.all())
+            owner_name = instance.owner.first_name or instance.owner.username
+            title = 'New Booking Form'
+            body = f"{owner_name} submitted a booking form for {dog_names}."
+            data = {
+                'type': 'intake_request',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            for user in User.objects.filter(is_staff=True, profile__can_manage_requests=True):
+                send_push_notification(user, title, body, data)
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+    def perform_destroy(self, instance):
+        # Owners can withdraw their own form only while it's pending; staff can
+        # delete anything (e.g. clearing out duplicates).
+        if not self.request.user.is_staff and instance.status != 'PENDING':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can delete a booking form that has been reviewed.')
+        instance.delete()
+
+    def _notify_owner_status(self, instance, approved):
+        try:
+            from .notifications import send_push_notification
+            dog_names = ', '.join(d.name for d in instance.dogs.all())
+            if approved:
+                title = 'Booking Form Approved'
+                body = f"Welcome aboard! {dog_names} {'have' if instance.dogs.count() > 1 else 'has'} been added to daycare."
+            else:
+                title = 'Booking Form Update'
+                body = f"Your booking form for {dog_names} was not approved."
+                if instance.denial_reason:
+                    body += f" Reason: {instance.denial_reason}"
+            data = {
+                'type': 'intake_request_update',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            send_push_notification(instance.owner, title, body, data, category='bookings')
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a pending booking form, creating a Dog for each entry."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can approve booking forms')
+
+        instance = self.get_object()
+        if instance.status != 'PENDING':
+            return Response({'detail': 'This booking form has already been reviewed.'}, status=400)
+
+        from django.utils import timezone
+        for intake_dog in instance.dogs.all():
+            dog = Dog.objects.create(
+                owner=instance.owner,
+                name=intake_dog.name,
+                sex=intake_dog.sex,
+                date_of_birth=intake_dog.date_of_birth,
+                is_spayed=intake_dog.is_spayed,
+                food_instructions=intake_dog.food_instructions or None,
+                medical_notes=intake_dog.medical_notes or None,
+                registered_vet=intake_dog.registered_vet or None,
+                address=instance.address or None,
+                postcode=instance.postcode,
+                daycare_days=intake_dog.daycare_days,
+                schedule_type=intake_dog.schedule_type,
+            )
+            intake_dog.created_dog = dog
+            intake_dog.save(update_fields=['created_dog'])
+
+        instance.status = 'APPROVED'
+        instance.reviewed_by = request.user
+        instance.reviewed_at = timezone.now()
+        instance.save()
+
+        self._notify_owner_status(instance, approved=True)
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=['post'])
+    def deny(self, request, pk=None):
+        """Deny a pending booking form, optionally with a reason for the owner."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can deny booking forms')
+
+        instance = self.get_object()
+        if instance.status != 'PENDING':
+            return Response({'detail': 'This booking form has already been reviewed.'}, status=400)
+
+        from django.utils import timezone
+        instance.status = 'DENIED'
+        instance.denial_reason = (request.data.get('reason') or '').strip()
+        instance.reviewed_by = request.user
+        instance.reviewed_at = timezone.now()
+        instance.save()
+
+        self._notify_owner_status(instance, approved=False)
+        return Response(self.get_serializer(instance).data)

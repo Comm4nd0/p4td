@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -991,3 +991,72 @@ class VehicleSerializer(serializers.ModelSerializer):
         if request and instance.image:
             data['image'] = request.build_absolute_uri(instance.image.url)
         return data
+
+
+class IntakeDogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IntakeDog
+        fields = [
+            'id', 'name', 'sex', 'date_of_birth', 'is_spayed',
+            'food_instructions', 'medical_notes', 'registered_vet',
+            'daycare_days', 'schedule_type', 'created_dog',
+        ]
+        read_only_fields = ['id', 'created_dog']
+
+    def validate_daycare_days(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError('daycare_days must be a list of day numbers (1-7).')
+        for day in value:
+            if not isinstance(day, int) or day < 1 or day > 7:
+                raise serializers.ValidationError('daycare_days must contain day numbers between 1 and 7.')
+        return value
+
+
+class IntakeRequestSerializer(serializers.ModelSerializer):
+    """The app's booking form: owner contact details plus one or more dogs,
+    written as nested IntakeDog rows in a single create."""
+    dogs = IntakeDogSerializer(many=True)
+    owner_name = serializers.SerializerMethodField()
+    owner_email = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IntakeRequest
+        fields = [
+            'id', 'owner', 'owner_name', 'owner_email', 'phone_number',
+            'address', 'postcode', 'pickup_instructions', 'additional_info',
+            'status', 'denial_reason', 'reviewed_by_name', 'reviewed_at',
+            'created_at', 'dogs',
+        ]
+        read_only_fields = [
+            'id', 'owner', 'status', 'denial_reason', 'reviewed_by_name',
+            'reviewed_at', 'created_at',
+        ]
+
+    def get_owner_name(self, obj):
+        full = f"{obj.owner.first_name} {obj.owner.last_name}".strip()
+        return full or obj.owner.username
+
+    def get_owner_email(self, obj):
+        return obj.owner.email
+
+    def get_reviewed_by_name(self, obj):
+        if obj.reviewed_by:
+            return obj.reviewed_by.first_name or obj.reviewed_by.username
+        return None
+
+    def validate_dogs(self, value):
+        if not value:
+            raise serializers.ValidationError('A booking form needs at least one dog.')
+        return value
+
+    def validate_postcode(self, value):
+        return value.strip().upper()
+
+    def create(self, validated_data):
+        dogs_data = validated_data.pop('dogs')
+        request = IntakeRequest.objects.create(**validated_data)
+        IntakeDog.objects.bulk_create(
+            IntakeDog(request=request, **dog_data) for dog_data in dogs_data
+        )
+        return request

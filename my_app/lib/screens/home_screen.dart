@@ -7,6 +7,7 @@ import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
+import '../models/intake_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/no_connection_exception.dart';
@@ -17,6 +18,8 @@ import '../widgets/skeleton_loaders.dart';
 import 'dog_home_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
+import 'booking_form_screen.dart';
+import 'booking_requests_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'feed_screen.dart';
 import 'boarding_request_list_screen.dart';
@@ -33,7 +36,7 @@ class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
 
   /// Deep-link target set by notification taps.
-  /// Values: 'requests', 'boarding_requests', 'queries', 'inquiries', 'dogs', 'feed'
+  /// Values: 'requests', 'boarding_requests', 'booking_forms', 'queries', 'inquiries', 'dogs', 'feed'
   final String? initialRoute;
 
   /// Optional payload for the deep link (e.g. a dog ID or request ID).
@@ -52,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   
   List<Dog> _allDogs = [];
   List<Dog> _filteredDogs = [];
+  List<IntakeRequest> _myIntakeRequests = [];
   bool _loadingDogs = true;
   bool _isOffline = false;
   final TextEditingController _searchController = TextEditingController();
@@ -123,9 +127,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Alphabetical sort
       dogs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
+      // With no dogs attached, the empty state offers the booking form — so
+      // check whether the owner already has a submission in flight.
+      List<IntakeRequest> intakeRequests = _myIntakeRequests;
+      if (dogs.isEmpty) {
+        try {
+          intakeRequests = await _dataService.getIntakeRequests();
+        } catch (_) {
+          intakeRequests = [];
+        }
+      }
+
       if (mounted) {
         setState(() {
           _allDogs = dogs;
+          _myIntakeRequests = intakeRequests;
           _loadingDogs = false;
           // Re-apply filter if search text exists
           _filteredDogs = _applyFilter(_searchController.text);
@@ -305,6 +321,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             MaterialPageRoute(builder: (_) => const InquiryListScreen()),
           );
           break;
+        case 'booking_forms':
+          _openBookingForms();
+          break;
         case 'dogs':
           // If a specific dog ID was provided and we have the dog data, navigate to it
           final dogId = widget.routePayload;
@@ -340,6 +359,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (result == true) {
       _refresh();
     }
+  }
+
+  Future<void> _openBookingForm() async {
+    final submitted = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const BookingFormScreen()),
+    );
+    if (submitted == true) _refresh();
+  }
+
+  Future<void> _openBookingForms() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => BookingRequestsScreen(isStaff: _isStaff)),
+    );
+    if (changed == true) _refresh();
   }
 
   @override
@@ -543,6 +578,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   _loadUnresolvedQueryCount();
                 },
               ),
+              ListTile(
+                leading: Picon(PiconsDuotone.clipboardText),
+                title: const Text('Booking Forms'),
+                trailing: _drawerChevron(),
+                onTap: () {
+                  Navigator.pop(context); // close drawer
+                  _openBookingForms();
+                },
+              ),
               if (_isStaff && _canViewInquiries)
                 ListTile(
                   leading: Stack(
@@ -689,6 +733,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     if (_allDogs.isEmpty) {
+      final pendingIntake = _myIntakeRequests
+          .where((r) => r.status == IntakeRequestStatus.pending)
+          .firstOrNull;
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -702,15 +749,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             if (_isStaff)
               const Text('Tap the button below to add your first dog.')
-            else ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 32),
+            else if (pendingIntake != null) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Text(
-                  'Please contact staff to request your dog is attached to your profile.',
+                  'Your booking form for ${pendingIntake.dogNames} has been '
+                  'submitted and is waiting for staff to review.',
                   textAlign: TextAlign.center,
                 ),
               ),
               const SizedBox(height: 16),
+              TextButton.icon(
+                onPressed: _openBookingForms,
+                icon: Picon(PiconsDuotone.clipboardText),
+                label: const Text('View My Booking Form'),
+              ),
+            ] else ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'Ready to book your dog into daycare? Fill out the booking '
+                  'form and staff will confirm your place.\n\nAlready with us? '
+                  'Contact staff to attach your dog to your profile instead.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _openBookingForm,
+                icon: Picon(PiconsDuotone.clipboardText),
+                label: const Text('Fill Out Booking Form'),
+              ),
+              const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: () {
                   Navigator.push(

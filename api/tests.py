@@ -9,7 +9,7 @@ from .models import (
     BoardingRequest, BoardingRequestHistory, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
-    GroupMedia,
+    GroupMedia, IntakeRequest,
 )
 from django.utils import timezone
 
@@ -4914,3 +4914,188 @@ class TrafficAlertRecipientTests(TestCase):
         self.a1.save()
         send_traffic_alert('pickup', self.today, self.staff, dog_ids=[self.dog1.id])
         self.assertNotIn(self.owner_a.id, self._notified_owner_ids(mock_push))
+
+
+class IntakeRequestTests(TestCase):
+    """The booking form: owners submit contact details + dogs to enrol; staff
+    approve (creating the Dog records) or deny."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='newowner', password='pw', first_name='Nina', email='nina@example.com')
+        self.other_owner = User.objects.create_user(username='other', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.client = APIClient()
+
+    def _payload(self, **overrides):
+        payload = {
+            'phone_number': '07700 900123',
+            'address': '1 Kennel Lane, Marlow',
+            'postcode': 'sl7 2he',
+            'pickup_instructions': 'Side gate, key under the pot',
+            'additional_info': 'Both dogs are friendly',
+            'dogs': [
+                {
+                    'name': 'Biscuit',
+                    'sex': 'F',
+                    'date_of_birth': '2023-05-01',
+                    'is_spayed': True,
+                    'food_instructions': '1 cup twice a day',
+                    'medical_notes': 'None',
+                    'registered_vet': 'Marlow Vets',
+                    'daycare_days': [1, 3],
+                    'schedule_type': 'weekly',
+                },
+                {
+                    'name': 'Rolo',
+                    'daycare_days': [],
+                    'schedule_type': 'ad_hoc',
+                },
+            ],
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_owner_can_submit_booking_form(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'PENDING')
+        self.assertEqual(resp.data['postcode'], 'SL7 2HE')  # normalised
+        self.assertEqual(len(resp.data['dogs']), 2)
+        req = IntakeRequest.objects.get(pk=resp.data['id'])
+        self.assertEqual(req.owner, self.owner)
+        self.assertEqual(req.dogs.count(), 2)
+        # Contact details are mirrored onto the owner's profile.
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.phone_number, '07700 900123')
+        self.assertEqual(self.owner.profile.address, '1 Kennel Lane, Marlow')
+        self.assertEqual(self.owner.profile.pickup_instructions, 'Side gate, key under the pot')
+
+    def test_booking_form_requires_a_dog(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(dogs=[]), format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(IntakeRequest.objects.count(), 0)
+
+    def test_invalid_daycare_days_rejected(self):
+        self.client.login(username='newowner', password='pw')
+        payload = self._payload(dogs=[{'name': 'Biscuit', 'daycare_days': [0, 9]}])
+        resp = self.client.post('/api/intake-requests/', payload, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_owner_sees_only_own_requests(self):
+        self.client.login(username='newowner', password='pw')
+        self.client.post('/api/intake-requests/', self._payload(), format='json')
+        self.client.logout()
+
+        self.client.login(username='other', password='pw')
+        resp = self.client.get('/api/intake-requests/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 0)
+        self.client.logout()
+
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/intake-requests/')
+        self.assertEqual(len(resp.data), 1)
+
+    def test_approve_creates_dogs(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        self.client.logout()
+
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/intake-requests/{request_id}/approve/', {}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'APPROVED')
+
+        dogs = Dog.objects.filter(owner=self.owner).order_by('name')
+        self.assertEqual(dogs.count(), 2)
+        biscuit = dogs.get(name='Biscuit')
+        self.assertEqual(biscuit.sex, 'F')
+        self.assertTrue(biscuit.is_spayed)
+        self.assertEqual(biscuit.food_instructions, '1 cup twice a day')
+        self.assertEqual(biscuit.registered_vet, 'Marlow Vets')
+        self.assertEqual(biscuit.daycare_days, [1, 3])
+        self.assertEqual(biscuit.schedule_type, 'weekly')
+        # The home address on the form is copied to each dog for pickups.
+        self.assertEqual(biscuit.address, '1 Kennel Lane, Marlow')
+        self.assertEqual(biscuit.postcode, 'SL7 2HE')
+        rolo = dogs.get(name='Rolo')
+        self.assertEqual(rolo.schedule_type, 'ad_hoc')
+
+        req = IntakeRequest.objects.get(pk=request_id)
+        self.assertEqual(req.reviewed_by, self.staff)
+        self.assertIsNotNone(req.reviewed_at)
+        for intake_dog in req.dogs.all():
+            self.assertIsNotNone(intake_dog.created_dog)
+
+    def test_non_staff_cannot_approve_or_deny(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        resp = self.client.post(f'/api/intake-requests/{request_id}/approve/', {}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.post(f'/api/intake-requests/{request_id}/deny/', {}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(Dog.objects.count(), 0)
+
+    def test_deny_records_reason_and_creates_no_dogs(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        self.client.logout()
+
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(
+            f'/api/intake-requests/{request_id}/deny/', {'reason': 'Fully booked'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'DENIED')
+        self.assertEqual(resp.data['denial_reason'], 'Fully booked')
+        self.assertEqual(Dog.objects.count(), 0)
+
+    def test_reviewed_request_cannot_be_re_reviewed(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        self.client.logout()
+
+        self.client.login(username='staff', password='pw')
+        self.client.post(f'/api/intake-requests/{request_id}/approve/', {}, format='json')
+        resp = self.client.post(f'/api/intake-requests/{request_id}/approve/', {}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        # No duplicate dogs from the double approval.
+        self.assertEqual(Dog.objects.filter(owner=self.owner).count(), 2)
+        resp = self.client.post(f'/api/intake-requests/{request_id}/deny/', {}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_owner_can_withdraw_pending_but_not_reviewed(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        resp = self.client.delete(f'/api/intake-requests/{request_id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(IntakeRequest.objects.count(), 0)
+
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        self.client.post(f'/api/intake-requests/{request_id}/deny/', {}, format='json')
+        self.client.logout()
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.delete(f'/api/intake-requests/{request_id}/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_owner_cannot_touch_someone_elses_request(self):
+        self.client.login(username='newowner', password='pw')
+        resp = self.client.post('/api/intake-requests/', self._payload(), format='json')
+        request_id = resp.data['id']
+        self.client.logout()
+
+        self.client.login(username='other', password='pw')
+        resp = self.client.get(f'/api/intake-requests/{request_id}/')
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.delete(f'/api/intake-requests/{request_id}/')
+        self.assertEqual(resp.status_code, 404)

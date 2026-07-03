@@ -181,6 +181,12 @@ class NotificationService {
         _navigateToHome(initialRoute: 'boarding_requests');
         break;
 
+      // Booking forms — staff: new submission to review; owner: status update
+      case 'intake_request':
+      case 'intake_request_update':
+        _navigateToHome(initialRoute: 'booking_forms');
+        break;
+
       // Support queries — open the queries screen
       case 'support_query':            // staff: new query from owner
       case 'support_query_update':     // staff: owner replied
