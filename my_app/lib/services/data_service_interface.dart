@@ -58,6 +58,12 @@ abstract class DataService {
   Future<void> updateBoardingRequestStatus(int requestId, String status, {int? assignedStaffId});
   Future<void> assignBoardingStaff(int requestId, int? staffId);
   Future<void> deleteBoardingRequest(int requestId);
+  Future<void> updateBoardingRequest(
+    int requestId, {
+    DateTime? startDate,
+    DateTime? endDate,
+    String? specialInstructions,
+  });
   Future<void> createBoardingRequest({
     required List<int> dogIds,
     required DateTime startDate,

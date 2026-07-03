@@ -1344,6 +1344,46 @@ class ApiDataService implements DataService {
     }
   }
 
+  /// Amend an existing boarding booking (dates and/or instructions). Owners
+  /// can only edit while the request is still pending; staff can edit any.
+  @override
+  Future<void> updateBoardingRequest(
+    int requestId, {
+    DateTime? startDate,
+    DateTime? endDate,
+    String? specialInstructions,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/$requestId/'),
+      headers: headers,
+      body: json.encode({
+        if (startDate != null) 'start_date': startDate.toIso8601String().split('T').first,
+        if (endDate != null) 'end_date': endDate.toIso8601String().split('T').first,
+        if (specialInstructions != null) 'special_instructions': specialInstructions,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      String errorMessage = 'Failed to update boarding request';
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map) {
+          // Validation errors (e.g. duplicate booking) arrive as lists.
+          final first = errorData.values.first;
+          if (first is List && first.isNotEmpty) {
+            errorMessage = first.first.toString();
+          } else {
+            errorMessage = first?.toString() ?? errorMessage;
+          }
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
   /// Set or change which staff member a boarding dog stays with. Pass null to
   /// clear the assignment.
   Future<void> assignBoardingStaff(int requestId, int? staffId) async {

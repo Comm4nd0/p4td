@@ -280,7 +280,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         case 'boarding_requests':
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const BoardingRequestListScreen()),
+            MaterialPageRoute(
+              builder: (_) => BoardingRequestListScreen(
+                isStaff: _isStaff,
+                canManageRequests: _canManageRequests,
+              ),
+            ),
           );
           break;
         case 'queries':

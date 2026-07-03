@@ -13,6 +13,7 @@ import '../widgets/assignment_card.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
 import 'pickup_map_screen.dart';
+import 'traffic_alert_screen.dart';
 
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
@@ -406,6 +407,23 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     }
   }
 
+  /// Send a traffic-delay alert to the owners on the current user's route.
+  /// Kept on this screen because it's the page drivers have open on the road.
+  Future<void> _openTrafficAlert() async {
+    final sent = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TrafficAlertScreen()),
+    );
+    if (sent == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Traffic alert sent'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateLabel = ukDateWithDay(widget.date);
@@ -422,6 +440,12 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
         appBar: AppBar(
           title: Text(isUnassigned ? 'Unassigned - $dateLabel' : "${widget.staffMemberName}'s Dogs - $dateLabel"),
           actions: [
+            if (!isUnassigned)
+              IconButton(
+                tooltip: 'Send traffic alert',
+                icon: Picon(PiconsDuotone.path),
+                onPressed: _openTrafficAlert,
+              ),
             if (!isUnassigned)
               IconButton(
                 tooltip: 'View on map',
