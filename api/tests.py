@@ -5101,3 +5101,220 @@ class IntakeRequestTests(TestCase):
         self.assertEqual(resp.status_code, 404)
         resp = self.client.delete(f'/api/intake-requests/{request_id}/')
         self.assertEqual(resp.status_code, 404)
+
+
+class NotificationCorrectnessTests(TestCase):
+    """Notification review fixes: single owner push per date-change status
+    change (with an app-navigable type), dog_id in dog-status payloads,
+    no manager push for staff auto-approved bookings, device-token keepalive
+    and deregistration, and no self-notification for staff actions."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='nowner', password='pw')
+        self.staff = User.objects.create_user(username='nstaff', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='nmanager', password='pw', is_staff=True)
+        self.manager.profile.can_manage_requests = True
+        self.manager.profile.save()
+        self.dog = Dog.objects.create(owner=self.owner, name='Nala')
+        self.client = APIClient()
+
+    # --- date change request status pushes ---
+
+    def test_change_status_sends_single_owner_push_with_navigable_type(self):
+        # The change_status endpoint and the model signal used to each push,
+        # so the owner got two notifications per approve/deny — and the view's
+        # copy used type 'date_change_status', which the app doesn't handle.
+        req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY',
+            new_date=date.today() + timedelta(days=30), status='PENDING',
+        )
+        self.client.login(username='nstaff', password='pw')
+        with patch('api.notifications.send_push_notification') as view_push, \
+                patch('api.models.send_push_notification') as signal_push:
+            resp = self.client.post(
+                f'/api/date-change-requests/{req.id}/change_status/',
+                {'status': 'APPROVED'}, format='json',
+            )
+        self.assertEqual(resp.status_code, 200)
+        owner_pushes = (
+            [c for c in view_push.call_args_list if c.args[0] == self.owner]
+            + [c for c in signal_push.call_args_list if c.args[0] == self.owner]
+        )
+        self.assertEqual(len(owner_pushes), 1)
+        args, kwargs = owner_pushes[0]
+        self.assertEqual(args[3]['type'], 'date_change_request_update')
+        self.assertEqual(kwargs.get('category'), 'bookings')
+
+    def test_direct_status_save_still_notifies_owner_via_signal(self):
+        # Paths that bypass change_status (e.g. Django admin) still rely on
+        # the model signal.
+        req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL',
+            original_date=date.today() + timedelta(days=30), status='PENDING',
+        )
+        with patch('api.models.send_push_notification') as signal_push:
+            req.status = 'APPROVED'
+            req.save()
+        owner_pushes = [c for c in signal_push.call_args_list if c.args[0] == self.owner]
+        self.assertEqual(len(owner_pushes), 1)
+        self.assertEqual(owner_pushes[0].args[3]['type'], 'date_change_request_update')
+
+    def test_staff_auto_approved_creation_pushes_navigable_type_once(self):
+        self.client.login(username='nstaff', password='pw')
+        with patch('api.notifications.send_push_notification') as view_push, \
+                patch('api.models.send_push_notification') as signal_push:
+            resp = self.client.post('/api/date-change-requests/', {
+                'dog': self.dog.id,
+                'request_type': 'ADD_DAY',
+                'new_date': (date.today() + timedelta(days=30)).isoformat(),
+            }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        owner_pushes = (
+            [c for c in view_push.call_args_list if c.args[0] == self.owner]
+            + [c for c in signal_push.call_args_list if c.args[0] == self.owner]
+        )
+        self.assertEqual(len(owner_pushes), 1)
+        args, kwargs = owner_pushes[0]
+        self.assertEqual(args[3]['type'], 'date_change_request_update')
+        self.assertEqual(kwargs.get('category'), 'bookings')
+
+    # --- dog status payload ---
+
+    def test_dog_status_update_payload_includes_dog_id(self):
+        # The app deep-links with data['dog_id']; the payload only carried the
+        # assignment id under 'id', so the tap never navigated.
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=date.today(), status='ASSIGNED',
+        )
+        with patch('api.models.send_push_notification') as signal_push:
+            assignment.status = 'PICKED_UP'
+            assignment.save()
+        owner_pushes = [c for c in signal_push.call_args_list if c.args[0] == self.owner]
+        self.assertEqual(len(owner_pushes), 1)
+        data = owner_pushes[0].args[3]
+        self.assertEqual(data['type'], 'dog_status_update')
+        self.assertEqual(data['dog_id'], str(self.dog.id))
+
+    # --- boarding request staff notification ---
+
+    def test_staff_created_boarding_does_not_push_new_request_to_managers(self):
+        self.client.login(username='nstaff', password='pw')
+        with patch('api.models.send_push_notification') as signal_push:
+            resp = self.client.post('/api/boarding-requests/', {
+                'dogs': [self.dog.id],
+                'owner': self.owner.id,
+                'start_date': (date.today() + timedelta(days=10)).isoformat(),
+                'end_date': (date.today() + timedelta(days=12)).isoformat(),
+            }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'APPROVED')
+        manager_pushes = [c for c in signal_push.call_args_list if c.args[0] == self.manager]
+        self.assertEqual(manager_pushes, [])
+
+    def test_owner_created_boarding_still_pushes_new_request_to_managers(self):
+        self.client.login(username='nowner', password='pw')
+        with patch('api.models.send_push_notification') as signal_push:
+            resp = self.client.post('/api/boarding-requests/', {
+                'dogs': [self.dog.id],
+                'start_date': (date.today() + timedelta(days=10)).isoformat(),
+                'end_date': (date.today() + timedelta(days=12)).isoformat(),
+            }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        manager_pushes = [c for c in signal_push.call_args_list if c.args[0] == self.manager]
+        self.assertEqual(len(manager_pushes), 1)
+        self.assertEqual(manager_pushes[0].args[3]['type'], 'boarding_request')
+
+    # --- device tokens ---
+
+    def test_reposting_same_token_refreshes_updated_at(self):
+        # prune_device_tokens keeps tokens alive by updated_at; a no-op
+        # re-registration on app launch must refresh it or live devices get
+        # pruned after 90 days and silently stop receiving notifications.
+        from api.models import DeviceToken
+        self.client.force_authenticate(self.owner)
+        self.client.post('/api/device-tokens/', {'token': 'keepalive-tok', 'device_type': 'ANDROID'}, format='json')
+        stale = timezone.now() - timedelta(days=120)
+        DeviceToken.objects.filter(token='keepalive-tok').update(updated_at=stale)
+
+        resp = self.client.post('/api/device-tokens/', {'token': 'keepalive-tok', 'device_type': 'ANDROID'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        token = DeviceToken.objects.get(token='keepalive-tok')
+        self.assertGreater(token.updated_at, timezone.now() - timedelta(minutes=5))
+
+        # And the prune command now leaves it alone.
+        call_command('prune_device_tokens')
+        self.assertTrue(DeviceToken.objects.filter(token='keepalive-tok').exists())
+
+    def test_deregister_deletes_own_token_only(self):
+        from api.models import DeviceToken
+        DeviceToken.objects.create(user=self.owner, token='mine')
+        DeviceToken.objects.create(user=self.staff, token='theirs')
+        self.client.force_authenticate(self.owner)
+
+        resp = self.client.post('/api/device-tokens/deregister/', {'token': 'mine'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['deleted'])
+        self.assertFalse(DeviceToken.objects.filter(token='mine').exists())
+
+        # Someone else's token (e.g. already reassigned) is left alone.
+        resp = self.client.post('/api/device-tokens/deregister/', {'token': 'theirs'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['deleted'])
+        self.assertTrue(DeviceToken.objects.filter(token='theirs').exists())
+
+    def test_deregister_requires_token(self):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/device-tokens/deregister/', {}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    # --- no self-notification for staff actions ---
+
+    def test_defect_reporter_not_notified_of_own_report(self):
+        from api.models import Vehicle
+        vehicle = Vehicle.objects.create(name='Blue Van', registration='AB12 CDE')
+        reporter = User.objects.create_user(username='nreporter', password='pw', is_staff=True)
+        reporter.profile.can_manage_vehicles = True
+        reporter.profile.save()
+        other = User.objects.create_user(username='nfleet', password='pw', is_staff=True)
+        other.profile.can_manage_vehicles = True
+        other.profile.save()
+
+        self.client.login(username='nreporter', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.post('/api/vehicle-defects/', {
+                'vehicle': vehicle.id, 'title': 'Flat tyre',
+            }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        notified = {c.args[0] for c in mock_push.call_args_list}
+        self.assertIn(other, notified)
+        self.assertNotIn(reporter, notified)
+
+    def test_care_instructions_editor_not_notified_of_own_edit(self):
+        editor = User.objects.create_user(username='neditor', password='pw', is_staff=True)
+        editor.profile.can_assign_dogs = True
+        editor.profile.save()
+        colleague = User.objects.create_user(username='ncolleague', password='pw', is_staff=True)
+        colleague.profile.can_assign_dogs = True
+        colleague.profile.save()
+
+        self.client.login(username='neditor', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+                'food_instructions': 'Two scoops, morning only',
+            }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        notified = {c.args[0] for c in mock_push.call_args_list}
+        self.assertIn(colleague, notified)
+        self.assertNotIn(editor, notified)
+
+    # --- support query resolve deep link ---
+
+    def test_resolve_query_uses_app_handled_type(self):
+        query = SupportQuery.objects.create(owner=self.owner, subject='Lead broken')
+        self.client.login(username='nstaff', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.post(f'/api/support-queries/{query.id}/resolve/', {}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        owner_pushes = [c for c in mock_push.call_args_list if c.args[0] == self.owner]
+        self.assertEqual(len(owner_pushes), 1)
+        self.assertEqual(owner_pushes[0].args[3]['type'], 'support_query_reply')

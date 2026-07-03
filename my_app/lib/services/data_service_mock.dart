@@ -317,6 +317,9 @@ class MockDataService implements DataService {
   Future<void> registerDeviceToken(String token, String deviceType) async {}
 
   @override
+  Future<void> deregisterDeviceToken(String token) async {}
+
+  @override
   Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date}) async => [];
 
   @override

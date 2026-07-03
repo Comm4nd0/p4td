@@ -1429,6 +1429,22 @@ class ApiDataService implements DataService {
     }
   }
 
+  @override
+  Future<void> deregisterDeviceToken(String token) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/device-tokens/deregister/'),
+      headers: headers,
+      body: json.encode({'token': token}),
+    );
+
+    if (response.statusCode != 200) {
+      if (kDebugMode) {
+        debugPrint('Failed to deregister device token: ${response.body}');
+      }
+    }
+  }
+
   String _dateParam(DateTime? date) {
     if (date == null) return '';
     return '?date=${date.toIso8601String().split('T')[0]}';

@@ -52,22 +52,36 @@ class DeviceTokenViewSet(viewsets.ModelViewSet):
                 # If it belongs to a different user, reassign it
                 if existing.user != request.user:
                     existing.user = request.user
-                    existing.save()
                 # Determine device_type from request if available and not set
                 device_type = request.data.get('device_type')
                 if device_type and existing.device_type != device_type:
                     existing.device_type = device_type
-                    existing.save()
-                
+                # Always save, even when nothing changed: the app re-registers
+                # on every launch and prune_device_tokens keeps tokens alive by
+                # updated_at, so a no-op re-registration must still refresh the
+                # timestamp or live devices get pruned after 90 days.
+                existing.save()
+
                 # Return the existing token with 200 OK
                 serializer = self.get_serializer(existing)
                 return Response(serializer.data)
-        
+
         # Otherwise create new
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def deregister(self, request):
+        """Remove this device's token on logout so the device stops receiving
+        the logged-out user's notifications. Scoped to the caller's own tokens;
+        a token that was already reassigned to another account is left alone."""
+        token = request.data.get('token')
+        if not token:
+            return Response({'detail': 'token is required'}, status=400)
+        deleted, _ = DeviceToken.objects.filter(token=token, user=request.user).delete()
+        return Response({'deleted': bool(deleted)})
 from django.utils import timezone
 from django.core.files.base import ContentFile
 import io
@@ -825,6 +839,9 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
         old_daycare_days = list(dog.daycare_days or [])
         old_schedule_type = dog.schedule_type
 
+        # Attribute the change to the owner who requested it so the
+        # care-instructions staff notification names them (not "A user").
+        dog._changed_by = change_request.requested_by
         dog.save()
 
         dog.refresh_from_db()
@@ -1157,11 +1174,18 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                     f"{instance.dog.name}'s day has been changed from "
                     f"{instance.original_date} to {instance.new_date} by staff."
                 )
-            data = {'type': 'date_change_status', 'id': str(instance.id)}
+            # 'date_change_request_update' is the type the app deep-links to
+            # the requests screen; category 'bookings' honours the owner's
+            # notification preferences.
+            data = {
+                'type': 'date_change_request_update',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
             if instance.dog.owner:
-                send_push_notification(instance.dog.owner, title, body, data)
+                send_push_notification(instance.dog.owner, title, body, data, category='bookings')
             for additional_owner in instance.dog.additional_owners.all():
-                send_push_notification(additional_owner, title, body, data)
+                send_push_notification(additional_owner, title, body, data, category='bookings')
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
@@ -1206,6 +1230,9 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 instance.approved_by = request.user
                 instance.approved_at = timezone.now()
             instance.status = new_status
+            # This endpoint sends its own, more detailed owner push below —
+            # stop the status-change signal from sending a second one.
+            instance._owner_push_handled = True
             instance.save()
 
             # Approving a CANCEL frees the original date; approving a CHANGE frees
@@ -1232,11 +1259,15 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 body = f"Your additional day request for {instance.dog.name} on {instance.new_date} has been {new_status.lower()}."
             else:
                 body = f"Your {instance.request_type.lower()} request for {instance.dog.name} on {instance.original_date} has been {new_status.lower()}."
-            data = {'type': 'date_change_status', 'id': str(instance.id)}
+            data = {
+                'type': 'date_change_request_update',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
             if instance.dog.owner:
-                send_push_notification(instance.dog.owner, title, body, data)
+                send_push_notification(instance.dog.owner, title, body, data, category='bookings')
             for additional_owner in instance.dog.additional_owners.all():
-                send_push_notification(additional_owner, title, body, data)
+                send_push_notification(additional_owner, title, body, data, category='bookings')
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
@@ -2776,9 +2807,11 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
 
         from .notifications import send_push_notification
         staff_name = request.user.first_name or request.user.username
+        # Typed 'support_query_reply' (not a bespoke 'resolved' type) so tapping
+        # the notification deep-links to the owner's queries screen in the app.
         send_push_notification(query.owner, "Query Resolved",
             f"Your query '{query.subject}' has been resolved by {staff_name}.",
-            {'type': 'support_query_resolved', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'})
+            {'type': 'support_query_reply', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'})
 
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
@@ -3775,6 +3808,7 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
                 f"{reporter} reported '{defect.title}' ({defect.get_severity_display()} severity)",
                 {'type': 'vehicle_defect', 'id': str(defect.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
                 permission='can_manage_vehicles',
+                exclude_user=self.request.user,
             )
         except Exception as e:
             print(f"Failed to send defect notification: {e}")
@@ -3887,6 +3921,7 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
                 "New defect reported",
                 f"{reporter} reported '{defect.title}' ({defect.get_severity_display()} severity)",
                 {'type': 'facility_defect', 'id': str(defect.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                exclude_user=self.request.user,
             )
         except Exception as e:
             print(f"Failed to send facility defect notification: {e}")
