@@ -776,6 +776,7 @@ class ApiDataService implements DataService {
         .map((d) => UnspayedMaleSummary(
               id: d['id'].toString(),
               name: d['name']?.toString() ?? '',
+              imageUrl: d['profile_image']?.toString(),
             ))
         .toList();
     return UnspayedMalesResult(count: data['count'] ?? dogs.length, dogs: dogs);
