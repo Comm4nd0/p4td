@@ -509,12 +509,12 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
 
   Widget _buildSectionedList() {
     // Reorderable when staff handle at least one leg (pickup or drop-off) — this
-    // includes "client drops off, staff takes home" and vice versa. Only dogs
-    // the owner both brings AND collects (no staff transport) sit in the locked
-    // section, since they need no route position.
-    bool ownerHandlesBoth(DailyDogAssignment a) => a.effectiveOwnerBrings && a.effectiveOwnerCollects;
-    final staffPickups = _assignments.where((a) => !ownerHandlesBoth(a)).toList();
-    final ownerDropoffs = _assignments.where(ownerHandlesBoth).toList();
+    // includes "client drops off, staff takes home" and vice versa. Dogs with
+    // no staff transport today (owner both brings AND collects, or boarding
+    // dogs on a non-travel day, already with staff) sit in the locked section,
+    // since they need no route position.
+    final staffPickups = _assignments.where((a) => !a.noStaffTransport).toList();
+    final ownerDropoffs = _assignments.where((a) => a.noStaffTransport).toList();
 
     return CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -548,7 +548,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 children: [
                   Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                   const SizedBox(width: 8),
-                  Text('Owner brings & collects',
+                  Text('No staff transport today',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(width: 8),
                   Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
@@ -599,7 +599,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       cacheAvatar: false,
       showStaffLine: widget.canAssignDogs,
       staffLineAfterBoarding: true,
-      boardingLabel: 'Boarding – No pickup needed',
+      boardingLabel: assignment.boardingLabel,
       rowSpacing: 8,
       statusIconSize: 18,
       statusFontSize: 12,

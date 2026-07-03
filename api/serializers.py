@@ -446,6 +446,10 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     owner_phone = serializers.SerializerMethodField()
     pickup_instructions = serializers.SerializerMethodField()
     is_boarding = serializers.SerializerMethodField()
+    boarding_first_day = serializers.SerializerMethodField()
+    boarding_last_day = serializers.SerializerMethodField()
+    needs_pickup = serializers.SerializerMethodField()
+    needs_dropoff = serializers.SerializerMethodField()
     effective_owner_brings = serializers.BooleanField(read_only=True)
     effective_owner_collects = serializers.BooleanField(read_only=True)
     effective_owner_brings_time = serializers.TimeField(read_only=True)
@@ -458,6 +462,8 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             'staff_member', 'staff_member_name',
             'owner_name', 'owner_address', 'owner_phone', 'pickup_instructions',
             'date', 'status', 'is_boarding',
+            'boarding_first_day', 'boarding_last_day',
+            'needs_pickup', 'needs_dropoff',
             'owner_brings', 'owner_collects', 'owner_brings_time', 'owner_collects_time',
             'effective_owner_brings', 'effective_owner_collects',
             'effective_owner_brings_time', 'effective_owner_collects_time',
@@ -494,18 +500,49 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
-    def get_is_boarding(self, obj):
-        # When the view supplies the per-date boarding set (computed once for the
-        # whole roster), use it instead of an exists() query per row (B7).
-        boarding = self.context.get('boarding_dog_ids')
+    def _boarding_on(self, obj, context_key, target_date):
+        # When the view supplies the per-date boarding sets (computed once for
+        # the whole roster via _boarding_context), use them instead of an
+        # exists() query per row (B7). Single-object serializations fall back
+        # to the model's per-row query.
+        boarding = self.context.get(context_key)
         if boarding is not None:
             return obj.dog_id in boarding
         return BoardingRequest.objects.filter(
-            dogs=obj.dog,
+            dogs=obj.dog_id,
             status='APPROVED',
-            start_date__lte=obj.date,
-            end_date__gte=obj.date,
+            start_date__lte=target_date,
+            end_date__gte=target_date,
         ).exists()
+
+    def get_is_boarding(self, obj):
+        return self._boarding_on(obj, 'boarding_dog_ids', obj.date)
+
+    def get_boarding_first_day(self, obj):
+        from datetime import timedelta
+        return self.get_is_boarding(obj) and not self._boarding_on(
+            obj, 'boarding_prev_dog_ids', obj.date - timedelta(days=1))
+
+    def get_boarding_last_day(self, obj):
+        from datetime import timedelta
+        return self.get_is_boarding(obj) and not self._boarding_on(
+            obj, 'boarding_next_dog_ids', obj.date + timedelta(days=1))
+
+    def get_needs_pickup(self, obj):
+        # Staff collect the dog this morning: never when the owner brings it,
+        # and for boarding dogs only on the first day of the stay (after that
+        # the dog wakes up with the boarding staff member).
+        if obj.effective_owner_brings:
+            return False
+        return not self.get_is_boarding(obj) or self.get_boarding_first_day(obj)
+
+    def get_needs_dropoff(self, obj):
+        # Staff return the dog home tonight: never when the owner collects it,
+        # and for boarding dogs only on the last day of the stay (before that
+        # it sleeps over with the boarding staff member).
+        if obj.effective_owner_collects:
+            return False
+        return not self.get_is_boarding(obj) or self.get_boarding_last_day(obj)
 
 
 class DogWeekdayPickupSerializer(serializers.ModelSerializer):

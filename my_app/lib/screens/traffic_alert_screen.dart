@@ -64,12 +64,13 @@ class _TrafficAlertScreenState extends State<TrafficAlertScreen> {
     }
   }
 
-  /// Dogs the staff member physically handles for the selected leg — owners who
-  /// handle that leg themselves get no traffic alert.
+  /// Dogs the staff member physically handles for the selected leg today —
+  /// owners who handle that leg themselves get no traffic alert, and neither
+  /// do boarding dogs on a day that leg doesn't run (they stay with staff).
   List<DailyDogAssignment> get _visible {
     final list = _leg == 'pickup'
-        ? _all.where((a) => !a.effectiveOwnerBrings).toList()
-        : _all.where((a) => !a.effectiveOwnerCollects).toList();
+        ? _all.where((a) => a.needsPickup).toList()
+        : _all.where((a) => a.needsDropoff).toList();
     list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     return list;
   }

@@ -623,16 +623,14 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     );
   }
 
-  // Only dogs the owner brings AND collects sit in the separate locked
-  // section — they need no staff route. Dogs the owner only brings OR only
-  // collects still have a staff leg, so they belong in the main route list
-  // (matches staff_dog_detail_screen.dart).
-  bool _ownerHandlesBoth(DailyDogAssignment a) =>
-      a.effectiveOwnerBrings && a.effectiveOwnerCollects;
+  // Only dogs with no staff transport today sit in the separate locked
+  // section — the owner brings AND collects them, or they're boarding on a
+  // non-travel day (already with staff). Dogs with at least one staff leg
+  // belong in the main route list (matches staff_dog_detail_screen.dart).
 
   Widget _buildFlatList(List<DailyDogAssignment> assignments, List<Dog> unassigned) {
-    final staffPickups = assignments.where((a) => !_ownerHandlesBoth(a)).toList();
-    final ownerDropoffs = assignments.where(_ownerHandlesBoth).toList();
+    final staffPickups = assignments.where((a) => !a.noStaffTransport).toList();
+    final ownerDropoffs = assignments.where((a) => a.noStaffTransport).toList();
 
     // Build a flat list of lazy row builders so only visible rows are built.
     final rows = <Widget Function(BuildContext)>[];
@@ -653,7 +651,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
               children: [
                 Picon(PiconsDuotone.houseLine, size: 18, color: Colors.teal),
                 const SizedBox(width: 8),
-                Text('Owner brings & collects',
+                Text('No staff transport today',
                     style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
                 Text('${ownerDropoffs.length}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
@@ -701,8 +699,8 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       final staffId = sortedStaffIds[i];
       final staffAssignments = groups[staffId]!;
       final staffName = staffNames[staffId]!;
-      final staffPickups = staffAssignments.where((a) => !_ownerHandlesBoth(a)).toList();
-      final ownerDropoffs = staffAssignments.where(_ownerHandlesBoth).toList();
+      final staffPickups = staffAssignments.where((a) => !a.noStaffTransport).toList();
+      final ownerDropoffs = staffAssignments.where((a) => a.noStaffTransport).toList();
       final isFirst = i == 0;
       rows.add((ctx) => Padding(
             padding: EdgeInsets.only(top: isFirst ? 0 : 12, bottom: 8),
@@ -732,7 +730,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                 children: [
                   Picon(PiconsDuotone.houseLine, size: 16, color: Colors.teal),
                   const SizedBox(width: 6),
-                  Text('Owner brings & collects',
+                  Text('No staff transport today',
                       style: Theme.of(ctx).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: Colors.teal)),
                 ],
               ),
@@ -886,7 +884,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       cacheAvatar: true,
       showStaffLine: _sortOption != _SortOption.staffMember,
       staffLineAfterBoarding: false,
-      boardingLabel: 'Boarding',
+      boardingLabel: assignment.boardingLabel,
       rowSpacing: 6,
       statusIconSize: 16,
       statusFontSize: 11,

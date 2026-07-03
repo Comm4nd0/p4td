@@ -366,6 +366,51 @@ class DailyDogAssignment(models.Model):
     def effective_owner_collects_time(self):
         return self.owner_collects_time if self.owner_collects_time is not None else self.dog.owner_collects_default_time
 
+    # ---- Boarding-aware transport legs ----
+    # A boarding dog only travels on the edges of its stay: home → staff on the
+    # first day, staff → home on the last day. In between it is already with
+    # the boarding staff member, so neither leg exists. Consecutive approved
+    # requests (one ends the day before the next starts) count as one stay.
+    # These per-row properties each query BoardingRequest; bulk callers
+    # (the roster serializer) pass precomputed per-date sets via context
+    # instead — see DailyDogAssignmentSerializer / _boarding_context.
+
+    def _boarding_covers(self, target_date):
+        return BoardingRequest.objects.filter(
+            dogs=self.dog_id,
+            status='APPROVED',
+            start_date__lte=target_date,
+            end_date__gte=target_date,
+        ).exists()
+
+    @property
+    def is_boarding_day(self) -> bool:
+        return self._boarding_covers(self.date)
+
+    @property
+    def boarding_first_day(self) -> bool:
+        from datetime import timedelta
+        return self.is_boarding_day and not self._boarding_covers(self.date - timedelta(days=1))
+
+    @property
+    def boarding_last_day(self) -> bool:
+        from datetime import timedelta
+        return self.is_boarding_day and not self._boarding_covers(self.date + timedelta(days=1))
+
+    @property
+    def needs_staff_pickup(self) -> bool:
+        """Staff collect this dog from home this morning."""
+        if self.effective_owner_brings:
+            return False
+        return not self.is_boarding_day or self.boarding_first_day
+
+    @property
+    def needs_staff_dropoff(self) -> bool:
+        """Staff return this dog home tonight."""
+        if self.effective_owner_collects:
+            return False
+        return not self.is_boarding_day or self.boarding_last_day
+
 
 class DogWeekdayPickup(models.Model):
     """Persistent default: who picks up <dog> every <weekday>.

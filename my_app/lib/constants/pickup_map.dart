@@ -59,15 +59,15 @@ Color? parseStaffColorHex(String? hex) {
 
 /// 1-based pickup-run position per assignment id, per staff member.
 ///
-/// Matches the map's route order exactly: dogs the owner both brings and
-/// collects have no staff transport leg (no number), the rest sort by
-/// (sortOrder, then dog name) within each staff member's run. Shown as the
-/// numbered badges on assignment cards, day-board rows and map pins so every
-/// screen agrees on the order.
+/// Matches the map's route order exactly: dogs with no staff transport leg
+/// today (owner handles both legs, or mid-boarding dogs already with staff)
+/// get no number, the rest sort by (sortOrder, then dog name) within each
+/// staff member's run. Shown as the numbered badges on assignment cards,
+/// day-board rows and map pins so every screen agrees on the order.
 Map<int, int> pickupRunNumbers(Iterable<DailyDogAssignment> assignments) {
   final byStaff = <int, List<DailyDogAssignment>>{};
   for (final a in assignments) {
-    if (a.effectiveOwnerBrings && a.effectiveOwnerCollects) continue;
+    if (a.noStaffTransport) continue;
     byStaff.putIfAbsent(a.staffMemberId, () => []).add(a);
   }
   final numbers = <int, int>{};

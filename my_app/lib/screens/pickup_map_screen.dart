@@ -283,12 +283,13 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   bool _isCollected(DailyDogAssignment a) =>
       a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff;
 
-  // Leg-aware denominators, matching the dashboard: a dog only counts toward a
-  // leg if the staff physically handle it (owner-handled legs are excluded).
+  // Leg-aware denominators, matching the dashboard: a dog only counts toward
+  // a leg if the staff physically handle it today (owner-handled legs and
+  // boarding dogs' non-travel days are excluded).
   Map<int, int> _pickupLegCountsByStaff() {
     final counts = <int, int>{};
     for (final a in _assignments) {
-      if (!a.effectiveOwnerBrings) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+      if (a.needsPickup) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
     }
     return counts;
   }
@@ -296,7 +297,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   Map<int, int> _dropoffLegCountsByStaff() {
     final counts = <int, int>{};
     for (final a in _assignments) {
-      if (!a.effectiveOwnerCollects) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
+      if (a.needsDropoff) counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
     }
     return counts;
   }
@@ -305,7 +306,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     // Pickup-leg dogs the staff have picked up (or already returned).
     final counts = <int, int>{};
     for (final a in _assignments) {
-      if (!a.effectiveOwnerBrings && _isCollected(a)) {
+      if (a.needsPickup && _isCollected(a)) {
         counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
       }
     }
@@ -316,7 +317,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     // Drop-off-leg dogs the staff have returned home.
     final counts = <int, int>{};
     for (final a in _assignments) {
-      if (!a.effectiveOwnerCollects && a.status == AssignmentStatus.droppedOff) {
+      if (a.needsDropoff && a.status == AssignmentStatus.droppedOff) {
         counts[a.staffMemberId] = (counts[a.staffMemberId] ?? 0) + 1;
       }
     }
@@ -662,8 +663,9 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     for (final a in _assignments) {
       if (_hiddenStaffIds.contains(a.staffMemberId)) continue;
       if (a.latitude == null || a.longitude == null) continue;
-      // Owner brings AND collects → no staff transport leg → not on the route.
-      if (a.effectiveOwnerBrings && a.effectiveOwnerCollects) continue;
+      // No staff transport leg today (owner handles both, or mid-boarding
+      // dog already with staff) → not on the route.
+      if (a.noStaffTransport) continue;
       byStaff.putIfAbsent(a.staffMemberId, () => []).add(a);
     }
     const base = LatLng(kBaseLatitude, kBaseLongitude);

@@ -1509,10 +1509,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           final ownerBringsCount = staff.assignments.where((a) => a.effectiveOwnerBrings).length;
           final ownerCollectsCount = staff.assignments.where((a) => a.effectiveOwnerCollects).length;
           final hasOwnerTransport = ownerBringsCount > 0 || ownerCollectsCount > 0;
-          // Leg-aware counts: only dogs the staff member physically handles for
-          // that leg count toward the total, so both lines can reach 100%.
-          final pickupLeg = staff.assignments.where((a) => !a.effectiveOwnerBrings).toList();
-          final dropoffLeg = staff.assignments.where((a) => !a.effectiveOwnerCollects).toList();
+          // Leg-aware counts: only dogs the staff member physically handles
+          // for that leg today count toward the total (owner-handled legs and
+          // boarding dogs' non-travel days excluded), so both lines can reach
+          // 100%.
+          final pickupLeg = staff.assignments.where((a) => a.needsPickup).toList();
+          final dropoffLeg = staff.assignments.where((a) => a.needsDropoff).toList();
           final collectedCount = pickupLeg
               .where((a) => a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff)
               .length;

@@ -217,12 +217,13 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   }
 
   /// A staff member's dogs in pickup-run order (sortOrder, then name), with
-  /// owner-handles-both dogs at the end (they have no run position).
+  /// no-staff-transport dogs (owner handles both legs, or mid-boarding dogs
+  /// already with staff) at the end — they have no run position.
   List<DailyDogAssignment> _dogsFor(int staffId) {
     final run = <DailyDogAssignment>[];
     final ownerHandled = <DailyDogAssignment>[];
     for (final a in _assignments.where((a) => a.staffMemberId == staffId)) {
-      (a.effectiveOwnerBrings && a.effectiveOwnerCollects ? ownerHandled : run).add(a);
+      (a.noStaffTransport ? ownerHandled : run).add(a);
     }
     int byRun(DailyDogAssignment a, DailyDogAssignment b) {
       final cmp = a.sortOrder.compareTo(b.sortOrder);
@@ -251,10 +252,10 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     }
   }
 
-  /// The ids of a staff member's pickup run, in run order (excludes dogs the
-  /// owner both brings and collects — they hold no run position).
+  /// The ids of a staff member's pickup run, in run order (excludes dogs
+  /// with no staff transport today — they hold no run position).
   List<int> _runIds(int staffId) => _dogsFor(staffId)
-      .where((a) => !(a.effectiveOwnerBrings && a.effectiveOwnerCollects))
+      .where((a) => !a.noStaffTransport)
       .map((a) => a.id)
       .toList();
 
@@ -575,7 +576,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   Widget _buildExpandedPlacement(({int id, String name}) staff) {
     final color = _staffColors.of(staff.id);
     final run = _dogsFor(staff.id)
-        .where((a) => !(a.effectiveOwnerBrings && a.effectiveOwnerCollects))
+        .where((a) => !a.noStaffTransport)
         .toList();
 
     return Padding(
@@ -697,7 +698,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     final isOff = staffId != null && !_isWorking(staffId);
 
     // Leg-aware collected progress, matching the dashboard staff cards.
-    final pickupLeg = dogs.where((a) => !a.effectiveOwnerBrings).toList();
+    final pickupLeg = dogs.where((a) => a.needsPickup).toList();
     final collected = pickupLeg
         .where((a) =>
             a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff)
