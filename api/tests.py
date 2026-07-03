@@ -456,6 +456,8 @@ class DogSpayStatusTests(TestCase):
         names = [d['name'] for d in resp.data['dogs']]
         self.assertEqual(names, ['UnspayedAdultMale'])
         self.assertEqual(resp.data['dogs'][0]['id'], target.id)
+        self.assertIn('profile_image', resp.data['dogs'][0])
+        self.assertIsNone(resp.data['dogs'][0]['profile_image'])
 
     def test_unspayed_males_endpoint_requires_staff(self):
         self.client.login(username='owner', password='pw')

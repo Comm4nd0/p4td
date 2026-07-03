@@ -129,7 +129,7 @@ class ActionItemsSection extends StatelessWidget {
           const SizedBox(height: 4),
           ActionItemTile(
             icon: PiconsDuotone.warningCircle,
-            label: 'Spay status to confirm',
+            label: 'Neutered status to confirm',
             count: unspayedMalesCount,
             countColor: unspayedMalesCount > 0 ? Colors.red : null,
             onTap: onOpenUnspayedMales,
