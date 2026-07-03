@@ -1472,6 +1472,23 @@ class BoardingRequestTests(TestCase):
         }, format='json')
         self.assertEqual(resp.status_code, 400)
 
+    def test_status_change_sends_single_owner_notification(self):
+        # A viewset call and a model signal used to each push on status
+        # change, so the owner got two notifications per approve/deny.
+        br = BoardingRequest.objects.create(owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        br.dogs.add(self.dog)
+        self.client.login(username='staff', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/', {
+                'status': 'APPROVED',
+            }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        owner_pushes = [c for c in mock_push.call_args_list if c.args[0] == self.owner]
+        self.assertEqual(len(owner_pushes), 1)
+        args, kwargs = owner_pushes[0]
+        self.assertEqual(kwargs.get('category'), 'bookings')
+        self.assertEqual(args[3]['type'], 'boarding_request_update')
+
     # --- editing bookings ---
 
     def test_owner_can_edit_pending_boarding(self):

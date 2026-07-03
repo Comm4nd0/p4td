@@ -705,36 +705,9 @@ def notify_query_message(sender, instance, created, **kwargs):
         for user in User.objects.filter(is_staff=True, profile__can_reply_queries=True):
             send_push_notification(user, title, body, data)
 
-@receiver(pre_save, sender=BoardingRequest)
-def store_old_boarding_request_status(sender, instance, **kwargs):
-    if instance.pk:
-        try:
-            old_instance = BoardingRequest.objects.get(pk=instance.pk)
-            instance._old_status = old_instance.status
-        except BoardingRequest.DoesNotExist:
-            instance._old_status = None
-    else:
-        instance._old_status = None
-
-@receiver(post_save, sender=BoardingRequest)
-def notify_user_boarding_request_status(sender, instance, created, **kwargs):
-    if created:
-        return
-
-    if hasattr(instance, '_old_status') and instance._old_status != instance.status:
-        # Status changed
-        new_status = instance.get_status_display()
-        
-        title = "Boarding Request Update"
-        body = f"Your boarding request ({instance.start_date} - {instance.end_date}) is now {new_status}."
-        
-        data = {
-            'type': 'boarding_request_update',
-            'id': str(instance.id),
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-        }
-        
-        send_push_notification(instance.owner, title, body, data, category='bookings')
+# Owner notification on boarding status changes lives in
+# BoardingRequestViewSet._notify_owner_boarding_status — a pre_save/post_save
+# signal pair here used to duplicate it, sending owners two pushes per change.
 
 # --- Dog Status Change Notifications ---
 

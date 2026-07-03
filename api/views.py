@@ -1435,7 +1435,11 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                     instance.owner,
                     'Boarding Booking Updated',
                     body,
-                    {'type': 'boarding_status', 'id': str(instance.id)},
+                    {
+                        'type': 'boarding_request_update',
+                        'id': str(instance.id),
+                        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                    },
                     category='bookings',
                 )
             except Exception as e:
@@ -1452,11 +1456,20 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             return None
 
     def _notify_owner_boarding_status(self, instance, new_status):
+        # The single owner-facing status notification (the old model signal
+        # duplicated this). Type 'boarding_request_update' is what the app
+        # deep-links to the boarding requests screen; category 'bookings'
+        # honours the owner's notification preferences.
         try:
             from .notifications import send_push_notification
             title = f"Boarding Request {new_status.title()}"
             body = f"Your boarding request for {', '.join([d.name for d in instance.dogs.all()])} has been {new_status.lower()}."
-            send_push_notification(instance.owner, title, body, {'type': 'boarding_status', 'id': str(instance.id)})
+            data = {
+                'type': 'boarding_request_update',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            send_push_notification(instance.owner, title, body, data, category='bookings')
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
