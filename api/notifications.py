@@ -314,7 +314,7 @@ def notify_defect_comment(comment, defect, defect_type='vehicle'):
         send_push_notification(user, title, body, data)
 
 
-def send_staff_notification(title, body, data=None, permission=None):
+def send_staff_notification(title, body, data=None, permission=None, exclude_user=None):
     """Sends a push notification to staff members individually.
 
     Unlike the previous topic-based approach, this sends to each staff member
@@ -323,6 +323,10 @@ def send_staff_notification(title, body, data=None, permission=None):
     If *permission* is supplied (e.g. ``'can_manage_requests'``), only staff
     whose UserProfile has that flag set to True will receive the notification.
     When omitted, all staff members are notified.
+
+    *exclude_user* skips one recipient — used so the staff member who caused
+    the event (reported the defect, edited the instructions) isn't notified
+    about their own action.
     """
     from django.contrib.auth.models import User
 
@@ -330,5 +334,9 @@ def send_staff_notification(title, body, data=None, permission=None):
     if permission:
         filters[f'profile__{permission}'] = True
 
-    for user in User.objects.filter(**filters):
+    recipients = User.objects.filter(**filters)
+    if exclude_user is not None:
+        recipients = recipients.exclude(pk=exclude_user.pk)
+
+    for user in recipients:
         send_push_notification(user, title, body, data)

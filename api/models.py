@@ -656,6 +656,10 @@ def notify_staff_date_change(sender, instance, created, **kwargs):
 @receiver(post_save, sender=BoardingRequest)
 def notify_staff_boarding_request(sender, instance, created, **kwargs):
     if created:
+        # Skip the staff notification when staff created (and auto-approved)
+        # the booking themselves — there's nothing for managers to action.
+        if instance.status != 'PENDING':
+            return
         owner_name = instance.owner.username
         title = "New Boarding Request"
         body = f"{owner_name} requested boarding from {instance.start_date} to {instance.end_date}."
@@ -685,6 +689,12 @@ def store_old_date_request_status(sender, instance, **kwargs):
 def notify_user_date_request_status(sender, instance, created, **kwargs):
     if created:
         return # Already handled by staff notification, user knows they created it locally usually
+
+    # The change_status endpoint sends its own, more detailed owner push and
+    # sets this flag so the owner isn't notified twice for one status change.
+    # The signal still covers every other path (e.g. Django admin edits).
+    if getattr(instance, '_owner_push_handled', False):
+        return
 
     if hasattr(instance, '_old_status') and instance._old_status != instance.status:
         # Status changed!
@@ -789,6 +799,9 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
         data = {
             'type': 'dog_status_update',
             'id': str(instance.id),
+            # The app deep-links to the dog via dog_id (the bare id above is
+            # the assignment id, which the app can't navigate with).
+            'dog_id': str(instance.dog_id),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
 
@@ -850,7 +863,9 @@ def notify_staff_care_instructions_changed(sender, instance, created, **kwargs):
         'click_action': 'FLUTTER_NOTIFICATION_CLICK',
     }
 
-    send_staff_notification(title, body, data, permission='can_assign_dogs')
+    # Don't notify the staff member about their own edit.
+    exclude = changed_by if (changed_by and changed_by.is_staff) else None
+    send_staff_notification(title, body, data, permission='can_assign_dogs', exclude_user=exclude)
 
 # --- Day-Off Request Notifications ---
 
