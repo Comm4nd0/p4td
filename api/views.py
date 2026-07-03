@@ -1755,7 +1755,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if error:
             return error
         self._materialize_roster_for_date(target_date)
-        assignments = self.get_queryset().filter(date=target_date).exclude(status='REMOVED')
+        assignments = self.get_queryset().filter(date=target_date).exclude(status__in=['REMOVED', 'UNASSIGNED'])
         serializer = self.get_serializer(assignments, many=True, context=self._boarding_context(target_date))
         return Response(serializer.data)
 
@@ -1768,7 +1768,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         self._materialize_roster_for_date(target_date)
         assignments = self.get_queryset().filter(
             staff_member=request.user, date=target_date
-        ).exclude(status='REMOVED')
+        ).exclude(status__in=['REMOVED', 'UNASSIGNED'])
         serializer = self.get_serializer(assignments, many=True, context=self._boarding_context(target_date))
         return Response(serializer.data)
 
@@ -1792,7 +1792,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         assignments = (
             self.get_queryset()
             .filter(date=target_date)
-            .exclude(status='REMOVED')
+            .exclude(status__in=['REMOVED', 'UNASSIGNED'])
         )
 
         dogs_by_staff = {}
@@ -1941,12 +1941,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             id__in=cancelled_dog_ids
         ).distinct()
 
-        # Exclude dogs that already have an assignment for this date
-        # (any status, including REMOVED — a REMOVED row means staff
-        # explicitly cancelled the dog for this day).
+        # Exclude dogs that already have an assignment for this date,
+        # including REMOVED (staff explicitly cancelled the dog for this
+        # day) — but NOT UNASSIGNED, which means "attending, no staff member
+        # yet" and is exactly what this list is for.
         assigned_or_removed_dog_ids = DailyDogAssignment.objects.filter(
             date=target_date
-        ).values_list('dog_id', flat=True)
+        ).exclude(status='UNASSIGNED').values_list('dog_id', flat=True)
 
         unassigned = scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids).select_related(
             'owner__profile'
@@ -2013,7 +2014,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
-            elif assignment.status == 'REMOVED':
+            elif assignment.status in ('REMOVED', 'UNASSIGNED'):
                 assignment.status = 'ASSIGNED'
                 assignment.staff_member = request.user
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
@@ -2101,7 +2102,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
-            elif assignment.status == 'REMOVED':
+            elif assignment.status in ('REMOVED', 'UNASSIGNED'):
                 assignment.status = 'ASSIGNED'
                 assignment.staff_member = target_staff
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
@@ -2268,9 +2269,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 status='ASSIGNED',
             ).delete()
         else:
-            # Mark as REMOVED instead of deleting so that
-            # _materialize_roster_for_date does not re-create the row.
-            assignment.status = 'REMOVED'
+            # Mark as UNASSIGNED instead of deleting so that
+            # _materialize_roster_for_date does not re-create the row. The dog
+            # is still attending this day (it surfaces in unassigned_dogs) —
+            # this used to set REMOVED, which reads as "not coming today" and
+            # made the dog vanish from the day board entirely.
+            assignment.status = 'UNASSIGNED'
             assignment.save(update_fields=['status', 'updated_at'])
 
         return Response(status=204)
@@ -2383,7 +2387,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         assigned_dog_ids = DailyDogAssignment.objects.filter(
             date=target_date
-        ).values_list('dog_id', flat=True)
+        ).exclude(status='UNASSIGNED').values_list('dog_id', flat=True)
 
         unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
 
@@ -2431,6 +2435,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                     defaults={'staff_member': staff},
                 )
                 if was_created:
+                    created.append(assignment)
+                elif assignment.status == 'UNASSIGNED':
+                    # Dog was unassigned for the day — revive the row rather
+                    # than silently leaving it unassigned.
+                    assignment.status = 'ASSIGNED'
+                    assignment.staff_member = staff
+                    assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
                     created.append(assignment)
             else:
                 skipped.append(dog.id)

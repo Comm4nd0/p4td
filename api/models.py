@@ -314,6 +314,11 @@ class DailyDogAssignment(models.Model):
         ('ASSIGNED', 'Assigned'),
         ('PICKED_UP', 'With Team'),
         ('DROPPED_OFF', 'Returned'),
+        # The dog is still attending this day but has no staff member yet
+        # (single-day unassign). Kept as a row so roster materialization
+        # doesn't silently re-create the assignment. Distinct from REMOVED,
+        # which means the dog is NOT attending this day at all.
+        ('UNASSIGNED', 'Unassigned'),
         ('REMOVED', 'Removed'),
     ]
 

@@ -904,10 +904,12 @@ class WeekdayRosterTests(TestCase):
             'scope': 'just_this_day',
         }, format='json')
         self.assertEqual(resp.status_code, 204)
-        # Assignment is kept but marked as REMOVED (not deleted) so that
-        # _materialize_roster_for_date does not re-create it.
+        # Assignment is kept but marked as UNASSIGNED (not deleted) so that
+        # _materialize_roster_for_date does not re-create it. It must NOT be
+        # REMOVED — that means "not attending today" and made the dog vanish
+        # from the board entirely.
         assignment.refresh_from_db()
-        self.assertEqual(assignment.status, 'REMOVED')
+        self.assertEqual(assignment.status, 'UNASSIGNED')
         self.assertTrue(DailyDogAssignment.objects.filter(pk=future.pk).exists())
         self.assertTrue(DogWeekdayPickup.objects.filter(
             dog=self.dog, weekday=self.today_weekday
@@ -958,6 +960,43 @@ class WeekdayRosterTests(TestCase):
         dog_ids = [d['id'] for d in resp.data]
         self.assertIn(self.dog.id, dog_ids)
 
+    def test_unassign_just_this_day_hides_dog_from_staff_roster(self):
+        """An unassigned dog must leave the staff member's column but stay on
+        the day (regression: it was marked REMOVED and disappeared from the
+        whole board). Runs on SQLite, unlike the unassigned-pool test."""
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'just_this_day'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 204)
+
+        # Gone from the day roster listing...
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn(self.dog.id, [a['dog'] for a in resp.data])
+
+        # ...but NOT removed from the day: the row still marks it attending.
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'UNASSIGNED')
+
+    def test_mark_removed_after_unassign_still_removes(self):
+        """Remove-from-day on an unassigned dog flips UNASSIGNED → REMOVED."""
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today, status='UNASSIGNED'
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id,
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'REMOVED')
+
     def test_reassign_after_unassign_reactivates_row(self):
         assignment = DailyDogAssignment.objects.create(
             dog=self.dog, staff_member=self.staff_a, date=self.today
@@ -968,7 +1007,7 @@ class WeekdayRosterTests(TestCase):
             {'scope': 'just_this_day'}, format='json',
         )
         assignment.refresh_from_db()
-        self.assertEqual(assignment.status, 'REMOVED')
+        self.assertEqual(assignment.status, 'UNASSIGNED')
 
         resp = self.client.post('/api/daily-assignments/assign_dogs/', {
             'dog_ids': [self.dog.id],
@@ -1001,12 +1040,12 @@ class WeekdayRosterTests(TestCase):
             f'/api/daily-assignments/today/?date={self.today.isoformat()}'
         )
         self.assertEqual(resp.status_code, 200)
-        # The REMOVED row is hidden from `today`, and materialization must not
-        # insert a duplicate or flip the status back.
+        # The UNASSIGNED row is hidden from `today`, and materialization must
+        # not insert a duplicate or flip the status back to ASSIGNED.
         self.assertEqual(len(resp.data), 0)
         rows = DailyDogAssignment.objects.filter(dog=self.dog, date=self.today)
         self.assertEqual(rows.count(), 1)
-        self.assertEqual(rows.get().status, 'REMOVED')
+        self.assertEqual(rows.get().status, 'UNASSIGNED')
 
     # --- mark_removed (skip a rostered dog without first assigning) ---
 
