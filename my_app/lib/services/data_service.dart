@@ -19,6 +19,7 @@ import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
 import '../models/contact_inquiry.dart';
 import '../models/dog_profile_change_request.dart';
+import '../models/intake_request.dart';
 import '../models/staff_permission.dart';
 import '../models/postcode_address.dart';
 import '../models/vaccination_record.dart';
@@ -2466,6 +2467,103 @@ class ApiDataService implements DataService {
       return DayOffRequest.fromJson(json.decode(response.body));
     }
     throw Exception('Failed to deny day off request: ${response.statusCode}');
+  }
+
+  // --- Booking Forms (intake requests) ---
+
+  @override
+  Future<List<IntakeRequest>> getIntakeRequests() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/intake-requests/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => IntakeRequest.fromJson(j)).toList();
+    }
+    throw Exception('Failed to fetch booking forms: ${response.statusCode}');
+  }
+
+  @override
+  Future<IntakeRequest> submitIntakeRequest({
+    String? phoneNumber,
+    String? address,
+    String? postcode,
+    String? pickupInstructions,
+    String? additionalInfo,
+    required List<IntakeDog> dogs,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/intake-requests/'),
+      headers: headers,
+      body: json.encode({
+        'phone_number': phoneNumber ?? '',
+        'address': address ?? '',
+        'postcode': postcode ?? '',
+        'pickup_instructions': pickupInstructions ?? '',
+        'additional_info': additionalInfo ?? '',
+        'dogs': dogs.map((d) => d.toJson()).toList(),
+      }),
+    );
+    if (response.statusCode == 201) {
+      return IntakeRequest.fromJson(json.decode(response.body));
+    }
+    String errorMessage = 'Failed to submit booking form';
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map && errorData.isNotEmpty) {
+        final first = errorData.values.first;
+        if (first is List && first.isNotEmpty) {
+          errorMessage = first.first.toString();
+        } else {
+          errorMessage = first?.toString() ?? errorMessage;
+        }
+      }
+    } catch (_) {
+      errorMessage = 'Server error (${response.statusCode})';
+    }
+    throw Exception(errorMessage);
+  }
+
+  @override
+  Future<IntakeRequest> approveIntakeRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/intake-requests/$requestId/approve/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return IntakeRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to approve booking form: ${response.statusCode}');
+  }
+
+  @override
+  Future<IntakeRequest> denyIntakeRequest(int requestId, {String? reason}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/intake-requests/$requestId/deny/'),
+      headers: headers,
+      body: json.encode({'reason': reason ?? ''}),
+    );
+    if (response.statusCode == 200) {
+      return IntakeRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to deny booking form: ${response.statusCode}');
+  }
+
+  @override
+  Future<void> deleteIntakeRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/intake-requests/$requestId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to withdraw booking form: ${response.statusCode}');
+    }
   }
 
   // --- Dog Profile Change Requests ---

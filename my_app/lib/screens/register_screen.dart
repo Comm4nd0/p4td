@@ -4,9 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
-import '../services/data_service.dart';
-import '../services/service_locator.dart';
-import '../models/user_profile.dart';
 import 'home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -19,7 +16,6 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
-  final DataService _dataService = getIt<DataService>();
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
@@ -48,8 +44,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
 
   @override
   void dispose() {
@@ -58,8 +52,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
@@ -101,25 +93,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         final loginError = await _authService.login(email, password);
         
         if (loginError == null) {
-          // Step 3: Update profile with phone/address if provided
-          if (_phoneController.text.isNotEmpty || _addressController.text.isNotEmpty) {
-            try {
-              final profile = await _dataService.getProfile();
-              final updatedProfile = UserProfile(
-                username: profile.username,
-                email: profile.email,
-                firstName: profile.firstName,
-                phoneNumber: _phoneController.text.trim(),
-                address: _addressController.text.trim(),
-                pickupInstructions: profile.pickupInstructions,
-              );
-              await _dataService.updateProfile(updatedProfile);
-            } catch (e) {
-              // Profile update failed but account was created - continue anyway
-              debugPrint('Profile update failed: $e');
-            }
-          }
-          
+          // Contact details (phone/address) are captured on the booking form
+          // — the second step of the intake flow — not at registration.
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Account created successfully!')),
@@ -281,26 +256,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 24),
               Text(
-                'Contact Details (Optional)',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  prefixIcon: Picon(PiconsDuotone.phone),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(
-                  labelText: 'Address',
-                  prefixIcon: Picon(PiconsDuotone.house),
-                ),
-                maxLines: 2,
+                'Once your account is created you can fill out the booking form '
+                'to get your dog(s) booked into daycare.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
               ),
               const SizedBox(height: 24),
               // Privacy Policy acceptance — required to create an account.

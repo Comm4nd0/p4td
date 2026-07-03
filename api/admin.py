@@ -12,7 +12,7 @@ from .models import (
     ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
     VaccinationRecord, WaitlistEntry, DaycareSettings,
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
-    FacilityDefect, FacilityDefectImage,
+    FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog,
 )
 
 
@@ -1086,3 +1086,23 @@ class FacilityDefectAdmin(admin.ModelAdmin):
             obj.get_status_display(),
         )
     status_display.short_description = 'Status'
+
+
+class IntakeDogInline(admin.TabularInline):
+    model = IntakeDog
+    extra = 0
+    raw_id_fields = ('created_dog',)
+
+
+@admin.register(IntakeRequest)
+class IntakeRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner', 'dog_names', 'status', 'reviewed_by', 'created_at')
+    list_filter = ('status',)
+    search_fields = ('owner__username', 'owner__email', 'dogs__name')
+    raw_id_fields = ('owner', 'reviewed_by')
+    readonly_fields = ('created_at',)
+    inlines = [IntakeDogInline]
+
+    def dog_names(self, obj):
+        return ', '.join(d.name for d in obj.dogs.all()) or '-'
+    dog_names.short_description = 'Dogs'

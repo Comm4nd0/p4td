@@ -116,6 +116,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/vehicles/` | Fleet vehicles (MOT/service tracking) |
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
 | `api/facility-defects/` | Facility defect reports |
+| `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs) |
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
