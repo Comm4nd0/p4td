@@ -680,7 +680,17 @@ class DogViewSet(viewsets.ModelViewSet):
         ).order_by('name')
         return Response({
             'count': qs.count(),
-            'dogs': [{'id': d.id, 'name': d.name} for d in qs],
+            'dogs': [
+                {
+                    'id': d.id,
+                    'name': d.name,
+                    'profile_image': (
+                        request.build_absolute_uri(d.profile_image.url)
+                        if d.profile_image else None
+                    ),
+                }
+                for d in qs
+            ],
         })
 
     def destroy(self, request, *args, **kwargs):

@@ -14,28 +14,46 @@ import '../services/service_locator.dart';
 ///
 /// Pass [dog] when the caller already holds a full Dog, or [assignment] when
 /// opened from a daily pickup list — the full Dog is then fetched in the
-/// background so care details and the profile link become available.
+/// background so care details and the profile link become available. Callers
+/// that only hold an ID (e.g. dashboard summaries) can pass [dogId] with
+/// optional [dogName]/[dogImageUrl] shown while the full Dog loads.
 ///
 /// [show] returns the loaded Dog when the user taps "View Full Profile"
 /// (the caller performs the navigation), or null if dismissed.
 class DogQuickInfoSheet extends StatefulWidget {
   final Dog? dog;
   final DailyDogAssignment? assignment;
+  final String? dogId;
+  final String? dogName;
+  final String? dogImageUrl;
 
   /// When set, a reassign button shows in the top-right of the header. The
   /// sheet closes itself before invoking the callback (so the staff picker
   /// isn't buried under it). Pass null when the viewer lacks permission.
   final VoidCallback? onReassign;
 
-  const DogQuickInfoSheet({super.key, this.dog, this.assignment, this.onReassign})
-      : assert(dog != null || assignment != null, 'Provide a dog or an assignment');
+  const DogQuickInfoSheet(
+      {super.key, this.dog, this.assignment, this.dogId, this.dogName, this.dogImageUrl, this.onReassign})
+      : assert(dog != null || assignment != null || dogId != null,
+            'Provide a dog, an assignment, or a dogId');
 
   static Future<Dog?> show(BuildContext context,
-      {Dog? dog, DailyDogAssignment? assignment, VoidCallback? onReassign}) {
+      {Dog? dog,
+      DailyDogAssignment? assignment,
+      String? dogId,
+      String? dogName,
+      String? dogImageUrl,
+      VoidCallback? onReassign}) {
     return showModalBottomSheet<Dog>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => DogQuickInfoSheet(dog: dog, assignment: assignment, onReassign: onReassign),
+      builder: (_) => DogQuickInfoSheet(
+          dog: dog,
+          assignment: assignment,
+          dogId: dogId,
+          dogName: dogName,
+          dogImageUrl: dogImageUrl,
+          onReassign: onReassign),
     );
   }
 
@@ -54,7 +72,8 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
     _dog = widget.dog;
     if (_dog == null) {
       _loading = true;
-      getIt<DataService>().getDogById(widget.assignment!.dogId.toString()).then((dog) {
+      final id = widget.assignment?.dogId.toString() ?? widget.dogId!;
+      getIt<DataService>().getDogById(id).then((dog) {
         if (mounted) setState(() { _dog = dog; _loading = false; });
       }).catchError((_) {
         if (mounted) setState(() { _loading = false; _loadFailed = true; });
@@ -65,8 +84,9 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
   // ---- Field resolution: assignment carries the per-day values, the Dog
   // carries everything else. Prefer the assignment where both exist.
 
-  String get _name => widget.assignment?.dogName ?? _dog!.name;
-  String? get _imageUrl => widget.assignment?.dogProfileImage ?? _dog?.profileImageUrl;
+  String get _name => widget.assignment?.dogName ?? _dog?.name ?? widget.dogName ?? '';
+  String? get _imageUrl =>
+      widget.assignment?.dogProfileImage ?? _dog?.profileImageUrl ?? widget.dogImageUrl;
   String? get _ownerName => widget.assignment?.ownerName ?? _dog?.ownerDetails?.displayName;
   String? get _phone => _firstNonEmpty(widget.assignment?.ownerPhone, _dog?.ownerDetails?.phoneNumber);
   String? get _address => _firstNonEmpty(widget.assignment?.ownerAddress, _dog?.address);

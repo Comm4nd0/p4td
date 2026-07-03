@@ -12,7 +12,8 @@ class DogUpdatePendingApprovalException implements Exception {
 class UnspayedMaleSummary {
   final String id;
   final String name;
-  UnspayedMaleSummary({required this.id, required this.name});
+  final String? imageUrl;
+  UnspayedMaleSummary({required this.id, required this.name, this.imageUrl});
 }
 
 /// One page of feed items plus whether more pages follow.
