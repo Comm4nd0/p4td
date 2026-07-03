@@ -114,5 +114,34 @@ void main() {
       expect(numbers[2], isNull);
       expect(numbers[3], 2);
     });
+
+    test('mid-boarding dogs are off the run, edge days stay on it', () {
+      DailyDogAssignment boarding(int id, String dog, int sortOrder,
+              {bool firstDay = false, bool lastDay = false}) =>
+          DailyDogAssignment(
+            id: id,
+            dogId: id,
+            dogName: dog,
+            staffMemberId: 7,
+            staffMemberName: 'Staff 7',
+            ownerName: 'Owner',
+            date: DateTime(2030, 6, 1),
+            status: AssignmentStatus.assigned,
+            isBoarding: true,
+            isBoardingFirstDay: firstDay,
+            isBoardingLastDay: lastDay,
+            sortOrder: sortOrder,
+          );
+      final numbers = pickupRunNumbers([
+        boarding(1, 'Alfie', 0, firstDay: true),
+        boarding(2, 'Bella', 1), // mid-stay: with staff, no legs
+        boarding(3, 'Zeus', 2, lastDay: true),
+        make(4, 7, 'Rex', 3),
+      ]);
+      expect(numbers[1], 1);
+      expect(numbers[2], isNull);
+      expect(numbers[3], 2);
+      expect(numbers[4], 3);
+    });
   });
 }

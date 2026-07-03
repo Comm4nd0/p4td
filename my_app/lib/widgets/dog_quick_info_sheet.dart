@@ -126,6 +126,16 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
             ? 'Owner picks up at ${formatApiTime(a.effectiveOwnerCollectsTime!)}'
             : 'Owner picks up');
       }
+      // Boarding dogs only travel on the edges of the stay.
+      if (a.isBoarding && !(a.isBoardingFirstDay && a.isBoardingLastDay)) {
+        if (a.isBoardingFirstDay) {
+          lines.add('Boarding: staying overnight — no drop-off today');
+        } else if (a.isBoardingLastDay) {
+          lines.add('Boarding: going home today — no morning pickup');
+        } else {
+          lines.add('Boarding: with staff — no pickup or drop-off today');
+        }
+      }
     } else if (_dog != null) {
       if (_dog!.ownerBringsDefault) {
         lines.add(_dog!.ownerBringsDefaultTime != null

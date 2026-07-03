@@ -629,6 +629,137 @@ class DailyAssignmentTests(TestCase):
         self.assertIn(self.dog.id, dog_ids)
 
 
+class BoardingTransportLegTests(TestCase):
+    """Boarding dogs only travel on the edges of a stay: staff pick them up
+    on the first day (no evening drop-off — they sleep over) and drop them
+    home on the last day (no morning pickup — they woke up with staff).
+    Owner-handled legs stay owner-handled throughout."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client = APIClient()
+        self.client.login(username='staff', password='pw')
+        self.day1 = date.today()
+        self.day2 = self.day1 + timedelta(days=1)
+        self.day3 = self.day1 + timedelta(days=2)
+
+    def _board(self, start, end, dog=None):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date=start, end_date=end, status='APPROVED')
+        br.dogs.add(dog or self.dog)
+        return br
+
+    def _assign(self, on_date, dog=None):
+        return DailyDogAssignment.objects.create(
+            dog=dog or self.dog, staff_member=self.staff, date=on_date)
+
+    def _fetch(self, on_date, dog=None):
+        resp = self.client.get(f'/api/daily-assignments/today/?date={on_date.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        dog_id = (dog or self.dog).id
+        return next(a for a in resp.data if a['dog'] == dog_id)
+
+    def test_staff_transported_boarding_stay(self):
+        self._board(self.day1, self.day3)
+        for d in (self.day1, self.day2, self.day3):
+            self._assign(d)
+
+        first = self._fetch(self.day1)
+        self.assertTrue(first['is_boarding'])
+        self.assertTrue(first['boarding_first_day'])
+        self.assertFalse(first['boarding_last_day'])
+        self.assertTrue(first['needs_pickup'])
+        self.assertFalse(first['needs_dropoff'])
+
+        middle = self._fetch(self.day2)
+        self.assertTrue(middle['is_boarding'])
+        self.assertFalse(middle['boarding_first_day'])
+        self.assertFalse(middle['boarding_last_day'])
+        self.assertFalse(middle['needs_pickup'])
+        self.assertFalse(middle['needs_dropoff'])
+
+        last = self._fetch(self.day3)
+        self.assertTrue(last['is_boarding'])
+        self.assertFalse(last['boarding_first_day'])
+        self.assertTrue(last['boarding_last_day'])
+        self.assertFalse(last['needs_pickup'])
+        self.assertTrue(last['needs_dropoff'])
+
+    def test_owner_handled_legs_stay_owner_handled(self):
+        self.dog.owner_brings_default = True
+        self.dog.owner_collects_default = True
+        self.dog.save()
+        self._board(self.day1, self.day3)
+        for d in (self.day1, self.day3):
+            self._assign(d)
+
+        first = self._fetch(self.day1)
+        self.assertFalse(first['needs_pickup'])
+        self.assertFalse(first['needs_dropoff'])
+
+        last = self._fetch(self.day3)
+        self.assertFalse(last['needs_pickup'])
+        self.assertFalse(last['needs_dropoff'])
+
+    def test_single_day_boarding_needs_both_legs(self):
+        self._board(self.day1, self.day1)
+        self._assign(self.day1)
+        row = self._fetch(self.day1)
+        self.assertTrue(row['boarding_first_day'])
+        self.assertTrue(row['boarding_last_day'])
+        self.assertTrue(row['needs_pickup'])
+        self.assertTrue(row['needs_dropoff'])
+
+    def test_back_to_back_requests_count_as_one_stay(self):
+        # One request ends day2, the next starts day3 — the dog never goes
+        # home in between, so day2 is not a "last day" and day3 not a "first".
+        self._board(self.day1, self.day2)
+        self._board(self.day3, self.day3 + timedelta(days=2))
+        for d in (self.day2, self.day3):
+            self._assign(d)
+
+        end_of_first = self._fetch(self.day2)
+        self.assertFalse(end_of_first['boarding_last_day'])
+        self.assertFalse(end_of_first['needs_dropoff'])
+
+        start_of_second = self._fetch(self.day3)
+        self.assertFalse(start_of_second['boarding_first_day'])
+        self.assertFalse(start_of_second['needs_pickup'])
+
+    def test_non_boarding_dog_unaffected(self):
+        self._assign(self.day1)
+        row = self._fetch(self.day1)
+        self.assertFalse(row['is_boarding'])
+        self.assertFalse(row['boarding_first_day'])
+        self.assertFalse(row['boarding_last_day'])
+        self.assertTrue(row['needs_pickup'])
+        self.assertTrue(row['needs_dropoff'])
+
+    def test_single_object_fallback_without_context(self):
+        # Retrieving one assignment serializes without the bulk boarding
+        # context — the per-row fallback must agree with the roster view.
+        self._board(self.day1, self.day3)
+        assignment = self._assign(self.day2)
+        resp = self.client.get(f'/api/daily-assignments/{assignment.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['is_boarding'])
+        self.assertFalse(resp.data['boarding_first_day'])
+        self.assertFalse(resp.data['boarding_last_day'])
+        self.assertFalse(resp.data['needs_pickup'])
+        self.assertFalse(resp.data['needs_dropoff'])
+
+    def test_model_helpers_match(self):
+        self._board(self.day1, self.day3)
+        first = self._assign(self.day1)
+        last = self._assign(self.day3)
+        self.assertTrue(first.needs_staff_pickup)
+        self.assertFalse(first.needs_staff_dropoff)
+        self.assertFalse(last.needs_staff_pickup)
+        self.assertTrue(last.needs_staff_dropoff)
+
+
 class WeekdayRosterTests(TestCase):
     """Tests for the persistent DogWeekdayPickup roster and related flows."""
 

@@ -93,6 +93,12 @@ class DailyDogAssignment {
   final DateTime date;
   final AssignmentStatus status;
   final bool isBoarding;
+
+  /// First/last day of a boarding stay (consecutive approved requests count
+  /// as one stay). Both true for single-day boarding; both meaningless
+  /// (false) when [isBoarding] is false.
+  final bool isBoardingFirstDay;
+  final bool isBoardingLastDay;
   final bool? ownerBrings;
   final bool? ownerCollects;
   final TimeOfDay? ownerBringsTime;
@@ -119,6 +125,8 @@ class DailyDogAssignment {
     required this.date,
     required this.status,
     this.isBoarding = false,
+    this.isBoardingFirstDay = false,
+    this.isBoardingLastDay = false,
     this.ownerBrings,
     this.ownerCollects,
     this.ownerBringsTime,
@@ -147,6 +155,10 @@ class DailyDogAssignment {
       date: DateTime.parse(json['date']),
       status: AssignmentStatus.fromApi(json['status'] ?? 'ASSIGNED'),
       isBoarding: json['is_boarding'] ?? false,
+      // Older cached payloads predate these fields; defaulting to true keeps
+      // the previous behaviour (boarding dogs shown on both transport legs).
+      isBoardingFirstDay: json['boarding_first_day'] ?? true,
+      isBoardingLastDay: json['boarding_last_day'] ?? true,
       ownerBrings: json['owner_brings'],
       ownerCollects: json['owner_collects'],
       ownerBringsTime: parseApiTime(json['owner_brings_time']),
@@ -157,6 +169,32 @@ class DailyDogAssignment {
       effectiveOwnerCollectsTime: parseApiTime(json['effective_owner_collects_time']),
       sortOrder: json['sort_order'] ?? 0,
     );
+  }
+
+  /// Staff collect this dog from home this morning. Never true when the
+  /// owner brings it; for boarding dogs only on the first day of the stay
+  /// (after that the dog wakes up with the boarding staff member).
+  bool get needsPickup =>
+      !effectiveOwnerBrings && (!isBoarding || isBoardingFirstDay);
+
+  /// Staff return this dog home tonight. Never true when the owner collects
+  /// it; for boarding dogs only on the last day of the stay (before that it
+  /// sleeps over with the boarding staff member).
+  bool get needsDropoff =>
+      !effectiveOwnerCollects && (!isBoarding || isBoardingLastDay);
+
+  /// No staff transport at all today — owner handles every remaining leg
+  /// and/or the dog is mid-boarding. These dogs need no route position.
+  bool get noStaffTransport => !needsPickup && !needsDropoff;
+
+  /// Label describing today's transport for a boarding dog, shown on
+  /// assignment cards. Empty for non-boarding dogs.
+  String get boardingLabel {
+    if (!isBoarding) return '';
+    if (isBoardingFirstDay && isBoardingLastDay) return 'Boarding';
+    if (isBoardingFirstDay) return 'Boarding – staying overnight, no drop-off';
+    if (isBoardingLastDay) return 'Boarding – going home today, no pickup';
+    return 'Boarding – with staff, no pickup or drop-off';
   }
 
   DailyDogAssignment copyWith({
@@ -187,6 +225,8 @@ class DailyDogAssignment {
       date: date,
       status: status ?? this.status,
       isBoarding: isBoarding,
+      isBoardingFirstDay: isBoardingFirstDay,
+      isBoardingLastDay: isBoardingLastDay,
       ownerBrings: ownerBrings ?? this.ownerBrings,
       ownerCollects: ownerCollects ?? this.ownerCollects,
       ownerBringsTime: ownerBringsTime ?? this.ownerBringsTime,

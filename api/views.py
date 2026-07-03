@@ -1605,16 +1605,25 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         return queryset
 
     def _boarding_context(self, target_date):
-        # Compute the set of dogs boarding on target_date once, so the serializer
-        # answers is_boarding with a set lookup instead of a query per row (B7).
+        # Compute the sets of dogs boarding on target_date and its neighbours
+        # once, so the serializer answers is_boarding / boarding_first_day /
+        # boarding_last_day (and the needs_pickup / needs_dropoff legs derived
+        # from them) with set lookups instead of queries per row (B7).
+        from datetime import timedelta
+
+        def boarding_ids(d):
+            return set(
+                BoardingRequest.objects.filter(
+                    status='APPROVED',
+                    start_date__lte=d,
+                    end_date__gte=d,
+                ).values_list('dogs__id', flat=True)
+            )
+
         ctx = self.get_serializer_context()
-        ctx['boarding_dog_ids'] = set(
-            BoardingRequest.objects.filter(
-                status='APPROVED',
-                start_date__lte=target_date,
-                end_date__gte=target_date,
-            ).values_list('dogs__id', flat=True)
-        )
+        ctx['boarding_dog_ids'] = boarding_ids(target_date)
+        ctx['boarding_prev_dog_ids'] = boarding_ids(target_date - timedelta(days=1))
+        ctx['boarding_next_dog_ids'] = boarding_ids(target_date + timedelta(days=1))
         return ctx
 
     def perform_create(self, serializer):
