@@ -407,35 +407,46 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
               IconButton(icon: const Icon(Icons.refresh), onPressed: _reload),
           ],
         ),
-        body: _dragging != null
-            ? _buildDragOverview(columns)
-            : (!_showUnassigned && columns.isEmpty)
-                ? Center(
-                    child: Text('All columns hidden — use the filter to show them.',
-                        style:
-                            TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                  )
-                : ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.all(12),
-                    children: [
-                      if (_showUnassigned)
-                        _buildColumn(
-                          staffId: null,
-                          name: 'Unassigned',
-                          color: kUnassignedColor,
-                          dogs: const [],
-                          unassigned: _unassignedDogs,
-                        ),
-                      for (final staff in columns)
-                        _buildColumn(
-                          staffId: staff.id,
-                          name: staff.name,
-                          color: _staffColors.of(staff.id),
-                          dogs: _dogsFor(staff.id),
-                        ),
-                    ],
-                  ),
+        // The column view must stay MOUNTED (Offstage, not removed) while the
+        // drag overview shows: it contains the active LongPressDraggable, and
+        // Flutter only delivers onDragEnd/onDraggableCanceled to a mounted
+        // draggable. Swapping it out of the tree meant the drag never
+        // "finished", leaving the board stuck on the overview after a drop.
+        body: Stack(
+          children: [
+            Offstage(
+              offstage: _dragging != null,
+              child: (!_showUnassigned && columns.isEmpty)
+                  ? Center(
+                      child: Text('All columns hidden — use the filter to show them.',
+                          style:
+                              TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    )
+                  : ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.all(12),
+                      children: [
+                        if (_showUnassigned)
+                          _buildColumn(
+                            staffId: null,
+                            name: 'Unassigned',
+                            color: kUnassignedColor,
+                            dogs: const [],
+                            unassigned: _unassignedDogs,
+                          ),
+                        for (final staff in columns)
+                          _buildColumn(
+                            staffId: staff.id,
+                            name: staff.name,
+                            color: _staffColors.of(staff.id),
+                            dogs: _dogsFor(staff.id),
+                          ),
+                      ],
+                    ),
+            ),
+            if (_dragging != null) Positioned.fill(child: _buildDragOverview(columns)),
+          ],
+        ),
       ),
     );
   }
