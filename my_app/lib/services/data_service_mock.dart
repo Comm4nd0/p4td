@@ -283,6 +283,14 @@ class MockDataService implements DataService {
   Future<void> deleteBoardingRequest(int requestId) async {}
 
   @override
+  Future<void> updateBoardingRequest(
+    int requestId, {
+    DateTime? startDate,
+    DateTime? endDate,
+    String? specialInstructions,
+  }) async {}
+
+  @override
   Future<void> createBoardingRequest({
     required List<int> dogIds,
     required DateTime startDate,

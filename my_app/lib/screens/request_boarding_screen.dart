@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
+import '../models/boarding_request.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../utils/date_formats.dart';
 
+/// Create a new boarding request, or — when [existing] is passed — edit the
+/// dates and instructions of an existing booking. In edit mode the dogs are
+/// fixed (shown read-only): to board different dogs, make a new request.
 class RequestBoardingScreen extends StatefulWidget {
-  const RequestBoardingScreen({super.key});
+  final BoardingRequest? existing;
+
+  const RequestBoardingScreen({super.key, this.existing});
 
   @override
   State<RequestBoardingScreen> createState() => _RequestBoardingScreenState();
@@ -23,10 +30,22 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
   DateTimeRange? _selectedDateRange;
   final TextEditingController _instructionsController = TextEditingController();
 
+  bool get _isEditing => widget.existing != null;
+
   @override
   void initState() {
     super.initState();
-    _loadDogs();
+    if (_isEditing) {
+      // Dogs aren't editable, so no need to load the pickable dog list.
+      _isLoadingDogs = false;
+      _selectedDateRange = DateTimeRange(
+        start: widget.existing!.startDate,
+        end: widget.existing!.endDate,
+      );
+      _instructionsController.text = widget.existing!.specialInstructions ?? '';
+    } else {
+      _loadDogs();
+    }
   }
 
   @override
@@ -58,7 +77,12 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
 
   Future<void> _selectDateRange() async {
     final now = DateTime.now();
-    final firstDate = now;
+    // When editing a booking that already started, allow keeping its original
+    // (past) start date rather than forcing it forward.
+    var firstDate = DateTime(now.year, now.month, now.day);
+    if (_selectedDateRange != null && _selectedDateRange!.start.isBefore(firstDate)) {
+      firstDate = _selectedDateRange!.start;
+    }
     final lastDate = now.add(const Duration(days: 365));
 
     final picked = await showDateRangePicker(
@@ -77,7 +101,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
 
   Future<void> _submitRequest() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedDogIds.isEmpty) {
+    if (!_isEditing && _selectedDogIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select at least one dog')),
       );
@@ -93,18 +117,29 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _dataService.createBoardingRequest(
-        dogIds: _selectedDogIds,
-        startDate: _selectedDateRange!.start,
-        endDate: _selectedDateRange!.end,
-        specialInstructions: _instructionsController.text.trim().isEmpty
-            ? null
-            : _instructionsController.text.trim(),
-      );
+      if (_isEditing) {
+        await _dataService.updateBoardingRequest(
+          widget.existing!.id,
+          startDate: _selectedDateRange!.start,
+          endDate: _selectedDateRange!.end,
+          specialInstructions: _instructionsController.text.trim(),
+        );
+      } else {
+        await _dataService.createBoardingRequest(
+          dogIds: _selectedDogIds,
+          startDate: _selectedDateRange!.start,
+          endDate: _selectedDateRange!.end,
+          specialInstructions: _instructionsController.text.trim().isEmpty
+              ? null
+              : _instructionsController.text.trim(),
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Boarding request submitted successfully!')),
+          SnackBar(content: Text(_isEditing
+              ? 'Boarding booking updated'
+              : 'Boarding request submitted successfully!')),
         );
         Navigator.pop(context, true);
       }
@@ -125,11 +160,11 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Request Boarding'),
+        title: Text(_isEditing ? 'Edit Boarding' : 'Request Boarding'),
       ),
       body: _isLoadingDogs
           ? const Center(child: CircularProgressIndicator())
-          : _dogs.isEmpty
+          : (!_isEditing && _dogs.isEmpty)
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32),
@@ -158,30 +193,44 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  const Text(
-                    'Select Dogs',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  ..._dogs.map((dog) {
-                    final isSelected = _selectedDogIds.contains(int.parse(dog.id));
-                    return CheckboxListTile(
-                      title: Text(dog.name),
-                      value: isSelected,
-                      onChanged: (bool? value) {
-                        setState(() {
-                          if (value == true) {
-                            _selectedDogIds.add(int.parse(dog.id));
-                          } else {
-                            _selectedDogIds.remove(int.parse(dog.id));
-                          }
-                        });
-                      },
-                      secondary: dog.profileImageUrl != null
-                          ? CircleAvatar(backgroundImage: NetworkImage(dog.profileImageUrl!))
-                          : CircleAvatar(child: Picon(PiconsDuotone.pawPrint)),
-                    );
-                  }).toList(),
+                  if (_isEditing) ...[
+                    const Text(
+                      'Dogs',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(child: Picon(PiconsDuotone.pawPrint)),
+                      title: Text(widget.existing!.dogNames.join(', ')),
+                      subtitle: const Text('Dogs can\'t be changed here — make a new request to board different dogs.'),
+                    ),
+                  ] else ...[
+                    const Text(
+                      'Select Dogs',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._dogs.map((dog) {
+                      final isSelected = _selectedDogIds.contains(int.parse(dog.id));
+                      return CheckboxListTile(
+                        title: Text(dog.name),
+                        value: isSelected,
+                        onChanged: (bool? value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedDogIds.add(int.parse(dog.id));
+                            } else {
+                              _selectedDogIds.remove(int.parse(dog.id));
+                            }
+                          });
+                        },
+                        secondary: dog.profileImageUrl != null
+                            ? CircleAvatar(backgroundImage: NetworkImage(dog.profileImageUrl!))
+                            : CircleAvatar(child: Picon(PiconsDuotone.pawPrint)),
+                      );
+                    }).toList(),
+                  ],
                   const SizedBox(height: 24),
                   const Text(
                     'Select Dates',
@@ -197,7 +246,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                       ),
                       child: Text(
                         _selectedDateRange != null
-                            ? '${_selectedDateRange!.start.toString().split(' ')[0]} - ${_selectedDateRange!.end.toString().split(' ')[0]}'
+                            ? '${ukDate(_selectedDateRange!.start)} - ${ukDate(_selectedDateRange!.end)}'
                             : 'Select Date Range',
                         style: TextStyle(
                             color: _selectedDateRange != null
@@ -231,7 +280,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                             height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Submit Request'),
+                        : Text(_isEditing ? 'Save Changes' : 'Submit Request'),
                   ),
                 ],
               ),

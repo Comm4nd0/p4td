@@ -1406,6 +1406,45 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             raise PermissionDenied('Only staff can delete a booking that has been approved or denied.')
         instance.delete()
 
+    def perform_update(self, serializer):
+        # Owners can amend their own request only while it's still PENDING —
+        # once a booking is approved/denied, changes go through staff (who can
+        # edit any booking, e.g. to shift the dates of an approved stay).
+        if not self.request.user.is_staff and serializer.instance.status != 'PENDING':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can edit a booking that has been approved or denied.')
+
+        old_start = serializer.instance.start_date
+        old_end = serializer.instance.end_date
+        instance = serializer.save()
+
+        # Let the owner know when staff move the dates of their booking.
+        if (
+            self.request.user.is_staff
+            and self.request.user != instance.owner
+            and (instance.start_date != old_start or instance.end_date != old_end)
+        ):
+            try:
+                from .notifications import send_push_notification
+                dogs = ', '.join(d.name for d in instance.dogs.all())
+                body = (
+                    f"The dates for {dogs}'s boarding have been updated to "
+                    f"{instance.start_date.strftime('%d/%m/%Y')} - {instance.end_date.strftime('%d/%m/%Y')}."
+                )
+                send_push_notification(
+                    instance.owner,
+                    'Boarding Booking Updated',
+                    body,
+                    {
+                        'type': 'boarding_request_update',
+                        'id': str(instance.id),
+                        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                    },
+                    category='bookings',
+                )
+            except Exception as e:
+                print(f"Failed to send push notification: {e}")
+
     def _resolve_assigned_staff(self, staff_id):
         """Resolve a staff user id to a User, or None. Ignores non-staff ids."""
         if staff_id in (None, ''):
@@ -1417,11 +1456,20 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             return None
 
     def _notify_owner_boarding_status(self, instance, new_status):
+        # The single owner-facing status notification (the old model signal
+        # duplicated this). Type 'boarding_request_update' is what the app
+        # deep-links to the boarding requests screen; category 'bookings'
+        # honours the owner's notification preferences.
         try:
             from .notifications import send_push_notification
             title = f"Boarding Request {new_status.title()}"
             body = f"Your boarding request for {', '.join([d.name for d in instance.dogs.all()])} has been {new_status.lower()}."
-            send_push_notification(instance.owner, title, body, {'type': 'boarding_status', 'id': str(instance.id)})
+            data = {
+                'type': 'boarding_request_update',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            send_push_notification(instance.owner, title, body, data, category='bookings')
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
