@@ -154,7 +154,7 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
 
     assignments = DailyDogAssignment.objects.filter(
         date=date, staff_member=staff_member
-    ).exclude(status='REMOVED').select_related('dog__owner').prefetch_related('dog__additional_owners')
+    ).exclude(status__in=['REMOVED', 'UNASSIGNED']).select_related('dog__owner').prefetch_related('dog__additional_owners')
 
     if dog_ids:
         # An explicit selection from the app is authoritative: notify exactly
