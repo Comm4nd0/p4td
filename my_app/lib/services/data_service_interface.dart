@@ -73,6 +73,7 @@ abstract class DataService {
   });
   Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId);
   Future<void> registerDeviceToken(String token, String deviceType);
+  Future<void> deregisterDeviceToken(String token);
   Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date});
   Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date});
   Future<List<Dog>> getUnassignedDogs({DateTime? date});

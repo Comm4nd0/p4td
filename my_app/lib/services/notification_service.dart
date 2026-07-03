@@ -136,6 +136,22 @@ class NotificationService {
     }
   }
 
+  /// Remove this device's token from the account that is currently signed in,
+  /// so the device stops receiving that user's notifications after logout.
+  /// Best-effort: must be called while the user is still authenticated.
+  Future<void> deregisterToken() async {
+    try {
+      String? token = await _fcm.getToken();
+      if (token != null) {
+        await _dataService.deregisterDeviceToken(token);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error deregistering FCM token: $e');
+      }
+    }
+  }
+
   /// Handle tap from local notification payload (stringified map)
   void _handleNotificationTap(String? payload) {
     if (payload == null || payload.isEmpty) return;

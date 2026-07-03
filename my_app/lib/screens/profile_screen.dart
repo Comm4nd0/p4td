@@ -9,6 +9,7 @@ import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import '../services/theme_service.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
@@ -189,7 +190,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _switchAccount(Account account) async {
     if (account.userId == _activeAccountId) return;
     final next = await _authService.switchAccount(account.userId);
-    if (next == null || !mounted) return;
+    if (next == null) return;
+    // Re-register the device token so pushes target the now-active account
+    // immediately (the backend keeps one owner per token).
+    await NotificationService().updateToken();
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
       (route) => false,
@@ -352,7 +357,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _logout() async {
+    // Stop this device receiving the signed-out user's notifications.
+    // Must happen before logout() while their auth token is still active.
+    await NotificationService().deregisterToken();
     final next = await _authService.logout();
+    if (next != null) {
+      // Another account is now active — point pushes at it straight away.
+      await NotificationService().updateToken();
+    }
     if (!mounted) return;
     if (next != null) {
       // Another account is now active — stay in the app.
