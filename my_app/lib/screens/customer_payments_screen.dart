@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../models/customer_rate.dart';
 import '../models/invoice.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -116,6 +117,44 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     }
   }
 
+  Future<void> _generateForCustomer() async {
+    List<CustomerRate> customers;
+    try {
+      customers = await _dataService.getCustomerRates();
+    } catch (e) {
+      _showError(e);
+      return;
+    }
+    if (!mounted) return;
+
+    final chosen = await showModalBottomSheet<CustomerRate>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _CustomerPickerSheet(customers: customers),
+    );
+    if (chosen == null || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      final result = await _dataService.generateInvoices(
+        _month.year, _month.month, customerId: chosen.userId);
+      if (mounted) {
+        if (result.created > 0) {
+          _showSuccess('Draft invoice created for ${chosen.displayName}');
+        } else if (result.skipped > 0) {
+          _showError('${chosen.displayName} already has an invoice for $_monthLabel — void it first to reissue.');
+        } else {
+          _showError('${chosen.displayName} has nothing to bill for $_monthLabel.');
+        }
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _sendAllDrafts() async {
     if (_summary.draft == 0) {
       _showError('No draft invoices for $_monthLabel');
@@ -189,6 +228,9 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                 case 'generate':
                   _generateInvoices();
                   break;
+                case 'generate_one':
+                  _generateForCustomer();
+                  break;
                 case 'send_all':
                   _sendAllDrafts();
                   break;
@@ -207,6 +249,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
               const PopupMenuItem(
                 value: 'generate',
                 child: Text('Generate invoices for month'),
+              ),
+              const PopupMenuItem(
+                value: 'generate_one',
+                child: Text('Generate for one customer'),
               ),
               const PopupMenuItem(
                 value: 'send_all',
@@ -418,6 +464,89 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
               InvoiceStatusPill(invoice: invoice),
               const SizedBox(width: 4),
               Picon(PiconsDuotone.caretRight, size: 16, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Searchable customer picker used by "Generate for one customer".
+class _CustomerPickerSheet extends StatefulWidget {
+  final List<CustomerRate> customers;
+
+  const _CustomerPickerSheet({required this.customers});
+
+  @override
+  State<_CustomerPickerSheet> createState() => _CustomerPickerSheetState();
+}
+
+class _CustomerPickerSheetState extends State<_CustomerPickerSheet> {
+  String _search = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.toLowerCase();
+    final visible = widget.customers
+        .where((c) =>
+            query.isEmpty ||
+            c.displayName.toLowerCase().contains(query) ||
+            c.username.toLowerCase().contains(query) ||
+            c.dogNames.any((d) => d.toLowerCase().contains(query)))
+        .toList();
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Column(
+                  children: [
+                    Text('Choose a customer',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search customers or dogs',
+                        prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
+                        isDense: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onChanged: (value) => setState(() => _search = value),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: visible.isEmpty
+                    ? Center(
+                        child: Text('No customers found',
+                            style: TextStyle(color: Colors.grey[600])),
+                      )
+                    : ListView.builder(
+                        itemCount: visible.length,
+                        itemBuilder: (context, index) {
+                          final customer = visible[index];
+                          return ListTile(
+                            title: Text(customer.displayName),
+                            subtitle: customer.dogNames.isEmpty
+                                ? null
+                                : Text(customer.dogNames.join(', '),
+                                    style: const TextStyle(fontSize: 12)),
+                            onTap: () => Navigator.pop(context, customer),
+                          );
+                        },
+                      ),
+              ),
             ],
           ),
         ),

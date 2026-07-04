@@ -1070,7 +1070,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = InvoiceLine
-        fields = ['id', 'dog', 'dog_name', 'description', 'quantity', 'unit_price', 'line_total', 'attendance_dates']
+        fields = ['id', 'dog', 'dog_name', 'description', 'quantity', 'unit_price', 'line_total', 'attendance_dates', 'is_adjustment']
 
     def get_dog_name(self, obj):
         return obj.dog.name if obj.dog else None

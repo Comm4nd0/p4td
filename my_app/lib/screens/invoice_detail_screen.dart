@@ -124,12 +124,13 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   Future<void> _confirmVoid() async {
+    final hadXeroCopy = _invoice!.xeroInvoiceNumber.isNotEmpty;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Void invoice?'),
         content: const Text(
-            'The invoice will be cancelled and a new one can be generated for the same month. This does not remove it from Xero.'),
+            'The invoice will be cancelled (in Xero too, where possible) and a new one can be generated for the same month.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(
@@ -142,7 +143,87 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
     if (confirmed == true) {
       await _runAction(() => _dataService.voidInvoice(_invoice!.id), 'Invoice voided');
+      final updated = _invoice;
+      if (hadXeroCopy &&
+          updated != null &&
+          updated.status == 'VOID' &&
+          updated.xeroSyncError.isNotEmpty &&
+          mounted) {
+        _showError('Could not void the Xero copy (it may have payments applied) — '
+            'handle it in Xero with a credit note.');
+      }
     }
+  }
+
+  Future<void> _addAdjustmentDialog() async {
+    final invoice = _invoice!;
+    final descriptionController = TextEditingController();
+    final amountController = TextEditingController();
+    var isDiscount = false;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add charge or discount'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('Charge')),
+                  ButtonSegment(value: true, label: Text('Discount')),
+                ],
+                selected: {isDiscount},
+                onSelectionChanged: (selection) =>
+                    setDialogState(() => isDiscount = selection.first),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descriptionController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  labelText: 'Description',
+                  hintText: isDiscount ? 'e.g. Loyalty discount' : 'e.g. Damaged lead',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Amount', prefixText: '£'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Add')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    final amount = double.tryParse(amountController.text.trim());
+    if (amount == null || amount <= 0) {
+      _showError('Enter a valid amount');
+      return;
+    }
+    await _runAction(
+      () => _dataService.addInvoiceLine(
+        invoice.id,
+        description: descriptionController.text.trim(),
+        amount: isDiscount ? -amount : amount,
+      ),
+      isDiscount ? 'Discount added' : 'Charge added',
+    );
+  }
+
+  Future<void> _removeAdjustment(InvoiceLine line) async {
+    await _runAction(
+      () => _dataService.removeInvoiceLine(_invoice!.id, line.id),
+      'Adjustment removed',
+    );
   }
 
   Future<void> _recordPaymentDialog() async {
@@ -360,6 +441,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   Widget _buildLinesCard(Invoice invoice) {
+    final attendanceLines = invoice.lines.where((l) => !l.isAdjustment).toList();
+    final adjustments = invoice.lines.where((l) => l.isAdjustment).toList();
+    final canEditAdjustments = widget.canManagePayments && invoice.status == 'DRAFT';
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -368,18 +452,19 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Text('Daycare days',
+              child: Text('Charges',
                   style: Theme.of(context)
                       .textTheme
                       .titleSmall
                       ?.copyWith(fontWeight: FontWeight.bold)),
             ),
-            ...invoice.lines.map((line) => ExpansionTile(
+            ...attendanceLines.map((line) => ExpansionTile(
                   leading: Picon(PiconsDuotone.dog, size: 24),
                   title: Text(line.dogName ?? line.description,
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                   subtitle: Text(
-                    '${line.quantity} day${line.quantity == 1 ? '' : 's'} @ £${line.unitPrice.toStringAsFixed(2)}',
+                    '${line.description.startsWith('Boarding') ? 'Boarding — ' : ''}'
+                    '${line.quantity} ${line.description.startsWith('Boarding') ? 'night' : 'day'}${line.quantity == 1 ? '' : 's'} @ £${line.unitPrice.toStringAsFixed(2)}',
                     style: TextStyle(color: Colors.grey[600], fontSize: 13),
                   ),
                   trailing: Text('£${line.lineTotal.toStringAsFixed(2)}',
@@ -405,6 +490,34 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                         ),
                       ),
                   ],
+                )),
+            ...adjustments.map((line) => ListTile(
+                  dense: true,
+                  leading: Picon(
+                    line.lineTotal < 0 ? PiconsDuotone.arrowDown : PiconsDuotone.plusCircle,
+                    size: 22,
+                    color: line.lineTotal < 0 ? AppColors.success : AppColors.info,
+                  ),
+                  title: Text(line.description),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${line.lineTotal < 0 ? '−' : ''}£${line.lineTotal.abs().toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: line.lineTotal < 0 ? AppColors.success : null,
+                        ),
+                      ),
+                      if (canEditAdjustments)
+                        IconButton(
+                          icon: Picon(PiconsDuotone.trash, size: 18, color: AppColors.error),
+                          tooltip: 'Remove adjustment',
+                          onPressed: _busy ? null : () => _removeAdjustment(line),
+                        ),
+                    ],
+                  ),
                 )),
           ],
         ),
@@ -450,6 +563,11 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
           onPressed: _busy ? null : _confirmSend,
           icon: Picon(PiconsDuotone.paperPlaneTilt, size: 18),
           label: const Text('Send to customer'),
+        ),
+        OutlinedButton.icon(
+          onPressed: _busy ? null : _addAdjustmentDialog,
+          icon: Picon(PiconsDuotone.listPlus, size: 18),
+          label: const Text('Add charge / discount'),
         ),
         OutlinedButton.icon(
           onPressed: _busy

@@ -374,6 +374,18 @@ def fetch_invoices(xero_invoice_ids):
     return result.get('Invoices') or []
 
 
+def void_invoice(xero_invoice_id):
+    """Void an invoice in Xero, mirroring an in-app void.
+
+    Xero only allows voiding invoices with no payments applied — if payments
+    exist there, this raises XeroError and the books need a manual credit
+    note/refund instead.
+    """
+    _tenant_call('POST', 'Invoices', payload={
+        'Invoices': [{'InvoiceID': xero_invoice_id, 'Status': 'VOIDED'}],
+    })
+
+
 def create_payment(xero_invoice_id, amount, payment_date, account_code):
     """Record a payment against a Xero invoice (used to mirror manual payments
     recorded in the app). Returns the Xero PaymentID."""
