@@ -582,4 +582,43 @@ class MockDataService implements DataService {
       FacilityDefect(id: defectId, title: 'Test', createdAt: DateTime.now());
   @override
   Future<int> getUnresolvedFacilityDefectCount() async => 0;
+  @override
+  Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId}) async => [];
+  @override
+  Future<Invoice> getInvoice(int id) async => _mockInvoice(id);
+  @override
+  Future<({int created, int skipped})> generateInvoices(int year, int month) async => (created: 0, skipped: 0);
+  @override
+  Future<Invoice> sendInvoice(int id) async => _mockInvoice(id, status: 'SENT');
+  @override
+  Future<int> sendAllInvoices(int year, int month) async => 0;
+  @override
+  Future<Invoice> regenerateInvoice(int id) async => _mockInvoice(id);
+  @override
+  Future<Invoice> recordInvoicePayment(int id, {required double amount, required String method, DateTime? paymentDate, String? notes}) async =>
+      _mockInvoice(id, status: 'PAID');
+  @override
+  Future<Invoice> voidInvoice(int id) async => _mockInvoice(id, status: 'VOID');
+  @override
+  Future<Invoice> pushInvoiceToXero(int id) async => _mockInvoice(id, status: 'SENT');
+  @override
+  Future<Map<String, dynamic>> syncXeroInvoices() async => {'checked': 0, 'payments_imported': 0, 'paid': 0, 'errors': 0};
+  @override
+  Future<String> getInvoicePayUrl(int id) async => 'https://in.xero.com/mock';
+  @override
+  Future<InvoiceSummary> getInvoiceSummary({int? year, int? month}) async => InvoiceSummary();
+
+  Invoice _mockInvoice(int id, {String status = 'DRAFT'}) => Invoice(
+        id: id,
+        customerId: 1,
+        customerName: 'Test Owner',
+        customerEmail: 'owner@example.com',
+        periodYear: 2026,
+        periodMonth: 6,
+        periodLabel: 'June 2026',
+        status: status,
+        total: 100,
+        amountPaid: status == 'PAID' ? 100 : 0,
+        balance: status == 'PAID' ? 0 : 100,
+      );
 }

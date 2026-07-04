@@ -16,6 +16,7 @@ class UserProfile {
   final bool canApproveTimeoff;
   final bool canViewInquiries;
   final bool canManageVehicles;
+  final bool canManagePayments;
 
   // Notification preferences
   final bool notifyFeed;
@@ -48,6 +49,7 @@ class UserProfile {
     this.canApproveTimeoff = false,
     this.canViewInquiries = false,
     this.canManageVehicles = false,
+    this.canManagePayments = false,
     this.notifyFeed = true,
     this.notifyTraffic = true,
     this.notifyBookings = true,
@@ -75,6 +77,7 @@ class UserProfile {
       canApproveTimeoff: json['can_approve_timeoff'] ?? false,
       canViewInquiries: json['can_view_inquiries'] ?? false,
       canManageVehicles: json['can_manage_vehicles'] ?? false,
+      canManagePayments: json['can_manage_payments'] ?? false,
       notifyFeed: json['notify_feed'] ?? true,
       notifyTraffic: json['notify_traffic'] ?? true,
       notifyBookings: json['notify_bookings'] ?? true,

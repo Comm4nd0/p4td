@@ -28,6 +28,7 @@ import '../models/vehicle.dart';
 import '../models/vehicle_defect.dart';
 import '../models/facility_defect.dart';
 import '../models/vehicle_maintenance_record.dart';
+import '../models/invoice.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 
@@ -3092,5 +3093,158 @@ class ApiDataService implements DataService {
     } else {
       return 0;
     }
+  }
+  // ---------------------------------------------------------------------
+  // Customer payments
+  // ---------------------------------------------------------------------
+
+  String _invoiceError(http.Response response, String fallback) {
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map<String, dynamic>) {
+        final detail = errorData['detail'] ?? errorData.values.first;
+        if (detail != null) return detail.toString();
+      }
+    } catch (_) {}
+    return '$fallback (${response.statusCode})';
+  }
+
+  @override
+  Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{
+      if (year != null) 'year': '$year',
+      if (month != null) 'month': '$month',
+      if (status != null) 'status': status,
+      if (customerId != null) 'customer': '$customerId',
+    };
+    final uri = Uri.parse('${AuthService.baseUrl}/api/invoices/')
+        .replace(queryParameters: params.isEmpty ? null : params);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => Invoice.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception(_invoiceError(response, 'Failed to load invoices'));
+  }
+
+  @override
+  Future<Invoice> getInvoice(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/invoices/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return Invoice.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to load invoice'));
+  }
+
+  Future<Invoice> _invoiceAction(int id, String actionPath, [Map<String, dynamic>? body]) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/invoices/$id/$actionPath/'),
+      headers: headers,
+      body: json.encode(body ?? {}),
+    );
+    if (response.statusCode == 200) {
+      return Invoice.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Invoice update failed'));
+  }
+
+  @override
+  Future<({int created, int skipped})> generateInvoices(int year, int month) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/invoices/generate/'),
+      headers: headers,
+      body: json.encode({'year': year, 'month': month}),
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return (created: data['created'] as int, skipped: data['skipped'] as int);
+    }
+    throw Exception(_invoiceError(response, 'Failed to generate invoices'));
+  }
+
+  @override
+  Future<Invoice> sendInvoice(int id) => _invoiceAction(id, 'send');
+
+  @override
+  Future<int> sendAllInvoices(int year, int month) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/invoices/send_all/'),
+      headers: headers,
+      body: json.encode({'year': year, 'month': month}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body)['sent'] as int;
+    }
+    throw Exception(_invoiceError(response, 'Failed to send invoices'));
+  }
+
+  @override
+  Future<Invoice> regenerateInvoice(int id) => _invoiceAction(id, 'regenerate');
+
+  @override
+  Future<Invoice> recordInvoicePayment(int id, {required double amount, required String method, DateTime? paymentDate, String? notes}) {
+    return _invoiceAction(id, 'record_payment', {
+      'amount': amount.toStringAsFixed(2),
+      'method': method,
+      if (paymentDate != null) 'payment_date': paymentDate.toIso8601String().split('T').first,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
+    });
+  }
+
+  @override
+  Future<Invoice> voidInvoice(int id) => _invoiceAction(id, 'void');
+
+  @override
+  Future<Invoice> pushInvoiceToXero(int id) => _invoiceAction(id, 'push_to_xero');
+
+  @override
+  Future<Map<String, dynamic>> syncXeroInvoices() async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/invoices/sync_xero/'),
+      headers: headers,
+      body: json.encode({}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(_invoiceError(response, 'Xero sync failed'));
+  }
+
+  @override
+  Future<String> getInvoicePayUrl(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/invoices/$id/pay_url/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body)['url'] as String;
+    }
+    throw Exception(_invoiceError(response, 'Online payment is not available'));
+  }
+
+  @override
+  Future<InvoiceSummary> getInvoiceSummary({int? year, int? month}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{
+      if (year != null) 'year': '$year',
+      if (month != null) 'month': '$month',
+    };
+    final uri = Uri.parse('${AuthService.baseUrl}/api/invoices/summary/')
+        .replace(queryParameters: params.isEmpty ? null : params);
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      return InvoiceSummary.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to load payment summary'));
   }
 }

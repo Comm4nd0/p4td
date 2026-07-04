@@ -11,6 +11,7 @@ class StaffPermission {
   bool canApproveTimeoff;
   bool canViewInquiries;
   bool canManageVehicles;
+  bool canManagePayments;
 
   StaffPermission({
     required this.userId,
@@ -25,6 +26,7 @@ class StaffPermission {
     this.canApproveTimeoff = false,
     this.canViewInquiries = false,
     this.canManageVehicles = false,
+    this.canManagePayments = false,
   });
 
   String get displayName {
@@ -47,6 +49,7 @@ class StaffPermission {
       canApproveTimeoff: json['can_approve_timeoff'] ?? false,
       canViewInquiries: json['can_view_inquiries'] ?? false,
       canManageVehicles: json['can_manage_vehicles'] ?? false,
+      canManagePayments: json['can_manage_payments'] ?? false,
     );
   }
 }

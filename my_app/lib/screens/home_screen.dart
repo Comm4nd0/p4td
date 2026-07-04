@@ -31,6 +31,8 @@ import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'fleet_screen.dart';
 import 'traffic_alert_screen.dart';
+import 'my_payments_screen.dart';
+import 'customer_payments_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
@@ -70,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canApproveTimeoff = false;
   bool _canViewInquiries = false;
   bool _canManageVehicles = false;
+  bool _canManagePayments = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -202,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canApproveTimeoff = profile.canApproveTimeoff;
           _canViewInquiries = profile.canViewInquiries;
           _canManageVehicles = profile.canManageVehicles;
+          _canManagePayments = profile.canManagePayments;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -344,6 +348,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           break;
         case 'feed':
           setState(() => _currentIndex = 1);
+          break;
+        case 'payments':
+          // Staff payment managers land on the management screen; owners on
+          // their own invoice list (optionally straight into one invoice).
+          if (_isStaff && _canManagePayments) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+            );
+          } else {
+            final invoiceId = int.tryParse(widget.routePayload ?? '');
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => MyPaymentsScreen(openInvoiceId: invoiceId),
+              ),
+            );
+          }
+          break;
+        case 'customer_payments':
+          if (_isStaff && _canManagePayments) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+            );
+          }
           break;
       }
     });
@@ -498,6 +528,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       canViewInquiries: _canViewInquiries,
                       canAddFeedMedia: _canAddFeedMedia,
                       canManageVehicles: _canManageVehicles,
+                      canManagePayments: _canManagePayments,
                       isStaff: _isStaff,
                       isSuperuser: _isSuperuser,
                       myUserId: _myUserId,
@@ -646,6 +677,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       MaterialPageRoute(
                         builder: (_) => FleetScreen(canManageVehicles: _canManageVehicles),
                       ),
+                    );
+                  },
+                ),
+              if (!_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.currencyGbp),
+                  title: const Text('My Payments'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const MyPaymentsScreen()),
+                    );
+                  },
+                ),
+              if (_isStaff && _canManagePayments)
+                ListTile(
+                  leading: Picon(PiconsDuotone.currencyGbp),
+                  title: const Text('Customer Payments'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
                     );
                   },
                 ),

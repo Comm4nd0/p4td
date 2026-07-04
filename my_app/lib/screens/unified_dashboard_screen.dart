@@ -35,6 +35,7 @@ import 'dog_profile_changes_screen.dart';
 import 'facility_defects_screen.dart';
 import 'fleet_screen.dart';
 import 'staff_permissions_screen.dart';
+import 'customer_payments_screen.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -43,6 +44,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
   final bool canViewInquiries;
   final bool canAddFeedMedia;
   final bool canManageVehicles;
+  final bool canManagePayments;
   final bool isStaff;
   final bool isSuperuser;
   final int? myUserId;
@@ -58,6 +60,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.canViewInquiries = false,
     this.canAddFeedMedia = false,
     this.canManageVehicles = false,
+    this.canManagePayments = false,
     this.isStaff = false,
     this.isSuperuser = false,
     this.myUserId,
@@ -1626,6 +1629,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Widget _buildQuickActions() {
     return QuickActionsSection(
       canAssignDogs: widget.canAssignDogs,
+      canManagePayments: widget.canManagePayments,
       isSuperuser: widget.isSuperuser,
       onUploadMedia: _uploadMediaFromDashboard,
       onAddDogToDay: _showAddDogToDayDialog,
@@ -1633,6 +1637,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       onManagePermissions: () {
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
+        );
+      },
+      onCustomerPayments: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
         );
       },
     );
