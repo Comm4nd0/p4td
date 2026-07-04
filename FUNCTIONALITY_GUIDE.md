@@ -78,11 +78,15 @@ All staff features require `is_staff` status. Individual capabilities are contro
 
 | Permission | What It Unlocks |
 |------------|-----------------|
-| can_manage_requests | Approve or deny date change and boarding requests |
+| can_manage_requests | Approve or deny date change requests |
+| can_manage_boarding | Approve, deny, edit and delete boarding requests (other staff keep read-only access) |
 | can_add_feed_media | Upload, edit, and delete posts in the activity feed |
 | can_assign_dogs | Assign dogs to staff members for daily care |
 | can_reply_queries | Reply to owner support queries |
 | can_approve_timeoff | Approve or deny day-off requests from other staff |
+| can_view_inquiries | View and respond to website contact inquiries |
+| can_manage_vehicles | Manage fleet vehicles, MOT/service dates and defect statuses |
+| can_manage_payments | Generate and send customer invoices, record payments |
 
 ### Dog Management (All Staff)
 
@@ -101,8 +105,8 @@ All staff features require `is_staff` status. Individual capabilities are contro
 |---------|-------------|
 | View All Date Change Requests | See every pending, approved, and denied request |
 | Approve/Deny Date Changes | Change the status of date change requests |
-| View All Boarding Requests | See all boarding requests from owners |
-| Approve/Deny Boarding | Change the status of boarding requests |
+| View All Boarding Requests | All staff can see boarding requests (read-only) |
+| Approve/Deny Boarding | Change the status of boarding requests — requires `can_manage_boarding` |
 | Request History | View a full audit trail of who changed a request and when |
 
 Owners are automatically notified when a request status changes.

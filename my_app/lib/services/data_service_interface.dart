@@ -217,4 +217,19 @@ abstract class DataService {
   Future<FacilityDefect> changeFacilityDefectStatus(int defectId, String status);
   Future<FacilityDefect> addFacilityDefectComment(int defectId, String text);
   Future<int> getUnresolvedFacilityDefectCount();
+
+  // Customer payments (owners see their own invoices; workflow actions
+  // require can_manage_payments)
+  Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId});
+  Future<Invoice> getInvoice(int id);
+  Future<({int created, int skipped})> generateInvoices(int year, int month);
+  Future<Invoice> sendInvoice(int id);
+  Future<int> sendAllInvoices(int year, int month);
+  Future<Invoice> regenerateInvoice(int id);
+  Future<Invoice> recordInvoicePayment(int id, {required double amount, required String method, DateTime? paymentDate, String? notes});
+  Future<Invoice> voidInvoice(int id);
+  Future<Invoice> pushInvoiceToXero(int id);
+  Future<Map<String, dynamic>> syncXeroInvoices();
+  Future<String> getInvoicePayUrl(int id);
+  Future<InvoiceSummary> getInvoiceSummary({int? year, int? month});
 }

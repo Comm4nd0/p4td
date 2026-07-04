@@ -633,12 +633,12 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
 
-        # Transport default fields and is_spayed are staff-only. Strip them from
-        # validated_data when the caller is not staff.
+        # Transport default fields, is_spayed and billing rates are staff-only.
+        # Strip them from validated_data when the caller is not staff.
         if not self.request.user.is_staff:
             for field in ('owner_brings_default', 'owner_collects_default',
                           'owner_brings_default_time', 'owner_collects_default_time',
-                          'is_spayed'):
+                          'is_spayed', 'daily_rate', 'boarding_rate'):
                 serializer.validated_data.pop(field, None)
 
         # Attach the requesting user so the care-instructions signal can
@@ -1424,12 +1424,21 @@ class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only delete your own comments.")
 
+def _user_can_manage_boarding(user):
+    if user.is_superuser:
+        return True
+    return user.is_staff and getattr(getattr(user, 'profile', None), 'can_manage_boarding', False)
+
+
 class BoardingRequestViewSet(viewsets.ModelViewSet):
     serializer_class = BoardingRequestSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = OptInPagination
 
     def get_queryset(self):
+        # All staff keep read access — the day board and Boarding Tonight rely
+        # on this data for care logistics. Managing requests (approve/deny/
+        # edit/delete) additionally requires profile.can_manage_boarding.
         base = BoardingRequest.objects.select_related('owner', 'approved_by').prefetch_related(
             'dogs', 'history__changed_by'
         )
@@ -1438,20 +1447,29 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         return base.filter(owner=self.request.user)
 
     def perform_destroy(self, instance):
-        # Staff can delete any booking (e.g. removing duplicates); owners can
-        # only withdraw their own requests while they're still PENDING — an
-        # approved booking must be denied/changed by staff, not silently
-        # deleted by the owner.
-        if not self.request.user.is_staff and instance.status != 'PENDING':
+        # Boarding managers can delete any booking (e.g. removing duplicates);
+        # owners can only withdraw their own requests while they're still
+        # PENDING — an approved booking must be denied/changed by a manager,
+        # not silently deleted by the owner.
+        if self.request.user.is_staff:
+            if not _user_can_manage_boarding(self.request.user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You do not have permission to manage boarding requests.')
+        elif instance.status != 'PENDING':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can delete a booking that has been approved or denied.')
         instance.delete()
 
     def perform_update(self, serializer):
         # Owners can amend their own request only while it's still PENDING —
-        # once a booking is approved/denied, changes go through staff (who can
-        # edit any booking, e.g. to shift the dates of an approved stay).
-        if not self.request.user.is_staff and serializer.instance.status != 'PENDING':
+        # once a booking is approved/denied, changes go through a boarding
+        # manager (who can edit any booking, e.g. to shift the dates of an
+        # approved stay). Other staff are view-only.
+        if self.request.user.is_staff:
+            if not _user_can_manage_boarding(self.request.user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You do not have permission to manage boarding requests.')
+        elif serializer.instance.status != 'PENDING':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can edit a booking that has been approved or denied.')
 
@@ -1523,10 +1541,11 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         else:
             owner = self.request.user
 
-        # Auto-approve any boarding request created by staff — owner-created
-        # requests stay PENDING and go through the normal approval workflow
-        # (mirrors the DateChangeRequest staff auto-approval).
-        if not self.request.user.is_staff:
+        # Auto-approve boarding requests created by boarding managers —
+        # owner-created requests (and those from staff without the manage
+        # flag, e.g. submitting on an owner's behalf) stay PENDING and go
+        # through the normal approval workflow.
+        if not _user_can_manage_boarding(self.request.user):
             serializer.save(owner=owner)
             return
 
@@ -1548,9 +1567,9 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
-        if not request.user.is_staff:
+        if not _user_can_manage_boarding(request.user):
             from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only staff can change request status")
+            raise PermissionDenied('You do not have permission to manage boarding requests.')
 
         instance = self.get_object()
         new_status = request.data.get('status')
@@ -4134,3 +4153,327 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
 
         self._notify_owner_status(instance, approved=False)
         return Response(self.get_serializer(instance).data)
+
+
+# =============================================================================
+# CUSTOMER PAYMENTS (monthly invoices + Xero)
+# =============================================================================
+
+class IsPaymentsManager(BasePermission):
+    """Staff with profile.can_manage_payments (superusers always allowed)."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user.is_authenticated and user.is_staff):
+            return False
+        if user.is_superuser:
+            return True
+        return getattr(getattr(user, 'profile', None), 'can_manage_payments', False)
+
+
+def _user_can_manage_payments(user):
+    if user.is_superuser:
+        return True
+    return user.is_staff and getattr(getattr(user, 'profile', None), 'can_manage_payments', False)
+
+
+class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
+    """Monthly customer invoices.
+
+    Owners list/retrieve their own sent invoices (drafts stay staff-side until
+    reviewed) and fetch the online payment URL. Staff with can_manage_payments
+    see everything and drive the workflow through actions — invoices are never
+    free-form edited, so the base viewset is read-only.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        from .serializers import InvoiceSerializer
+        return InvoiceSerializer
+
+    def get_queryset(self):
+        from .models import Invoice
+
+        qs = Invoice.objects.select_related('customer__profile').prefetch_related('lines__dog', 'payments__recorded_by')
+        if _user_can_manage_payments(self.request.user):
+            params = self.request.query_params
+            if params.get('year'):
+                qs = qs.filter(period_year=params['year'])
+            if params.get('month'):
+                qs = qs.filter(period_month=params['month'])
+            if params.get('status'):
+                qs = qs.filter(status=params['status'].upper())
+            if params.get('customer'):
+                qs = qs.filter(customer_id=params['customer'])
+            return qs
+        # Owners: own invoices only, and never unreviewed drafts.
+        return qs.filter(customer=self.request.user).exclude(status='DRAFT')
+
+    def _require_manager(self):
+        if not _user_can_manage_payments(self.request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('You do not have permission to manage payments.')
+
+    @staticmethod
+    def _parse_period(request):
+        try:
+            year = int(request.data.get('year'))
+            month = int(request.data.get('month'))
+        except (TypeError, ValueError):
+            return None, None
+        if not (1 <= month <= 12) or not (2000 <= year <= 2100):
+            return None, None
+        return year, month
+
+    @action(detail=False, methods=['post'])
+    def generate(self, request):
+        """Generate draft invoices for a month from attendance records."""
+        from . import billing
+
+        self._require_manager()
+        year, month = self._parse_period(request)
+        if year is None:
+            return Response({'detail': 'Provide a valid year and month.'}, status=400)
+        created, skipped = billing.generate_invoices_for_month(year, month, created_by=request.user)
+        return Response({'created': len(created), 'skipped': skipped})
+
+    @action(detail=True, methods=['post'])
+    def send(self, request, pk=None):
+        """Send a draft invoice: notify the owner and push to Xero."""
+        from . import billing
+
+        self._require_manager()
+        invoice = self.get_object()
+        if invoice.status != 'DRAFT':
+            return Response({'detail': 'Only draft invoices can be sent.'}, status=400)
+        billing.send_invoice(invoice, user=request.user)
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=False, methods=['post'])
+    def send_all(self, request):
+        """Send every draft invoice for a period."""
+        from . import billing
+        from .models import Invoice
+
+        self._require_manager()
+        year, month = self._parse_period(request)
+        if year is None:
+            return Response({'detail': 'Provide a valid year and month.'}, status=400)
+        drafts = Invoice.objects.filter(status='DRAFT', period_year=year, period_month=month)
+        sent = 0
+        for invoice in drafts:
+            billing.send_invoice(invoice, user=request.user)
+            sent += 1
+        return Response({'sent': sent})
+
+    @action(detail=True, methods=['post'])
+    def regenerate(self, request, pk=None):
+        """Rebuild a draft invoice's lines from current attendance data."""
+        from . import billing
+
+        self._require_manager()
+        invoice = self.get_object()
+        if invoice.status != 'DRAFT':
+            return Response({'detail': 'Only draft invoices can be regenerated.'}, status=400)
+        billing.regenerate_draft(invoice)
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=['post'])
+    def record_payment(self, request, pk=None):
+        """Record a manual payment (cash/bank transfer) against an invoice."""
+        from decimal import Decimal, InvalidOperation
+        from datetime import date as date_cls
+        from . import billing
+        from .models import PaymentRecord
+
+        self._require_manager()
+        invoice = self.get_object()
+        if invoice.status in ('DRAFT', 'VOID'):
+            return Response({'detail': 'Payments can only be recorded against sent invoices.'}, status=400)
+
+        try:
+            amount = Decimal(str(request.data.get('amount')))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({'amount': 'Enter a valid amount.'}, status=400)
+        if amount <= 0:
+            return Response({'amount': 'Amount must be greater than zero.'}, status=400)
+
+        method = request.data.get('method', 'CASH')
+        if method not in dict(PaymentRecord.METHOD_CHOICES):
+            return Response({'method': 'Invalid payment method.'}, status=400)
+
+        payment_date = None
+        if request.data.get('payment_date'):
+            try:
+                payment_date = date_cls.fromisoformat(str(request.data['payment_date']))
+            except ValueError:
+                return Response({'payment_date': 'Enter a valid date (YYYY-MM-DD).'}, status=400)
+
+        billing.record_manual_payment(
+            invoice, amount, method,
+            payment_date=payment_date,
+            recorded_by=request.user,
+            notes=(request.data.get('notes') or '')[:255],
+        )
+        invoice.refresh_from_db()
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=['post'])
+    def void(self, request, pk=None):
+        """Void an invoice (any status except PAID)."""
+        self._require_manager()
+        invoice = self.get_object()
+        if invoice.status == 'PAID':
+            return Response({'detail': 'A paid invoice cannot be voided.'}, status=400)
+        invoice.status = 'VOID'
+        invoice.save(update_fields=['status', 'updated_at'])
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=['post'])
+    def push_to_xero(self, request, pk=None):
+        """Retry pushing an invoice to Xero after a failed/missing push."""
+        from . import billing
+
+        self._require_manager()
+        invoice = self.get_object()
+        if invoice.status in ('DRAFT', 'VOID'):
+            return Response({'detail': 'Only sent invoices can be pushed to Xero.'}, status=400)
+        ok = billing.push_invoice_to_xero(invoice)
+        invoice.refresh_from_db()
+        data = self.get_serializer(invoice).data
+        data['pushed'] = ok
+        return Response(data)
+
+    @action(detail=False, methods=['post'])
+    def sync_xero(self, request):
+        """Pull payment status for open invoices back from Xero now."""
+        from . import billing
+
+        self._require_manager()
+        counts = billing.sync_invoices_from_xero()
+        return Response(counts)
+
+    @action(detail=True, methods=['get'])
+    def pay_url(self, request, pk=None):
+        """The Xero online-invoice URL the owner pays through."""
+        from . import xero
+        from .models import XeroConnection
+
+        invoice = self.get_object()  # queryset already scopes owners to their own
+        if invoice.status in ('DRAFT', 'VOID', 'PAID'):
+            return Response({'detail': 'Online payment is not available for this invoice.'}, status=404)
+        if not invoice.xero_online_url and invoice.xero_invoice_id and XeroConnection.load().is_connected:
+            try:
+                invoice.xero_online_url = xero.get_online_invoice_url(invoice.xero_invoice_id)
+                if invoice.xero_online_url:
+                    invoice.save(update_fields=['xero_online_url', 'updated_at'])
+            except xero.XeroError:
+                pass
+        if not invoice.xero_online_url:
+            return Response({'detail': 'Online payment is not available for this invoice.'}, status=404)
+        return Response({'url': invoice.xero_online_url})
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Aggregate stats for the staff payments dashboard, optionally
+        filtered to one period via ?year=&month=."""
+        from decimal import Decimal
+        from django.db.models import Count, Q, Sum
+        from django.utils import timezone
+        from .models import Invoice
+
+        self._require_manager()
+        qs = Invoice.objects.exclude(status='VOID')
+        params = request.query_params
+        if params.get('year'):
+            qs = qs.filter(period_year=params['year'])
+        if params.get('month'):
+            qs = qs.filter(period_month=params['month'])
+        today = timezone.now().date()
+        agg = qs.aggregate(
+            draft=Count('id', filter=Q(status='DRAFT')),
+            sent=Count('id', filter=Q(status='SENT')),
+            part_paid=Count('id', filter=Q(status='PART_PAID')),
+            paid=Count('id', filter=Q(status='PAID')),
+            overdue_count=Count('id', filter=Q(status__in=('SENT', 'PART_PAID'), due_date__lt=today)),
+            total_billed=Sum('total', filter=~Q(status='DRAFT')),
+            total_collected=Sum('amount_paid', filter=~Q(status='DRAFT')),
+        )
+        billed = agg['total_billed'] or Decimal('0.00')
+        collected = agg['total_collected'] or Decimal('0.00')
+        return Response({
+            'draft': agg['draft'], 'sent': agg['sent'],
+            'part_paid': agg['part_paid'], 'paid': agg['paid'],
+            'overdue_count': agg['overdue_count'],
+            'total_billed': billed, 'total_collected': collected,
+            'total_outstanding': billed - collected,
+        })
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def xero_status(request):
+    """Xero connection status for the superuser settings screen."""
+    from . import xero
+    from .models import XeroConnection
+
+    if not request.user.is_superuser:
+        return Response({'detail': 'Only superusers can manage the Xero connection.'}, status=403)
+    conn = XeroConnection.load()
+    return Response({
+        'configured': xero.is_configured(),
+        'connected': conn.is_connected,
+        'tenant_name': conn.tenant_name,
+        'connected_at': conn.connected_at,
+        'redirect_uri': getattr(settings, 'XERO_REDIRECT_URI', ''),
+    })
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def xero_connect(request):
+    """Start the one-time Xero consent flow; returns the URL to open in a
+    browser. The redirect back lands on xero_callback."""
+    from . import xero
+
+    if not request.user.is_superuser:
+        return Response({'detail': 'Only superusers can manage the Xero connection.'}, status=403)
+    if not xero.is_configured() or not getattr(settings, 'XERO_REDIRECT_URI', ''):
+        return Response({'detail': 'Set XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI on the server first.'}, status=400)
+    return Response({'authorize_url': xero.build_authorize_url()})
+
+
+@api_view(['GET'])
+@perm_classes([AllowAny])
+def xero_callback(request):
+    """Xero's browser redirect after consent. Arrives with no app session, so
+    the single-use state token stored by xero_connect authenticates it. Plain
+    HTML response — this renders in the superuser's browser, not the app."""
+    from django.http import HttpResponse
+    from . import xero
+
+    error = request.query_params.get('error')
+    if error:
+        return HttpResponse('<h3>Xero connection cancelled.</h3><p>You can close this window.</p>', status=400)
+    code = request.query_params.get('code', '')
+    state = request.query_params.get('state', '')
+    if not code:
+        return HttpResponse('<h3>Missing authorisation code.</h3>', status=400)
+    from django.utils.html import escape
+    try:
+        tenant_name = xero.handle_callback(code, state)
+    except xero.XeroError as exc:
+        return HttpResponse(f'<h3>Xero connection failed.</h3><p>{escape(str(exc))}</p>', status=400)
+    return HttpResponse(f'<h3>Xero connected to {escape(tenant_name)}.</h3><p>You can close this window and return to the app.</p>')
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def xero_disconnect(request):
+    """Forget the stored Xero connection."""
+    from . import xero
+
+    if not request.user.is_superuser:
+        return Response({'detail': 'Only superusers can manage the Xero connection.'}, status=403)
+    xero.disconnect()
+    return Response({'detail': 'Xero disconnected.'})

@@ -14,17 +14,18 @@ import 'request_boarding_screen.dart';
 /// Boarding requests screen with List and Calendar tabs.
 ///
 /// For owners this shows their own requests (edit/cancel while pending).
-/// For staff with the manage-requests permission it's the full Manage
+/// For staff with the manage-boarding permission it's the full Manage
 /// Boarding section: approve/deny/set pending, edit dates, delete, and a
 /// working calendar — tap a day to see its stays, tap a stay to act on it.
+/// Staff without the permission get a read-only view.
 class BoardingRequestListScreen extends StatefulWidget {
   final bool isStaff;
-  final bool canManageRequests;
+  final bool canManageBoarding;
 
   const BoardingRequestListScreen({
     super.key,
     this.isStaff = false,
-    this.canManageRequests = false,
+    this.canManageBoarding = false,
   });
 
   @override
@@ -44,7 +45,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
   DateTime? _selectedDay;
   Map<DateTime, List<BoardingRequest>> _events = {};
 
-  bool get _canManage => widget.isStaff && widget.canManageRequests;
+  bool get _canManage => widget.isStaff && widget.canManageBoarding;
 
   @override
   void initState() {
