@@ -243,33 +243,35 @@ def get_access_token():
     if conn.access_token and conn.access_token_expires_at and conn.access_token_expires_at > now:
         return conn.access_token
 
-    with transaction.atomic():
-        conn = XeroConnection.objects.select_for_update().get(pk=1)
-        if not conn.is_connected:
-            raise XeroNotConnected('Xero is not connected.')
-        now = timezone.now()
-        # Another worker may have refreshed while we waited on the lock.
-        if conn.access_token and conn.access_token_expires_at and conn.access_token_expires_at > now:
-            return conn.access_token
-        try:
+    try:
+        with transaction.atomic():
+            conn = XeroConnection.objects.select_for_update().get(pk=1)
+            if not conn.is_connected:
+                raise XeroNotConnected('Xero is not connected.')
+            now = timezone.now()
+            # Another worker may have refreshed while we waited on the lock.
+            if conn.access_token and conn.access_token_expires_at and conn.access_token_expires_at > now:
+                return conn.access_token
             tokens = _token_request({
                 'grant_type': 'refresh_token',
                 'refresh_token': conn.refresh_token,
             })
-        except XeroAuthError:
-            # Dead refresh token — clear the connection so is_connected flips
-            # false and /api/xero/status/ tells the superuser to reconnect.
-            conn.refresh_token = ''
-            conn.access_token = ''
-            conn.access_token_expires_at = None
+            conn.access_token = tokens.get('access_token', '')
+            # Persist the rotated single-use refresh token BEFORE releasing the lock.
+            conn.refresh_token = tokens.get('refresh_token', conn.refresh_token)
+            conn.access_token_expires_at = now + timezone.timedelta(seconds=int(tokens.get('expires_in', 1800)) - 60)
             conn.save()
-            raise
-        conn.access_token = tokens.get('access_token', '')
-        # Persist the rotated single-use refresh token BEFORE releasing the lock.
-        conn.refresh_token = tokens.get('refresh_token', conn.refresh_token)
-        conn.access_token_expires_at = now + timezone.timedelta(seconds=int(tokens.get('expires_in', 1800)) - 60)
+            return conn.access_token
+    except XeroAuthError:
+        # Dead refresh token — clear the connection so is_connected flips false
+        # and /api/xero/status/ tells the superuser to reconnect. Must happen
+        # OUTSIDE the atomic block: the propagating exception rolls that back.
+        conn = XeroConnection.load()
+        conn.refresh_token = ''
+        conn.access_token = ''
+        conn.access_token_expires_at = None
         conn.save()
-        return conn.access_token
+        raise
 
 
 def _tenant_call(method, path, payload=None, params=None):
