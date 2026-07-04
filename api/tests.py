@@ -6389,3 +6389,174 @@ class CustomerRatesEndpointTests(BillingTestsBase):
         self.assertEqual(resp.status_code, 400)
         resp = self.client.post('/api/customer-rates/?user_id=999999', {'daycare_rate': '1'}, format='json')
         self.assertEqual(resp.status_code, 404)
+
+
+class InvoiceAdjustmentTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        from api import billing
+
+        self._attend(self.dog, 1)
+        self._attend(self.dog, 2)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.invoice = created[0]  # 2 days @ £25 = £50
+        self.client.login(username='manager', password='pw')
+
+    def _add(self, description, amount):
+        return self.client.post(f'/api/invoices/{self.invoice.id}/add_line/',
+                                {'description': description, 'amount': amount}, format='json')
+
+    def test_add_charge_and_discount(self):
+        resp = self._add('Damaged lead', '15.00')
+        self.assertEqual(resp.status_code, 200)
+        resp = self._add('Loyalty discount', '-10.00')
+        self.assertEqual(resp.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.total, Decimal('55.00'))
+        adjustments = self.invoice.lines.filter(is_adjustment=True)
+        self.assertEqual(adjustments.count(), 2)
+        self.assertEqual(set(adjustments.values_list('line_total', flat=True)),
+                         {Decimal('15.00'), Decimal('-10.00')})
+
+    def test_validation(self):
+        self.assertEqual(self._add('', '10').status_code, 400)
+        self.assertEqual(self._add('x', '0').status_code, 400)
+        self.assertEqual(self._add('x', 'lots').status_code, 400)
+        # Would take the £50 invoice negative.
+        self.assertEqual(self._add('Huge discount', '-60.00').status_code, 400)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.total, Decimal('50.00'))
+
+    def test_rejected_on_sent_invoice(self):
+        self.invoice.status = 'SENT'
+        self.invoice.save()
+        self.assertEqual(self._add('Late fee', '5.00').status_code, 400)
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/remove_line/',
+                                {'line_id': 1}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_regenerate_preserves_adjustments(self):
+        from api import billing
+
+        self._add('Damaged lead', '15.00')
+        self._attend(self.dog, 3)  # new attendance day
+        self.invoice.refresh_from_db()
+        billing.regenerate_draft(self.invoice)
+        self.invoice.refresh_from_db()
+        # 3 days @ £25 + £15 adjustment.
+        self.assertEqual(self.invoice.total, Decimal('90.00'))
+        self.assertEqual(self.invoice.lines.filter(is_adjustment=True).count(), 1)
+
+    def test_remove_adjustment_only(self):
+        self._add('Damaged lead', '15.00')
+        self.invoice.refresh_from_db()
+        adjustment = self.invoice.lines.get(is_adjustment=True)
+        attendance_line = self.invoice.lines.get(is_adjustment=False)
+
+        # Attendance-derived lines can't be deleted.
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/remove_line/',
+                                {'line_id': attendance_line.id}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/remove_line/',
+                                {'line_id': adjustment.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.total, Decimal('50.00'))
+        self.assertFalse(self.invoice.lines.filter(is_adjustment=True).exists())
+
+    def test_requires_payments_manager(self):
+        for username in ('plainstaff', 'owner'):
+            self.client.login(username=username, password='pw')
+            self.assertIn(self._add('x', '5').status_code, (403, 404))
+
+
+class InvoiceVoidXeroTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            total=Decimal('50.00'), xero_invoice_id='xero-inv-9')
+        self.client.login(username='manager', password='pw')
+
+    def _connect_xero(self):
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+
+    @patch('api.xero._api_request')
+    def test_void_mirrors_to_xero(self, mock_api):
+        self._connect_xero()
+        mock_api.return_value = {}
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['xero_voided'])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'VOID')
+        method, path = mock_api.call_args.args[0], mock_api.call_args.args[1]
+        self.assertEqual((method, path), ('POST', 'Invoices'))
+        payload = mock_api.call_args.kwargs['payload']
+        self.assertEqual(payload['Invoices'][0]['Status'], 'VOIDED')
+
+    @patch('api.xero._api_request')
+    def test_void_survives_xero_refusal(self, mock_api):
+        from api import xero as xero_module
+
+        self._connect_xero()
+        mock_api.side_effect = xero_module.XeroError('Invoice has payments applied')
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['xero_voided'])
+        self.assertIn('payments applied', resp.data['xero_void_error'])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'VOID')  # local void stands
+        self.assertIn('Void failed in Xero', self.invoice.xero_sync_error)
+
+    @patch('api.xero._api_request')
+    def test_void_skips_xero_when_unconnected(self, mock_api):
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['xero_voided'])
+        mock_api.assert_not_called()
+
+
+class GenerateForCustomerTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        self._attend(self.dog, 1)
+        self._attend(self.other_dog, 1)
+        self.client.login(username='manager', password='pw')
+
+    def test_generates_only_named_customer(self):
+        resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'customer': self.owner.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], 1)
+        self.assertTrue(Invoice.objects.filter(customer=self.owner).exists())
+        self.assertFalse(Invoice.objects.filter(customer=self.other_owner).exists())
+
+    def test_skips_already_invoiced_customer(self):
+        Invoice.objects.create(customer=self.owner, period_year=2026, period_month=6, status='SENT')
+        resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'customer': self.owner.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], 0)
+        self.assertEqual(resp.data['skipped'], 1)
+
+    def test_void_then_regenerate_single_customer(self):
+        Invoice.objects.create(customer=self.owner, period_year=2026, period_month=6, status='VOID')
+        resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'customer': self.owner.id,
+        }, format='json')
+        self.assertEqual(resp.data['created'], 1)
+
+    def test_unknown_customer_rejected(self):
+        resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'customer': 999999,
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)

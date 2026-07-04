@@ -4227,14 +4227,25 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'])
     def generate(self, request):
-        """Generate draft invoices for a month from attendance records."""
+        """Generate draft invoices for a month from attendance records.
+
+        Optional ``customer`` (user id) restricts generation to one client —
+        used to (re)issue a single invoice, e.g. after voiding it.
+        """
         from . import billing
 
         self._require_manager()
         year, month = self._parse_period(request)
         if year is None:
             return Response({'detail': 'Provide a valid year and month.'}, status=400)
-        created, skipped = billing.generate_invoices_for_month(year, month, created_by=request.user)
+        customer = None
+        if request.data.get('customer'):
+            try:
+                customer = User.objects.get(pk=request.data['customer'])
+            except (User.DoesNotExist, ValueError, TypeError):
+                return Response({'customer': 'No such customer.'}, status=400)
+        created, skipped = billing.generate_invoices_for_month(
+            year, month, created_by=request.user, customer=customer)
         return Response({'created': len(created), 'skipped': skipped})
 
     @action(detail=True, methods=['post'])
@@ -4320,13 +4331,71 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def void(self, request, pk=None):
-        """Void an invoice (any status except PAID)."""
+        """Void an invoice (any status except PAID).
+
+        Best-effort mirrors the void into Xero. Xero refuses to void invoices
+        that already have payments applied — the response says whether the
+        Xero copy was voided so staff know if a manual credit is needed.
+        """
+        from . import xero
+        from .models import XeroConnection
+
         self._require_manager()
         invoice = self.get_object()
         if invoice.status == 'PAID':
             return Response({'detail': 'A paid invoice cannot be voided.'}, status=400)
         invoice.status = 'VOID'
         invoice.save(update_fields=['status', 'updated_at'])
+
+        xero_voided = False
+        xero_error = ''
+        if invoice.xero_invoice_id and XeroConnection.load().is_connected:
+            try:
+                xero.void_invoice(invoice.xero_invoice_id)
+                xero_voided = True
+                invoice.xero_sync_error = ''
+            except xero.XeroError as exc:
+                xero_error = str(exc)
+                invoice.xero_sync_error = f'Void failed in Xero: {exc}'
+            invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+
+        data = self.get_serializer(invoice).data
+        data['xero_voided'] = xero_voided
+        if xero_error:
+            data['xero_void_error'] = xero_error
+        return Response(data)
+
+    @action(detail=True, methods=['post'])
+    def add_line(self, request, pk=None):
+        """Add a one-off charge or discount line to a draft invoice."""
+        from decimal import Decimal, InvalidOperation
+        from . import billing
+
+        self._require_manager()
+        invoice = self.get_object()
+        try:
+            amount = Decimal(str(request.data.get('amount')))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({'amount': 'Enter a valid amount.'}, status=400)
+        try:
+            billing.add_adjustment(invoice, request.data.get('description', ''), amount)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        invoice.refresh_from_db()
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=['post'])
+    def remove_line(self, request, pk=None):
+        """Remove a staff-entered adjustment line from a draft invoice."""
+        from . import billing
+
+        self._require_manager()
+        invoice = self.get_object()
+        try:
+            billing.remove_adjustment(invoice, request.data.get('line_id'))
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        invoice.refresh_from_db()
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=['post'])

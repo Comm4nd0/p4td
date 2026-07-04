@@ -129,9 +129,10 @@ def boarding_nights_for_month(year, month):
     return by_owner
 
 
-def generate_invoices_for_month(year, month, created_by=None):
+def generate_invoices_for_month(year, month, created_by=None, customer=None):
     """Create DRAFT invoices for every customer with daycare attendance or
-    boarding nights in the period.
+    boarding nights in the period (or just one customer when ``customer``
+    is given).
 
     Idempotent: customers who already have a non-VOID invoice for the period
     are skipped, as are customers with nothing to bill. Returns
@@ -146,6 +147,10 @@ def generate_invoices_for_month(year, month, created_by=None):
         customers.setdefault(owner.id, {'owner': owner, 'daycare': {}, 'boarding': {}})['daycare'] = dogs
     for owner, dogs in boarding_by_owner.items():
         customers.setdefault(owner.id, {'owner': owner, 'daycare': {}, 'boarding': {}})['boarding'] = dogs
+
+    if customer is not None:
+        entry = customers.get(customer.id)
+        customers = {customer.id: entry} if entry else {}
 
     already_billed = set(
         Invoice.objects
@@ -214,8 +219,16 @@ def _build_boarding_lines(invoice, dogs):
     return total
 
 
+def _adjustments_total(invoice):
+    return invoice.lines.filter(is_adjustment=True).aggregate(total=Sum('line_total'))['total'] or Decimal('0.00')
+
+
 def regenerate_draft(invoice):
-    """Rebuild a DRAFT invoice's lines from current attendance/boarding data."""
+    """Rebuild a DRAFT invoice's attendance/boarding lines from current data.
+
+    Staff-entered adjustment lines are preserved — regeneration corrects the
+    attendance-derived lines, it doesn't undo manual amendments.
+    """
     if invoice.status != 'DRAFT':
         raise ValueError('Only draft invoices can be regenerated.')
     daycare = attendance_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
@@ -225,9 +238,57 @@ def regenerate_draft(invoice):
             boarding = dogs
             break
     with transaction.atomic():
-        invoice.lines.all().delete()
-        invoice.total = _build_lines(invoice, daycare) + _build_boarding_lines(invoice, boarding)
+        invoice.lines.filter(is_adjustment=False).delete()
+        invoice.total = (
+            _build_lines(invoice, daycare)
+            + _build_boarding_lines(invoice, boarding)
+            + _adjustments_total(invoice)
+        )
         invoice.save(update_fields=['total', 'updated_at'])
+    return invoice
+
+
+def add_adjustment(invoice, description, amount):
+    """Add a one-off charge (positive) or discount (negative) to a draft.
+
+    Rejects amounts that would take the invoice total below zero — a bigger
+    write-off than the bill should be handled as a credit in Xero instead.
+    """
+    if invoice.status != 'DRAFT':
+        raise ValueError('Adjustments can only be added to draft invoices.')
+    description = (description or '').strip()
+    if not description:
+        raise ValueError('Describe the adjustment (e.g. "Damaged lead" or "Loyalty discount").')
+    amount = Decimal(str(amount))
+    if amount == 0 or abs(amount) > Decimal('9999.99'):
+        raise ValueError('Enter a non-zero amount up to £9999.99.')
+    if invoice.total + amount < 0:
+        raise ValueError('This adjustment would make the invoice total negative.')
+    line = InvoiceLine.objects.create(
+        invoice=invoice,
+        description=description,
+        quantity=1,
+        unit_price=amount,
+        line_total=amount,
+        is_adjustment=True,
+    )
+    invoice.total += amount
+    invoice.save(update_fields=['total', 'updated_at'])
+    return line
+
+
+def remove_adjustment(invoice, line_id):
+    """Remove a staff-entered adjustment line from a draft. Attendance-derived
+    lines can't be deleted — amend the underlying data and regenerate."""
+    if invoice.status != 'DRAFT':
+        raise ValueError('Adjustments can only be removed from draft invoices.')
+    try:
+        line = invoice.lines.get(pk=line_id, is_adjustment=True)
+    except InvoiceLine.DoesNotExist:
+        raise ValueError('No such adjustment line on this invoice.')
+    invoice.total -= line.line_total
+    line.delete()
+    invoice.save(update_fields=['total', 'updated_at'])
     return invoice
 
 
