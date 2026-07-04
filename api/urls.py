@@ -7,8 +7,10 @@ from .views import (
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     DogProfileChangeRequestViewSet, VaccinationRecordViewSet, WaitlistEntryViewSet,
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
+    InvoiceViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
     delete_account, postcode_lookup, daycare_settings,
+    xero_status, xero_connect, xero_callback, xero_disconnect,
 )
 
 router = DefaultRouter()
@@ -34,10 +36,15 @@ router.register(r'vehicles', VehicleViewSet, basename='vehicles')
 router.register(r'vehicle-defects', VehicleDefectViewSet, basename='vehicle-defects')
 router.register(r'facility-defects', FacilityDefectViewSet, basename='facility-defects')
 router.register(r'intake-requests', IntakeRequestViewSet, basename='intake-requests')
+router.register(r'invoices', InvoiceViewSet, basename='invoices')
 
 urlpatterns = [
     path('', include(router.urls)),
     path('daycare-settings/', daycare_settings, name='daycare-settings'),
+    path('xero/status/', xero_status, name='xero-status'),
+    path('xero/connect/', xero_connect, name='xero-connect'),
+    path('xero/callback/', xero_callback, name='xero-callback'),
+    path('xero/disconnect/', xero_disconnect, name='xero-disconnect'),
     path('password/reset/request/', request_password_reset, name='password-reset-request'),
     path('password/reset/verify/', verify_otp, name='password-reset-verify'),
     path('password/reset/confirm/', reset_password, name='password-reset-confirm'),

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -1060,3 +1060,72 @@ class IntakeRequestSerializer(serializers.ModelSerializer):
             IntakeDog(request=request, **dog_data) for dog_data in dogs_data
         )
         return request
+
+
+class InvoiceLineSerializer(serializers.ModelSerializer):
+    dog_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InvoiceLine
+        fields = ['id', 'dog', 'dog_name', 'description', 'quantity', 'unit_price', 'line_total', 'attendance_dates']
+
+    def get_dog_name(self, obj):
+        return obj.dog.name if obj.dog else None
+
+
+class PaymentRecordSerializer(serializers.ModelSerializer):
+    recorded_by_name = serializers.SerializerMethodField()
+    method_display = serializers.CharField(source='get_method_display', read_only=True)
+
+    class Meta:
+        model = PaymentRecord
+        fields = ['id', 'amount', 'method', 'method_display', 'source', 'payment_date', 'recorded_by', 'recorded_by_name', 'notes', 'created_at']
+
+    def get_recorded_by_name(self, obj):
+        if obj.recorded_by:
+            return obj.recorded_by.first_name or obj.recorded_by.username
+        return None
+
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    """Read serializer for invoices — all mutations happen through actions."""
+    lines = InvoiceLineSerializer(many=True, read_only=True)
+    payments = PaymentRecordSerializer(many=True, read_only=True)
+    customer_details = serializers.SerializerMethodField()
+    period_label = serializers.CharField(read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
+    has_online_payment = serializers.SerializerMethodField()
+    balance = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invoice
+        fields = [
+            'id', 'customer', 'customer_details', 'period_year', 'period_month',
+            'period_label', 'status', 'total', 'amount_paid', 'balance',
+            'due_date', 'is_overdue', 'sent_at', 'paid_at',
+            'xero_invoice_number', 'xero_sync_error', 'has_online_payment',
+            'lines', 'payments', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_customer_details(self, obj):
+        try:
+            return UserSummarySerializer(obj.customer.profile).data
+        except UserProfile.DoesNotExist:
+            return {'user_id': obj.customer.id, 'username': obj.customer.username,
+                    'first_name': obj.customer.first_name, 'email': obj.customer.email}
+
+    def get_has_online_payment(self, obj):
+        return bool(obj.xero_online_url)
+
+    def get_balance(self, obj):
+        return obj.total - obj.amount_paid
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # xero_sync_error is a staff diagnostic — owners don't need Xero
+        # plumbing details on their invoice.
+        request = self.context.get('request')
+        if request is not None and not request.user.is_staff:
+            data.pop('xero_sync_error', None)
+        return data
