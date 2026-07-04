@@ -49,15 +49,18 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled', 'staff_color']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled', 'staff_color']
         # Capability flags are assignable ONLY by a superuser via
         # update_staff_permissions. They must never be writable through this
         # self-service endpoint, or any authenticated user could PATCH their own
         # profile to grant themselves manager capabilities (privilege escalation).
+        # Billing rates are likewise read-only here: customers see their own
+        # price but only payment managers set it (via /api/customer-rates/).
         read_only_fields = [
             'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests',
             'can_reply_queries', 'can_approve_timeoff', 'can_view_inquiries',
             'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding',
+            'daycare_rate', 'boarding_rate',
         ]
 
     def get_postcode_lookup_enabled(self, obj):

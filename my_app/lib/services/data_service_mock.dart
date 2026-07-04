@@ -608,6 +608,18 @@ class MockDataService implements DataService {
   @override
   Future<InvoiceSummary> getInvoiceSummary({int? year, int? month}) async => InvoiceSummary();
 
+  @override
+  Future<BillingSettings> getBillingSettings() async =>
+      BillingSettings(dayCarePrice: 25, boardingPricePerNight: 30);
+  @override
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight}) async =>
+      BillingSettings(dayCarePrice: dayCarePrice ?? 25, boardingPricePerNight: boardingPricePerNight ?? 30);
+  @override
+  Future<List<CustomerRate>> getCustomerRates() async => [];
+  @override
+  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate}) async =>
+      CustomerRate(userId: userId, username: 'owner', daycareRate: daycareRate, boardingRate: boardingRate);
+
   Invoice _mockInvoice(int id, {String status = 'DRAFT'}) => Invoice(
         id: id,
         customerId: 1,

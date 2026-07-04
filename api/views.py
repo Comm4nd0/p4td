@@ -4477,3 +4477,106 @@ def xero_disconnect(request):
         return Response({'detail': 'Only superusers can manage the Xero connection.'}, status=403)
     xero.disconnect()
     return Response({'detail': 'Xero disconnected.'})
+
+
+@api_view(['GET', 'PATCH'])
+@perm_classes([IsAuthenticated])
+def billing_settings(request):
+    """Standard billing prices, editable in-app by payment managers.
+
+    GET/PATCH {"day_care_price": "25.00", "boarding_price_per_night": "35.00"}.
+    Backed by the website ServicePricing singleton, so the public site's
+    pricing page stays in step with what invoicing charges.
+    """
+    from decimal import Decimal, InvalidOperation
+    from website.models import ServicePricing
+
+    if not _user_can_manage_payments(request.user):
+        return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
+
+    pricing = ServicePricing.load()
+    if request.method == 'PATCH':
+        updated = False
+        for field in ('day_care_price', 'boarding_price_per_night'):
+            if field not in request.data:
+                continue
+            try:
+                value = Decimal(str(request.data[field]))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response({field: 'Enter a valid amount.'}, status=400)
+            if value < 0 or value > Decimal('9999.99'):
+                return Response({field: 'Enter a valid amount.'}, status=400)
+            setattr(pricing, field, value)
+            updated = True
+        if updated:
+            pricing.save()
+    return Response({
+        'day_care_price': pricing.day_care_price,
+        'boarding_price_per_night': pricing.boarding_price_per_night,
+    })
+
+
+def _customer_rate_payload(profile):
+    return {
+        'user_id': profile.user_id,
+        'username': profile.user.username,
+        'first_name': profile.user.first_name,
+        'email': profile.user.email,
+        'daycare_rate': profile.daycare_rate,
+        'boarding_rate': profile.boarding_rate,
+        'dog_names': sorted(d.name for d in profile.user.dogs.all()),
+    }
+
+
+@api_view(['GET', 'POST'])
+@perm_classes([IsAuthenticated])
+def customer_rates(request):
+    """Per-customer billing rates (discounts), payment managers only.
+
+    GET: every customer (non-staff user with dogs, plus anyone already given a
+    rate), with their rates — blank means the standard price applies.
+    POST ?user_id=<id> {"daycare_rate": "22.00", "boarding_rate": null}:
+    set/clear a customer's rates (null or '' clears back to standard).
+    """
+    from decimal import Decimal, InvalidOperation
+    from django.db.models import Q
+
+    if not _user_can_manage_payments(request.user):
+        return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
+
+    if request.method == 'GET':
+        profiles = (
+            UserProfile.objects
+            .filter(Q(user__dogs__isnull=False) | Q(daycare_rate__isnull=False) | Q(boarding_rate__isnull=False))
+            .filter(user__is_staff=False)
+            .select_related('user')
+            .prefetch_related('user__dogs')
+            .distinct()
+            .order_by('user__first_name', 'user__username')
+        )
+        return Response([_customer_rate_payload(p) for p in profiles])
+
+    user_id = request.query_params.get('user_id')
+    if not user_id:
+        return Response({'detail': 'user_id query parameter required'}, status=400)
+    try:
+        profile = UserProfile.objects.select_related('user').prefetch_related('user__dogs').get(user_id=user_id)
+    except (UserProfile.DoesNotExist, ValueError):
+        return Response({'detail': 'User profile not found'}, status=404)
+
+    for field in ('daycare_rate', 'boarding_rate'):
+        if field not in request.data:
+            continue
+        value = request.data[field]
+        if value in (None, ''):
+            setattr(profile, field, None)
+            continue
+        try:
+            value = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({field: 'Enter a valid amount, or blank for the standard price.'}, status=400)
+        if value < 0 or value > Decimal('9999.99'):
+            return Response({field: 'Enter a valid amount, or blank for the standard price.'}, status=400)
+        setattr(profile, field, value)
+    profile.save()
+    return Response(_customer_rate_payload(profile))

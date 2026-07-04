@@ -7,6 +7,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import 'invoice_detail_screen.dart';
 import 'my_payments_screen.dart' show InvoiceStatusPill;
+import 'pricing_screen.dart';
 
 /// Staff payments dashboard (requires can_manage_payments): monthly invoices
 /// with summary totals, generate/send-all/Xero-sync actions and per-invoice
@@ -194,6 +195,12 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                 case 'sync':
                   _syncXero();
                   break;
+                case 'pricing':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PricingScreen()),
+                  ).then((_) => _load());
+                  break;
               }
             },
             itemBuilder: (context) => [
@@ -208,6 +215,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
               const PopupMenuItem(
                 value: 'sync',
                 child: Text('Sync payments from Xero'),
+              ),
+              const PopupMenuItem(
+                value: 'pricing',
+                child: Text('Pricing & customer rates'),
               ),
             ],
           ),
