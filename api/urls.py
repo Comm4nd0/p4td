@@ -11,6 +11,7 @@ from .views import (
     request_password_reset, verify_otp, reset_password, change_password,
     delete_account, postcode_lookup, daycare_settings,
     xero_status, xero_connect, xero_callback, xero_disconnect,
+    billing_settings, customer_rates,
 )
 
 router = DefaultRouter()
@@ -41,6 +42,8 @@ router.register(r'invoices', InvoiceViewSet, basename='invoices')
 urlpatterns = [
     path('', include(router.urls)),
     path('daycare-settings/', daycare_settings, name='daycare-settings'),
+    path('billing-settings/', billing_settings, name='billing-settings'),
+    path('customer-rates/', customer_rates, name='customer-rates'),
     path('xero/status/', xero_status, name='xero-status'),
     path('xero/connect/', xero_connect, name='xero-connect'),
     path('xero/callback/', xero_callback, name='xero-callback'),

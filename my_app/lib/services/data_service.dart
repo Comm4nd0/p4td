@@ -29,6 +29,7 @@ import '../models/vehicle_defect.dart';
 import '../models/facility_defect.dart';
 import '../models/vehicle_maintenance_record.dart';
 import '../models/invoice.dart';
+import '../models/customer_rate.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 
@@ -3230,6 +3231,67 @@ class ApiDataService implements DataService {
       return json.decode(response.body)['url'] as String;
     }
     throw Exception(_invoiceError(response, 'Online payment is not available'));
+  }
+
+  @override
+  Future<BillingSettings> getBillingSettings() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/billing-settings/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return BillingSettings.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to load pricing'));
+  }
+
+  @override
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight}) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/billing-settings/'),
+      headers: headers,
+      body: json.encode({
+        if (dayCarePrice != null) 'day_care_price': dayCarePrice.toStringAsFixed(2),
+        if (boardingPricePerNight != null) 'boarding_price_per_night': boardingPricePerNight.toStringAsFixed(2),
+      }),
+    );
+    if (response.statusCode == 200) {
+      return BillingSettings.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to update pricing'));
+  }
+
+  @override
+  Future<List<CustomerRate>> getCustomerRates() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/customer-rates/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => CustomerRate.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception(_invoiceError(response, 'Failed to load customer rates'));
+  }
+
+  @override
+  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/customer-rates/?user_id=$userId'),
+      headers: headers,
+      body: json.encode({
+        'daycare_rate': daycareRate?.toStringAsFixed(2),
+        'boarding_rate': boardingRate?.toStringAsFixed(2),
+      }),
+    );
+    if (response.statusCode == 200) {
+      return CustomerRate.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to update customer rates'));
   }
 
   @override

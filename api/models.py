@@ -22,6 +22,11 @@ class UserProfile(models.Model):
     can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
     can_manage_boarding = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny and edit boarding requests.')
 
+    # Per-customer billing rates (discounts). Blank = the standard price from
+    # website ServicePricing. A per-dog override on the Dog beats these.
+    daycare_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day daycare rate for this customer. Blank = standard day care price from Service Pricing.')
+    boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate for this customer. Blank = standard boarding price from Service Pricing.')
+
     # Personal identity colour used across the staff app (map pins, day board,
     # dashboard cards). Blank = automatic palette colour by staff id.
     staff_color = models.CharField(max_length=7, blank=True, default='', help_text='Hex colour (#RRGGBB) identifying this staff member across the app. Blank = automatic.')

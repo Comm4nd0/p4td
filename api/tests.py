@@ -6237,3 +6237,155 @@ class BoardingPermissionTests(TestCase):
         self.assertIn(self.boarding_manager, recipients)
         self.assertNotIn(request_manager, recipients)
         self.assertNotIn(self.plain_staff, recipients)
+
+
+class BillingRateResolutionTests(BillingTestsBase):
+    """Rate precedence: per-dog override > per-client rate > standard price."""
+
+    def setUp(self):
+        super().setUp()
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.boarding_price_per_night = 30
+        pricing.save()
+
+    def test_client_rate_beats_default_daycare(self):
+        from api import billing
+
+        self.owner.profile.daycare_rate = Decimal('20.00')
+        self.owner.profile.save()
+        self._attend(self.dog, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('20.00'))
+
+    def test_dog_override_beats_client_rate(self):
+        from api import billing
+
+        self.owner.profile.daycare_rate = Decimal('20.00')
+        self.owner.profile.save()
+        self.dog.daily_rate = Decimal('18.00')
+        self.dog.save()
+        self._attend(self.dog, 1)
+        self._attend(self.dog2, 1)  # falls back to the client rate
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        by_dog = {l.dog.name: l for l in created[0].lines.all()}
+        self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('18.00'))
+        self.assertEqual(by_dog['Alfie'].unit_price, Decimal('20.00'))
+
+    def test_boarding_uses_booking_owners_client_rate(self):
+        from api import billing
+
+        # The dog belongs to self.owner but other_owner booked (and pays for)
+        # the stay — other_owner's discount applies, not the dog owner's.
+        self.owner.profile.boarding_rate = Decimal('99.00')
+        self.owner.profile.save()
+        self.other_owner.profile.boarding_rate = Decimal('25.00')
+        self.other_owner.profile.save()
+        br = BoardingRequest.objects.create(
+            owner=self.other_owner, start_date=date(2026, 6, 1),
+            end_date=date(2026, 6, 3), status='APPROVED')
+        br.dogs.add(self.dog)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created[0].customer, self.other_owner)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('25.00'))
+
+    def test_owner_cannot_self_set_rate(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/profile/', {'daycare_rate': '1.00'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.owner.profile.refresh_from_db()
+        self.assertIsNone(self.owner.profile.daycare_rate)
+
+    def test_owner_sees_own_rate_read_only(self):
+        self.owner.profile.daycare_rate = Decimal('20.00')
+        self.owner.profile.save()
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/profile/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['daycare_rate'], '20.00')
+
+
+class BillingSettingsEndpointTests(BillingTestsBase):
+    def test_requires_payments_manager(self):
+        for username in ('owner', 'plainstaff'):
+            self.client.login(username=username, password='pw')
+            self.assertEqual(self.client.get('/api/billing-settings/').status_code, 403)
+            self.assertEqual(
+                self.client.patch('/api/billing-settings/', {'day_care_price': '30'}, format='json').status_code,
+                403)
+
+    def test_manager_reads_and_updates_defaults(self):
+        from website.models import ServicePricing
+
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/billing-settings/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['day_care_price'], Decimal('25.00'))
+
+        resp = self.client.patch('/api/billing-settings/', {
+            'day_care_price': '27.50', 'boarding_price_per_night': '35.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        pricing = ServicePricing.objects.get(pk=1)
+        self.assertEqual(pricing.day_care_price, Decimal('27.50'))
+        self.assertEqual(pricing.boarding_price_per_night, Decimal('35.00'))
+
+    def test_rejects_bad_amounts(self):
+        self.client.login(username='manager', password='pw')
+        for bad in ('nonsense', '-1', '10000'):
+            resp = self.client.patch('/api/billing-settings/', {'day_care_price': bad}, format='json')
+            self.assertEqual(resp.status_code, 400)
+
+
+class CustomerRatesEndpointTests(BillingTestsBase):
+    def test_requires_payments_manager(self):
+        for username in ('owner', 'plainstaff'):
+            self.client.login(username=username, password='pw')
+            self.assertEqual(self.client.get('/api/customer-rates/').status_code, 403)
+            self.assertEqual(
+                self.client.post(f'/api/customer-rates/?user_id={self.owner.id}',
+                                 {'daycare_rate': '1'}, format='json').status_code,
+                403)
+
+    def test_lists_dog_owners_with_rates(self):
+        self.owner.profile.daycare_rate = Decimal('20.00')
+        self.owner.profile.save()
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/customer-rates/')
+        self.assertEqual(resp.status_code, 200)
+        by_user = {entry['username']: entry for entry in resp.data}
+        self.assertIn('owner', by_user)
+        self.assertIn('other', by_user)
+        self.assertNotIn('plainstaff', by_user)
+        self.assertEqual(by_user['owner']['daycare_rate'], Decimal('20.00'))
+        self.assertIsNone(by_user['owner']['boarding_rate'])
+        self.assertEqual(by_user['owner']['dog_names'], ['Alfie', 'Biscuit'])
+
+    def test_set_and_clear_rates(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post(f'/api/customer-rates/?user_id={self.owner.id}', {
+            'daycare_rate': '22.00', 'boarding_rate': '28.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.daycare_rate, Decimal('22.00'))
+        self.assertEqual(self.owner.profile.boarding_rate, Decimal('28.00'))
+
+        resp = self.client.post(f'/api/customer-rates/?user_id={self.owner.id}', {
+            'daycare_rate': None,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.owner.profile.refresh_from_db()
+        self.assertIsNone(self.owner.profile.daycare_rate)
+        self.assertEqual(self.owner.profile.boarding_rate, Decimal('28.00'))
+
+    def test_validation_and_missing_user(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post(f'/api/customer-rates/?user_id={self.owner.id}',
+                                {'daycare_rate': 'lots'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post('/api/customer-rates/', {'daycare_rate': '1'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post('/api/customer-rates/?user_id=999999', {'daycare_rate': '1'}, format='json')
+        self.assertEqual(resp.status_code, 404)

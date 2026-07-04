@@ -232,4 +232,8 @@ abstract class DataService {
   Future<Map<String, dynamic>> syncXeroInvoices();
   Future<String> getInvoicePayUrl(int id);
   Future<InvoiceSummary> getInvoiceSummary({int? year, int? month});
+  Future<BillingSettings> getBillingSettings();
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight});
+  Future<List<CustomerRate>> getCustomerRates();
+  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate});
 }
