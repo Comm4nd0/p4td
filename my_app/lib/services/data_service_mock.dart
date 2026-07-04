@@ -587,7 +587,7 @@ class MockDataService implements DataService {
   @override
   Future<Invoice> getInvoice(int id) async => _mockInvoice(id);
   @override
-  Future<({int created, int skipped})> generateInvoices(int year, int month) async => (created: 0, skipped: 0);
+  Future<({int created, int skipped})> generateInvoices(int year, int month, {int? customerId}) async => (created: 0, skipped: 0);
   @override
   Future<Invoice> sendInvoice(int id) async => _mockInvoice(id, status: 'SENT');
   @override
@@ -599,6 +599,10 @@ class MockDataService implements DataService {
       _mockInvoice(id, status: 'PAID');
   @override
   Future<Invoice> voidInvoice(int id) async => _mockInvoice(id, status: 'VOID');
+  @override
+  Future<Invoice> addInvoiceLine(int id, {required String description, required double amount}) async => _mockInvoice(id);
+  @override
+  Future<Invoice> removeInvoiceLine(int id, int lineId) async => _mockInvoice(id);
   @override
   Future<Invoice> pushInvoiceToXero(int id) async => _mockInvoice(id, status: 'SENT');
   @override

@@ -1399,14 +1399,18 @@ class Invoice(models.Model):
 
 
 class InvoiceLine(models.Model):
-    """One line on an invoice: a dog's attended days for the period."""
+    """One line on an invoice: a dog's attended days for the period, or a
+    staff-entered adjustment (one-off charge or discount)."""
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='lines')
     dog = models.ForeignKey(Dog, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoice_lines')
     description = models.CharField(max_length=255)
-    quantity = models.PositiveIntegerField(help_text='Number of attended days.')
+    quantity = models.PositiveIntegerField(help_text='Number of attended days (1 for adjustments).')
     unit_price = models.DecimalField(max_digits=6, decimal_places=2)
     line_total = models.DecimalField(max_digits=8, decimal_places=2)
     attendance_dates = models.JSONField(default=list, blank=True, help_text='ISO dates the dog attended, for owner transparency.')
+    # Staff-entered one-off charge/discount (negative amount = discount).
+    # Preserved when a draft is regenerated from attendance data.
+    is_adjustment = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['id']
