@@ -19,6 +19,7 @@ class UserProfile(models.Model):
     can_approve_timeoff = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny time off requests.')
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
     can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
+    can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
 
     # Personal identity colour used across the staff app (map pins, day board,
     # dashboard cards). Blank = automatic palette colour by staff id.
@@ -124,6 +125,7 @@ class Dog(models.Model):
     sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
+    daily_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day billing rate override for this dog. Blank = standard day care price from Service Pricing. Staff-only field.')
     # Cached geocoding of `address` for the staff pickup map. Populated by the
     # geocode_dogs management command and refreshed when `address` changes.
     GEOCODE_SOURCE_CHOICES = [
@@ -1319,3 +1321,160 @@ class IntakeDog(models.Model):
 
     def __str__(self):
         return f"{self.name} on booking form #{self.request_id}"
+
+
+class Invoice(models.Model):
+    """A monthly daycare invoice for one customer, billed in arrears from
+    actual attendance (DailyDogAssignment rows, excluding REMOVED days).
+
+    Lifecycle: DRAFT (generated, staff review) -> SENT (owner notified,
+    pushed to Xero when connected) -> PART_PAID/PAID as PaymentRecords
+    accumulate. VOID takes an invoice out of play; the unique constraint
+    ignores VOID rows so a period can be regenerated after voiding.
+    """
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
+        ('SENT', 'Sent'),
+        ('PART_PAID', 'Partially paid'),
+        ('PAID', 'Paid'),
+        ('VOID', 'Void'),
+    ]
+
+    customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name='invoices')
+    period_year = models.PositiveSmallIntegerField()
+    period_month = models.PositiveSmallIntegerField(help_text='1-12')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='DRAFT')
+    total = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    # Denormalised SUM(payments.amount); maintained by billing.refresh_payment_state.
+    amount_paid = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    due_date = models.DateField(null=True, blank=True, help_text='Set when the invoice is sent (send date + 14 days).')
+    sent_at = models.DateTimeField(null=True, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    xero_invoice_id = models.CharField(max_length=64, blank=True, default='')
+    xero_invoice_number = models.CharField(max_length=32, blank=True, default='')
+    xero_online_url = models.URLField(blank=True, default='')
+    xero_last_synced_at = models.DateTimeField(null=True, blank=True)
+    xero_sync_error = models.TextField(blank=True, default='')
+    overdue_reminder_sent = models.BooleanField(default=False)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-period_year', '-period_month', 'customer__first_name', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['customer', 'period_year', 'period_month'],
+                condition=~models.Q(status='VOID'),
+                name='uniq_active_invoice_per_customer_period',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['period_year', 'period_month']),
+            models.Index(fields=['status']),
+        ]
+
+    @property
+    def period_label(self):
+        import calendar
+        return f"{calendar.month_name[self.period_month]} {self.period_year}"
+
+    @property
+    def is_overdue(self):
+        return (
+            self.status in ('SENT', 'PART_PAID')
+            and self.due_date is not None
+            and self.due_date < timezone.now().date()
+        )
+
+    def __str__(self):
+        return f"Invoice #{self.id} — {self.customer.username} {self.period_label} ({self.get_status_display()})"
+
+
+class InvoiceLine(models.Model):
+    """One line on an invoice: a dog's attended days for the period."""
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='lines')
+    dog = models.ForeignKey(Dog, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoice_lines')
+    description = models.CharField(max_length=255)
+    quantity = models.PositiveIntegerField(help_text='Number of attended days.')
+    unit_price = models.DecimalField(max_digits=6, decimal_places=2)
+    line_total = models.DecimalField(max_digits=8, decimal_places=2)
+    attendance_dates = models.JSONField(default=list, blank=True, help_text='ISO dates the dog attended, for owner transparency.')
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.description} (invoice #{self.invoice_id})"
+
+
+class PaymentRecord(models.Model):
+    """A payment against an invoice — recorded by staff or imported from Xero.
+
+    amount_paid on the invoice is always SUM(records); xero_payment_id is the
+    dedupe key that stops the Xero sync importing the same payment twice.
+    """
+    METHOD_CHOICES = [
+        ('CASH', 'Cash'),
+        ('BANK_TRANSFER', 'Bank transfer'),
+        ('XERO_ONLINE', 'Paid online'),
+        ('OTHER', 'Other'),
+    ]
+    SOURCE_CHOICES = [
+        ('MANUAL', 'Recorded by staff'),
+        ('XERO', 'Imported from Xero'),
+    ]
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='payments')
+    amount = models.DecimalField(max_digits=8, decimal_places=2)
+    method = models.CharField(max_length=15, choices=METHOD_CHOICES, default='CASH')
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default='MANUAL')
+    payment_date = models.DateField()
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments_recorded')
+    xero_payment_id = models.CharField(max_length=64, blank=True, default='')
+    notes = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['payment_date', 'id']
+
+    def __str__(self):
+        return f"£{self.amount} {self.get_method_display()} on invoice #{self.invoice_id}"
+
+
+class XeroConnection(models.Model):
+    """Xero OAuth2 connection singleton (always pk=1), per the DaycareSettings
+    pattern. Holds the rotating refresh token and tenant captured by the
+    one-time superuser consent flow. Client id/secret live in env vars."""
+    tenant_id = models.CharField(max_length=64, blank=True, default='')
+    tenant_name = models.CharField(max_length=255, blank=True, default='')
+    refresh_token = models.TextField(blank=True, default='')
+    access_token = models.TextField(blank=True, default='')
+    access_token_expires_at = models.DateTimeField(null=True, blank=True)
+    # CSRF state for an in-flight authorize redirect. The callback arrives as a
+    # bare browser GET with no session, so this token is what authenticates it.
+    oauth_state = models.CharField(max_length=64, blank=True, default='')
+    oauth_state_created_at = models.DateTimeField(null=True, blank=True)
+    connected_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    connected_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Xero connection'
+        verbose_name_plural = 'Xero connection'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @property
+    def is_connected(self):
+        return bool(self.refresh_token and self.tenant_id)
+
+    def __str__(self):
+        return f"Xero: {self.tenant_name or 'not connected'}"

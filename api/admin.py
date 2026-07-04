@@ -13,6 +13,7 @@ from .models import (
     VaccinationRecord, WaitlistEntry, DaycareSettings,
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
     FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog,
+    Invoice, InvoiceLine, PaymentRecord, XeroConnection,
 )
 
 
@@ -251,7 +252,7 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles', 'can_manage_payments')
     # Permission flags are shown read-only here and edited deliberately on the
     # detail page. They are NOT list_editable: a bulk-toggle from the changelist
     # let anyone with 'change userprofile' self-escalate in one Save (B42).
@@ -1106,3 +1107,47 @@ class IntakeRequestAdmin(admin.ModelAdmin):
     def dog_names(self, obj):
         return ', '.join(d.name for d in obj.dogs.all()) or '-'
     dog_names.short_description = 'Dogs'
+
+
+class InvoiceLineInline(admin.TabularInline):
+    model = InvoiceLine
+    extra = 0
+    raw_id_fields = ('dog',)
+
+
+class PaymentRecordInline(admin.TabularInline):
+    model = PaymentRecord
+    extra = 0
+    raw_id_fields = ('recorded_by',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = ('id', 'customer', 'period_label', 'status', 'total', 'amount_paid', 'due_date', 'xero_invoice_number', 'created_at')
+    list_filter = ('status', 'period_year', 'period_month')
+    search_fields = ('customer__username', 'customer__email', 'customer__first_name', 'xero_invoice_number')
+    raw_id_fields = ('customer', 'created_by')
+    readonly_fields = ('created_at', 'updated_at', 'xero_last_synced_at')
+    list_select_related = ('customer',)
+    list_per_page = 50
+    inlines = [InvoiceLineInline, PaymentRecordInline]
+
+
+@admin.register(XeroConnection)
+class XeroConnectionAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'is_connected_display', 'connected_by', 'connected_at', 'updated_at')
+    # Tokens are secrets — keep them out of the change form entirely.
+    exclude = ('refresh_token', 'access_token', 'oauth_state')
+    readonly_fields = ('tenant_id', 'tenant_name', 'access_token_expires_at', 'oauth_state_created_at', 'connected_by', 'connected_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return not XeroConnection.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def is_connected_display(self, obj):
+        return obj.is_connected
+    is_connected_display.boolean = True
+    is_connected_display.short_description = 'Connected'

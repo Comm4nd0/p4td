@@ -633,12 +633,12 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
 
-        # Transport default fields and is_spayed are staff-only. Strip them from
-        # validated_data when the caller is not staff.
+        # Transport default fields, is_spayed and daily_rate are staff-only.
+        # Strip them from validated_data when the caller is not staff.
         if not self.request.user.is_staff:
             for field in ('owner_brings_default', 'owner_collects_default',
                           'owner_brings_default_time', 'owner_collects_default_time',
-                          'is_spayed'):
+                          'is_spayed', 'daily_rate'):
                 serializer.validated_data.pop(field, None)
 
         # Attach the requesting user so the care-instructions signal can
