@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 from unittest.mock import patch
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
@@ -9,7 +10,7 @@ from .models import (
     BoardingRequest, BoardingRequestHistory, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
-    GroupMedia, IntakeRequest,
+    GroupMedia, IntakeRequest, Invoice, XeroConnection,
 )
 from django.utils import timezone
 
@@ -5318,3 +5319,671 @@ class NotificationCorrectnessTests(TestCase):
         owner_pushes = [c for c in mock_push.call_args_list if c.args[0] == self.owner]
         self.assertEqual(len(owner_pushes), 1)
         self.assertEqual(owner_pushes[0].args[3]['type'], 'support_query_reply')
+
+
+# =============================================================================
+# CUSTOMER PAYMENTS (monthly invoices + Xero)
+# =============================================================================
+
+class BillingTestsBase(TestCase):
+    """Shared fixtures for the billing/invoice test classes."""
+
+    def setUp(self):
+        from website.models import ServicePricing
+
+        self.superuser = User.objects.create_user(
+            username='admin', password='pw', is_staff=True, is_superuser=True)
+        self.manager = User.objects.create_user(
+            username='manager', password='pw', is_staff=True, first_name='Meg')
+        self.manager.profile.can_manage_payments = True
+        self.manager.profile.save()
+        self.plain_staff = User.objects.create_user(
+            username='plainstaff', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', first_name='Olive', email='olive@example.com')
+        self.other_owner = User.objects.create_user(
+            username='other', password='pw', email='other@example.com')
+
+        self.dog = Dog.objects.create(owner=self.owner, name='Biscuit')
+        self.dog2 = Dog.objects.create(owner=self.owner, name='Alfie')
+        self.other_dog = Dog.objects.create(owner=self.other_owner, name='Rex')
+
+        # Known default day rate (save() also refreshes the singleton cache).
+        pricing = ServicePricing.load()
+        pricing.day_care_price = 25
+        pricing.save()
+
+        self.client = APIClient()
+
+    def _attend(self, dog, day, status='DROPPED_OFF', month=6, year=2026):
+        return DailyDogAssignment.objects.create(
+            dog=dog, staff_member=self.plain_staff,
+            date=date(year, month, day), status=status,
+        )
+
+
+class BillingGenerationTests(BillingTestsBase):
+    def test_generation_counts_attended_days_and_excludes_removed(self):
+        from api import billing
+
+        self._attend(self.dog, 1, 'DROPPED_OFF')
+        self._attend(self.dog, 2, 'PICKED_UP')
+        self._attend(self.dog, 3, 'ASSIGNED')
+        # UNASSIGNED = attending with no staff member yet -> billable.
+        self._attend(self.dog, 4, 'UNASSIGNED')
+        # REMOVED = not attending -> not billable.
+        self._attend(self.dog, 5, 'REMOVED')
+
+        created, skipped = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(skipped, 0)
+        invoice = created[0]
+        self.assertEqual(invoice.status, 'DRAFT')
+        self.assertEqual(invoice.customer, self.owner)
+        line = invoice.lines.get()
+        self.assertEqual(line.quantity, 4)
+        self.assertEqual(line.unit_price, Decimal('25.00'))
+        self.assertEqual(line.line_total, Decimal('100.00'))
+        self.assertEqual(invoice.total, Decimal('100.00'))
+        self.assertEqual(line.attendance_dates, ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04'])
+
+    def test_multi_dog_owner_gets_one_invoice_with_line_per_dog(self):
+        from api import billing
+
+        self._attend(self.dog, 1)
+        self._attend(self.dog, 2)
+        self._attend(self.dog2, 2)
+
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(created), 1)
+        invoice = created[0]
+        self.assertEqual(invoice.lines.count(), 2)
+        self.assertEqual(invoice.total, Decimal('75.00'))
+        # Lines sorted by dog name.
+        self.assertEqual([l.dog.name for l in invoice.lines.all()], ['Alfie', 'Biscuit'])
+
+    def test_daily_rate_override_beats_service_pricing(self):
+        from api import billing
+
+        self.dog.daily_rate = Decimal('30.00')
+        self.dog.save()
+        self._attend(self.dog, 1)
+        self._attend(self.dog2, 1)  # falls back to the £25 default
+
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        by_dog = {l.dog.name: l for l in created[0].lines.all()}
+        self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('30.00'))
+        self.assertEqual(by_dog['Alfie'].unit_price, Decimal('25.00'))
+        self.assertEqual(created[0].total, Decimal('55.00'))
+
+    def test_zero_attendance_and_ownerless_dogs_are_skipped(self):
+        from api import billing
+
+        stray = Dog.objects.create(owner=None, name='Stray')
+        self._attend(stray, 1)
+        self._attend(self.dog, 2, 'REMOVED')
+
+        created, skipped = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created, [])
+        self.assertEqual(skipped, 0)
+
+    def test_generation_is_idempotent(self):
+        from api import billing
+
+        self._attend(self.dog, 1)
+        first, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(first), 1)
+        second, skipped = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(second, [])
+        self.assertEqual(skipped, 1)
+        self.assertEqual(Invoice.objects.count(), 1)
+
+    def test_void_invoice_allows_regeneration_for_period(self):
+        from api import billing
+
+        self._attend(self.dog, 1)
+        first, _ = billing.generate_invoices_for_month(2026, 6)
+        first[0].status = 'VOID'
+        first[0].save()
+
+        second, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(Invoice.objects.count(), 2)
+
+    def test_regenerate_draft_rebuilds_lines(self):
+        from api import billing
+
+        self._attend(self.dog, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        self._attend(self.dog, 2)
+
+        billing.regenerate_draft(invoice)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.lines.get().quantity, 2)
+        self.assertEqual(invoice.total, Decimal('50.00'))
+
+    def test_regenerate_rejects_sent_invoice(self):
+        from api import billing
+
+        self._attend(self.dog, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.status = 'SENT'
+        invoice.save()
+        with self.assertRaises(ValueError):
+            billing.regenerate_draft(invoice)
+
+
+class InvoiceEndpointPermissionTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.draft = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=5, status='DRAFT',
+            total=Decimal('50.00'))
+        self.sent = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=4, status='SENT',
+            total=Decimal('75.00'))
+        self.other_sent = Invoice.objects.create(
+            customer=self.other_owner, period_year=2026, period_month=4, status='SENT',
+            total=Decimal('25.00'))
+
+    def test_owner_sees_only_own_sent_invoices(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/invoices/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data['results'] if isinstance(resp.data, dict) and 'results' in resp.data else resp.data
+        ids = {inv['id'] for inv in data}
+        self.assertEqual(ids, {self.sent.id})
+
+    def test_owner_cannot_retrieve_others_invoice_or_own_draft(self):
+        self.client.login(username='owner', password='pw')
+        self.assertEqual(self.client.get(f'/api/invoices/{self.other_sent.id}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/invoices/{self.draft.id}/').status_code, 404)
+
+    def test_owner_does_not_see_xero_sync_error(self):
+        self.sent.xero_sync_error = 'Xero API error (HTTP 500)'
+        self.sent.save()
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/invoices/{self.sent.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('xero_sync_error', resp.data)
+
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get(f'/api/invoices/{self.sent.id}/')
+        self.assertIn('xero_sync_error', resp.data)
+
+    def test_manager_sees_all_with_filters(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/invoices/')
+        data = resp.data['results'] if isinstance(resp.data, dict) and 'results' in resp.data else resp.data
+        self.assertEqual(len(data), 3)
+        resp = self.client.get('/api/invoices/?status=draft')
+        data = resp.data['results'] if isinstance(resp.data, dict) and 'results' in resp.data else resp.data
+        self.assertEqual([inv['id'] for inv in data], [self.draft.id])
+        resp = self.client.get(f'/api/invoices/?month=4&year=2026&customer={self.other_owner.id}')
+        data = resp.data['results'] if isinstance(resp.data, dict) and 'results' in resp.data else resp.data
+        self.assertEqual([inv['id'] for inv in data], [self.other_sent.id])
+
+    def test_manager_actions_require_flag(self):
+        cases = [
+            ('post', '/api/invoices/generate/', {'year': 2026, 'month': 6}),
+            ('post', f'/api/invoices/{self.draft.id}/send/', {}),
+            ('post', '/api/invoices/send_all/', {'year': 2026, 'month': 5}),
+            ('post', f'/api/invoices/{self.draft.id}/regenerate/', {}),
+            ('post', f'/api/invoices/{self.sent.id}/record_payment/', {'amount': '10'}),
+            ('post', f'/api/invoices/{self.sent.id}/void/', {}),
+            ('post', f'/api/invoices/{self.sent.id}/push_to_xero/', {}),
+            ('post', '/api/invoices/sync_xero/', {}),
+            ('get', '/api/invoices/summary/', None),
+        ]
+        for username in ('plainstaff', 'owner'):
+            self.client.login(username=username, password='pw')
+            for method, url, body in cases:
+                resp = getattr(self.client, method)(url, body, format='json')
+                self.assertIn(resp.status_code, (403, 404),
+                              f'{username} {method} {url} -> {resp.status_code}')
+
+    def test_superuser_and_manager_can_use_summary(self):
+        for username in ('manager', 'admin'):
+            self.client.login(username=username, password='pw')
+            resp = self.client.get('/api/invoices/summary/?year=2026')
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.data['draft'], 1)
+            self.assertEqual(resp.data['sent'], 2)
+            self.assertEqual(resp.data['total_billed'], Decimal('100.00'))
+            self.assertEqual(resp.data['total_outstanding'], Decimal('100.00'))
+
+    def test_owner_cannot_self_grant_payments_permission(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/profile/', {'can_manage_payments': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.owner.profile.refresh_from_db()
+        self.assertFalse(self.owner.profile.can_manage_payments)
+
+    def test_superuser_grants_payments_permission(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post(
+            f'/api/profile/update_staff_permissions/?user_id={self.plain_staff.id}',
+            {'can_manage_payments': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.plain_staff.profile.refresh_from_db()
+        self.assertTrue(self.plain_staff.profile.can_manage_payments)
+
+    def test_generate_endpoint_creates_drafts(self):
+        self._attend(self.other_dog, 1)
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post('/api/invoices/generate/', {'year': 2026, 'month': 6}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], 1)
+        self.assertTrue(Invoice.objects.filter(
+            customer=self.other_owner, period_year=2026, period_month=6, status='DRAFT').exists())
+
+    def test_generate_endpoint_validates_period(self):
+        self.client.login(username='manager', password='pw')
+        for body in ({}, {'year': 2026, 'month': 13}, {'year': 'x', 'month': 1}):
+            resp = self.client.post('/api/invoices/generate/', body, format='json')
+            self.assertEqual(resp.status_code, 400)
+
+    def test_send_marks_sent_and_notifies_owner(self):
+        with patch('api.billing.send_push_notification') as mock_push:
+            self.client.login(username='manager', password='pw')
+            resp = self.client.post(f'/api/invoices/{self.draft.id}/send/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, 'SENT')
+        self.assertIsNotNone(self.draft.sent_at)
+        self.assertEqual(self.draft.due_date, timezone.now().date() + timedelta(days=14))
+        self.assertEqual(mock_push.call_count, 1)
+        self.assertEqual(mock_push.call_args.args[0], self.owner)
+
+    def test_send_rejects_non_draft(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post(f'/api/invoices/{self.sent.id}/send/', format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_void_rejects_paid(self):
+        self.sent.status = 'PAID'
+        self.sent.save()
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post(f'/api/invoices/{self.sent.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post(f'/api/invoices/{self.draft.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, 'VOID')
+
+
+class ManualPaymentTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            total=Decimal('100.00'))
+
+    def _record(self, amount, method='CASH', **extra):
+        self.client.login(username='manager', password='pw')
+        body = {'amount': amount, 'method': method, **extra}
+        return self.client.post(f'/api/invoices/{self.invoice.id}/record_payment/', body, format='json')
+
+    def test_partial_payment_sets_part_paid(self):
+        with patch('api.billing.send_push_notification') as mock_push, \
+                patch('api.billing.send_staff_notification') as mock_staff:
+            resp = self._record('40.00')
+        self.assertEqual(resp.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'PART_PAID')
+        self.assertEqual(self.invoice.amount_paid, Decimal('40.00'))
+        self.assertIsNone(self.invoice.paid_at)
+        self.assertEqual(mock_push.call_args.args[0], self.owner)
+        self.assertEqual(mock_staff.call_args.kwargs.get('permission'), 'can_manage_payments')
+        self.assertEqual(mock_staff.call_args.kwargs.get('exclude_user'), self.manager)
+
+    def test_full_payment_sets_paid(self):
+        with patch('api.billing.send_push_notification'), \
+                patch('api.billing.send_staff_notification'):
+            self._record('60.00', method='BANK_TRANSFER', payment_date='2026-06-20')
+            resp = self._record('40.00')
+        self.assertEqual(resp.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'PAID')
+        self.assertEqual(self.invoice.amount_paid, Decimal('100.00'))
+        self.assertIsNotNone(self.invoice.paid_at)
+        methods = list(self.invoice.payments.values_list('method', flat=True))
+        self.assertEqual(sorted(methods), ['BANK_TRANSFER', 'CASH'])
+
+    def test_rejects_bad_amounts_methods_and_states(self):
+        self.assertEqual(self._record('0').status_code, 400)
+        self.assertEqual(self._record('-5').status_code, 400)
+        self.assertEqual(self._record('nonsense').status_code, 400)
+        self.assertEqual(self._record('10', method='BITCOIN').status_code, 400)
+        self.assertEqual(self._record('10', payment_date='not-a-date').status_code, 400)
+        for status in ('DRAFT', 'VOID'):
+            self.invoice.status = status
+            self.invoice.save()
+            self.assertEqual(self._record('10').status_code, 400)
+        self.assertEqual(self.invoice.payments.count(), 0)
+
+
+@override_settings(XERO_CLIENT_ID='client-id', XERO_CLIENT_SECRET='client-secret',
+                   XERO_REDIRECT_URI='https://example.com/api/xero/callback/')
+class XeroModuleTests(TestCase):
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            username='admin', password='pw', is_staff=True, is_superuser=True)
+        self.client = APIClient()
+
+    def _connect(self):
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.tenant_name = 'Paws 4 Thought'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+        return conn
+
+    def test_connect_returns_authorize_url_and_stores_state(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post('/api/xero/connect/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        url = resp.data['authorize_url']
+        self.assertIn('login.xero.com', url)
+        conn = XeroConnection.load()
+        self.assertTrue(conn.oauth_state)
+        self.assertIn(conn.oauth_state, url)
+
+    def test_connect_requires_superuser(self):
+        staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        staff.profile.can_manage_payments = True
+        staff.profile.save()
+        self.client.login(username='staff', password='pw')
+        self.assertEqual(self.client.post('/api/xero/connect/', format='json').status_code, 403)
+        self.assertEqual(self.client.get('/api/xero/status/').status_code, 403)
+        self.assertEqual(self.client.post('/api/xero/disconnect/', format='json').status_code, 403)
+
+    @override_settings(XERO_CLIENT_ID='', XERO_CLIENT_SECRET='')
+    def test_connect_400_when_unconfigured(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post('/api/xero/connect/', format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('api.xero._api_request')
+    @patch('api.xero._token_request')
+    def test_callback_stores_tokens_and_tenant(self, mock_token, mock_api):
+        from api import xero
+
+        xero.build_authorize_url()
+        state = XeroConnection.load().oauth_state
+        mock_token.return_value = {
+            'access_token': 'access-new', 'refresh_token': 'refresh-new', 'expires_in': 1800}
+        mock_api.return_value = [{'tenantId': 'tenant-1', 'tenantName': 'Paws 4 Thought'}]
+
+        # No login: the callback is a bare browser redirect authenticated by state.
+        resp = self.client.get(f'/api/xero/callback/?code=auth-code&state={state}')
+        self.assertEqual(resp.status_code, 200)
+        conn = XeroConnection.load()
+        self.assertTrue(conn.is_connected)
+        self.assertEqual(conn.tenant_id, 'tenant-1')
+        self.assertEqual(conn.refresh_token, 'refresh-new')
+        self.assertEqual(conn.oauth_state, '')  # single-use
+        self.assertEqual(mock_token.call_args.args[0]['grant_type'], 'authorization_code')
+
+    @patch('api.xero._token_request')
+    def test_callback_rejects_bad_and_expired_state(self, mock_token):
+        from api import xero
+
+        xero.build_authorize_url()
+        resp = self.client.get('/api/xero/callback/?code=auth-code&state=wrong')
+        self.assertEqual(resp.status_code, 400)
+
+        conn = XeroConnection.load()
+        state = conn.oauth_state
+        conn.oauth_state_created_at = timezone.now() - timedelta(minutes=11)
+        conn.save()
+        resp = self.client.get(f'/api/xero/callback/?code=auth-code&state={state}')
+        self.assertEqual(resp.status_code, 400)
+        mock_token.assert_not_called()
+        self.assertFalse(XeroConnection.load().is_connected)
+
+    @patch('api.xero._token_request')
+    def test_refresh_rotates_and_persists_tokens(self, mock_token):
+        from api import xero
+
+        conn = self._connect()
+        conn.access_token_expires_at = timezone.now() - timedelta(minutes=1)
+        conn.save()
+        mock_token.return_value = {
+            'access_token': 'access-2', 'refresh_token': 'refresh-2', 'expires_in': 1800}
+
+        token = xero.get_access_token()
+        self.assertEqual(token, 'access-2')
+        conn = XeroConnection.load()
+        self.assertEqual(conn.refresh_token, 'refresh-2')  # rotated token persisted
+        self.assertEqual(mock_token.call_args.args[0]['grant_type'], 'refresh_token')
+
+    @patch('api.xero._token_request')
+    def test_valid_cached_token_skips_refresh(self, mock_token):
+        from api import xero
+
+        self._connect()
+        self.assertEqual(xero.get_access_token(), 'access-1')
+        mock_token.assert_not_called()
+
+    @patch('api.xero._token_request')
+    def test_invalid_grant_clears_connection(self, mock_token):
+        from api import xero
+
+        conn = self._connect()
+        conn.access_token_expires_at = timezone.now() - timedelta(minutes=1)
+        conn.save()
+        mock_token.side_effect = xero.XeroAuthError('invalid_grant')
+
+        with self.assertRaises(xero.XeroAuthError):
+            xero.get_access_token()
+        self.assertFalse(XeroConnection.load().is_connected)
+
+    def test_not_connected_raises(self):
+        from api import xero
+
+        with self.assertRaises(xero.XeroNotConnected):
+            xero.get_access_token()
+
+    def test_status_and_disconnect(self):
+        self._connect()
+        self.client.login(username='admin', password='pw')
+        resp = self.client.get('/api/xero/status/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['configured'])
+        self.assertTrue(resp.data['connected'])
+        self.assertEqual(resp.data['tenant_name'], 'Paws 4 Thought')
+
+        resp = self.client.post('/api/xero/disconnect/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(XeroConnection.load().is_connected)
+
+
+class XeroDegradationTests(BillingTestsBase):
+    """Everything must work locally when Xero has never been connected."""
+
+    @patch('api.xero._api_request')
+    def test_send_without_xero_still_sends(self, mock_api):
+        from api import billing
+
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='DRAFT',
+            total=Decimal('50.00'))
+        with patch('api.billing.send_push_notification'):
+            billing.send_invoice(invoice)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'SENT')
+        self.assertEqual(invoice.xero_invoice_id, '')
+        mock_api.assert_not_called()
+
+    @patch('api.xero._api_request')
+    def test_pay_url_404_when_no_online_invoice(self, mock_api):
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            total=Decimal('50.00'))
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/invoices/{invoice.id}/pay_url/')
+        self.assertEqual(resp.status_code, 404)
+        mock_api.assert_not_called()
+
+    def test_pay_url_returns_stored_url(self):
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            total=Decimal('50.00'), xero_online_url='https://in.xero.com/abc')
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/invoices/{invoice.id}/pay_url/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['url'], 'https://in.xero.com/abc')
+
+    def test_pay_url_unavailable_for_paid_invoice(self):
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='PAID',
+            total=Decimal('50.00'), xero_online_url='https://in.xero.com/abc')
+        self.client.login(username='owner', password='pw')
+        self.assertEqual(self.client.get(f'/api/invoices/{invoice.id}/pay_url/').status_code, 404)
+
+    @patch('api.xero._api_request')
+    def test_sync_endpoint_returns_zeros_unconnected(self, mock_api):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post('/api/invoices/sync_xero/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['checked'], 0)
+        mock_api.assert_not_called()
+
+
+@override_settings(XERO_CLIENT_ID='client-id', XERO_CLIENT_SECRET='client-secret')
+class XeroSyncTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+        self.invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            total=Decimal('100.00'), xero_invoice_id='xero-inv-1')
+
+    def _remote(self, payments=None, amount_paid=0, credited=0):
+        return [{
+            'InvoiceID': 'xero-inv-1',
+            'AmountPaid': amount_paid,
+            'AmountCredited': credited,
+            'Payments': payments or [],
+        }]
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.fetch_invoices')
+    def test_imports_payments_once_and_marks_paid(self, mock_fetch, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(
+            payments=[{'PaymentID': 'pay-1', 'Amount': 100, 'Date': '/Date(1748736000000+0000)/'}],
+            amount_paid=100)
+
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['payments_imported'], 1)
+        self.assertEqual(counts['paid'], 1)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'PAID')
+        self.assertEqual(self.invoice.amount_paid, Decimal('100.00'))
+        payment = self.invoice.payments.get()
+        self.assertEqual(payment.source, 'XERO')
+        self.assertEqual(payment.xero_payment_id, 'pay-1')
+        self.assertEqual(mock_push.call_args.args[0], self.owner)  # owner receipt
+        self.assertIsNotNone(self.invoice.xero_last_synced_at)
+
+        # Second run: dedupe by xero_payment_id, nothing new, no PAID re-fire.
+        self.invoice.status = 'SENT'  # pretend still open so it gets checked
+        self.invoice.save()
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['payments_imported'], 0)
+        self.assertEqual(self.invoice.payments.count(), 1)
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.fetch_invoices')
+    def test_partial_payment_sets_part_paid(self, mock_fetch, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(
+            payments=[{'PaymentID': 'pay-1', 'Amount': 40, 'Date': '2026-06-15T00:00:00'}],
+            amount_paid=40)
+        billing.sync_invoices_from_xero()
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'PART_PAID')
+        self.assertEqual(self.invoice.amount_paid, Decimal('40.00'))
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.fetch_invoices')
+    def test_credited_amount_books_adjustment(self, mock_fetch, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(amount_paid=0, credited=100)
+        billing.sync_invoices_from_xero()
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'PAID')
+        adjustment = self.invoice.payments.get()
+        self.assertEqual(adjustment.amount, Decimal('100.00'))
+        self.assertEqual(adjustment.source, 'XERO')
+        self.assertIn('adjustment', adjustment.notes)
+
+
+class PaymentsCommandTests(BillingTestsBase):
+    def test_generate_command_defaults_to_previous_month_and_notifies(self):
+        today = timezone.localdate()
+        prev_year, prev_month = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.plain_staff,
+            date=date(prev_year, prev_month, 15), status='DROPPED_OFF')
+
+        with patch('api.management.commands.generate_monthly_invoices.send_staff_notification') as mock_staff:
+            call_command('generate_monthly_invoices')
+        invoice = Invoice.objects.get()
+        self.assertEqual((invoice.period_year, invoice.period_month), (prev_year, prev_month))
+        self.assertEqual(invoice.status, 'DRAFT')
+        self.assertEqual(mock_staff.call_args.kwargs.get('permission'), 'can_manage_payments')
+
+        # Idempotent rerun: no new invoices, no new notification.
+        with patch('api.management.commands.generate_monthly_invoices.send_staff_notification') as mock_staff:
+            call_command('generate_monthly_invoices')
+        self.assertEqual(Invoice.objects.count(), 1)
+        mock_staff.assert_not_called()
+
+    def test_generate_command_explicit_period(self):
+        self._attend(self.dog, 3)
+        call_command('generate_monthly_invoices', '--year', '2026', '--month', '6')
+        self.assertTrue(Invoice.objects.filter(period_year=2026, period_month=6).exists())
+
+    def test_reminder_command_sends_once(self):
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=5, status='SENT',
+            total=Decimal('50.00'), due_date=timezone.localdate() - timedelta(days=1))
+        fresh = Invoice.objects.create(
+            customer=self.other_owner, period_year=2026, period_month=5, status='SENT',
+            total=Decimal('25.00'), due_date=timezone.localdate() + timedelta(days=5))
+
+        with patch('api.management.commands.send_invoice_reminders.send_push_notification') as mock_push:
+            call_command('send_invoice_reminders')
+        self.assertEqual(mock_push.call_count, 1)
+        self.assertEqual(mock_push.call_args.args[0], self.owner)
+        invoice.refresh_from_db()
+        self.assertTrue(invoice.overdue_reminder_sent)
+        fresh.refresh_from_db()
+        self.assertFalse(fresh.overdue_reminder_sent)
+
+        with patch('api.management.commands.send_invoice_reminders.send_push_notification') as mock_push:
+            call_command('send_invoice_reminders')
+        mock_push.assert_not_called()
+
+    @patch('api.xero._api_request')
+    def test_sync_command_noop_unconnected(self, mock_api):
+        call_command('sync_xero_invoices')
+        mock_api.assert_not_called()

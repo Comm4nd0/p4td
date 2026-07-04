@@ -117,6 +117,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
 | `api/facility-defects/` | Facility defect reports |
 | `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs) |
+| `api/invoices/` | Monthly customer invoices (owners view/pay their own; staff with `can_manage_payments` generate/send/record payments/sync Xero) |
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
@@ -124,13 +125,14 @@ Additional non-router endpoints:
 - `api/password/change/` — change password while logged in
 - `api/account/delete/` — account deletion
 - `api/postcode/lookup/` — UK postcode address lookup (getAddress.io)
+- `api/xero/status/`, `api/xero/connect/`, `api/xero/callback/`, `api/xero/disconnect/` — Xero OAuth2 connection management (superuser-only; the callback is a browser redirect authenticated by its one-shot state token)
 
 ## Architecture & Key Patterns
 
 ### Backend
 
 - **ViewSets + DefaultRouter** for REST endpoints
-- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_approve_timeoff`, `can_view_inquiries`, `can_manage_vehicles`
+- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_approve_timeoff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`
 - **Token + Session auth** via djoser
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
@@ -181,6 +183,8 @@ See `.env.example` for required variables. Key ones:
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD` — PostgreSQL credentials (prod)
 - `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` — security origins
 - `POSTCODE_LOOKUP_API_KEY` — getAddress.io API key powering the `/api/postcode/lookup/` endpoint (UK postcode → address). Optional; leave blank to disable the lookup feature. Distinct from the keyless postcodes.io geocoding used by `geocode_dogs`.
+- `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI` — Xero OAuth2 app credentials for monthly invoicing (create a "Web app" at developer.xero.com whose redirect URI exactly matches `XERO_REDIRECT_URI`). Optional; leave blank to disable — invoicing still works locally, just without the online payment link. A superuser completes the one-time consent via `POST /api/xero/connect/`.
+- `XERO_PAYMENT_ACCOUNT_CODE` — Xero account code that staff-recorded manual payments are booked against in Xero. Blank = manual payments stay app-only (Xero will keep showing the invoice unpaid, and if staff then also key the payment into Xero the sync imports it as a duplicate — keep this configured).
 - Firebase and AWS S3 credentials for notifications and media storage
 
 ## Management Commands
@@ -196,6 +200,9 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files | Weekly, Sun 3am (with `--include-orphans`) |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
+| `python manage.py generate_monthly_invoices` | Generate draft invoices for the previous month from attendance; notifies staff with `can_manage_payments` to review/send. Idempotent; `--year`, `--month` | Monthly, 1st 6:00am |
+| `python manage.py sync_xero_invoices` | Pull payment status for open invoices back from Xero (no-op when Xero not connected) | Every 30 min |
+| `python manage.py send_invoice_reminders` | Push overdue payment reminders to invoice owners (once per invoice) | Daily 9:00am |
 
 ### Feed Media Pruning
 
