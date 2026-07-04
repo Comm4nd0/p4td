@@ -73,6 +73,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canViewInquiries = false;
   bool _canManageVehicles = false;
   bool _canManagePayments = false;
+  bool _canManageBoarding = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -206,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canViewInquiries = profile.canViewInquiries;
           _canManageVehicles = profile.canManageVehicles;
           _canManagePayments = profile.canManagePayments;
+          _canManageBoarding = profile.canManageBoarding;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -242,11 +244,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!_isStaff) return;
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
-      final boardingRequests = await _dataService.getBoardingRequests();
-      
       final pendingDateCount = dateRequests.where((r) => r.status == RequestStatus.pending).length;
-      final pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
-      
+
+      // Pending boardings only alert staff who can act on them.
+      var pendingBoardingCount = 0;
+      if (_canManageBoarding) {
+        final boardingRequests = await _dataService.getBoardingRequests();
+        pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
+      }
+
       if (mounted) {
         setState(() => _pendingRequestCount = pendingDateCount + pendingBoardingCount);
       }
@@ -293,7 +299,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+              builder: (_) => StaffNotificationsScreen(
+                canManageRequests: _canManageRequests,
+                canManageBoarding: _canManageBoarding,
+              ),
             ),
           );
           break;
@@ -303,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             MaterialPageRoute(
               builder: (_) => BoardingRequestListScreen(
                 isStaff: _isStaff,
-                canManageRequests: _canManageRequests,
+                canManageBoarding: _canManageBoarding,
               ),
             ),
           );
@@ -427,7 +436,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onPressed: () async {
                     await Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests)),
+                      MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests, canManageBoarding: _canManageBoarding)),
                     );
                     _loadPendingRequestCount();
                   },
@@ -529,6 +538,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       canAddFeedMedia: _canAddFeedMedia,
                       canManageVehicles: _canManageVehicles,
                       canManagePayments: _canManagePayments,
+                      canManageBoarding: _canManageBoarding,
                       isStaff: _isStaff,
                       isSuperuser: _isSuperuser,
                       myUserId: _myUserId,

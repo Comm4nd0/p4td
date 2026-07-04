@@ -12,6 +12,7 @@ class StaffPermission {
   bool canViewInquiries;
   bool canManageVehicles;
   bool canManagePayments;
+  bool canManageBoarding;
 
   StaffPermission({
     required this.userId,
@@ -27,6 +28,7 @@ class StaffPermission {
     this.canViewInquiries = false,
     this.canManageVehicles = false,
     this.canManagePayments = false,
+    this.canManageBoarding = false,
   });
 
   String get displayName {
@@ -50,6 +52,7 @@ class StaffPermission {
       canViewInquiries: json['can_view_inquiries'] ?? false,
       canManageVehicles: json['can_manage_vehicles'] ?? false,
       canManagePayments: json['can_manage_payments'] ?? false,
+      canManageBoarding: json['can_manage_boarding'] ?? false,
     );
   }
 }

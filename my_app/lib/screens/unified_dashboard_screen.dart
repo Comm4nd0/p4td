@@ -45,6 +45,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAddFeedMedia;
   final bool canManageVehicles;
   final bool canManagePayments;
+  final bool canManageBoarding;
   final bool isStaff;
   final bool isSuperuser;
   final int? myUserId;
@@ -61,6 +62,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.canAddFeedMedia = false,
     this.canManageVehicles = false,
     this.canManagePayments = false,
+    this.canManageBoarding = false,
     this.isStaff = false,
     this.isSuperuser = false,
     this.myUserId,
@@ -112,6 +114,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       dataService: _dataService,
       canViewInquiries: widget.canViewInquiries,
       canManageRequests: widget.canManageRequests,
+      canManageBoarding: widget.canManageBoarding,
     )..addListener(_onCountsChanged);
     _dateOptions = _generateWeekdays(DateTime.now());
     // Open on today when it's a working day; otherwise the next working day in
@@ -1435,9 +1438,13 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       unspayedMalesCount: _counts.unspayedMalesCount,
       canViewInquiries: widget.canViewInquiries,
       canManageRequests: widget.canManageRequests,
+      canManageBoarding: widget.canManageBoarding,
       onOpenPendingRequests: () async {
         await Navigator.push(context, MaterialPageRoute(
-          builder: (_) => StaffNotificationsScreen(canManageRequests: widget.canManageRequests),
+          builder: (_) => StaffNotificationsScreen(
+            canManageRequests: widget.canManageRequests,
+            canManageBoarding: widget.canManageBoarding,
+          ),
         ));
         _counts.reloadPendingRequestCount();
       },
@@ -1459,7 +1466,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         await Navigator.push(context, MaterialPageRoute(
           builder: (_) => BoardingRequestListScreen(
             isStaff: widget.isStaff,
-            canManageRequests: widget.canManageRequests,
+            canManageBoarding: widget.canManageBoarding,
           ),
         ));
         _counts.reloadPendingRequestCount();

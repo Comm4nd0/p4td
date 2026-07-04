@@ -14,8 +14,13 @@ import 'request_boarding_screen.dart';
 
 class StaffNotificationsScreen extends StatefulWidget {
   final bool canManageRequests;
+  final bool canManageBoarding;
 
-  const StaffNotificationsScreen({super.key, this.canManageRequests = false});
+  const StaffNotificationsScreen({
+    super.key,
+    this.canManageRequests = false,
+    this.canManageBoarding = false,
+  });
 
   @override
   State<StaffNotificationsScreen> createState() => _StaffNotificationsScreenState();
@@ -502,7 +507,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   }
 
   Widget _buildBoardingRequestCard(BoardingRequest request) {
-    final canManage = widget.canManageRequests;
+    final canManage = widget.canManageBoarding;
     return BoardingRequestCard(
       request: request,
       showOwner: true,

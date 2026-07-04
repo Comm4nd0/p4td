@@ -23,6 +23,7 @@ class ActionItemsSection extends StatelessWidget {
 
   final bool canViewInquiries;
   final bool canManageRequests;
+  final bool canManageBoarding;
 
   final VoidCallback onOpenPendingRequests;
   final VoidCallback onOpenQueries;
@@ -45,6 +46,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.unspayedMalesCount,
     required this.canViewInquiries,
     required this.canManageRequests,
+    this.canManageBoarding = false,
     required this.onOpenPendingRequests,
     required this.onOpenQueries,
     required this.onOpenInquiries,
@@ -101,14 +103,16 @@ class ActionItemsSection extends StatelessWidget {
             onTap: onOpenProfileChanges,
           ),
         ],
-        const SizedBox(height: 4),
-        ActionItemTile(
-          icon: PiconsDuotone.bed,
-          label: 'Boarding Requests',
-          count: pendingBoardingCount,
-          countColor: pendingBoardingCount > 0 ? Colors.red : null,
-          onTap: onOpenBoardingRequests,
-        ),
+        if (canManageBoarding) ...[
+          const SizedBox(height: 4),
+          ActionItemTile(
+            icon: PiconsDuotone.bed,
+            label: 'Boarding Requests',
+            count: pendingBoardingCount,
+            countColor: pendingBoardingCount > 0 ? Colors.red : null,
+            onTap: onOpenBoardingRequests,
+          ),
+        ],
         const SizedBox(height: 4),
         ActionItemTile(
           icon: PiconsDuotone.wrench,
