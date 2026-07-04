@@ -132,7 +132,7 @@ Additional non-router endpoints:
 ### Backend
 
 - **ViewSets + DefaultRouter** for REST endpoints
-- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_approve_timeoff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`
+- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_approve_timeoff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`
 - **Token + Session auth** via djoser
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)

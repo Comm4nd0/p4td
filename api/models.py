@@ -20,6 +20,7 @@ class UserProfile(models.Model):
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
     can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
     can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
+    can_manage_boarding = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny and edit boarding requests.')
 
     # Personal identity colour used across the staff app (map pins, day board,
     # dashboard cards). Blank = automatic palette colour by staff id.
@@ -126,6 +127,7 @@ class Dog(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
     daily_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day billing rate override for this dog. Blank = standard day care price from Service Pricing. Staff-only field.')
+    boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate override for this dog. Blank = standard boarding price from Service Pricing. Staff-only field.')
     # Cached geocoding of `address` for the staff pickup map. Populated by the
     # geocode_dogs management command and refreshed when `address` changes.
     GEOCODE_SOURCE_CHOICES = [
@@ -671,7 +673,7 @@ def notify_staff_boarding_request(sender, instance, created, **kwargs):
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
         from django.contrib.auth.models import User
-        for user in User.objects.filter(is_staff=True, profile__can_manage_requests=True):
+        for user in User.objects.filter(is_staff=True, profile__can_manage_boarding=True):
             send_push_notification(user, title, body, data)
 
 # --- User Notifications (Status Changes) ---

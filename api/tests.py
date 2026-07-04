@@ -1594,6 +1594,10 @@ class BoardingRequestTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Managing boarding requests (approve/deny/edit/delete, staff
+        # auto-approval) requires the can_manage_boarding flag.
+        self.staff.profile.can_manage_boarding = True
+        self.staff.profile.save()
         self.dog = Dog.objects.create(owner=self.owner, name='Bella')
         self.client = APIClient()
 
@@ -5113,8 +5117,12 @@ class NotificationCorrectnessTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='nowner', password='pw')
         self.staff = User.objects.create_user(username='nstaff', password='pw', is_staff=True)
+        # Staff auto-approval of bookings needs the boarding-manager flag.
+        self.staff.profile.can_manage_boarding = True
+        self.staff.profile.save()
         self.manager = User.objects.create_user(username='nmanager', password='pw', is_staff=True)
         self.manager.profile.can_manage_requests = True
+        self.manager.profile.can_manage_boarding = True
         self.manager.profile.save()
         self.dog = Dog.objects.create(owner=self.owner, name='Nala')
         self.client = APIClient()
@@ -5987,3 +5995,245 @@ class PaymentsCommandTests(BillingTestsBase):
     def test_sync_command_noop_unconnected(self, mock_api):
         call_command('sync_xero_invoices')
         mock_api.assert_not_called()
+
+
+class BoardingBillingTests(BillingTestsBase):
+    """Boarding stays bill per-night on the monthly invoice, in addition to
+    any daycare attendance (a boarded dog joining daycare is a paid extra)."""
+
+    def setUp(self):
+        super().setUp()
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.boarding_price_per_night = 30
+        pricing.save()
+
+    def _board(self, start, end, dogs=None, owner=None, status='APPROVED'):
+        br = BoardingRequest.objects.create(
+            owner=owner or self.owner, start_date=start, end_date=end, status=status)
+        br.dogs.add(*(dogs or [self.dog]))
+        return br
+
+    def test_nights_counted_checkout_day_free(self):
+        from api import billing
+
+        # Friday 5 June -> Sunday 7 June = 2 nights.
+        self._board(date(2026, 6, 5), date(2026, 6, 7))
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertIn('Boarding', line.description)
+        self.assertEqual(line.quantity, 2)
+        self.assertEqual(line.unit_price, Decimal('30.00'))
+        self.assertEqual(line.line_total, Decimal('60.00'))
+        self.assertEqual(line.attendance_dates, ['2026-06-05', '2026-06-06'])
+        self.assertEqual(created[0].total, Decimal('60.00'))
+
+    def test_stay_spanning_months_bills_each_months_nights(self):
+        from api import billing
+
+        # 29 June -> 3 July: June bills nights of 29th/30th, July bills 1st/2nd.
+        self._board(date(2026, 6, 29), date(2026, 7, 3))
+        june, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(june[0].lines.get().attendance_dates, ['2026-06-29', '2026-06-30'])
+        july, _ = billing.generate_invoices_for_month(2026, 7)
+        self.assertEqual(july[0].lines.get().attendance_dates, ['2026-07-01', '2026-07-02'])
+
+    def test_boarding_rate_override_beats_service_pricing(self):
+        from api import billing
+
+        self.dog.boarding_rate = Decimal('45.00')
+        self.dog.save()
+        self._board(date(2026, 6, 1), date(2026, 6, 2), dogs=[self.dog, self.dog2])
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        by_dog = {l.dog.name: l for l in created[0].lines.all()}
+        self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('45.00'))
+        self.assertEqual(by_dog['Alfie'].unit_price, Decimal('30.00'))
+
+    def test_zero_price_still_creates_visible_line(self):
+        from api import billing
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.boarding_price_per_night = 0
+        pricing.save()
+        self._board(date(2026, 6, 1), date(2026, 6, 3))
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertEqual(line.quantity, 2)
+        self.assertEqual(line.line_total, Decimal('0.00'))
+
+    def test_pending_and_denied_requests_not_billed(self):
+        from api import billing
+
+        self._board(date(2026, 6, 1), date(2026, 6, 3), status='PENDING')
+        self._board(date(2026, 6, 10), date(2026, 6, 12), status='DENIED')
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created, [])
+
+    def test_boarding_and_daycare_same_day_both_bill(self):
+        from api import billing
+
+        self._board(date(2026, 6, 1), date(2026, 6, 3))
+        self._attend(self.dog, 1)
+        self._attend(self.dog, 2)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        descriptions = sorted(l.description.split(' — ')[0] for l in invoice.lines.all())
+        self.assertEqual(descriptions, ['Boarding', 'Daycare'])
+        # 2 daycare days @ £25 + 2 boarding nights @ £30.
+        self.assertEqual(invoice.total, Decimal('110.00'))
+
+    def test_booking_owner_billed_not_dog_owner(self):
+        from api import billing
+
+        # other_owner books a stay for a dog owned by self.owner: the person
+        # who booked pays.
+        self._board(date(2026, 6, 1), date(2026, 6, 2), owner=self.other_owner)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].customer, self.other_owner)
+
+    def test_regenerate_rebuilds_boarding_lines(self):
+        from api import billing
+
+        booking = self._board(date(2026, 6, 1), date(2026, 6, 2))
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        self.assertEqual(invoice.total, Decimal('30.00'))
+        booking.end_date = date(2026, 6, 4)
+        booking.save()
+        billing.regenerate_draft(invoice)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.lines.get().quantity, 3)
+        self.assertEqual(invoice.total, Decimal('90.00'))
+
+
+class BoardingPermissionTests(TestCase):
+    """Managing boarding requests requires the can_manage_boarding flag;
+    staff without it keep read access only (needed for care logistics)."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.plain_staff = User.objects.create_user(username='plainstaff', password='pw', is_staff=True)
+        self.boarding_manager = User.objects.create_user(username='bmanager', password='pw', is_staff=True)
+        self.boarding_manager.profile.can_manage_boarding = True
+        self.boarding_manager.profile.save()
+        self.superuser = User.objects.create_user(
+            username='admin', password='pw', is_staff=True, is_superuser=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Bella')
+        self.client = APIClient()
+
+    def _pending(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05')
+        br.dogs.add(self.dog)
+        return br
+
+    def test_staff_without_flag_cannot_change_status(self):
+        br = self._pending()
+        self.client.login(username='plainstaff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/',
+                                {'status': 'APPROVED'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        br.refresh_from_db()
+        self.assertEqual(br.status, 'PENDING')
+
+    def test_flag_holder_and_superuser_can_change_status(self):
+        for username in ('bmanager', 'admin'):
+            br = self._pending()
+            self.client.login(username=username, password='pw')
+            resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/',
+                                    {'status': 'APPROVED'}, format='json')
+            self.assertEqual(resp.status_code, 200)
+            br.delete()
+
+    def test_staff_without_flag_cannot_edit_or_delete(self):
+        br = self._pending()
+        self.client.login(username='plainstaff', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/',
+                                 {'special_instructions': 'x'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.delete(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(BoardingRequest.objects.filter(id=br.id).exists())
+
+    def test_staff_without_flag_keeps_read_access(self):
+        br = self._pending()
+        self.client.login(username='plainstaff', password='pw')
+        resp = self.client.get('/api/boarding-requests/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        resp = self.client.get(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_staff_created_without_flag_stays_pending(self):
+        self.client.login(username='plainstaff', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'owner': self.owner.id,
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'PENDING')
+
+    def test_manager_created_auto_approves(self):
+        self.client.login(username='bmanager', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'owner': self.owner.id,
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'APPROVED')
+
+    def test_owner_rights_unchanged(self):
+        # Owners still create, edit and withdraw their own PENDING requests.
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        br_id = resp.data['id']
+        resp = self.client.patch(f'/api/boarding-requests/{br_id}/',
+                                 {'special_instructions': 'blanket'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.delete(f'/api/boarding-requests/{br_id}/')
+        self.assertEqual(resp.status_code, 204)
+
+    def test_cannot_self_grant_boarding_permission(self):
+        self.client.login(username='plainstaff', password='pw')
+        resp = self.client.post('/api/profile/', {'can_manage_boarding': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.plain_staff.profile.refresh_from_db()
+        self.assertFalse(self.plain_staff.profile.can_manage_boarding)
+
+    def test_superuser_grants_boarding_permission(self):
+        self.client.login(username='admin', password='pw')
+        resp = self.client.post(
+            f'/api/profile/update_staff_permissions/?user_id={self.plain_staff.id}',
+            {'can_manage_boarding': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.plain_staff.profile.refresh_from_db()
+        self.assertTrue(self.plain_staff.profile.can_manage_boarding)
+
+    def test_new_request_push_targets_boarding_managers(self):
+        request_manager = User.objects.create_user(username='reqmgr', password='pw', is_staff=True)
+        request_manager.profile.can_manage_requests = True
+        request_manager.profile.save()
+        self.client.login(username='owner', password='pw')
+        with patch('api.models.send_push_notification') as signal_push:
+            resp = self.client.post('/api/boarding-requests/', {
+                'dogs': [self.dog.id],
+                'start_date': '2026-04-01',
+                'end_date': '2026-04-05',
+            }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        recipients = [c.args[0] for c in signal_push.call_args_list]
+        self.assertIn(self.boarding_manager, recipients)
+        self.assertNotIn(request_manager, recipients)
+        self.assertNotIn(self.plain_staff, recipients)

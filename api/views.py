@@ -633,12 +633,12 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
 
-        # Transport default fields, is_spayed and daily_rate are staff-only.
+        # Transport default fields, is_spayed and billing rates are staff-only.
         # Strip them from validated_data when the caller is not staff.
         if not self.request.user.is_staff:
             for field in ('owner_brings_default', 'owner_collects_default',
                           'owner_brings_default_time', 'owner_collects_default_time',
-                          'is_spayed', 'daily_rate'):
+                          'is_spayed', 'daily_rate', 'boarding_rate'):
                 serializer.validated_data.pop(field, None)
 
         # Attach the requesting user so the care-instructions signal can
@@ -1424,12 +1424,21 @@ class CommentViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only delete your own comments.")
 
+def _user_can_manage_boarding(user):
+    if user.is_superuser:
+        return True
+    return user.is_staff and getattr(getattr(user, 'profile', None), 'can_manage_boarding', False)
+
+
 class BoardingRequestViewSet(viewsets.ModelViewSet):
     serializer_class = BoardingRequestSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = OptInPagination
 
     def get_queryset(self):
+        # All staff keep read access — the day board and Boarding Tonight rely
+        # on this data for care logistics. Managing requests (approve/deny/
+        # edit/delete) additionally requires profile.can_manage_boarding.
         base = BoardingRequest.objects.select_related('owner', 'approved_by').prefetch_related(
             'dogs', 'history__changed_by'
         )
@@ -1438,20 +1447,29 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         return base.filter(owner=self.request.user)
 
     def perform_destroy(self, instance):
-        # Staff can delete any booking (e.g. removing duplicates); owners can
-        # only withdraw their own requests while they're still PENDING — an
-        # approved booking must be denied/changed by staff, not silently
-        # deleted by the owner.
-        if not self.request.user.is_staff and instance.status != 'PENDING':
+        # Boarding managers can delete any booking (e.g. removing duplicates);
+        # owners can only withdraw their own requests while they're still
+        # PENDING — an approved booking must be denied/changed by a manager,
+        # not silently deleted by the owner.
+        if self.request.user.is_staff:
+            if not _user_can_manage_boarding(self.request.user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You do not have permission to manage boarding requests.')
+        elif instance.status != 'PENDING':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can delete a booking that has been approved or denied.')
         instance.delete()
 
     def perform_update(self, serializer):
         # Owners can amend their own request only while it's still PENDING —
-        # once a booking is approved/denied, changes go through staff (who can
-        # edit any booking, e.g. to shift the dates of an approved stay).
-        if not self.request.user.is_staff and serializer.instance.status != 'PENDING':
+        # once a booking is approved/denied, changes go through a boarding
+        # manager (who can edit any booking, e.g. to shift the dates of an
+        # approved stay). Other staff are view-only.
+        if self.request.user.is_staff:
+            if not _user_can_manage_boarding(self.request.user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You do not have permission to manage boarding requests.')
+        elif serializer.instance.status != 'PENDING':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can edit a booking that has been approved or denied.')
 
@@ -1523,10 +1541,11 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         else:
             owner = self.request.user
 
-        # Auto-approve any boarding request created by staff — owner-created
-        # requests stay PENDING and go through the normal approval workflow
-        # (mirrors the DateChangeRequest staff auto-approval).
-        if not self.request.user.is_staff:
+        # Auto-approve boarding requests created by boarding managers —
+        # owner-created requests (and those from staff without the manage
+        # flag, e.g. submitting on an owner's behalf) stay PENDING and go
+        # through the normal approval workflow.
+        if not _user_can_manage_boarding(self.request.user):
             serializer.save(owner=owner)
             return
 
@@ -1548,9 +1567,9 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
-        if not request.user.is_staff:
+        if not _user_can_manage_boarding(request.user):
             from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only staff can change request status")
+            raise PermissionDenied('You do not have permission to manage boarding requests.')
 
         instance = self.get_object()
         new_status = request.data.get('status')

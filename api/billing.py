@@ -7,11 +7,20 @@ staff member — see the model comment). One invoice per customer per month,
 one line per dog, at ``Dog.daily_rate`` falling back to the website's
 ``ServicePricing.day_care_price``.
 
+Approved boarding stays bill separately at a per-night rate
+(``Dog.boarding_rate`` falling back to ``ServicePricing.boarding_price_per_night``):
+a billable night is a stay date before the checkout day, clamped to the
+billing month. Boarding is deliberately billed IN ADDITION to any daycare
+assignment on the same date (business decision: a boarded dog joining
+daycare is a paid extra).
+
 Xero is strictly best-effort: a failed push never blocks the local billing
 workflow — the error is stored on the invoice and can be retried via the
 ``push_to_xero`` endpoint action.
 """
+import calendar as _calendar
 import logging
+from datetime import date as date_cls, timedelta
 from decimal import Decimal
 
 from django.db import transaction
@@ -19,7 +28,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from . import xero
-from .models import DailyDogAssignment, Invoice, InvoiceLine, PaymentRecord, XeroConnection
+from .models import BoardingRequest, DailyDogAssignment, Invoice, InvoiceLine, PaymentRecord, XeroConnection
 from .notifications import send_push_notification, send_staff_notification
 
 logger = logging.getLogger(__name__)
@@ -39,6 +48,15 @@ def get_day_rate(dog):
     # without it in edge contexts (and avoids app-loading order issues).
     from website.models import ServicePricing
     return ServicePricing.load().day_care_price
+
+
+def get_boarding_rate(dog):
+    """The per-night boarding rate for a dog: its override, else the standard
+    boarding price (which is 0 until the business sets it — visible on drafts)."""
+    if dog.boarding_rate is not None:
+        return dog.boarding_rate
+    from website.models import ServicePricing
+    return ServicePricing.load().boarding_price_per_night
 
 
 def attendance_for_month(year, month):
@@ -63,14 +81,57 @@ def attendance_for_month(year, month):
     return by_owner
 
 
+def boarding_nights_for_month(year, month):
+    """Billable boarding nights per booking owner per dog for a calendar month.
+
+    Returns ``{owner: {dog: [night dates]}}``. A billable night is a stay date
+    strictly before the checkout day (Fri→Sun = 2 nights), clamped to the
+    month so a stay spanning months bills each month's nights separately.
+    Billed to the booking's owner (who requested the stay), one entry per dog
+    on the request.
+    """
+    month_start = date_cls(year, month, 1)
+    month_end = date_cls(year, month, _calendar.monthrange(year, month)[1])
+    requests = (
+        BoardingRequest.objects
+        .filter(status='APPROVED', start_date__lte=month_end, end_date__gte=month_start)
+        .select_related('owner')
+        .prefetch_related('dogs')
+    )
+    by_owner = {}
+    for request in requests:
+        first_night = max(request.start_date, month_start)
+        # Last billable night is the day before checkout, clamped to the month.
+        last_night = min(request.end_date - timedelta(days=1), month_end)
+        if first_night > last_night:
+            continue
+        nights = [
+            first_night + timedelta(days=offset)
+            for offset in range((last_night - first_night).days + 1)
+        ]
+        for dog in request.dogs.all():
+            by_owner.setdefault(request.owner, {}).setdefault(dog, []).extend(nights)
+    return by_owner
+
+
 def generate_invoices_for_month(year, month, created_by=None):
-    """Create DRAFT invoices for every customer with attendance in the period.
+    """Create DRAFT invoices for every customer with daycare attendance or
+    boarding nights in the period.
 
     Idempotent: customers who already have a non-VOID invoice for the period
-    are skipped, as are customers with zero attended days. Returns
+    are skipped, as are customers with nothing to bill. Returns
     ``(created_invoices, skipped_count)``.
     """
-    by_owner = attendance_for_month(year, month)
+    daycare_by_owner = attendance_for_month(year, month)
+    boarding_by_owner = boarding_nights_for_month(year, month)
+
+    # Merge on user id — the two maps carry separate User instances.
+    customers = {}
+    for owner, dogs in daycare_by_owner.items():
+        customers.setdefault(owner.id, {'owner': owner, 'daycare': {}, 'boarding': {}})['daycare'] = dogs
+    for owner, dogs in boarding_by_owner.items():
+        customers.setdefault(owner.id, {'owner': owner, 'daycare': {}, 'boarding': {}})['boarding'] = dogs
+
     already_billed = set(
         Invoice.objects
         .filter(period_year=year, period_month=month)
@@ -80,19 +141,20 @@ def generate_invoices_for_month(year, month, created_by=None):
 
     created = []
     skipped = 0
-    for owner, dogs in by_owner.items():
-        if owner.id in already_billed:
+    for entry in customers.values():
+        if entry['owner'].id in already_billed:
             skipped += 1
             continue
         with transaction.atomic():
             invoice = Invoice.objects.create(
-                customer=owner,
+                customer=entry['owner'],
                 period_year=year,
                 period_month=month,
                 status='DRAFT',
                 created_by=created_by,
             )
-            total = _build_lines(invoice, dogs)
+            total = _build_lines(invoice, entry['daycare'])
+            total += _build_boarding_lines(invoice, entry['boarding'])
             invoice.total = total
             invoice.save(update_fields=['total', 'updated_at'])
         created.append(invoice)
@@ -100,7 +162,7 @@ def generate_invoices_for_month(year, month, created_by=None):
 
 
 def _build_lines(invoice, dogs):
-    """Create one InvoiceLine per dog; returns the invoice total."""
+    """Create one daycare InvoiceLine per dog; returns the lines' total."""
     total = Decimal('0.00')
     for dog, dates in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
         rate = get_day_rate(dog)
@@ -118,14 +180,38 @@ def _build_lines(invoice, dogs):
     return total
 
 
+def _build_boarding_lines(invoice, dogs):
+    """Create one boarding InvoiceLine per dog; returns the lines' total."""
+    total = Decimal('0.00')
+    for dog, nights in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
+        rate = get_boarding_rate(dog)
+        line_total = rate * len(nights)
+        InvoiceLine.objects.create(
+            invoice=invoice,
+            dog=dog,
+            description=f"Boarding — {dog.name} ({len(nights)} night{'s' if len(nights) != 1 else ''} @ £{rate})",
+            quantity=len(nights),
+            unit_price=rate,
+            line_total=line_total,
+            attendance_dates=[d.isoformat() for d in nights],
+        )
+        total += line_total
+    return total
+
+
 def regenerate_draft(invoice):
-    """Rebuild a DRAFT invoice's lines from current attendance data."""
+    """Rebuild a DRAFT invoice's lines from current attendance/boarding data."""
     if invoice.status != 'DRAFT':
         raise ValueError('Only draft invoices can be regenerated.')
-    dogs = attendance_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
+    daycare = attendance_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
+    boarding = {}
+    for owner, dogs in boarding_nights_for_month(invoice.period_year, invoice.period_month).items():
+        if owner.id == invoice.customer_id:
+            boarding = dogs
+            break
     with transaction.atomic():
         invoice.lines.all().delete()
-        invoice.total = _build_lines(invoice, dogs)
+        invoice.total = _build_lines(invoice, daycare) + _build_boarding_lines(invoice, boarding)
         invoice.save(update_fields=['total', 'updated_at'])
     return invoice
 
