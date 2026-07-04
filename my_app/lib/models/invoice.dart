@@ -21,6 +21,9 @@ class InvoiceLine {
   /// ISO dates the dog attended — shown so owners can verify their bill.
   final List<String> attendanceDates;
 
+  /// Staff-entered one-off charge/discount (negative = discount).
+  final bool isAdjustment;
+
   InvoiceLine({
     required this.id,
     this.dogId,
@@ -30,6 +33,7 @@ class InvoiceLine {
     required this.unitPrice,
     required this.lineTotal,
     this.attendanceDates = const [],
+    this.isAdjustment = false,
   });
 
   factory InvoiceLine.fromJson(Map<String, dynamic> json) {
@@ -45,6 +49,7 @@ class InvoiceLine {
               ?.map((e) => e.toString())
               .toList() ??
           [],
+      isAdjustment: json['is_adjustment'] ?? false,
     );
   }
 }

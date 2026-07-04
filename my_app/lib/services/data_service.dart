@@ -3156,12 +3156,16 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<({int created, int skipped})> generateInvoices(int year, int month) async {
+  Future<({int created, int skipped})> generateInvoices(int year, int month, {int? customerId}) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/invoices/generate/'),
       headers: headers,
-      body: json.encode({'year': year, 'month': month}),
+      body: json.encode({
+        'year': year,
+        'month': month,
+        if (customerId != null) 'customer': customerId,
+      }),
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
@@ -3202,6 +3206,18 @@ class ApiDataService implements DataService {
 
   @override
   Future<Invoice> voidInvoice(int id) => _invoiceAction(id, 'void');
+
+  @override
+  Future<Invoice> addInvoiceLine(int id, {required String description, required double amount}) {
+    return _invoiceAction(id, 'add_line', {
+      'description': description,
+      'amount': amount.toStringAsFixed(2),
+    });
+  }
+
+  @override
+  Future<Invoice> removeInvoiceLine(int id, int lineId) =>
+      _invoiceAction(id, 'remove_line', {'line_id': lineId});
 
   @override
   Future<Invoice> pushInvoiceToXero(int id) => _invoiceAction(id, 'push_to_xero');
