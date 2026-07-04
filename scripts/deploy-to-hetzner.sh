@@ -86,6 +86,18 @@ $SSH_CMD "$HETZNER_HOST" "
     FLEET_CRON='5 8 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_fleet_reminders >> /var/log/p4td-fleet.log 2>&1'
     ( crontab -l 2>/dev/null | grep -v 'send_fleet_reminders'; echo \"\$FLEET_CRON\" ) | crontab -
 
+    echo '>>> Setting up monthly invoice generation cron job...'
+    INVOICE_CRON='0 6 1 * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py generate_monthly_invoices >> /var/log/p4td-invoices.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'generate_monthly_invoices'; echo \"\$INVOICE_CRON\" ) | crontab -
+
+    echo '>>> Setting up Xero payment sync cron job...'
+    XERO_CRON='*/30 * * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py sync_xero_invoices >> /var/log/p4td-xero.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'sync_xero_invoices'; echo \"\$XERO_CRON\" ) | crontab -
+
+    echo '>>> Setting up invoice reminder cron job...'
+    INVOICE_REMINDER_CRON='0 9 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_invoice_reminders >> /var/log/p4td-invoices.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'send_invoice_reminders'; echo \"\$INVOICE_REMINDER_CRON\" ) | crontab -
+
     echo '=== Deployment complete ==='
 "
 

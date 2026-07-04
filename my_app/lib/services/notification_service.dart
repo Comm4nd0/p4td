@@ -226,6 +226,19 @@ class NotificationService {
         _navigateToHome(initialRoute: 'inquiries');
         break;
 
+      // Invoices — owner: invoice sent/receipt/reminder; staff payment
+      // managers land on the customer payments screen instead (HomeScreen
+      // decides based on permissions).
+      case 'invoice':
+      case 'invoice_payment':
+        _navigateToHome(initialRoute: 'payments', routePayload: data['id'] as String?);
+        break;
+
+      // Monthly drafts ready — staff review prompt
+      case 'invoices_generated':
+        _navigateToHome(initialRoute: 'customer_payments');
+        break;
+
       default:
         // For unknown types, just open the app (already done by tapping)
         break;

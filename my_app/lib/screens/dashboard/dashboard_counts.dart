@@ -21,6 +21,7 @@ class DashboardCounts extends ChangeNotifier {
     required DataService dataService,
     required this.canViewInquiries,
     required this.canManageRequests,
+    this.canManageBoarding = false,
   }) : _dataService = dataService;
 
   final DataService _dataService;
@@ -33,6 +34,10 @@ class DashboardCounts extends ChangeNotifier {
   /// profile-change queue). Gates [reloadPendingProfileChangeCount] in
   /// [refresh].
   final bool canManageRequests;
+
+  /// Whether this user can manage boarding requests. Gates the pending
+  /// boarding count — staff who can't act on requests aren't alerted.
+  final bool canManageBoarding;
 
   bool _disposed = false;
 
@@ -93,12 +98,16 @@ class DashboardCounts extends ChangeNotifier {
   Future<void> reloadPendingRequestCount() async {
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
-      final boardingRequests = await _dataService.getBoardingRequests();
       final pendingDateCount =
           dateRequests.where((r) => r.status == RequestStatus.pending).length;
-      final pendingBoarding = boardingRequests
-          .where((r) => r.status == BoardingRequestStatus.pending)
-          .length;
+      // Pending boardings only alert staff who can act on them.
+      var pendingBoarding = 0;
+      if (canManageBoarding) {
+        final boardingRequests = await _dataService.getBoardingRequests();
+        pendingBoarding = boardingRequests
+            .where((r) => r.status == BoardingRequestStatus.pending)
+            .length;
+      }
       pendingRequestCount = pendingDateCount + pendingBoarding;
       pendingBoardingCount = pendingBoarding;
       _safeNotify();

@@ -296,6 +296,12 @@ class ServicePricing(models.Model):
         default=15.00,
         help_text='Field hire price per hour (e.g. 15.00).',
     )
+    boarding_price_per_night = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        help_text='Overnight boarding price per night, used by monthly invoicing. Boarding lines on draft invoices bill £0.00 until this is set.',
+    )
 
     class Meta:
         verbose_name = 'Service pricing'

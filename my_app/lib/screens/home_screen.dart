@@ -31,6 +31,8 @@ import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'fleet_screen.dart';
 import 'traffic_alert_screen.dart';
+import 'my_payments_screen.dart';
+import 'customer_payments_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
@@ -70,6 +72,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canApproveTimeoff = false;
   bool _canViewInquiries = false;
   bool _canManageVehicles = false;
+  bool _canManagePayments = false;
+  bool _canManageBoarding = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -202,6 +206,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canApproveTimeoff = profile.canApproveTimeoff;
           _canViewInquiries = profile.canViewInquiries;
           _canManageVehicles = profile.canManageVehicles;
+          _canManagePayments = profile.canManagePayments;
+          _canManageBoarding = profile.canManageBoarding;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -238,11 +244,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!_isStaff) return;
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
-      final boardingRequests = await _dataService.getBoardingRequests();
-      
       final pendingDateCount = dateRequests.where((r) => r.status == RequestStatus.pending).length;
-      final pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
-      
+
+      // Pending boardings only alert staff who can act on them.
+      var pendingBoardingCount = 0;
+      if (_canManageBoarding) {
+        final boardingRequests = await _dataService.getBoardingRequests();
+        pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
+      }
+
       if (mounted) {
         setState(() => _pendingRequestCount = pendingDateCount + pendingBoardingCount);
       }
@@ -289,7 +299,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests),
+              builder: (_) => StaffNotificationsScreen(
+                canManageRequests: _canManageRequests,
+                canManageBoarding: _canManageBoarding,
+              ),
             ),
           );
           break;
@@ -299,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             MaterialPageRoute(
               builder: (_) => BoardingRequestListScreen(
                 isStaff: _isStaff,
-                canManageRequests: _canManageRequests,
+                canManageBoarding: _canManageBoarding,
               ),
             ),
           );
@@ -344,6 +357,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           break;
         case 'feed':
           setState(() => _currentIndex = 1);
+          break;
+        case 'payments':
+          // Staff payment managers land on the management screen; owners on
+          // their own invoice list (optionally straight into one invoice).
+          if (_isStaff && _canManagePayments) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+            );
+          } else {
+            final invoiceId = int.tryParse(widget.routePayload ?? '');
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => MyPaymentsScreen(openInvoiceId: invoiceId),
+              ),
+            );
+          }
+          break;
+        case 'customer_payments':
+          if (_isStaff && _canManagePayments) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+            );
+          }
           break;
       }
     });
@@ -397,7 +436,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onPressed: () async {
                     await Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests)),
+                      MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests, canManageBoarding: _canManageBoarding)),
                     );
                     _loadPendingRequestCount();
                   },
@@ -498,6 +537,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       canViewInquiries: _canViewInquiries,
                       canAddFeedMedia: _canAddFeedMedia,
                       canManageVehicles: _canManageVehicles,
+                      canManagePayments: _canManagePayments,
+                      canManageBoarding: _canManageBoarding,
                       isStaff: _isStaff,
                       isSuperuser: _isSuperuser,
                       myUserId: _myUserId,
@@ -646,6 +687,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       MaterialPageRoute(
                         builder: (_) => FleetScreen(canManageVehicles: _canManageVehicles),
                       ),
+                    );
+                  },
+                ),
+              if (!_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.currencyGbp),
+                  title: const Text('My Payments'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const MyPaymentsScreen()),
+                    );
+                  },
+                ),
+              if (_isStaff && _canManagePayments)
+                ListTile(
+                  leading: Picon(PiconsDuotone.currencyGbp),
+                  title: const Text('Customer Payments'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
                     );
                   },
                 ),

@@ -10,21 +10,25 @@ import 'package:picons/picons.dart';
 /// permission flag is set, reproducing the original conditionals.
 class QuickActionsSection extends StatelessWidget {
   final bool canAssignDogs;
+  final bool canManagePayments;
   final bool isSuperuser;
 
   final VoidCallback onUploadMedia;
   final VoidCallback onAddDogToDay;
   final VoidCallback onSwapStaff;
   final VoidCallback onManagePermissions;
+  final VoidCallback onCustomerPayments;
 
   const QuickActionsSection({
     super.key,
     required this.canAssignDogs,
+    this.canManagePayments = false,
     required this.isSuperuser,
     required this.onUploadMedia,
     required this.onAddDogToDay,
     required this.onSwapStaff,
     required this.onManagePermissions,
+    required this.onCustomerPayments,
   });
 
   @override
@@ -58,6 +62,12 @@ class QuickActionsSection extends StatelessWidget {
                 avatar: Picon(PiconsDuotone.arrowsLeftRight, size: 18),
                 label: const Text('Swap Staff'),
                 onPressed: onSwapStaff,
+              ),
+            if (canManagePayments)
+              ActionChip(
+                avatar: Picon(PiconsDuotone.currencyGbp, size: 18),
+                label: const Text('Customer Payments'),
+                onPressed: onCustomerPayments,
               ),
             if (isSuperuser)
               ActionChip(

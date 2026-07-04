@@ -340,6 +340,24 @@ POSTCODE_LOOKUP_API_KEY = os.environ.get('POSTCODE_LOOKUP_API_KEY', '')
 POSTCODE_LOOKUP_PROVIDER = os.environ.get('POSTCODE_LOOKUP_PROVIDER', 'getaddress')
 
 # =============================================================================
+# XERO ACCOUNTING INTEGRATION (optional)
+# =============================================================================
+
+# Powers monthly customer invoicing: invoices are pushed to Xero, owners pay
+# through the Xero online-invoice link, and payment status syncs back. Create
+# a "Web app" at https://developer.xero.com with the redirect URI set to
+# exactly XERO_REDIRECT_URI (https://<domain>/api/xero/callback/), then a
+# superuser completes the one-time consent via POST /api/xero/connect/.
+# Leave the client credentials blank to disable the integration — invoicing
+# still works locally, just without the online payment link.
+XERO_CLIENT_ID = os.environ.get('XERO_CLIENT_ID', '')
+XERO_CLIENT_SECRET = os.environ.get('XERO_CLIENT_SECRET', '')
+XERO_REDIRECT_URI = os.environ.get('XERO_REDIRECT_URI', '')
+# Xero account code (bank / undeposited funds) that staff-recorded manual
+# payments are booked against in Xero. Blank = manual payments stay app-only.
+XERO_PAYMENT_ACCOUNT_CODE = os.environ.get('XERO_PAYMENT_ACCOUNT_CODE', '')
+
+# =============================================================================
 # LOGGING
 # =============================================================================
 
