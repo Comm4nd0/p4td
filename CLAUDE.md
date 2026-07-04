@@ -121,6 +121,8 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
+- `api/billing-settings/` — standard daycare/boarding prices (payment managers; backed by the website ServicePricing singleton)
+- `api/customer-rates/` — per-customer billing rate overrides / discounts (payment managers)
 - `api/password/reset/request/`, `api/password/reset/verify/`, `api/password/reset/confirm/` — password reset OTP flow
 - `api/password/change/` — change password while logged in
 - `api/account/delete/` — account deletion

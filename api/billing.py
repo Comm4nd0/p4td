@@ -40,21 +40,36 @@ PAYMENT_TERMS_DAYS = 14
 XERO_FETCH_CHUNK = 40
 
 
-def get_day_rate(dog):
-    """The per-day rate for a dog: its override, else the standard price."""
+def _customer_rate(customer, field):
+    """A billed customer's per-client rate override, or None."""
+    if customer is None:
+        return None
+    return getattr(getattr(customer, 'profile', None), field, None)
+
+
+def get_day_rate(dog, customer=None):
+    """The per-day daycare rate: dog override, else the billed customer's
+    per-client rate (their discount), else the standard price."""
     if dog.daily_rate is not None:
         return dog.daily_rate
+    client_rate = _customer_rate(customer, 'daycare_rate')
+    if client_rate is not None:
+        return client_rate
     # Lazy import: website is a separate app and this keeps api importable
     # without it in edge contexts (and avoids app-loading order issues).
     from website.models import ServicePricing
     return ServicePricing.load().day_care_price
 
 
-def get_boarding_rate(dog):
-    """The per-night boarding rate for a dog: its override, else the standard
-    boarding price (which is 0 until the business sets it — visible on drafts)."""
+def get_boarding_rate(dog, customer=None):
+    """The per-night boarding rate: dog override, else the billed customer's
+    per-client rate, else the standard boarding price (which is 0 until the
+    business sets it — visible on drafts)."""
     if dog.boarding_rate is not None:
         return dog.boarding_rate
+    client_rate = _customer_rate(customer, 'boarding_rate')
+    if client_rate is not None:
+        return client_rate
     from website.models import ServicePricing
     return ServicePricing.load().boarding_price_per_night
 
@@ -165,7 +180,7 @@ def _build_lines(invoice, dogs):
     """Create one daycare InvoiceLine per dog; returns the lines' total."""
     total = Decimal('0.00')
     for dog, dates in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
-        rate = get_day_rate(dog)
+        rate = get_day_rate(dog, customer=invoice.customer)
         line_total = rate * len(dates)
         InvoiceLine.objects.create(
             invoice=invoice,
@@ -184,7 +199,7 @@ def _build_boarding_lines(invoice, dogs):
     """Create one boarding InvoiceLine per dog; returns the lines' total."""
     total = Decimal('0.00')
     for dog, nights in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
-        rate = get_boarding_rate(dog)
+        rate = get_boarding_rate(dog, customer=invoice.customer)
         line_total = rate * len(nights)
         InvoiceLine.objects.create(
             invoice=invoice,
