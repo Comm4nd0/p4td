@@ -302,6 +302,12 @@ class ServicePricing(models.Model):
         default=0,
         help_text='Overnight boarding price per night, used by monthly invoicing. Boarding lines on draft invoices bill £0.00 until this is set.',
     )
+    owner_transport_discount = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        help_text='Amount off the daycare day rate when the owner both drops off and picks up that day. 0 = no discount.',
+    )
 
     class Meta:
         verbose_name = 'Service pricing'

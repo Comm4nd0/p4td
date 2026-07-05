@@ -235,7 +235,7 @@ abstract class DataService {
   Future<String> getInvoicePayUrl(int id);
   Future<InvoiceSummary> getInvoiceSummary({int? year, int? month});
   Future<BillingSettings> getBillingSettings();
-  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight});
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount});
   Future<List<CustomerRate>> getCustomerRates();
   Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate});
 }

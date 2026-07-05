@@ -3263,7 +3263,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight}) async {
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount}) async {
     final headers = await _getHeaders();
     final response = await http.patch(
       Uri.parse('${AuthService.baseUrl}/api/billing-settings/'),
@@ -3271,6 +3271,7 @@ class ApiDataService implements DataService {
       body: json.encode({
         if (dayCarePrice != null) 'day_care_price': dayCarePrice.toStringAsFixed(2),
         if (boardingPricePerNight != null) 'boarding_price_per_night': boardingPricePerNight.toStringAsFixed(2),
+        if (ownerTransportDiscount != null) 'owner_transport_discount': ownerTransportDiscount.toStringAsFixed(2),
       }),
     );
     if (response.statusCode == 200) {
