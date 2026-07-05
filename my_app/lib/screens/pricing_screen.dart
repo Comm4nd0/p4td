@@ -67,31 +67,51 @@ class _PricingScreenState extends State<PricingScreen> {
     final dayController = TextEditingController(text: settings.dayCarePrice.toStringAsFixed(2));
     final boardingController =
         TextEditingController(text: settings.boardingPricePerNight.toStringAsFixed(2));
+    final transportController =
+        TextEditingController(text: settings.ownerTransportDiscount.toStringAsFixed(2));
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Standard prices'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: dayController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Daycare price per day', prefixText: '£'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: boardingController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Boarding price per night', prefixText: '£'),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Applies to invoices generated from now on; customers with their own rate below are unaffected.',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: dayController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Daycare price per day', prefixText: '£'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: boardingController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Boarding price per night',
+                  prefixText: '£',
+                  helperText: 'Covers the whole stay — daycare on boarded days is not charged on top.',
+                  helperMaxLines: 2,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: transportController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Owner transport discount per day',
+                  prefixText: '£',
+                  helperText: 'Off the day rate when the owner both drops off and picks up. 0 = no discount.',
+                  helperMaxLines: 2,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Applies to invoices generated from now on; customers with their own rate below are unaffected.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -103,14 +123,18 @@ class _PricingScreenState extends State<PricingScreen> {
 
     final day = double.tryParse(dayController.text.trim());
     final boarding = double.tryParse(boardingController.text.trim());
-    if (day == null || day < 0 || boarding == null || boarding < 0) {
+    final transport = double.tryParse(transportController.text.trim());
+    if (day == null || day < 0 || boarding == null || boarding < 0 || transport == null || transport < 0) {
       _showError('Enter valid prices');
       return;
     }
     setState(() => _busy = true);
     try {
       final updated = await _dataService.updateBillingSettings(
-        dayCarePrice: day, boardingPricePerNight: boarding);
+        dayCarePrice: day,
+        boardingPricePerNight: boarding,
+        ownerTransportDiscount: transport,
+      );
       if (mounted) {
         setState(() => _settings = updated);
         _showSuccess('Standard prices updated');
@@ -286,6 +310,7 @@ class _PricingScreenState extends State<PricingScreen> {
             _priceRow('Daycare (per day)', settings.dayCarePrice),
             _priceRow('Boarding (per night)', settings.boardingPricePerNight,
                 warnIfZero: true),
+            _priceRow('Owner transport discount (per day)', settings.ownerTransportDiscount),
           ],
         ),
       ),

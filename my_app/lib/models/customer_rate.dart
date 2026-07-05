@@ -53,9 +53,13 @@ class BillingSettings {
   final double dayCarePrice;
   final double boardingPricePerNight;
 
+  /// £ off the day rate when the owner does both drop-off and pick-up.
+  final double ownerTransportDiscount;
+
   BillingSettings({
     required this.dayCarePrice,
     required this.boardingPricePerNight,
+    this.ownerTransportDiscount = 0,
   });
 
   factory BillingSettings.fromJson(Map<String, dynamic> json) {
@@ -63,6 +67,8 @@ class BillingSettings {
       dayCarePrice: CustomerRate._parseRate(json['day_care_price']) ?? 0,
       boardingPricePerNight:
           CustomerRate._parseRate(json['boarding_price_per_night']) ?? 0,
+      ownerTransportDiscount:
+          CustomerRate._parseRate(json['owner_transport_discount']) ?? 0,
     );
   }
 }

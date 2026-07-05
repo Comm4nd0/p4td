@@ -464,7 +464,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                   subtitle: Text(
                     '${line.description.startsWith('Boarding') ? 'Boarding — ' : ''}'
-                    '${line.quantity} ${line.description.startsWith('Boarding') ? 'night' : 'day'}${line.quantity == 1 ? '' : 's'} @ £${line.unitPrice.toStringAsFixed(2)}',
+                    '${line.quantity} ${line.description.startsWith('Boarding') ? 'night' : 'day'}${line.quantity == 1 ? '' : 's'} @ £${line.unitPrice.toStringAsFixed(2)}'
+                    '${line.description.contains('owner drop-off') ? ' · owner transport' : ''}',
                     style: TextStyle(color: Colors.grey[600], fontSize: 13),
                   ),
                   trailing: Text('£${line.lineTotal.toStringAsFixed(2)}',
