@@ -21,6 +21,8 @@ class Command(BaseCommand):
             status__in=('SENT', 'PART_PAID'),
             due_date__lt=today,
             overdue_reminder_sent=False,
+            # Dog-name invoices have no app user to remind — chased via Xero.
+            customer__isnull=False,
         ).select_related('customer')
 
         sent = 0

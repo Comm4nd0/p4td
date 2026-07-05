@@ -102,8 +102,7 @@ def attendance_for_month(year, month):
     ``owner_transport`` marks days the owner handled both transport legs
     (drop-off and pick-up) — those days qualify for the owner-transport
     discount. Days inside an approved boarding stay are excluded (the
-    boarding charge covers them), as are dogs without an owner — there is
-    nobody to bill.
+    boarding charge covers them).
     """
     boarded = _boarded_dog_days(year, month)
     assignments = (
@@ -115,33 +114,33 @@ def attendance_for_month(year, month):
     )
     by_owner = {}
     for assignment in assignments:
-        owner = assignment.dog.owner
-        if owner is None:
-            continue
         if (assignment.dog_id, assignment.date) in boarded:
             continue
         owner_transport = assignment.effective_owner_brings and assignment.effective_owner_collects
-        by_owner.setdefault(owner, {}).setdefault(assignment.dog, []).append(
+        # Ownerless dogs group under None — they get per-dog invoices in the
+        # dog's name rather than being silently unbilled.
+        by_owner.setdefault(assignment.dog.owner, {}).setdefault(assignment.dog, []).append(
             (assignment.date, owner_transport))
     return by_owner
 
 
 def boarding_nights_for_month(year, month):
-    """Billable boarding nights per booking owner per dog for a calendar month.
+    """Billable boarding nights per DOG OWNER per dog for a calendar month.
 
     Returns ``{owner: {dog: [night dates]}}``. A billable night is a stay date
     strictly before the checkout day (Fri→Sun = 2 nights), clamped to the
     month so a stay spanning months bills each month's nights separately.
-    Billed to the booking's owner (who requested the stay), one entry per dog
-    on the request.
+
+    Charges always follow the dog's assigned client — never whoever created
+    the booking (staff often book on a client's behalf). Dogs with no client
+    group under None and get per-dog invoices in the dog's name.
     """
     month_start = date_cls(year, month, 1)
     month_end = date_cls(year, month, _calendar.monthrange(year, month)[1])
     requests = (
         BoardingRequest.objects
         .filter(status='APPROVED', start_date__lte=month_end, end_date__gte=month_start)
-        .select_related('owner')
-        .prefetch_related('dogs')
+        .prefetch_related('dogs__owner')
     )
     by_owner = {}
     for request in requests:
@@ -155,7 +154,7 @@ def boarding_nights_for_month(year, month):
             for offset in range((last_night - first_night).days + 1)
         ]
         for dog in request.dogs.all():
-            by_owner.setdefault(request.owner, {}).setdefault(dog, []).extend(nights)
+            by_owner.setdefault(dog.owner, {}).setdefault(dog, []).extend(nights)
     return by_owner
 
 
@@ -171,33 +170,49 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None):
     daycare_by_owner = attendance_for_month(year, month)
     boarding_by_owner = boarding_nights_for_month(year, month)
 
-    # Merge on user id — the two maps carry separate User instances.
+    # Merge on user id (the two maps carry separate User instances). Dogs with
+    # no client attached bill per dog, in the dog's name, so key those by dog.
     customers = {}
+
+    def _entry(owner, dog):
+        key = ('user', owner.id) if owner is not None else ('dog', dog.id)
+        return customers.setdefault(key, {
+            'owner': owner,
+            'dog': dog if owner is None else None,
+            'daycare': {},
+            'boarding': {},
+        })
+
     for owner, dogs in daycare_by_owner.items():
-        customers.setdefault(owner.id, {'owner': owner, 'daycare': {}, 'boarding': {}})['daycare'] = dogs
+        for dog, days in dogs.items():
+            _entry(owner, dog)['daycare'][dog] = days
     for owner, dogs in boarding_by_owner.items():
-        customers.setdefault(owner.id, {'owner': owner, 'daycare': {}, 'boarding': {}})['boarding'] = dogs
+        for dog, nights in dogs.items():
+            _entry(owner, dog)['boarding'].setdefault(dog, []).extend(nights)
 
     if customer is not None:
-        entry = customers.get(customer.id)
-        customers = {customer.id: entry} if entry else {}
+        entry = customers.get(('user', customer.id))
+        customers = {('user', customer.id): entry} if entry else {}
 
-    already_billed = set(
-        Invoice.objects
-        .filter(period_year=year, period_month=month)
-        .exclude(status='VOID')
-        .values_list('customer_id', flat=True)
-    )
+    billed_customers = set()
+    billed_dogs = set()
+    for invoice in Invoice.objects.filter(period_year=year, period_month=month).exclude(status='VOID'):
+        if invoice.customer_id is not None:
+            billed_customers.add(invoice.customer_id)
+        if invoice.billed_dog_id is not None:
+            billed_dogs.add(invoice.billed_dog_id)
 
     created = []
     skipped = 0
     for entry in customers.values():
-        if entry['owner'].id in already_billed:
+        owner, dog = entry['owner'], entry['dog']
+        if (owner is not None and owner.id in billed_customers) or (dog is not None and dog.id in billed_dogs):
             skipped += 1
             continue
         with transaction.atomic():
             invoice = Invoice.objects.create(
-                customer=entry['owner'],
+                customer=owner,
+                billed_dog=dog,
                 period_year=year,
                 period_month=month,
                 status='DRAFT',
@@ -291,11 +306,11 @@ def regenerate_draft(invoice):
     if invoice.status != 'DRAFT':
         raise ValueError('Only draft invoices can be regenerated.')
     daycare = attendance_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
-    boarding = {}
-    for owner, dogs in boarding_nights_for_month(invoice.period_year, invoice.period_month).items():
-        if owner.id == invoice.customer_id:
-            boarding = dogs
-            break
+    boarding = boarding_nights_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
+    if invoice.customer is None:
+        # Dog-name invoice: only its own dog's charges belong on it.
+        daycare = {dog: days for dog, days in daycare.items() if dog.id == invoice.billed_dog_id}
+        boarding = {dog: nights for dog, nights in boarding.items() if dog.id == invoice.billed_dog_id}
     with transaction.atomic():
         invoice.lines.filter(is_adjustment=False).delete()
         invoice.total = (
@@ -364,12 +379,14 @@ def send_invoice(invoice, user=None):
     # Outside the transaction: Xero I/O must never roll back the send.
     push_invoice_to_xero(invoice)
 
-    send_push_notification(
-        invoice.customer,
-        'New invoice',
-        f'Your daycare invoice for {invoice.period_label} is ready: £{invoice.total}.',
-        data={'type': 'invoice', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
-    )
+    # Dog-name invoices have no app user to notify — they're emailed from Xero.
+    if invoice.customer is not None:
+        send_push_notification(
+            invoice.customer,
+            'New invoice',
+            f'Your daycare invoice for {invoice.period_label} is ready: £{invoice.total}.',
+            data={'type': 'invoice', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        )
     return invoice
 
 
@@ -391,7 +408,12 @@ def push_invoice_to_xero(invoice):
                 logger.warning('Could not fetch Xero online invoice URL: %s', exc)
         return True
     try:
-        contact_id = xero.find_or_create_contact(invoice.customer)
+        if invoice.customer is not None:
+            contact_id = xero.find_or_create_contact(invoice.customer)
+        else:
+            # No client attached: the Xero contact is the dog itself, so the
+            # business can attach an email in Xero and send the invoice there.
+            contact_id = xero.find_or_create_contact_by_name(invoice.billed_name)
         xero_id, xero_number = xero.create_invoice(invoice, contact_id)
         invoice.xero_invoice_id = xero_id
         invoice.xero_invoice_number = xero_number
@@ -469,15 +491,16 @@ def record_manual_payment(invoice, amount, method, payment_date=None, recorded_b
 
     refresh_payment_state(invoice)
 
-    send_push_notification(
-        invoice.customer,
-        'Payment received',
-        f'We received £{amount} towards your {invoice.period_label} invoice. Thank you!',
-        data={'type': 'invoice_payment', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
-    )
+    if invoice.customer is not None:
+        send_push_notification(
+            invoice.customer,
+            'Payment received',
+            f'We received £{amount} towards your {invoice.period_label} invoice. Thank you!',
+            data={'type': 'invoice_payment', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        )
     send_staff_notification(
         'Payment recorded',
-        f'£{amount} ({payment.get_method_display()}) recorded on {invoice.customer.first_name or invoice.customer.username}\'s {invoice.period_label} invoice.',
+        f'£{amount} ({payment.get_method_display()}) recorded on {invoice.billed_name}\'s {invoice.period_label} invoice.',
         data={'type': 'invoice_payment', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
         permission='can_manage_payments',
         exclude_user=recorded_by,
@@ -581,15 +604,16 @@ def _parse_xero_date(value):
 
 
 def _notify_invoice_paid(invoice):
-    send_push_notification(
-        invoice.customer,
-        'Payment received',
-        f'Thank you — your {invoice.period_label} invoice is paid in full.',
-        data={'type': 'invoice_payment', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
-    )
+    if invoice.customer is not None:
+        send_push_notification(
+            invoice.customer,
+            'Payment received',
+            f'Thank you — your {invoice.period_label} invoice is paid in full.',
+            data={'type': 'invoice_payment', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        )
     send_staff_notification(
         'Invoice paid',
-        f'{invoice.customer.first_name or invoice.customer.username}\'s {invoice.period_label} invoice (£{invoice.total}) is now paid.',
+        f'{invoice.billed_name}\'s {invoice.period_label} invoice (£{invoice.total}) is now paid.',
         data={'type': 'invoice_payment', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
         permission='can_manage_payments',
     )
