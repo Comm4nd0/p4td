@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -90,3 +92,125 @@ Future<http.Response> delete(Uri url,
 
 Future<http.Response> head(Uri url, {Map<String, String>? headers}) =>
     _log('HEAD', url, () => http.head(url, headers: headers));
+
+/// A [http.MultipartRequest] that reports how many body bytes have been
+/// handed to the HTTP client. The socket applies backpressure, so this tracks
+/// real upload progress closely enough to drive a stall watchdog and a
+/// progress bar.
+class _ProgressMultipartRequest extends http.MultipartRequest {
+  _ProgressMultipartRequest(super.method, super.url);
+
+  void Function(int sent, int total)? onChunk;
+
+  @override
+  http.ByteStream finalize() {
+    final total = contentLength;
+    var sent = 0;
+    return http.ByteStream(super.finalize().map((chunk) {
+      sent += chunk.length;
+      onChunk?.call(sent, total);
+      return chunk;
+    }));
+  }
+}
+
+/// Sends a multipart request (media upload) with stall detection and bounded
+/// retries — the fixed 30s timeout used for JSON calls would kill legitimate
+/// large uploads on slow connections, so uploads instead fail only when bytes
+/// stop flowing.
+///
+/// [fill] is called once per attempt with a fresh request and must add all
+/// headers, fields and files (a multipart body can only be sent once).
+///
+/// Behaviour per attempt:
+/// - [stallTimeout]: aborts if no body bytes are accepted by the socket for
+///   this long (dead connection), rather than capping total upload time.
+/// - [responseTimeout]: once the body is fully sent, how long to wait for the
+///   server's reply (covers server-side image/video processing; production
+///   gunicorn gives up at 120s, so nothing useful arrives after that).
+///
+/// Network errors and stalls are retried up to [maxAttempts] with [retryDelays]
+/// between attempts, as are 408/429/5xx responses. Other 4xx responses are
+/// permanent and returned to the caller immediately.
+Future<http.Response> sendMultipart({
+  required String method,
+  required Uri url,
+  required void Function(http.MultipartRequest request) fill,
+  void Function(int sentBytes, int totalBytes)? onProgress,
+  int maxAttempts = 3,
+  Duration stallTimeout = const Duration(seconds: 45),
+  Duration responseTimeout = const Duration(seconds: 150),
+  List<Duration> retryDelays = const [Duration(seconds: 2), Duration(seconds: 5)],
+}) async {
+  for (var attempt = 1; ; attempt++) {
+    final client = http.Client();
+    Timer? watchdog;
+    var timedOut = false;
+    var waitingOnServer = false;
+    void arm(Duration d) {
+      watchdog?.cancel();
+      watchdog = Timer(d, () {
+        timedOut = true;
+        client.close(); // Aborts the in-flight request.
+      });
+    }
+
+    final sw = Stopwatch()..start();
+    try {
+      final request = _ProgressMultipartRequest(method, url);
+      fill(request);
+      request.onChunk = (sent, total) {
+        onProgress?.call(sent, total);
+        // While the body is flowing, each chunk resets the stall watchdog.
+        // Once the last byte is handed over, switch to waiting on the server.
+        waitingOnServer = sent >= total;
+        arm(waitingOnServer ? responseTimeout : stallTimeout);
+      };
+      arm(stallTimeout); // Covers connect/TLS up to the first body chunk.
+
+      final response = await http.Response.fromStream(await client.send(request));
+      watchdog?.cancel();
+      ConnectivityStatus().reportSuccess();
+      if (kDebugMode) {
+        debugPrint('[http] $method ${url.path} -> ${response.statusCode} '
+            '(upload attempt $attempt, ${sw.elapsedMilliseconds}ms)');
+      }
+      if (response.statusCode == 401) {
+        onUnauthorized?.call();
+      }
+      final transientStatus = response.statusCode == 408 ||
+          response.statusCode == 429 ||
+          response.statusCode >= 500;
+      if (!transientStatus || attempt >= maxAttempts) return response;
+    } catch (e) {
+      watchdog?.cancel();
+      final Object error = timedOut
+          ? TimeoutException(waitingOnServer
+              ? 'Upload timed out waiting for the server to respond'
+              : 'Upload stalled — the connection appears to be dead')
+          : e;
+      if (NoConnectionException.isNetworkError(error)) {
+        ConnectivityStatus().reportNetworkFailure();
+      }
+      if (kDebugMode) {
+        debugPrint('[http] $method ${url.path} -> ERROR $error '
+            '(upload attempt $attempt, ${sw.elapsedMilliseconds}ms)');
+      }
+      // Only connection-level failures are worth retrying; anything else
+      // (e.g. a bug building the request) would fail identically again.
+      final transient = timedOut ||
+          e is http.ClientException ||
+          NoConnectionException.isNetworkError(e);
+      if (!transient || attempt >= maxAttempts) {
+        if (error is Exception) throw error;
+        rethrow;
+      }
+    } finally {
+      watchdog?.cancel();
+      client.close();
+    }
+    if (retryDelays.isNotEmpty) {
+      await Future.delayed(retryDelays[min(attempt - 1, retryDelays.length - 1)]);
+    }
+  }
+}

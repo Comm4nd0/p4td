@@ -35,7 +35,13 @@ class MediaUploadFlow {
 
   static bool _isVideoName(String name) {
     final ext = name.toLowerCase();
-    return ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
+    return ext.endsWith('.mp4') ||
+        ext.endsWith('.mov') ||
+        ext.endsWith('.avi') ||
+        ext.endsWith('.m4v') ||
+        ext.endsWith('.3gp') ||
+        ext.endsWith('.webm') ||
+        ext.endsWith('.mkv');
   }
 
   /// Present the source picker and run the chosen upload path to completion.
@@ -71,9 +77,16 @@ class MediaUploadFlow {
     );
     if (choice == null) return;
 
-    // Gallery multi-pick (images and/or videos).
+    // Gallery multi-pick (images and/or videos). The size/quality caps make
+    // the native picker downscale and re-encode images (videos pass through
+    // untouched), so full-resolution originals — 5–15MB each, HEIC on iOS —
+    // never have to be held in memory or pushed over a slow connection.
     if (choice == 'multiple') {
-      final files = await picker.pickMultipleMedia();
+      final files = await picker.pickMultipleMedia(
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
       if (files.isEmpty) return;
 
       final fileData = <(Uint8List, String)>[];
@@ -205,8 +218,23 @@ class MediaUploadFlow {
       }
     }
 
-    // Show progress dialog using a ValueNotifier so we can update it in place.
-    final progress = ValueNotifier<int>(0);
+    await _uploadBatch(fileData, captionsByFile, taggedDogIdsByFile);
+  }
+
+  /// Upload a batch behind a progress dialog and report the outcome.
+  ///
+  /// On partial failure the SnackBar offers a Retry that re-runs only the
+  /// failed files (with their captions/tags) through this same method.
+  Future<void> _uploadBatch(
+    List<(Uint8List, String)> files,
+    List<String?>? captionsByFile,
+    List<List<String>>? taggedDogIdsByFile,
+  ) async {
+    final total = files.length;
+    // Whole files completed, plus byte-level progress within the current
+    // file so the bar moves smoothly during large/slow uploads.
+    final completed = ValueNotifier<int>(0);
+    final fraction = ValueNotifier<double>(0);
 
     if (!context.mounted) return;
     showDialog(
@@ -214,17 +242,19 @@ class MediaUploadFlow {
       barrierDismissible: false,
       builder: (dialogContext) => PopScope(
         canPop: false,
-        child: ValueListenableBuilder<int>(
-          valueListenable: progress,
-          builder: (context, completed, _) => AlertDialog(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([completed, fraction]),
+          builder: (context, _) => AlertDialog(
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
-                Text('Uploading $completed/$total...'),
+                Text('Uploading '
+                    '${completed.value < total ? completed.value + 1 : total}'
+                    '/$total...'),
                 const SizedBox(height: 8),
-                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+                LinearProgressIndicator(value: fraction.value.clamp(0.0, 1.0)),
               ],
             ),
           ),
@@ -234,11 +264,17 @@ class MediaUploadFlow {
 
     try {
       final failures = await dataService.uploadMultipleGroupMedia(
-        files: fileData,
+        files: files,
         captionsByFile: captionsByFile,
         taggedDogIdsByFile: taggedDogIdsByFile,
         onProgress: (done, count) {
-          progress.value = done;
+          completed.value = done;
+          fraction.value = count > 0 ? done / count : 0;
+        },
+        onFileProgress: (index, sent, totalBytes) {
+          if (totalBytes > 0 && total > 0) {
+            fraction.value = (index + sent / totalBytes) / total;
+          }
         },
       );
       if (!context.mounted) return;
@@ -253,12 +289,37 @@ class MediaUploadFlow {
           ),
         );
       } else {
-        final failedNames = failures.map((f) => f.fileName).join(', ');
+        // Carve out just the failed files (keeping their captions/tags) so
+        // Retry doesn't re-upload what already made it.
+        final failedFiles = [for (final f in failures) files[f.index]];
+        final failedCaptions = captionsByFile == null
+            ? null
+            : [
+                for (final f in failures)
+                  f.index < captionsByFile.length ? captionsByFile[f.index] : null
+              ];
+        final failedTags = taggedDogIdsByFile == null
+            ? null
+            : [
+                for (final f in failures)
+                  f.index < taggedDogIdsByFile.length
+                      ? taggedDogIdsByFile[f.index]
+                      : <String>[]
+              ];
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Uploaded $succeeded/$total. Failed: $failedNames'),
+            content: Text('Uploaded $succeeded/$total. '
+                '${failures.length} failed — check your connection.'),
             backgroundColor: AppColors.warning,
-            duration: const Duration(seconds: 6),
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: () {
+                if (context.mounted) {
+                  _uploadBatch(failedFiles, failedCaptions, failedTags);
+                }
+              },
+            ),
           ),
         );
       }

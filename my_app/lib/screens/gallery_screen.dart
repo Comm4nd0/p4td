@@ -88,42 +88,107 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _pickAndUploadMultipleImages() async {
     final ImagePicker picker = ImagePicker();
-    final List<XFile> images = await picker.pickMultiImage();
+    // Downscale/re-encode in the native picker so full-resolution library
+    // originals (5–15MB each, HEIC on iOS) never hit the network — same
+    // limits as the single-photo path. Keeps memory flat on older phones and
+    // turns multi-minute uploads into seconds.
+    final List<XFile> images = await picker.pickMultiImage(
+      maxWidth: 1280,
+      maxHeight: 1280,
+      imageQuality: 85,
+    );
 
     if (images.isEmpty) return;
 
-    try {
-      setState(() => _uploading = true);
-      
-      final imagesToUpload = <(Uint8List, String, DateTime)>[];
-      final now = DateTime.now();
-      
-      for (final image in images) {
-        final imageBytes = await image.readAsBytes();
-        imagesToUpload.add((imageBytes, image.name, now));
-      }
-      
-      await _dataService.uploadMultiplePhotos(widget.dogId, imagesToUpload);
-
-      // Refresh the gallery
-      setState(() {
-        _photosFuture = _dataService.getPhotos(widget.dogId);
-        _uploading = false;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${images.length} photos uploaded successfully!')),
-        );
-      }
-    } catch (e) {
-      setState(() => _uploading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to upload photos: $e')),
-        );
-      }
+    final imagesToUpload = <(Uint8List, String, DateTime)>[];
+    final now = DateTime.now();
+    for (final image in images) {
+      imagesToUpload.add((await image.readAsBytes(), image.name, now));
     }
+
+    await _uploadPhotoBatch(imagesToUpload);
+  }
+
+  /// Uploads a batch with a progress dialog, then reports the outcome
+  /// honestly — including which files failed, with a Retry for just those.
+  Future<void> _uploadPhotoBatch(List<(Uint8List, String, DateTime)> batch) async {
+    if (!mounted) return;
+    setState(() => _uploading = true);
+
+    final total = batch.length;
+    final progress = ValueNotifier<int>(0);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: ValueListenableBuilder<int>(
+          valueListenable: progress,
+          builder: (context, completed, _) => AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text('Uploading $completed/$total...'),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: total > 0 ? completed / total : 0),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    PhotoBatchResult result;
+    try {
+      result = await _dataService.uploadMultiplePhotos(
+        widget.dogId,
+        batch,
+        onProgress: (done, _) => progress.value = done,
+      );
+    } catch (e) {
+      result = (
+        uploaded: const <Photo>[],
+        failures: [
+          for (var i = 0; i < batch.length; i++)
+            (index: i, fileName: batch[i].$2, error: e),
+        ],
+      );
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context); // Close progress dialog
+
+    setState(() {
+      if (result.uploaded.isNotEmpty) {
+        _photosFuture = _dataService.getPhotos(widget.dogId);
+      }
+      _uploading = false;
+    });
+
+    final failures = result.failures;
+    if (failures.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$total photo${total == 1 ? '' : 's'} uploaded successfully!')),
+      );
+      return;
+    }
+
+    final failedBatch = [for (final f in failures) batch[f.index]];
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Uploaded ${result.uploaded.length}/$total. '
+          '${failures.length} failed — check your connection.',
+        ),
+        duration: const Duration(seconds: 10),
+        action: SnackBarAction(
+          label: 'Retry',
+          onPressed: () => _uploadPhotoBatch(failedBatch),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickAndUploadVideo() async {
