@@ -183,7 +183,11 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images) async {
+  Future<PhotoBatchResult> uploadMultiplePhotos(
+    String dogId,
+    List<(Uint8List, String, DateTime)> images, {
+    void Function(int completed, int total)? onProgress,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 500));
     final photos = <Photo>[];
     for (int i = 0; i < images.length; i++) {
@@ -194,8 +198,9 @@ class MockDataService implements DataService {
         takenAt: images[i].$3,
         comments: const [],
       ));
+      onProgress?.call(i + 1, images.length);
     }
-    return photos;
+    return (uploaded: photos, failures: const <UploadFailure>[]);
   }
 
   @override
@@ -238,16 +243,17 @@ class MockDataService implements DataService {
     String? caption,
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
+    void Function(int sentBytes, int totalBytes)? onSendProgress,
   }) async {}
 
   @override
-  Future<List<({int index, String fileName, Object error})>>
-      uploadMultipleGroupMedia({
+  Future<List<UploadFailure>> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
     List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
+    void Function(int index, int sentBytes, int totalBytes)? onFileProgress,
   }) async => [];
 
   @override
