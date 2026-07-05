@@ -114,6 +114,9 @@ class ServicePricingAdmin(admin.ModelAdmin):
         ('Boarding', {
             'fields': ('boarding_price_per_night',),
         }),
+        ('Discounts', {
+            'fields': ('owner_transport_discount',),
+        }),
     )
 
     def has_add_permission(self, request):

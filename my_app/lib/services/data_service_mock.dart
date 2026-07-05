@@ -616,8 +616,8 @@ class MockDataService implements DataService {
   Future<BillingSettings> getBillingSettings() async =>
       BillingSettings(dayCarePrice: 25, boardingPricePerNight: 30);
   @override
-  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight}) async =>
-      BillingSettings(dayCarePrice: dayCarePrice ?? 25, boardingPricePerNight: boardingPricePerNight ?? 30);
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount}) async =>
+      BillingSettings(dayCarePrice: dayCarePrice ?? 25, boardingPricePerNight: boardingPricePerNight ?? 30, ownerTransportDiscount: ownerTransportDiscount ?? 0);
   @override
   Future<List<CustomerRate>> getCustomerRates() async => [];
   @override
