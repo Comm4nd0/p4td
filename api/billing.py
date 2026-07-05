@@ -74,12 +74,38 @@ def get_boarding_rate(dog, customer=None):
     return ServicePricing.load().boarding_price_per_night
 
 
-def attendance_for_month(year, month):
-    """Attended days per owner per dog for a calendar month.
+def _boarded_dog_days(year, month):
+    """(dog_id, date) pairs covered by an approved boarding stay this month,
+    arrival through checkout inclusive. The boarding charge covers the whole
+    stay, so daycare attendance on these days is not billed separately."""
+    month_start = date_cls(year, month, 1)
+    month_end = date_cls(year, month, _calendar.monthrange(year, month)[1])
+    covered = set()
+    requests = (
+        BoardingRequest.objects
+        .filter(status='APPROVED', start_date__lte=month_end, end_date__gte=month_start)
+        .prefetch_related('dogs')
+    )
+    for request in requests:
+        first = max(request.start_date, month_start)
+        last = min(request.end_date, month_end)
+        for dog in request.dogs.all():
+            for offset in range((last - first).days + 1):
+                covered.add((dog.id, first + timedelta(days=offset)))
+    return covered
 
-    Returns ``{owner: {dog: [date, ...]}}``. Dogs without an owner are
-    skipped — there is nobody to bill.
+
+def attendance_for_month(year, month):
+    """Billable attended days per owner per dog for a calendar month.
+
+    Returns ``{owner: {dog: [(date, owner_transport), ...]}}`` where
+    ``owner_transport`` marks days the owner handled both transport legs
+    (drop-off and pick-up) — those days qualify for the owner-transport
+    discount. Days inside an approved boarding stay are excluded (the
+    boarding charge covers them), as are dogs without an owner — there is
+    nobody to bill.
     """
+    boarded = _boarded_dog_days(year, month)
     assignments = (
         DailyDogAssignment.objects
         .filter(date__year=year, date__month=month)
@@ -92,7 +118,11 @@ def attendance_for_month(year, month):
         owner = assignment.dog.owner
         if owner is None:
             continue
-        by_owner.setdefault(owner, {}).setdefault(assignment.dog, []).append(assignment.date)
+        if (assignment.dog_id, assignment.date) in boarded:
+            continue
+        owner_transport = assignment.effective_owner_brings and assignment.effective_owner_collects
+        by_owner.setdefault(owner, {}).setdefault(assignment.dog, []).append(
+            (assignment.date, owner_transport))
     return by_owner
 
 
@@ -182,21 +212,50 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None):
 
 
 def _build_lines(invoice, dogs):
-    """Create one daycare InvoiceLine per dog; returns the lines' total."""
+    """Create the daycare InvoiceLines for a dog map of (date, owner_transport)
+    day tuples; returns the lines' total.
+
+    Days where the owner handled both transport legs bill at the day rate
+    minus the configurable owner-transport discount (as their own line, so
+    the saving is visible on the invoice); other days bill at the full rate.
+    """
+    from website.models import ServicePricing
+
+    discount = ServicePricing.load().owner_transport_discount
     total = Decimal('0.00')
-    for dog, dates in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
+    for dog, days in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
         rate = get_day_rate(dog, customer=invoice.customer)
-        line_total = rate * len(dates)
-        InvoiceLine.objects.create(
-            invoice=invoice,
-            dog=dog,
-            description=f"Daycare — {dog.name} ({len(dates)} day{'s' if len(dates) != 1 else ''} @ £{rate})",
-            quantity=len(dates),
-            unit_price=rate,
-            line_total=line_total,
-            attendance_dates=[d.isoformat() for d in dates],
-        )
-        total += line_total
+        split_discount = discount > 0
+        standard = [d for d, owner_transport in days if not (owner_transport and split_discount)]
+        discounted = [d for d, owner_transport in days if owner_transport and split_discount]
+        if standard:
+            line_total = rate * len(standard)
+            InvoiceLine.objects.create(
+                invoice=invoice,
+                dog=dog,
+                description=f"Daycare — {dog.name} ({len(standard)} day{'s' if len(standard) != 1 else ''} @ £{rate})",
+                quantity=len(standard),
+                unit_price=rate,
+                line_total=line_total,
+                attendance_dates=[d.isoformat() for d in standard],
+            )
+            total += line_total
+        if discounted:
+            discounted_rate = max(rate - discount, Decimal('0.00'))
+            line_total = discounted_rate * len(discounted)
+            InvoiceLine.objects.create(
+                invoice=invoice,
+                dog=dog,
+                description=(
+                    f"Daycare — {dog.name} ({len(discounted)} day{'s' if len(discounted) != 1 else ''} "
+                    f"@ £{discounted_rate}, owner drop-off & pick-up)"
+                ),
+                quantity=len(discounted),
+                unit_price=discounted_rate,
+                line_total=line_total,
+                attendance_dates=[d.isoformat() for d in discounted],
+            )
+            total += line_total
     return total
 
 

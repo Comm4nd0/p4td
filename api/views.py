@@ -4566,7 +4566,7 @@ def billing_settings(request):
     pricing = ServicePricing.load()
     if request.method == 'PATCH':
         updated = False
-        for field in ('day_care_price', 'boarding_price_per_night'):
+        for field in ('day_care_price', 'boarding_price_per_night', 'owner_transport_discount'):
             if field not in request.data:
                 continue
             try:
@@ -4582,6 +4582,7 @@ def billing_settings(request):
     return Response({
         'day_care_price': pricing.day_care_price,
         'boarding_price_per_night': pricing.boarding_price_per_night,
+        'owner_transport_discount': pricing.owner_transport_discount,
     })
 
 

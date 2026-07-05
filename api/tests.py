@@ -6071,18 +6071,26 @@ class BoardingBillingTests(BillingTestsBase):
         created, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created, [])
 
-    def test_boarding_and_daycare_same_day_both_bill(self):
+    def test_boarding_covers_daycare_on_stay_days(self):
         from api import billing
 
+        # Stay 1st -> 3rd: the boarding charge covers the whole stay
+        # (arrival to checkout inclusive), so day-board attendance on the
+        # 1st-3rd is NOT billed as daycare; the 10th (outside the stay) is.
         self._board(date(2026, 6, 1), date(2026, 6, 3))
         self._attend(self.dog, 1)
         self._attend(self.dog, 2)
+        self._attend(self.dog, 3)  # checkout day — still covered
+        self._attend(self.dog, 10)
         created, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
-        descriptions = sorted(l.description.split(' — ')[0] for l in invoice.lines.all())
-        self.assertEqual(descriptions, ['Boarding', 'Daycare'])
-        # 2 daycare days @ £25 + 2 boarding nights @ £30.
-        self.assertEqual(invoice.total, Decimal('110.00'))
+        by_kind = {l.description.split(' — ')[0]: l for l in invoice.lines.all()}
+        self.assertEqual(sorted(by_kind), ['Boarding', 'Daycare'])
+        self.assertEqual(by_kind['Boarding'].quantity, 2)   # 2 nights @ £30
+        self.assertEqual(by_kind['Daycare'].quantity, 1)    # only the 10th
+        self.assertEqual(by_kind['Daycare'].attendance_dates, ['2026-06-10'])
+        # 2 nights @ £30 + 1 day @ £25.
+        self.assertEqual(invoice.total, Decimal('85.00'))
 
     def test_booking_owner_billed_not_dog_owner(self):
         from api import billing
@@ -6559,4 +6567,99 @@ class GenerateForCustomerTests(BillingTestsBase):
         resp = self.client.post('/api/invoices/generate/', {
             'year': 2026, 'month': 6, 'customer': 999999,
         }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+
+class OwnerTransportDiscountTests(BillingTestsBase):
+    """Days where the owner does both transport legs bill at the day rate
+    minus the configurable discount, itemised as their own invoice line."""
+
+    def setUp(self):
+        super().setUp()
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.owner_transport_discount = 5
+        pricing.save()
+
+    def _attend_transport(self, dog, day, brings, collects):
+        return DailyDogAssignment.objects.create(
+            dog=dog, staff_member=self.plain_staff, date=date(2026, 6, day),
+            status='DROPPED_OFF', owner_brings=brings, owner_collects=collects,
+        )
+
+    def test_both_legs_discounted_single_leg_not(self):
+        from api import billing
+
+        self._attend_transport(self.dog, 1, True, True)    # discounted
+        self._attend_transport(self.dog, 2, True, False)   # staff pick-up: full rate
+        self._attend_transport(self.dog, 3, False, True)   # staff drop-off: full rate
+        self._attend_transport(self.dog, 4, False, False)  # full rate
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        lines = list(invoice.lines.order_by('id'))
+        self.assertEqual(len(lines), 2)
+        standard = next(l for l in lines if 'owner drop-off' not in l.description)
+        discounted = next(l for l in lines if 'owner drop-off' in l.description)
+        self.assertEqual(standard.quantity, 3)
+        self.assertEqual(standard.unit_price, Decimal('25.00'))
+        self.assertEqual(discounted.quantity, 1)
+        self.assertEqual(discounted.unit_price, Decimal('20.00'))
+        self.assertEqual(discounted.attendance_dates, ['2026-06-01'])
+        self.assertEqual(invoice.total, Decimal('95.00'))
+
+    def test_dog_transport_defaults_apply(self):
+        from api import billing
+
+        # No per-date override: the dog's own defaults decide.
+        self.dog.owner_brings_default = True
+        self.dog.owner_collects_default = True
+        self.dog.save()
+        self._attend(self.dog, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertIn('owner drop-off', line.description)
+        self.assertEqual(line.unit_price, Decimal('20.00'))
+
+    def test_discount_stacks_with_client_rate_and_floors_at_zero(self):
+        from api import billing
+        from website.models import ServicePricing
+
+        self.owner.profile.daycare_rate = Decimal('22.00')
+        self.owner.profile.save()
+        self._attend_transport(self.dog, 1, True, True)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('17.00'))
+
+        # A discount bigger than the rate floors at £0, never negative.
+        pricing = ServicePricing.load()
+        pricing.owner_transport_discount = 50
+        pricing.save()
+        created[0].status = 'VOID'
+        created[0].save()
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('0.00'))
+
+    def test_zero_discount_keeps_single_line(self):
+        from api import billing
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.owner_transport_discount = 0
+        pricing.save()
+        self._attend_transport(self.dog, 1, True, True)
+        self._attend_transport(self.dog, 2, False, False)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertEqual(line.quantity, 2)
+        self.assertEqual(line.unit_price, Decimal('25.00'))
+
+    def test_billing_settings_exposes_discount(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/billing-settings/')
+        self.assertEqual(resp.data['owner_transport_discount'], Decimal('5.00'))
+        resp = self.client.patch('/api/billing-settings/', {'owner_transport_discount': '7.50'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['owner_transport_discount'], Decimal('7.50'))
+        resp = self.client.patch('/api/billing-settings/', {'owner_transport_discount': '-1'}, format='json')
         self.assertEqual(resp.status_code, 400)
