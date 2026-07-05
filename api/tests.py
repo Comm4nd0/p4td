@@ -5424,15 +5424,19 @@ class BillingGenerationTests(BillingTestsBase):
         self.assertEqual(by_dog['Alfie'].unit_price, Decimal('25.00'))
         self.assertEqual(created[0].total, Decimal('55.00'))
 
-    def test_zero_attendance_and_ownerless_dogs_are_skipped(self):
+    def test_zero_attendance_is_skipped_ownerless_dogs_bill_in_dogs_name(self):
         from api import billing
 
         stray = Dog.objects.create(owner=None, name='Stray')
         self._attend(stray, 1)
-        self._attend(self.dog, 2, 'REMOVED')
+        self._attend(self.dog, 2, 'REMOVED')  # removed day: nothing to bill
 
         created, skipped = billing.generate_invoices_for_month(2026, 6)
-        self.assertEqual(created, [])
+        # self.owner has no billable days -> no invoice; the ownerless dog's
+        # attendance bills in the dog's own name (handled via Xero email).
+        self.assertEqual(len(created), 1)
+        self.assertIsNone(created[0].customer)
+        self.assertEqual(created[0].billed_dog, stray)
         self.assertEqual(skipped, 0)
 
     def test_generation_is_idempotent(self):
@@ -6092,15 +6096,18 @@ class BoardingBillingTests(BillingTestsBase):
         # 2 nights @ £30 + 1 day @ £25.
         self.assertEqual(invoice.total, Decimal('85.00'))
 
-    def test_booking_owner_billed_not_dog_owner(self):
+    def test_dogs_owner_billed_not_whoever_booked(self):
         from api import billing
 
-        # other_owner books a stay for a dog owned by self.owner: the person
-        # who booked pays.
-        self._board(date(2026, 6, 1), date(2026, 6, 2), owner=self.other_owner)
+        # A staff member (or anyone else) creating the booking must never be
+        # the one invoiced — charges always follow the dog's assigned client.
+        staff_booker = User.objects.create_user(
+            username='booker', password='pw', is_staff=True)
+        self._board(date(2026, 6, 1), date(2026, 6, 2), owner=staff_booker)
         created, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 1)
-        self.assertEqual(created[0].customer, self.other_owner)
+        self.assertEqual(created[0].customer, self.owner)  # Biscuit's owner
+        self.assertFalse(Invoice.objects.filter(customer=staff_booker).exists())
 
     def test_regenerate_rebuilds_boarding_lines(self):
         from api import billing
@@ -6281,21 +6288,21 @@ class BillingRateResolutionTests(BillingTestsBase):
         self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('18.00'))
         self.assertEqual(by_dog['Alfie'].unit_price, Decimal('20.00'))
 
-    def test_boarding_uses_booking_owners_client_rate(self):
+    def test_boarding_uses_dog_owners_client_rate(self):
         from api import billing
 
-        # The dog belongs to self.owner but other_owner booked (and pays for)
-        # the stay — other_owner's discount applies, not the dog owner's.
-        self.owner.profile.boarding_rate = Decimal('99.00')
+        # other_owner created the booking, but the dog belongs to self.owner:
+        # self.owner is billed, at self.owner's discounted rate.
+        self.owner.profile.boarding_rate = Decimal('25.00')
         self.owner.profile.save()
-        self.other_owner.profile.boarding_rate = Decimal('25.00')
+        self.other_owner.profile.boarding_rate = Decimal('99.00')
         self.other_owner.profile.save()
         br = BoardingRequest.objects.create(
             owner=self.other_owner, start_date=date(2026, 6, 1),
             end_date=date(2026, 6, 3), status='APPROVED')
         br.dogs.add(self.dog)
         created, _ = billing.generate_invoices_for_month(2026, 6)
-        self.assertEqual(created[0].customer, self.other_owner)
+        self.assertEqual(created[0].customer, self.owner)
         self.assertEqual(created[0].lines.get().unit_price, Decimal('25.00'))
 
     def test_owner_cannot_self_set_rate(self):
@@ -6663,3 +6670,141 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         self.assertEqual(resp.data['owner_transport_discount'], Decimal('7.50'))
         resp = self.client.patch('/api/billing-settings/', {'owner_transport_discount': '-1'}, format='json')
         self.assertEqual(resp.status_code, 400)
+
+
+class OwnerlessDogBillingTests(BillingTestsBase):
+    """Dogs with no client attached bill per dog, in the dog's name; the
+    invoice goes out via Xero email rather than the app."""
+
+    def setUp(self):
+        super().setUp()
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.boarding_price_per_night = 30
+        pricing.save()
+        self.stray = Dog.objects.create(owner=None, name='Stray')
+
+    def test_ownerless_dog_gets_dog_name_invoice(self):
+        from api import billing
+
+        self._attend(self.stray, 1)
+        self._attend(self.stray, 2)
+        br = BoardingRequest.objects.create(
+            owner=self.plain_staff, start_date=date(2026, 6, 10),
+            end_date=date(2026, 6, 12), status='APPROVED')
+        br.dogs.add(self.stray)
+
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(created), 1)
+        invoice = created[0]
+        self.assertIsNone(invoice.customer)
+        self.assertEqual(invoice.billed_dog, self.stray)
+        self.assertEqual(invoice.billed_name, 'Stray (dog)')
+        # 2 daycare days @ £25 + 2 boarding nights @ £30.
+        self.assertEqual(invoice.total, Decimal('110.00'))
+
+        # Idempotent on rerun.
+        again, skipped = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(again, [])
+        self.assertEqual(skipped, 1)
+
+    def test_two_ownerless_dogs_get_separate_invoices(self):
+        from api import billing
+
+        stray2 = Dog.objects.create(owner=None, name='Wanderer')
+        self._attend(self.stray, 1)
+        self._attend(stray2, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(created), 2)
+        self.assertEqual(
+            {inv.billed_dog for inv in created}, {self.stray, stray2})
+
+    @patch('api.billing.send_push_notification')
+    def test_send_works_without_app_user(self, mock_push):
+        from api import billing
+
+        self._attend(self.stray, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        billing.send_invoice(created[0])
+        created[0].refresh_from_db()
+        self.assertEqual(created[0].status, 'SENT')
+        mock_push.assert_not_called()  # nobody to push to
+
+    @patch('api.xero._api_request')
+    def test_xero_contact_created_in_dogs_name(self, mock_api):
+        from api import billing
+
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+
+        self._attend(self.stray, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+
+        def api_response(method, path, *args, **kwargs):
+            if path == 'Contacts' and method == 'GET':
+                return {'Contacts': []}
+            if path == 'Contacts' and method == 'POST':
+                return {'Contacts': [{'ContactID': 'contact-dog'}]}
+            if path == 'Invoices' and method == 'POST':
+                return {'Invoices': [{'InvoiceID': 'inv-1', 'InvoiceNumber': 'INV-0001'}]}
+            return {'OnlineInvoices': [{'OnlineInvoiceUrl': 'https://in.xero.com/dog'}]}
+        mock_api.side_effect = api_response
+
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            billing.send_invoice(created[0])
+        created[0].refresh_from_db()
+        self.assertEqual(created[0].xero_invoice_id, 'inv-1')
+        contact_posts = [c for c in mock_api.call_args_list
+                         if c.args[0] == 'POST' and c.args[1] == 'Contacts']
+        self.assertEqual(len(contact_posts), 1)
+        self.assertEqual(contact_posts[0].kwargs['payload']['Contacts'][0]['Name'], 'Stray (dog)')
+
+    def test_owners_never_see_dog_name_invoices(self):
+        from api import billing
+
+        self._attend(self.stray, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        billing.send_invoice(created[0])
+
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/invoices/')
+        ids = {inv['id'] for inv in resp.data}
+        self.assertNotIn(created[0].id, ids)
+
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/invoices/')
+        by_id = {inv['id']: inv for inv in resp.data}
+        self.assertIn(created[0].id, by_id)
+        self.assertEqual(by_id[created[0].id]['billed_name'], 'Stray (dog)')
+        self.assertIsNone(by_id[created[0].id]['customer_details'])
+
+    def test_reminder_command_skips_dog_invoices(self):
+        from api import billing
+
+        self._attend(self.stray, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.status = 'SENT'
+        invoice.due_date = timezone.localdate() - timedelta(days=1)
+        invoice.save()
+        with patch('api.management.commands.send_invoice_reminders.send_push_notification') as mock_push:
+            call_command('send_invoice_reminders')
+        mock_push.assert_not_called()
+        invoice.refresh_from_db()
+        self.assertFalse(invoice.overdue_reminder_sent)
+
+    def test_regenerate_dog_invoice(self):
+        from api import billing
+
+        self._attend(self.stray, 1)
+        created, _ = billing.generate_invoices_for_month(2026, 6)
+        self._attend(self.stray, 2)
+        billing.regenerate_draft(created[0])
+        created[0].refresh_from_db()
+        self.assertEqual(created[0].lines.get().quantity, 2)
+        self.assertEqual(created[0].total, Decimal('50.00'))

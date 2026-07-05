@@ -1096,6 +1096,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     payments = PaymentRecordSerializer(many=True, read_only=True)
     customer_details = serializers.SerializerMethodField()
     period_label = serializers.CharField(read_only=True)
+    billed_name = serializers.CharField(read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
     has_online_payment = serializers.SerializerMethodField()
     balance = serializers.SerializerMethodField()
@@ -1103,7 +1104,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = [
-            'id', 'customer', 'customer_details', 'period_year', 'period_month',
+            'id', 'customer', 'customer_details', 'billed_dog', 'billed_name',
+            'period_year', 'period_month',
             'period_label', 'status', 'total', 'amount_paid', 'balance',
             'due_date', 'is_overdue', 'sent_at', 'paid_at',
             'xero_invoice_number', 'xero_sync_error', 'has_online_payment',
@@ -1112,6 +1114,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_customer_details(self, obj):
+        if obj.customer is None:
+            return None
         try:
             return UserSummarySerializer(obj.customer.profile).data
         except UserProfile.DoesNotExist:

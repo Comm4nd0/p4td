@@ -97,7 +97,10 @@ class InvoicePayment {
 
 class Invoice {
   final int id;
-  final int customerId;
+
+  /// Null for invoices in a dog's name (dog has no client attached —
+  /// those are emailed from Xero rather than paid in-app).
+  final int? customerId;
   final String customerName;
   final String customerEmail;
   final int periodYear;
@@ -127,7 +130,7 @@ class Invoice {
 
   Invoice({
     required this.id,
-    required this.customerId,
+    this.customerId,
     required this.customerName,
     required this.customerEmail,
     required this.periodYear,
@@ -171,14 +174,15 @@ class Invoice {
 
   factory Invoice.fromJson(Map<String, dynamic> json) {
     final customer = json['customer_details'] as Map<String, dynamic>?;
-    final customerName =
+    final fallbackName =
         (customer?['first_name'] as String?)?.trim().isNotEmpty == true
             ? customer!['first_name'] as String
             : customer?['username'] ?? '';
     return Invoice(
       id: json['id'],
       customerId: json['customer'],
-      customerName: customerName,
+      // billed_name covers both clients and dog-name invoices server-side.
+      customerName: json['billed_name'] ?? fallbackName,
       customerEmail: customer?['email'] ?? '',
       periodYear: json['period_year'],
       periodMonth: json['period_month'],
