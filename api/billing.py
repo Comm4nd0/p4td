@@ -109,7 +109,7 @@ def attendance_for_month(year, month):
         DailyDogAssignment.objects
         .filter(date__year=year, date__month=month)
         .exclude(status='REMOVED')
-        .select_related('dog__owner')
+        .select_related('dog__owner__profile')
         .order_by('date')
     )
     by_owner = {}
@@ -140,7 +140,7 @@ def boarding_nights_for_month(year, month):
     requests = (
         BoardingRequest.objects
         .filter(status='APPROVED', start_date__lte=month_end, end_date__gte=month_start)
-        .prefetch_related('dogs__owner')
+        .prefetch_related('dogs__owner__profile')
     )
     by_owner = {}
     for request in requests:
@@ -159,13 +159,19 @@ def boarding_nights_for_month(year, month):
 
 
 def generate_invoices_for_month(year, month, created_by=None, customer=None):
-    """Create DRAFT invoices for every customer with daycare attendance or
-    boarding nights in the period (or just one customer when ``customer``
-    is given).
+    """Create DRAFT invoices for every APP-billed customer with daycare
+    attendance or boarding nights in the period (or just one customer when
+    ``customer`` is given).
+
+    MANUAL-mode customers (and ownerless dogs) are left alone — the business
+    still invoices them by hand in Xero each month, and generating here too
+    would double-bill them. Passing ``customer`` bypasses that check: an
+    explicit single-customer generation is a deliberate staff action (and the
+    escape hatch for one-off app invoices during the transition).
 
     Idempotent: customers who already have a non-VOID invoice for the period
     are skipped, as are customers with nothing to bill. Returns
-    ``(created_invoices, skipped_count)``.
+    ``(created_invoices, skipped_count, manual_count)``.
     """
     daycare_by_owner = attendance_for_month(year, month)
     boarding_by_owner = boarding_nights_for_month(year, month)
@@ -193,6 +199,21 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None):
     if customer is not None:
         entry = customers.get(('user', customer.id))
         customers = {('user', customer.id): entry} if entry else {}
+
+    manual = 0
+    if customer is None:
+        app_billed = {}
+        for key, entry in customers.items():
+            owner, dog = entry['owner'], entry['dog']
+            if owner is not None:
+                mode = getattr(getattr(owner, 'profile', None), 'billing_mode', 'MANUAL')
+            else:
+                mode = dog.billing_mode
+            if mode == 'APP':
+                app_billed[key] = entry
+            else:
+                manual += 1
+        customers = app_billed
 
     billed_customers = set()
     billed_dogs = set()
@@ -223,7 +244,7 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None):
             invoice.total = total
             invoice.save(update_fields=['total', 'updated_at'])
         created.append(invoice)
-    return created, skipped
+    return created, skipped, manual
 
 
 def _build_lines(invoice, dogs):
@@ -367,8 +388,8 @@ def remove_adjustment(invoice, line_id):
 
 
 def send_invoice(invoice, user=None):
-    """Send a DRAFT invoice: mark it SENT, push to Xero (best-effort) and
-    notify the owner."""
+    """Send a DRAFT invoice: mark it SENT, push to Xero and ask Xero to email
+    it to the customer (both best-effort) and notify the owner."""
     if invoice.status != 'DRAFT':
         raise ValueError('Only draft invoices can be sent.')
     invoice.status = 'SENT'
@@ -377,7 +398,8 @@ def send_invoice(invoice, user=None):
     invoice.save(update_fields=['status', 'sent_at', 'due_date', 'updated_at'])
 
     # Outside the transaction: Xero I/O must never roll back the send.
-    push_invoice_to_xero(invoice)
+    if push_invoice_to_xero(invoice):
+        email_invoice_from_xero(invoice)
 
     # Dog-name invoices have no app user to notify — they're emailed from Xero.
     if invoice.customer is not None:
@@ -408,12 +430,7 @@ def push_invoice_to_xero(invoice):
                 logger.warning('Could not fetch Xero online invoice URL: %s', exc)
         return True
     try:
-        if invoice.customer is not None:
-            contact_id = xero.find_or_create_contact(invoice.customer)
-        else:
-            # No client attached: the Xero contact is the dog itself, so the
-            # business can attach an email in Xero and send the invoice there.
-            contact_id = xero.find_or_create_contact_by_name(invoice.billed_name)
+        contact_id = _resolve_contact_id(invoice)
         xero_id, xero_number = xero.create_invoice(invoice, contact_id)
         invoice.xero_invoice_id = xero_id
         invoice.xero_invoice_number = xero_number
@@ -429,6 +446,62 @@ def push_invoice_to_xero(invoice):
         invoice.xero_sync_error = str(exc)
         invoice.save(update_fields=['xero_sync_error', 'updated_at'])
         return False
+
+
+def _resolve_contact_id(invoice):
+    """The Xero ContactID to invoice: the pinned id when the customer/dog has
+    one, otherwise an email/name match (created if missing) whose result is
+    pinned for next time. Pinning keeps invoices attached to the customer's
+    existing Xero contact — long-standing customers were invoiced by hand in
+    Xero, and a fresh name/email lookup can miss their contact and create a
+    duplicate. A stale pin (contact deleted in Xero) surfaces as a push error;
+    unpin it on the reconciliation screen."""
+    if invoice.customer is not None:
+        profile = getattr(invoice.customer, 'profile', None)
+        if profile is not None and profile.xero_contact_id:
+            return profile.xero_contact_id
+        contact_id = xero.find_or_create_contact(invoice.customer)
+        if profile is not None:
+            profile.xero_contact_id = contact_id
+            profile.save(update_fields=['xero_contact_id'])
+        return contact_id
+    # No client attached: the Xero contact is the dog itself, so the
+    # business can attach an email in Xero and send the invoice there.
+    dog = invoice.billed_dog
+    if dog is not None and dog.xero_contact_id:
+        return dog.xero_contact_id
+    contact_id = xero.find_or_create_contact_by_name(invoice.billed_name)
+    if dog is not None:
+        dog.xero_contact_id = contact_id
+        dog.save(update_fields=['xero_contact_id'])
+    return contact_id
+
+
+def email_invoice_from_xero(invoice):
+    """Ask Xero to email the invoice to its contact — the same branded email
+    customers got when invoices were raised by hand in Xero.
+
+    Gated by ``settings.XERO_EMAIL_INVOICES``. Best-effort and idempotent:
+    no-op unless the invoice is in Xero and hasn't been emailed yet; failures
+    (e.g. the Xero contact has no email address) are stored on
+    ``xero_sync_error`` and never raised.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, 'XERO_EMAIL_INVOICES', False):
+        return False
+    if not invoice.xero_invoice_id or invoice.xero_emailed_at:
+        return False
+    try:
+        xero.email_invoice(invoice.xero_invoice_id)
+    except xero.XeroError as exc:
+        logger.error('Failed to email invoice #%s from Xero: %s', invoice.id, exc)
+        invoice.xero_sync_error = f'Xero email failed: {exc}'
+        invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+        return False
+    invoice.xero_emailed_at = timezone.now()
+    invoice.save(update_fields=['xero_emailed_at', 'updated_at'])
+    return True
 
 
 def refresh_payment_state(invoice):

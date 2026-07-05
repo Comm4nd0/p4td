@@ -356,6 +356,9 @@ XERO_REDIRECT_URI = os.environ.get('XERO_REDIRECT_URI', '')
 # Xero account code (bank / undeposited funds) that staff-recorded manual
 # payments are booked against in Xero. Blank = manual payments stay app-only.
 XERO_PAYMENT_ACCOUNT_CODE = os.environ.get('XERO_PAYMENT_ACCOUNT_CODE', '')
+# When true, sending an invoice also asks Xero to email it to the customer —
+# the same branded Xero email customers got when invoices were raised by hand.
+XERO_EMAIL_INVOICES = os.environ.get('XERO_EMAIL_INVOICES', 'True').lower() in ('true', '1', 'yes')
 
 # =============================================================================
 # LOGGING

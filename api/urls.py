@@ -12,6 +12,7 @@ from .views import (
     delete_account, postcode_lookup, daycare_settings,
     xero_status, xero_connect, xero_callback, xero_disconnect,
     billing_settings, customer_rates,
+    xero_contact_matches, xero_pin_contact, xero_contact_search,
 )
 
 router = DefaultRouter()
@@ -48,6 +49,9 @@ urlpatterns = [
     path('xero/connect/', xero_connect, name='xero-connect'),
     path('xero/callback/', xero_callback, name='xero-callback'),
     path('xero/disconnect/', xero_disconnect, name='xero-disconnect'),
+    path('xero/contact-matches/', xero_contact_matches, name='xero-contact-matches'),
+    path('xero/pin-contact/', xero_pin_contact, name='xero-pin-contact'),
+    path('xero/contacts/', xero_contact_search, name='xero-contact-search'),
     path('password/reset/request/', request_password_reset, name='password-reset-request'),
     path('password/reset/verify/', verify_otp, name='password-reset-verify'),
     path('password/reset/confirm/', reset_password, name='password-reset-confirm'),

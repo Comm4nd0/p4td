@@ -151,44 +151,73 @@ class _PricingScreenState extends State<PricingScreen> {
         text: customer.daycareRate?.toStringAsFixed(2) ?? '');
     final boardingController = TextEditingController(
         text: customer.boardingRate?.toStringAsFixed(2) ?? '');
+    var billingMode = customer.billingMode;
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(customer.displayName),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: dayController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Daycare rate per day',
-                prefixText: '£',
-                hintText: 'Standard (£${_settings!.dayCarePrice.toStringAsFixed(2)})',
-              ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(customer.displayName),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: dayController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Daycare rate per day',
+                    prefixText: '£',
+                    hintText: 'Standard (£${_settings!.dayCarePrice.toStringAsFixed(2)})',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: boardingController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Boarding rate per night',
+                    prefixText: '£',
+                    hintText: 'Standard (£${_settings!.boardingPricePerNight.toStringAsFixed(2)})',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Leave a field blank to charge the standard price.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 16),
+                Text('Invoicing',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'APP', label: Text('App billed')),
+                    ButtonSegment(value: 'MANUAL', label: Text('Manual (Xero)')),
+                  ],
+                  selected: {billingMode},
+                  onSelectionChanged: (selection) =>
+                      setDialogState(() => billingMode = selection.first),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  billingMode == 'APP'
+                      ? 'Monthly invoices are generated automatically from attendance.'
+                      : 'Skipped by monthly invoice generation — you invoice this customer yourself in Xero.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: boardingController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Boarding rate per night',
-                prefixText: '£',
-                hintText: 'Standard (£${_settings!.boardingPricePerNight.toStringAsFixed(2)})',
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Leave a field blank to charge the standard price.',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
-        ],
       ),
     );
     if (confirmed != true) return;
@@ -208,13 +237,18 @@ class _PricingScreenState extends State<PricingScreen> {
     setState(() => _busy = true);
     try {
       final updated = await _dataService.updateCustomerRates(
-        customer.userId, daycareRate: day, boardingRate: boarding);
+        customer.userId,
+        daycareRate: day,
+        boardingRate: boarding,
+        billingMode: billingMode != customer.billingMode ? billingMode : null,
+      );
       if (mounted) {
         setState(() {
           customer.daycareRate = updated.daycareRate;
           customer.boardingRate = updated.boardingRate;
+          customer.billingMode = updated.billingMode;
         });
-        _showSuccess('${customer.displayName}\'s rates updated');
+        _showSuccess('${customer.displayName}\'s billing updated');
       }
     } catch (e) {
       if (mounted) _showError(e);
@@ -356,23 +390,34 @@ class _PricingScreenState extends State<PricingScreen> {
           ].join('\n'),
           style: const TextStyle(fontSize: 12),
         ),
-        trailing: customer.hasCustomRate
-            ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.info.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: AppColors.info.withValues(alpha: 0.5)),
-                ),
-                child: const Text('Custom',
-                    style: TextStyle(
-                        color: AppColors.info,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 11)),
-              )
-            : null,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _chip(
+              customer.isAppBilled ? 'App billed' : 'Manual · Xero',
+              customer.isAppBilled ? AppColors.success : Colors.grey[700]!,
+            ),
+            if (customer.hasCustomRate) ...[
+              const SizedBox(width: 4),
+              _chip('Custom', AppColors.info),
+            ],
+          ],
+        ),
         onTap: _busy ? null : () => _editCustomer(customer),
       ),
+    );
+  }
+
+  Widget _chip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(label,
+          style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
     );
   }
 }
