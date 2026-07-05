@@ -1347,7 +1347,11 @@ class Invoice(models.Model):
         ('VOID', 'Void'),
     ]
 
-    customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name='invoices')
+    # The client being billed — always the DOG'S owner (never whoever created
+    # a booking). Null when the dog has no client attached: those charges are
+    # invoiced per dog, in the dog's name (billed_dog), and handled via Xero.
+    customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name='invoices', null=True, blank=True)
+    billed_dog = models.ForeignKey(Dog, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices', help_text='Set when the invoice is in a dog\'s name because the dog has no client attached.')
     period_year = models.PositiveSmallIntegerField()
     period_month = models.PositiveSmallIntegerField(help_text='1-12')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='DRAFT')
@@ -1375,6 +1379,11 @@ class Invoice(models.Model):
                 condition=~models.Q(status='VOID'),
                 name='uniq_active_invoice_per_customer_period',
             ),
+            models.UniqueConstraint(
+                fields=['billed_dog', 'period_year', 'period_month'],
+                condition=models.Q(billed_dog__isnull=False) & ~models.Q(status='VOID'),
+                name='uniq_active_invoice_per_dog_period',
+            ),
         ]
         indexes = [
             models.Index(fields=['period_year', 'period_month']),
@@ -1394,8 +1403,18 @@ class Invoice(models.Model):
             and self.due_date < timezone.now().date()
         )
 
+    @property
+    def billed_name(self):
+        """Who this invoice is addressed to: the client, or the dog's name
+        when no client is attached."""
+        if self.customer is not None:
+            return self.customer.first_name or self.customer.username
+        if self.billed_dog is not None:
+            return f"{self.billed_dog.name} (dog)"
+        return f"Invoice #{self.id}"
+
     def __str__(self):
-        return f"Invoice #{self.id} — {self.customer.username} {self.period_label} ({self.get_status_display()})"
+        return f"Invoice #{self.id} — {self.billed_name} {self.period_label} ({self.get_status_display()})"
 
 
 class InvoiceLine(models.Model):

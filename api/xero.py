@@ -309,7 +309,13 @@ def find_or_create_contact(user):
         if contacts:
             return contacts[0]['ContactID']
 
-    name = _contact_display_name(user)
+    return find_or_create_contact_by_name(_contact_display_name(user), email=email)
+
+
+def find_or_create_contact_by_name(name, email=''):
+    """Return the Xero ContactID for a bare display name (e.g. an invoice in
+    a dog's name), creating the contact if needed. The business can then
+    attach an email address in Xero and send the invoice from there."""
     result = _tenant_call('GET', 'Contacts', params={
         'where': f'Name=="{_escape_where_value(name)}"',
     })
