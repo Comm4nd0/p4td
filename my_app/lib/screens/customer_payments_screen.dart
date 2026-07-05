@@ -9,6 +9,7 @@ import '../services/service_locator.dart';
 import 'invoice_detail_screen.dart';
 import 'my_payments_screen.dart' show InvoiceStatusPill;
 import 'pricing_screen.dart';
+import 'xero_reconciliation_screen.dart';
 
 /// Staff payments dashboard (requires can_manage_payments): monthly invoices
 /// with summary totals, generate/send-all/Xero-sync actions and per-invoice
@@ -107,7 +108,8 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
       final result = await _dataService.generateInvoices(_month.year, _month.month);
       if (mounted) {
         _showSuccess('Created ${result.created} draft invoice(s)'
-            '${result.skipped > 0 ? ', skipped ${result.skipped} already invoiced' : ''}');
+            '${result.skipped > 0 ? ', skipped ${result.skipped} already invoiced' : ''}'
+            '${result.manual > 0 ? ', ${result.manual} on manual Xero billing' : ''}');
       }
       await _load();
     } catch (e) {
@@ -243,6 +245,12 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                     MaterialPageRoute(builder: (_) => const PricingScreen()),
                   ).then((_) => _load());
                   break;
+                case 'xero_contacts':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const XeroReconciliationScreen()),
+                  );
+                  break;
               }
             },
             itemBuilder: (context) => [
@@ -265,6 +273,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
               const PopupMenuItem(
                 value: 'pricing',
                 child: Text('Pricing & customer rates'),
+              ),
+              const PopupMenuItem(
+                value: 'xero_contacts',
+                child: Text('Xero contact matching'),
               ),
             ],
           ),
