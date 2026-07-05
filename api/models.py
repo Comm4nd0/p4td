@@ -27,6 +27,17 @@ class UserProfile(models.Model):
     daycare_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day daycare rate for this customer. Blank = standard day care price from Service Pricing.')
     boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate for this customer. Blank = standard boarding price from Service Pricing.')
 
+    # Transition control for the in-app invoicing rollout: long-standing
+    # customers are invoiced by hand in Xero each month, and auto-generating
+    # for them too would double-bill. Monthly generation only picks up APP
+    # customers; staff flip each customer over as they migrate.
+    BILLING_MODE_CHOICES = [
+        ('MANUAL', 'Manual — invoiced directly in Xero'),
+        ('APP', 'App — monthly invoices auto-generated'),
+    ]
+    billing_mode = models.CharField(max_length=6, choices=BILLING_MODE_CHOICES, default='MANUAL', help_text='MANUAL customers are skipped by monthly invoice generation (the business invoices them by hand in Xero); APP customers get auto-generated invoices.')
+    xero_contact_id = models.CharField(max_length=64, blank=True, default='', help_text='Pinned Xero ContactID for this customer, so invoices attach to their existing Xero contact instead of matching by email/name (which can create duplicates). Set via the reconciliation screen or backfilled on first push.')
+
     # Personal identity colour used across the staff app (map pins, day board,
     # dashboard cards). Blank = automatic palette colour by staff id.
     staff_color = models.CharField(max_length=7, blank=True, default='', help_text='Hex colour (#RRGGBB) identifying this staff member across the app. Blank = automatic.')
@@ -133,6 +144,10 @@ class Dog(models.Model):
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
     daily_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day billing rate override for this dog. Blank = standard day care price from Service Pricing. Staff-only field.')
     boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate override for this dog. Blank = standard boarding price from Service Pricing. Staff-only field.')
+    # Only consulted when the dog has no client attached (dog-name invoices):
+    # mirrors UserProfile.billing_mode for the invoicing transition.
+    billing_mode = models.CharField(max_length=6, choices=UserProfile.BILLING_MODE_CHOICES, default='MANUAL', help_text="Only used when no client is attached: whether monthly invoices are auto-generated in the dog's name (APP) or the business invoices by hand in Xero (MANUAL).")
+    xero_contact_id = models.CharField(max_length=64, blank=True, default='', help_text='Pinned Xero ContactID for dog-name invoices; backfilled on first push.')
     # Cached geocoding of `address` for the staff pickup map. Populated by the
     # geocode_dogs management command and refreshed when `address` changes.
     GEOCODE_SOURCE_CHOICES = [
@@ -1365,6 +1380,7 @@ class Invoice(models.Model):
     xero_invoice_number = models.CharField(max_length=32, blank=True, default='')
     xero_online_url = models.URLField(blank=True, default='')
     xero_last_synced_at = models.DateTimeField(null=True, blank=True)
+    xero_emailed_at = models.DateTimeField(null=True, blank=True, help_text='When Xero was asked to email this invoice to the customer (blank = not emailed).')
     xero_sync_error = models.TextField(blank=True, default='')
     overdue_reminder_sent = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices_created')

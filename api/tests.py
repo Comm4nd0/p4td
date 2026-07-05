@@ -5351,6 +5351,11 @@ class BillingTestsBase(TestCase):
             username='owner', password='pw', first_name='Olive', email='olive@example.com')
         self.other_owner = User.objects.create_user(
             username='other', password='pw', email='other@example.com')
+        # Fixture owners are on app billing; the MANUAL/Xero-transition tests
+        # (BillingModeTransitionTests) flip this per-case.
+        for customer in (self.owner, self.other_owner):
+            customer.profile.billing_mode = 'APP'
+            customer.profile.save()
 
         self.dog = Dog.objects.create(owner=self.owner, name='Biscuit')
         self.dog2 = Dog.objects.create(owner=self.owner, name='Alfie')
@@ -5382,7 +5387,7 @@ class BillingGenerationTests(BillingTestsBase):
         # REMOVED = not attending -> not billable.
         self._attend(self.dog, 5, 'REMOVED')
 
-        created, skipped = billing.generate_invoices_for_month(2026, 6)
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 1)
         self.assertEqual(skipped, 0)
         invoice = created[0]
@@ -5402,7 +5407,7 @@ class BillingGenerationTests(BillingTestsBase):
         self._attend(self.dog, 2)
         self._attend(self.dog2, 2)
 
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 1)
         invoice = created[0]
         self.assertEqual(invoice.lines.count(), 2)
@@ -5418,7 +5423,7 @@ class BillingGenerationTests(BillingTestsBase):
         self._attend(self.dog, 1)
         self._attend(self.dog2, 1)  # falls back to the £25 default
 
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         by_dog = {l.dog.name: l for l in created[0].lines.all()}
         self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('30.00'))
         self.assertEqual(by_dog['Alfie'].unit_price, Decimal('25.00'))
@@ -5431,7 +5436,7 @@ class BillingGenerationTests(BillingTestsBase):
         self._attend(stray, 1)
         self._attend(self.dog, 2, 'REMOVED')  # removed day: nothing to bill
 
-        created, skipped = billing.generate_invoices_for_month(2026, 6)
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6)
         # self.owner has no billable days -> no invoice; the ownerless dog's
         # attendance bills in the dog's own name (handled via Xero email).
         self.assertEqual(len(created), 1)
@@ -5443,9 +5448,9 @@ class BillingGenerationTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.dog, 1)
-        first, _ = billing.generate_invoices_for_month(2026, 6)
+        first, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(first), 1)
-        second, skipped = billing.generate_invoices_for_month(2026, 6)
+        second, skipped, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(second, [])
         self.assertEqual(skipped, 1)
         self.assertEqual(Invoice.objects.count(), 1)
@@ -5454,11 +5459,11 @@ class BillingGenerationTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.dog, 1)
-        first, _ = billing.generate_invoices_for_month(2026, 6)
+        first, _, _ = billing.generate_invoices_for_month(2026, 6)
         first[0].status = 'VOID'
         first[0].save()
 
-        second, _ = billing.generate_invoices_for_month(2026, 6)
+        second, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(second), 1)
         self.assertEqual(Invoice.objects.count(), 2)
 
@@ -5466,7 +5471,7 @@ class BillingGenerationTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.dog, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         self._attend(self.dog, 2)
 
@@ -5479,7 +5484,7 @@ class BillingGenerationTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.dog, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         invoice.status = 'SENT'
         invoice.save()
@@ -6024,7 +6029,7 @@ class BoardingBillingTests(BillingTestsBase):
 
         # Friday 5 June -> Sunday 7 June = 2 nights.
         self._board(date(2026, 6, 5), date(2026, 6, 7))
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         line = created[0].lines.get()
         self.assertIn('Boarding', line.description)
         self.assertEqual(line.quantity, 2)
@@ -6038,9 +6043,9 @@ class BoardingBillingTests(BillingTestsBase):
 
         # 29 June -> 3 July: June bills nights of 29th/30th, July bills 1st/2nd.
         self._board(date(2026, 6, 29), date(2026, 7, 3))
-        june, _ = billing.generate_invoices_for_month(2026, 6)
+        june, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(june[0].lines.get().attendance_dates, ['2026-06-29', '2026-06-30'])
-        july, _ = billing.generate_invoices_for_month(2026, 7)
+        july, _, _ = billing.generate_invoices_for_month(2026, 7)
         self.assertEqual(july[0].lines.get().attendance_dates, ['2026-07-01', '2026-07-02'])
 
     def test_boarding_rate_override_beats_service_pricing(self):
@@ -6049,7 +6054,7 @@ class BoardingBillingTests(BillingTestsBase):
         self.dog.boarding_rate = Decimal('45.00')
         self.dog.save()
         self._board(date(2026, 6, 1), date(2026, 6, 2), dogs=[self.dog, self.dog2])
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         by_dog = {l.dog.name: l for l in created[0].lines.all()}
         self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('45.00'))
         self.assertEqual(by_dog['Alfie'].unit_price, Decimal('30.00'))
@@ -6062,7 +6067,7 @@ class BoardingBillingTests(BillingTestsBase):
         pricing.boarding_price_per_night = 0
         pricing.save()
         self._board(date(2026, 6, 1), date(2026, 6, 3))
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         line = created[0].lines.get()
         self.assertEqual(line.quantity, 2)
         self.assertEqual(line.line_total, Decimal('0.00'))
@@ -6072,7 +6077,7 @@ class BoardingBillingTests(BillingTestsBase):
 
         self._board(date(2026, 6, 1), date(2026, 6, 3), status='PENDING')
         self._board(date(2026, 6, 10), date(2026, 6, 12), status='DENIED')
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created, [])
 
     def test_boarding_covers_daycare_on_stay_days(self):
@@ -6086,7 +6091,7 @@ class BoardingBillingTests(BillingTestsBase):
         self._attend(self.dog, 2)
         self._attend(self.dog, 3)  # checkout day — still covered
         self._attend(self.dog, 10)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         by_kind = {l.description.split(' — ')[0]: l for l in invoice.lines.all()}
         self.assertEqual(sorted(by_kind), ['Boarding', 'Daycare'])
@@ -6104,7 +6109,7 @@ class BoardingBillingTests(BillingTestsBase):
         staff_booker = User.objects.create_user(
             username='booker', password='pw', is_staff=True)
         self._board(date(2026, 6, 1), date(2026, 6, 2), owner=staff_booker)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0].customer, self.owner)  # Biscuit's owner
         self.assertFalse(Invoice.objects.filter(customer=staff_booker).exists())
@@ -6113,7 +6118,7 @@ class BoardingBillingTests(BillingTestsBase):
         from api import billing
 
         booking = self._board(date(2026, 6, 1), date(2026, 6, 2))
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         self.assertEqual(invoice.total, Decimal('30.00'))
         booking.end_date = date(2026, 6, 4)
@@ -6271,7 +6276,7 @@ class BillingRateResolutionTests(BillingTestsBase):
         self.owner.profile.daycare_rate = Decimal('20.00')
         self.owner.profile.save()
         self._attend(self.dog, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created[0].lines.get().unit_price, Decimal('20.00'))
 
     def test_dog_override_beats_client_rate(self):
@@ -6283,7 +6288,7 @@ class BillingRateResolutionTests(BillingTestsBase):
         self.dog.save()
         self._attend(self.dog, 1)
         self._attend(self.dog2, 1)  # falls back to the client rate
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         by_dog = {l.dog.name: l for l in created[0].lines.all()}
         self.assertEqual(by_dog['Biscuit'].unit_price, Decimal('18.00'))
         self.assertEqual(by_dog['Alfie'].unit_price, Decimal('20.00'))
@@ -6301,7 +6306,7 @@ class BillingRateResolutionTests(BillingTestsBase):
             owner=self.other_owner, start_date=date(2026, 6, 1),
             end_date=date(2026, 6, 3), status='APPROVED')
         br.dogs.add(self.dog)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created[0].customer, self.owner)
         self.assertEqual(created[0].lines.get().unit_price, Decimal('25.00'))
 
@@ -6413,7 +6418,7 @@ class InvoiceAdjustmentTests(BillingTestsBase):
 
         self._attend(self.dog, 1)
         self._attend(self.dog, 2)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.invoice = created[0]  # 2 days @ £25 = £50
         self.client.login(username='manager', password='pw')
 
@@ -6602,7 +6607,7 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         self._attend_transport(self.dog, 2, True, False)   # staff pick-up: full rate
         self._attend_transport(self.dog, 3, False, True)   # staff drop-off: full rate
         self._attend_transport(self.dog, 4, False, False)  # full rate
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         lines = list(invoice.lines.order_by('id'))
         self.assertEqual(len(lines), 2)
@@ -6623,7 +6628,7 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         self.dog.owner_collects_default = True
         self.dog.save()
         self._attend(self.dog, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         line = created[0].lines.get()
         self.assertIn('owner drop-off', line.description)
         self.assertEqual(line.unit_price, Decimal('20.00'))
@@ -6635,7 +6640,7 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         self.owner.profile.daycare_rate = Decimal('22.00')
         self.owner.profile.save()
         self._attend_transport(self.dog, 1, True, True)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created[0].lines.get().unit_price, Decimal('17.00'))
 
         # A discount bigger than the rate floors at £0, never negative.
@@ -6644,7 +6649,7 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         pricing.save()
         created[0].status = 'VOID'
         created[0].save()
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created[0].lines.get().unit_price, Decimal('0.00'))
 
     def test_zero_discount_keeps_single_line(self):
@@ -6656,7 +6661,7 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         pricing.save()
         self._attend_transport(self.dog, 1, True, True)
         self._attend_transport(self.dog, 2, False, False)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         line = created[0].lines.get()
         self.assertEqual(line.quantity, 2)
         self.assertEqual(line.unit_price, Decimal('25.00'))
@@ -6683,7 +6688,7 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         pricing = ServicePricing.load()
         pricing.boarding_price_per_night = 30
         pricing.save()
-        self.stray = Dog.objects.create(owner=None, name='Stray')
+        self.stray = Dog.objects.create(owner=None, name='Stray', billing_mode='APP')
 
     def test_ownerless_dog_gets_dog_name_invoice(self):
         from api import billing
@@ -6695,7 +6700,7 @@ class OwnerlessDogBillingTests(BillingTestsBase):
             end_date=date(2026, 6, 12), status='APPROVED')
         br.dogs.add(self.stray)
 
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 1)
         invoice = created[0]
         self.assertIsNone(invoice.customer)
@@ -6705,17 +6710,17 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         self.assertEqual(invoice.total, Decimal('110.00'))
 
         # Idempotent on rerun.
-        again, skipped = billing.generate_invoices_for_month(2026, 6)
+        again, skipped, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(again, [])
         self.assertEqual(skipped, 1)
 
     def test_two_ownerless_dogs_get_separate_invoices(self):
         from api import billing
 
-        stray2 = Dog.objects.create(owner=None, name='Wanderer')
+        stray2 = Dog.objects.create(owner=None, name='Wanderer', billing_mode='APP')
         self._attend(self.stray, 1)
         self._attend(stray2, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 2)
         self.assertEqual(
             {inv.billed_dog for inv in created}, {self.stray, stray2})
@@ -6725,7 +6730,7 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.stray, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         billing.send_invoice(created[0])
         created[0].refresh_from_db()
         self.assertEqual(created[0].status, 'SENT')
@@ -6743,7 +6748,7 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         conn.save()
 
         self._attend(self.stray, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
 
         def api_response(method, path, *args, **kwargs):
             if path == 'Contacts' and method == 'GET':
@@ -6763,12 +6768,15 @@ class OwnerlessDogBillingTests(BillingTestsBase):
                          if c.args[0] == 'POST' and c.args[1] == 'Contacts']
         self.assertEqual(len(contact_posts), 1)
         self.assertEqual(contact_posts[0].kwargs['payload']['Contacts'][0]['Name'], 'Stray (dog)')
+        # The created contact is pinned on the dog for the next push.
+        self.stray.refresh_from_db()
+        self.assertEqual(self.stray.xero_contact_id, 'contact-dog')
 
     def test_owners_never_see_dog_name_invoices(self):
         from api import billing
 
         self._attend(self.stray, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         billing.send_invoice(created[0])
 
         self.client.login(username='owner', password='pw')
@@ -6787,7 +6795,7 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.stray, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         invoice.status = 'SENT'
         invoice.due_date = timezone.localdate() - timedelta(days=1)
@@ -6802,9 +6810,423 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         from api import billing
 
         self._attend(self.stray, 1)
-        created, _ = billing.generate_invoices_for_month(2026, 6)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self._attend(self.stray, 2)
         billing.regenerate_draft(created[0])
         created[0].refresh_from_db()
         self.assertEqual(created[0].lines.get().quantity, 2)
         self.assertEqual(created[0].total, Decimal('50.00'))
+
+
+class BillingModeTransitionTests(BillingTestsBase):
+    """Long-standing customers are invoiced by hand in Xero (billing_mode
+    MANUAL, the default); monthly generation only bills APP customers so the
+    transition can't double-bill anyone."""
+
+    def test_monthly_generation_skips_manual_customers(self):
+        from api import billing
+
+        self.other_owner.profile.billing_mode = 'MANUAL'
+        self.other_owner.profile.save()
+        self._attend(self.dog, 1)
+        self._attend(self.other_dog, 1)
+
+        created, skipped, manual = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual([inv.customer for inv in created], [self.owner])
+        self.assertEqual(skipped, 0)
+        self.assertEqual(manual, 1)
+        self.assertFalse(Invoice.objects.filter(customer=self.other_owner).exists())
+
+    def test_monthly_generation_skips_manual_ownerless_dog(self):
+        from api import billing
+
+        stray = Dog.objects.create(owner=None, name='Stray')  # default MANUAL
+        self._attend(stray, 1)
+        created, _, manual = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created, [])
+        self.assertEqual(manual, 1)
+
+    def test_single_customer_generation_bypasses_manual_mode(self):
+        from api import billing
+
+        self.owner.profile.billing_mode = 'MANUAL'
+        self.owner.profile.save()
+        self._attend(self.dog, 1)
+        created, _, manual = billing.generate_invoices_for_month(
+            2026, 6, customer=self.owner)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(manual, 0)
+
+    def test_generate_endpoint_reports_manual_count(self):
+        self.other_owner.profile.billing_mode = 'MANUAL'
+        self.other_owner.profile.save()
+        self._attend(self.dog, 1)
+        self._attend(self.other_dog, 1)
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post('/api/invoices/generate/', {'year': 2026, 'month': 6}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], 1)
+        self.assertEqual(resp.data['manual'], 1)
+
+    def test_generate_command_reports_manual_count(self):
+        from io import StringIO
+
+        self.owner.profile.billing_mode = 'MANUAL'
+        self.owner.profile.save()
+        self._attend(self.dog, 3)
+        out = StringIO()
+        call_command('generate_monthly_invoices', '--year', '2026', '--month', '6', stdout=out)
+        self.assertIn('1 on manual Xero billing', out.getvalue())
+        self.assertFalse(Invoice.objects.exists())
+
+    def test_customer_rates_exposes_and_updates_billing_mode(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/customer-rates/')
+        by_id = {row['user_id']: row for row in resp.data}
+        self.assertEqual(by_id[self.owner.id]['billing_mode'], 'APP')
+
+        resp = self.client.post(
+            f'/api/customer-rates/?user_id={self.owner.id}',
+            {'billing_mode': 'MANUAL'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['billing_mode'], 'MANUAL')
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.billing_mode, 'MANUAL')
+
+        resp = self.client.post(
+            f'/api/customer-rates/?user_id={self.owner.id}',
+            {'billing_mode': 'bogus'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+
+class XeroEmailInvoiceTests(BillingTestsBase):
+    """Sending an invoice asks Xero to email it (XERO_EMAIL_INVOICES), so
+    customers keep getting the same branded Xero email they always have."""
+
+    def _invoice(self, **kwargs):
+        defaults = dict(customer=self.owner, period_year=2026, period_month=6,
+                        status='SENT', total=Decimal('50.00'), xero_invoice_id='inv-1')
+        defaults.update(kwargs)
+        return Invoice.objects.create(**defaults)
+
+    @override_settings(XERO_EMAIL_INVOICES=True)
+    @patch('api.xero.email_invoice')
+    def test_emails_once_and_stamps_timestamp(self, mock_email):
+        from api import billing
+
+        invoice = self._invoice()
+        self.assertTrue(billing.email_invoice_from_xero(invoice))
+        mock_email.assert_called_once_with('inv-1')
+        invoice.refresh_from_db()
+        self.assertIsNotNone(invoice.xero_emailed_at)
+
+        # Already emailed -> no second email.
+        self.assertFalse(billing.email_invoice_from_xero(invoice))
+        mock_email.assert_called_once()
+
+    @override_settings(XERO_EMAIL_INVOICES=False)
+    @patch('api.xero.email_invoice')
+    def test_disabled_setting_sends_nothing(self, mock_email):
+        from api import billing
+
+        invoice = self._invoice()
+        self.assertFalse(billing.email_invoice_from_xero(invoice))
+        mock_email.assert_not_called()
+        invoice.refresh_from_db()
+        self.assertIsNone(invoice.xero_emailed_at)
+
+    @override_settings(XERO_EMAIL_INVOICES=True)
+    @patch('api.xero.email_invoice')
+    def test_email_failure_is_stored_not_raised(self, mock_email):
+        from api import billing
+        from api import xero as xero_module
+
+        mock_email.side_effect = xero_module.XeroError('Contact has no email address')
+        invoice = self._invoice()
+        self.assertFalse(billing.email_invoice_from_xero(invoice))
+        invoice.refresh_from_db()
+        self.assertIsNone(invoice.xero_emailed_at)
+        self.assertIn('Xero email failed', invoice.xero_sync_error)
+        self.assertIn('no email address', invoice.xero_sync_error)
+
+    @override_settings(XERO_EMAIL_INVOICES=True)
+    @patch('api.xero.email_invoice')
+    def test_not_emailed_without_xero_invoice(self, mock_email):
+        from api import billing
+
+        invoice = self._invoice(xero_invoice_id='')
+        self.assertFalse(billing.email_invoice_from_xero(invoice))
+        mock_email.assert_not_called()
+
+    @override_settings(XERO_EMAIL_INVOICES=True, XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret')
+    @patch('api.xero._api_request')
+    def test_send_pushes_then_emails(self, mock_api):
+        from api import billing
+
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+        self.owner.profile.xero_contact_id = 'contact-olive'
+        self.owner.profile.save()
+
+        def api_response(method, path, *args, **kwargs):
+            if path == 'Invoices' and method == 'POST':
+                return {'Invoices': [{'InvoiceID': 'inv-9', 'InvoiceNumber': 'INV-0009'}]}
+            if path.endswith('/OnlineInvoice'):
+                return {'OnlineInvoices': [{'OnlineInvoiceUrl': 'https://in.xero.com/x'}]}
+            return {}
+        mock_api.side_effect = api_response
+
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='DRAFT',
+            total=Decimal('50.00'))
+        with patch('api.billing.send_push_notification'):
+            billing.send_invoice(invoice)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.xero_invoice_id, 'inv-9')
+        self.assertIsNotNone(invoice.xero_emailed_at)
+        email_calls = [c for c in mock_api.call_args_list if c.args[1] == 'Invoices/inv-9/Email']
+        self.assertEqual(len(email_calls), 1)
+
+    @override_settings(XERO_EMAIL_INVOICES=True, XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret')
+    @patch('api.xero._api_request')
+    def test_push_endpoint_retries_missed_email(self, mock_api):
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+
+        mock_api.return_value = {}
+        invoice = self._invoice(xero_online_url='https://in.xero.com/x')
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post(f'/api/invoices/{invoice.id}/push_to_xero/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        invoice.refresh_from_db()
+        self.assertIsNotNone(invoice.xero_emailed_at)
+
+
+class XeroContactPinningTests(BillingTestsBase):
+    """Pushes use the pinned Xero ContactID when one is stored, and pin the
+    resolved contact after a match — so invoices keep landing on the
+    customer's existing Xero contact instead of creating duplicates."""
+
+    def setUp(self):
+        super().setUp()
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+        self.invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            total=Decimal('50.00'))
+
+    @override_settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret')
+    @patch('api.xero._api_request')
+    def test_pinned_contact_used_without_lookup(self, mock_api):
+        from api import billing
+
+        self.owner.profile.xero_contact_id = 'pinned-1'
+        self.owner.profile.save()
+
+        def api_response(method, path, *args, **kwargs):
+            if path == 'Invoices' and method == 'POST':
+                return {'Invoices': [{'InvoiceID': 'inv-2', 'InvoiceNumber': 'INV-0002'}]}
+            if path.endswith('/OnlineInvoice'):
+                return {'OnlineInvoices': []}
+            return {}
+        mock_api.side_effect = api_response
+
+        self.assertTrue(billing.push_invoice_to_xero(self.invoice))
+        contact_lookups = [c for c in mock_api.call_args_list if c.args[1] == 'Contacts']
+        self.assertEqual(contact_lookups, [])
+        invoice_post = next(c for c in mock_api.call_args_list
+                            if c.args[0] == 'POST' and c.args[1] == 'Invoices')
+        self.assertEqual(
+            invoice_post.kwargs['payload']['Invoices'][0]['Contact']['ContactID'], 'pinned-1')
+
+    @override_settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret')
+    @patch('api.xero._api_request')
+    def test_matched_contact_is_pinned_for_next_time(self, mock_api):
+        from api import billing
+
+        def api_response(method, path, *args, **kwargs):
+            if path == 'Contacts' and method == 'GET':
+                return {'Contacts': [{'ContactID': 'contact-olive'}]}
+            if path == 'Invoices' and method == 'POST':
+                return {'Invoices': [{'InvoiceID': 'inv-3', 'InvoiceNumber': 'INV-0003'}]}
+            if path.endswith('/OnlineInvoice'):
+                return {'OnlineInvoices': []}
+            return {}
+        mock_api.side_effect = api_response
+
+        self.assertTrue(billing.push_invoice_to_xero(self.invoice))
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.xero_contact_id, 'contact-olive')
+
+
+class XeroReconciliationEndpointTests(BillingTestsBase):
+    """The go-live reconciliation screen: match app customers to the existing
+    Xero contacts and pin the right one before flipping them to APP billing."""
+
+    def _connect(self):
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+
+    def test_requires_payments_permission(self):
+        for username in ('plainstaff', 'owner'):
+            self.client.login(username=username, password='pw')
+            self.assertEqual(self.client.get('/api/xero/contact-matches/').status_code, 403)
+            self.assertEqual(self.client.post('/api/xero/pin-contact/', {}, format='json').status_code, 403)
+            self.assertEqual(self.client.get('/api/xero/contacts/?q=ol').status_code, 403)
+
+    def test_reports_unconnected(self):
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/xero/contact-matches/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['connected'])
+        self.assertEqual(resp.data['customers'], [])
+
+    @patch('api.xero.fetch_all_contacts')
+    def test_matches_by_email_name_ambiguous_and_none(self, mock_fetch):
+        self._connect()
+        # A third customer with a dog but no matching contact at all.
+        nobody = User.objects.create_user(username='nobody', password='pw', email='nobody@example.com')
+        Dog.objects.create(owner=nobody, name='Ghost')
+        mock_fetch.return_value = [
+            {'ContactID': 'c-email', 'Name': 'Mrs Olive Smith', 'EmailAddress': 'OLIVE@example.com'},
+            {'ContactID': 'c-name-1', 'Name': 'other', 'EmailAddress': ''},
+            {'ContactID': 'c-name-2', 'Name': 'Other', 'EmailAddress': 'somebody@else.com'},
+        ]
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/xero/contact-matches/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['connected'])
+        by_id = {row['user_id']: row for row in resp.data['customers']}
+
+        # olive@example.com matches c-email despite the case difference.
+        self.assertEqual(by_id[self.owner.id]['match_status'], 'email')
+        self.assertEqual(by_id[self.owner.id]['matched_contact']['contact_id'], 'c-email')
+        # 'other' has no email match but two case-insensitive name matches.
+        self.assertEqual(by_id[self.other_owner.id]['match_status'], 'ambiguous')
+        self.assertEqual(
+            {c['contact_id'] for c in by_id[self.other_owner.id]['candidates']},
+            {'c-name-1', 'c-name-2'})
+        self.assertEqual(by_id[nobody.id]['match_status'], 'none')
+
+    @patch('api.xero.fetch_all_contacts')
+    def test_pinned_contact_reported(self, mock_fetch):
+        self._connect()
+        self.owner.profile.xero_contact_id = 'c-pin'
+        self.owner.profile.save()
+        mock_fetch.return_value = [
+            {'ContactID': 'c-pin', 'Name': 'Olive S', 'EmailAddress': 'olive@example.com'},
+        ]
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/xero/contact-matches/')
+        by_id = {row['user_id']: row for row in resp.data['customers']}
+        self.assertEqual(by_id[self.owner.id]['match_status'], 'pinned')
+        self.assertEqual(by_id[self.owner.id]['matched_contact']['name'], 'Olive S')
+
+    @patch('api.xero.get_contact')
+    def test_pin_and_unpin_contact(self, mock_get):
+        mock_get.return_value = {'ContactID': 'c-1', 'Name': 'Olive', 'EmailAddress': 'olive@example.com'}
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post('/api/xero/pin-contact/', {
+            'user_id': self.owner.id, 'contact_id': 'c-1',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.xero_contact_id, 'c-1')
+        self.assertEqual(resp.data['matched_contact']['name'], 'Olive')
+
+        # Unpin: no Xero validation call needed.
+        mock_get.reset_mock()
+        resp = self.client.post('/api/xero/pin-contact/', {
+            'user_id': self.owner.id, 'contact_id': '',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        mock_get.assert_not_called()
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.xero_contact_id, '')
+
+    @patch('api.xero.get_contact')
+    def test_pin_rejects_unknown_contact(self, mock_get):
+        from api import xero as xero_module
+
+        mock_get.side_effect = xero_module.XeroError('No such contact in Xero.')
+        self.client.login(username='manager', password='pw')
+        resp = self.client.post('/api/xero/pin-contact/', {
+            'user_id': self.owner.id, 'contact_id': 'gone',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.xero_contact_id, '')
+
+    @patch('api.xero.search_contacts')
+    def test_contact_search(self, mock_search):
+        mock_search.return_value = [
+            {'ContactID': 'c-1', 'Name': 'Olive Smith', 'EmailAddress': 'olive@example.com'},
+        ]
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/xero/contacts/?q=oli')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['contacts'][0]['name'], 'Olive Smith')
+        # Too-short terms are rejected before hitting Xero.
+        self.assertEqual(self.client.get('/api/xero/contacts/?q=o').status_code, 400)
+
+
+@override_settings(XERO_CLIENT_ID='client-id', XERO_CLIENT_SECRET='client-secret')
+class XeroContactApiModuleTests(TestCase):
+    """Wire-level tests for the new xero module helpers."""
+
+    def setUp(self):
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+
+    @patch('api.xero._api_request')
+    def test_email_invoice_posts_to_email_endpoint(self, mock_api):
+        from api import xero
+
+        mock_api.return_value = {}
+        xero.email_invoice('inv-1')
+        self.assertEqual(mock_api.call_args.args[0], 'POST')
+        self.assertEqual(mock_api.call_args.args[1], 'Invoices/inv-1/Email')
+
+    @patch('api.xero._api_request')
+    def test_fetch_all_contacts_pages_and_drops_archived(self, mock_api):
+        from api import xero
+
+        page1 = [{'ContactID': f'c-{i}', 'Name': f'C{i}'} for i in range(100)]
+        page2 = [{'ContactID': 'c-live', 'Name': 'Live'},
+                 {'ContactID': 'c-arch', 'Name': 'Old', 'ContactStatus': 'ARCHIVED'}]
+        mock_api.side_effect = [{'Contacts': page1}, {'Contacts': page2}]
+        contacts = xero.fetch_all_contacts()
+        self.assertEqual(len(contacts), 101)  # 100 + live, archived dropped
+        self.assertEqual(mock_api.call_count, 2)
+        first_params = mock_api.call_args_list[0].kwargs['params']
+        self.assertEqual(first_params['page'], 1)
+        self.assertEqual(first_params['summaryOnly'], 'true')
+
+    @patch('api.xero._api_request')
+    def test_search_contacts_uses_search_term(self, mock_api):
+        from api import xero
+
+        mock_api.return_value = {'Contacts': [{'ContactID': 'c-1', 'Name': 'Olive'}]}
+        result = xero.search_contacts('oli')
+        self.assertEqual(result[0]['ContactID'], 'c-1')
+        self.assertEqual(mock_api.call_args.kwargs['params']['searchTerm'], 'oli')

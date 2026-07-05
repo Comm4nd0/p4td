@@ -30,9 +30,12 @@ class Command(BaseCommand):
         if not 1 <= month <= 12:
             raise CommandError('Month must be 1-12.')
 
-        created, skipped = billing.generate_invoices_for_month(year, month)
+        created, skipped, manual = billing.generate_invoices_for_month(year, month)
         label = created[0].period_label if created else f'{month}/{year}'
-        self.stdout.write(f'Created {len(created)} draft invoice(s) for {label}; skipped {skipped} already billed.')
+        self.stdout.write(
+            f'Created {len(created)} draft invoice(s) for {label}; '
+            f'skipped {skipped} already billed, {manual} on manual Xero billing.'
+        )
 
         if created:
             send_staff_notification(

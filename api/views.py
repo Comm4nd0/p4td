@@ -4230,7 +4230,9 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         """Generate draft invoices for a month from attendance records.
 
         Optional ``customer`` (user id) restricts generation to one client —
-        used to (re)issue a single invoice, e.g. after voiding it.
+        used to (re)issue a single invoice, e.g. after voiding it. That form
+        also bypasses the customer's billing mode; the bulk form only bills
+        APP-mode customers and reports MANUAL ones in ``manual``.
         """
         from . import billing
 
@@ -4244,9 +4246,9 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 customer = User.objects.get(pk=request.data['customer'])
             except (User.DoesNotExist, ValueError, TypeError):
                 return Response({'customer': 'No such customer.'}, status=400)
-        created, skipped = billing.generate_invoices_for_month(
+        created, skipped, manual = billing.generate_invoices_for_month(
             year, month, created_by=request.user, customer=customer)
-        return Response({'created': len(created), 'skipped': skipped})
+        return Response({'created': len(created), 'skipped': skipped, 'manual': manual})
 
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):
@@ -4400,7 +4402,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def push_to_xero(self, request, pk=None):
-        """Retry pushing an invoice to Xero after a failed/missing push."""
+        """Retry pushing an invoice to Xero after a failed/missing push (and
+        the follow-up Xero email, if it hasn't gone out yet)."""
         from . import billing
 
         self._require_manager()
@@ -4408,6 +4411,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         if invoice.status in ('DRAFT', 'VOID'):
             return Response({'detail': 'Only sent invoices can be pushed to Xero.'}, status=400)
         ok = billing.push_invoice_to_xero(invoice)
+        if ok:
+            billing.email_invoice_from_xero(invoice)
         invoice.refresh_from_db()
         data = self.get_serializer(invoice).data
         data['pushed'] = ok
@@ -4594,6 +4599,8 @@ def _customer_rate_payload(profile):
         'email': profile.user.email,
         'daycare_rate': profile.daycare_rate,
         'boarding_rate': profile.boarding_rate,
+        'billing_mode': profile.billing_mode,
+        'xero_contact_id': profile.xero_contact_id,
         'dog_names': sorted(d.name for d in profile.user.dogs.all()),
     }
 
@@ -4607,6 +4614,8 @@ def customer_rates(request):
     rate), with their rates — blank means the standard price applies.
     POST ?user_id=<id> {"daycare_rate": "22.00", "boarding_rate": null}:
     set/clear a customer's rates (null or '' clears back to standard).
+    POST also accepts {"billing_mode": "APP"|"MANUAL"} — MANUAL customers are
+    invoiced by hand in Xero and skipped by monthly generation.
     """
     from decimal import Decimal, InvalidOperation
     from django.db.models import Q
@@ -4615,16 +4624,7 @@ def customer_rates(request):
         return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
 
     if request.method == 'GET':
-        profiles = (
-            UserProfile.objects
-            .filter(Q(user__dogs__isnull=False) | Q(daycare_rate__isnull=False) | Q(boarding_rate__isnull=False))
-            .filter(user__is_staff=False)
-            .select_related('user')
-            .prefetch_related('user__dogs')
-            .distinct()
-            .order_by('user__first_name', 'user__username')
-        )
-        return Response([_customer_rate_payload(p) for p in profiles])
+        return Response([_customer_rate_payload(p) for p in _billable_customer_profiles()])
 
     user_id = request.query_params.get('user_id')
     if not user_id:
@@ -4648,5 +4648,162 @@ def customer_rates(request):
         if value < 0 or value > Decimal('9999.99'):
             return Response({field: 'Enter a valid amount, or blank for the standard price.'}, status=400)
         setattr(profile, field, value)
+    if 'billing_mode' in request.data:
+        mode = request.data['billing_mode']
+        if mode not in dict(UserProfile.BILLING_MODE_CHOICES):
+            return Response({'billing_mode': 'Choose APP or MANUAL.'}, status=400)
+        profile.billing_mode = mode
     profile.save()
     return Response(_customer_rate_payload(profile))
+
+
+def _billable_customer_profiles():
+    """The same customer set the rates screen shows: non-staff users with dogs,
+    plus anyone already given a per-customer rate."""
+    from django.db.models import Q
+
+    return (
+        UserProfile.objects
+        .filter(Q(user__dogs__isnull=False) | Q(daycare_rate__isnull=False) | Q(boarding_rate__isnull=False))
+        .filter(user__is_staff=False)
+        .select_related('user')
+        .prefetch_related('user__dogs')
+        .distinct()
+        .order_by('user__first_name', 'user__username')
+    )
+
+
+def _contact_summary(contact):
+    return {
+        'contact_id': contact.get('ContactID', ''),
+        'name': contact.get('Name', ''),
+        'email': contact.get('EmailAddress', ''),
+    }
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def xero_contact_matches(request):
+    """Match every billable customer against the org's existing Xero contacts.
+
+    The go-live reconciliation step for the invoicing transition: customers
+    were invoiced by hand in Xero for years, so their contacts already exist
+    there — often under a different email or name spelling than their app
+    account. Pushing an invoice against an unmatched customer would create a
+    duplicate contact, so staff review this list and pin the right contact
+    before flipping anyone to APP billing.
+
+    One bulk contact fetch, matched locally per customer:
+    ``pinned`` (ContactID stored), ``email``/``name`` (single confident
+    match), ``ambiguous`` (several candidates), ``none``.
+    """
+    from . import xero
+
+    if not _user_can_manage_payments(request.user):
+        return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
+    from .models import XeroConnection
+    if not XeroConnection.load().is_connected:
+        return Response({'connected': False, 'customers': []})
+    try:
+        contacts = xero.fetch_all_contacts()
+    except xero.XeroError as exc:
+        return Response({'detail': f'Could not fetch Xero contacts: {exc}'}, status=502)
+
+    by_id = {}
+    by_email = {}
+    by_name = {}
+    for contact in contacts:
+        by_id[contact.get('ContactID', '')] = contact
+        email = (contact.get('EmailAddress') or '').strip().lower()
+        if email:
+            by_email.setdefault(email, []).append(contact)
+        name = (contact.get('Name') or '').strip().lower()
+        if name:
+            by_name.setdefault(name, []).append(contact)
+
+    customers = []
+    for profile in _billable_customer_profiles():
+        user = profile.user
+        entry = _customer_rate_payload(profile)
+        entry['match_status'] = 'none'
+        entry['matched_contact'] = None
+        entry['candidates'] = []
+
+        if profile.xero_contact_id:
+            entry['match_status'] = 'pinned'
+            pinned = by_id.get(profile.xero_contact_id)
+            entry['matched_contact'] = _contact_summary(pinned) if pinned else {
+                'contact_id': profile.xero_contact_id, 'name': '', 'email': '',
+            }
+        else:
+            display_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            email_hits = by_email.get((user.email or '').strip().lower(), []) if user.email else []
+            name_hits = by_name.get(display_name.lower(), [])
+            if len(email_hits) == 1:
+                entry['match_status'] = 'email'
+                entry['matched_contact'] = _contact_summary(email_hits[0])
+            elif len(email_hits) > 1:
+                entry['match_status'] = 'ambiguous'
+                entry['candidates'] = [_contact_summary(c) for c in email_hits]
+            elif len(name_hits) == 1:
+                entry['match_status'] = 'name'
+                entry['matched_contact'] = _contact_summary(name_hits[0])
+            elif len(name_hits) > 1:
+                entry['match_status'] = 'ambiguous'
+                entry['candidates'] = [_contact_summary(c) for c in name_hits]
+        customers.append(entry)
+    return Response({'connected': True, 'customers': customers})
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
+def xero_pin_contact(request):
+    """Pin (or clear) a customer's Xero contact.
+
+    {"user_id": 5, "contact_id": "..."} pins after verifying the contact
+    exists in Xero; {"user_id": 5, "contact_id": ""} unpins (e.g. a stale pin
+    whose contact was deleted in Xero), falling back to email/name matching
+    on the next push.
+    """
+    from . import xero
+
+    if not _user_can_manage_payments(request.user):
+        return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
+    try:
+        profile = UserProfile.objects.select_related('user').prefetch_related('user__dogs').get(
+            user_id=request.data.get('user_id'))
+    except (UserProfile.DoesNotExist, ValueError, TypeError):
+        return Response({'detail': 'User profile not found'}, status=404)
+
+    contact_id = (request.data.get('contact_id') or '').strip()
+    contact = None
+    if contact_id:
+        try:
+            contact = xero.get_contact(contact_id)
+        except xero.XeroError as exc:
+            return Response({'contact_id': f'Xero rejected this contact: {exc}'}, status=400)
+    profile.xero_contact_id = contact_id
+    profile.save(update_fields=['xero_contact_id'])
+
+    payload = _customer_rate_payload(profile)
+    payload['matched_contact'] = _contact_summary(contact) if contact else None
+    return Response(payload)
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def xero_contact_search(request):
+    """Search Xero contacts by name/email fragment, for manual pinning when
+    automatic matching finds nothing. GET ?q=<term>."""
+    from . import xero
+
+    if not _user_can_manage_payments(request.user):
+        return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
+    term = (request.query_params.get('q') or '').strip()
+    if len(term) < 2:
+        return Response({'detail': 'Give at least two characters to search for.'}, status=400)
+    try:
+        contacts = xero.search_contacts(term)
+    except xero.XeroError as exc:
+        return Response({'detail': f'Xero contact search failed: {exc}'}, status=502)
+    return Response({'contacts': [_contact_summary(c) for c in contacts[:25]]})

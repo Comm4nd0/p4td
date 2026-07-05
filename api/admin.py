@@ -1128,7 +1128,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     list_filter = ('status', 'period_year', 'period_month')
     search_fields = ('customer__username', 'customer__email', 'customer__first_name', 'xero_invoice_number')
     raw_id_fields = ('customer', 'created_by')
-    readonly_fields = ('created_at', 'updated_at', 'xero_last_synced_at')
+    readonly_fields = ('created_at', 'updated_at', 'xero_last_synced_at', 'xero_emailed_at')
     list_select_related = ('customer',)
     list_per_page = 50
     inlines = [InvoiceLineInline, PaymentRecordInline]

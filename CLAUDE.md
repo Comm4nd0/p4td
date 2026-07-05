@@ -122,12 +122,13 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
 - `api/billing-settings/` — standard daycare/boarding prices (payment managers; backed by the website ServicePricing singleton)
-- `api/customer-rates/` — per-customer billing rate overrides / discounts (payment managers)
+- `api/customer-rates/` — per-customer billing rate overrides / discounts and billing mode (payment managers). `billing_mode` gates the invoicing transition: `MANUAL` customers (the default) are still invoiced by hand in Xero and skipped by monthly generation; `APP` customers get auto-generated invoices. Explicit single-customer generation bypasses the flag.
 - `api/password/reset/request/`, `api/password/reset/verify/`, `api/password/reset/confirm/` — password reset OTP flow
 - `api/password/change/` — change password while logged in
 - `api/account/delete/` — account deletion
 - `api/postcode/lookup/` — UK postcode address lookup (getAddress.io)
 - `api/xero/status/`, `api/xero/connect/`, `api/xero/callback/`, `api/xero/disconnect/` — Xero OAuth2 connection management (superuser-only; the callback is a browser redirect authenticated by its one-shot state token)
+- `api/xero/contact-matches/`, `api/xero/pin-contact/`, `api/xero/contacts/` — Xero contact reconciliation (payment managers): match app customers to their existing Xero contacts, pin the right ContactID, and search contacts. Pinned/matched ids are stored on the profile (and on ownerless dogs) so invoice pushes reuse the existing contact instead of creating duplicates.
 
 ## Architecture & Key Patterns
 
@@ -187,6 +188,7 @@ See `.env.example` for required variables. Key ones:
 - `POSTCODE_LOOKUP_API_KEY` — getAddress.io API key powering the `/api/postcode/lookup/` endpoint (UK postcode → address). Optional; leave blank to disable the lookup feature. Distinct from the keyless postcodes.io geocoding used by `geocode_dogs`.
 - `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI` — Xero OAuth2 app credentials for monthly invoicing (create a "Web app" at developer.xero.com whose redirect URI exactly matches `XERO_REDIRECT_URI`). Optional; leave blank to disable — invoicing still works locally, just without the online payment link. A superuser completes the one-time consent via `POST /api/xero/connect/`.
 - `XERO_PAYMENT_ACCOUNT_CODE` — Xero account code that staff-recorded manual payments are booked against in Xero. Blank = manual payments stay app-only (Xero will keep showing the invoice unpaid, and if staff then also key the payment into Xero the sync imports it as a duplicate — keep this configured).
+- `XERO_EMAIL_INVOICES` — when true (default), sending an invoice also asks Xero to email it to the customer with the org's branding theme (the same email customers got when invoices were raised by hand in Xero). Set false for app push notifications only.
 - Firebase and AWS S3 credentials for notifications and media storage
 
 ## Management Commands
