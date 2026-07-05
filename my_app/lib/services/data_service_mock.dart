@@ -587,7 +587,7 @@ class MockDataService implements DataService {
   @override
   Future<Invoice> getInvoice(int id) async => _mockInvoice(id);
   @override
-  Future<({int created, int skipped})> generateInvoices(int year, int month, {int? customerId}) async => (created: 0, skipped: 0);
+  Future<({int created, int skipped, int manual})> generateInvoices(int year, int month, {int? customerId}) async => (created: 0, skipped: 0, manual: 0);
   @override
   Future<Invoice> sendInvoice(int id) async => _mockInvoice(id, status: 'SENT');
   @override
@@ -621,8 +621,15 @@ class MockDataService implements DataService {
   @override
   Future<List<CustomerRate>> getCustomerRates() async => [];
   @override
-  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate}) async =>
-      CustomerRate(userId: userId, username: 'owner', daycareRate: daycareRate, boardingRate: boardingRate);
+  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate, String? billingMode}) async =>
+      CustomerRate(userId: userId, username: 'owner', daycareRate: daycareRate, boardingRate: boardingRate, billingMode: billingMode ?? 'MANUAL');
+  @override
+  Future<XeroContactMatches> getXeroContactMatches() async => XeroContactMatches(connected: false);
+  @override
+  Future<CustomerRate> pinXeroContact(int userId, String contactId) async =>
+      CustomerRate(userId: userId, username: 'owner', xeroContactId: contactId);
+  @override
+  Future<List<XeroContact>> searchXeroContacts(String query) async => [];
 
   Invoice _mockInvoice(int id, {String status = 'DRAFT'}) => Invoice(
         id: id,

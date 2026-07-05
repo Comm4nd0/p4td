@@ -1108,7 +1108,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'period_year', 'period_month',
             'period_label', 'status', 'total', 'amount_paid', 'balance',
             'due_date', 'is_overdue', 'sent_at', 'paid_at',
-            'xero_invoice_number', 'xero_sync_error', 'has_online_payment',
+            'xero_invoice_number', 'xero_sync_error', 'xero_emailed_at', 'has_online_payment',
             'lines', 'payments', 'created_at',
         ]
         read_only_fields = fields
@@ -1130,9 +1130,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # xero_sync_error is a staff diagnostic — owners don't need Xero
-        # plumbing details on their invoice.
+        # xero_sync_error/xero_emailed_at are staff diagnostics — owners don't
+        # need Xero plumbing details on their invoice.
         request = self.context.get('request')
         if request is not None and not request.user.is_staff:
             data.pop('xero_sync_error', None)
+            data.pop('xero_emailed_at', None)
         return data

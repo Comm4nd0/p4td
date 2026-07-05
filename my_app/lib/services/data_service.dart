@@ -30,6 +30,7 @@ import '../models/facility_defect.dart';
 import '../models/vehicle_maintenance_record.dart';
 import '../models/invoice.dart';
 import '../models/customer_rate.dart';
+import '../models/xero_contact.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 
@@ -3156,7 +3157,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<({int created, int skipped})> generateInvoices(int year, int month, {int? customerId}) async {
+  Future<({int created, int skipped, int manual})> generateInvoices(int year, int month, {int? customerId}) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/invoices/generate/'),
@@ -3169,7 +3170,11 @@ class ApiDataService implements DataService {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return (created: data['created'] as int, skipped: data['skipped'] as int);
+      return (
+        created: data['created'] as int,
+        skipped: data['skipped'] as int,
+        manual: (data['manual'] ?? 0) as int,
+      );
     }
     throw Exception(_invoiceError(response, 'Failed to generate invoices'));
   }
@@ -3295,7 +3300,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate}) async {
+  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate, String? billingMode}) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/customer-rates/?user_id=$userId'),
@@ -3303,12 +3308,56 @@ class ApiDataService implements DataService {
       body: json.encode({
         'daycare_rate': daycareRate?.toStringAsFixed(2),
         'boarding_rate': boardingRate?.toStringAsFixed(2),
+        if (billingMode != null) 'billing_mode': billingMode,
       }),
     );
     if (response.statusCode == 200) {
       return CustomerRate.fromJson(json.decode(response.body));
     }
     throw Exception(_invoiceError(response, 'Failed to update customer rates'));
+  }
+
+  @override
+  Future<XeroContactMatches> getXeroContactMatches() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/xero/contact-matches/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return XeroContactMatches.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to load Xero contact matches'));
+  }
+
+  @override
+  Future<CustomerRate> pinXeroContact(int userId, String contactId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/xero/pin-contact/'),
+      headers: headers,
+      body: json.encode({'user_id': userId, 'contact_id': contactId}),
+    );
+    if (response.statusCode == 200) {
+      return CustomerRate.fromJson(json.decode(response.body));
+    }
+    throw Exception(_invoiceError(response, 'Failed to pin Xero contact'));
+  }
+
+  @override
+  Future<List<XeroContact>> searchXeroContacts(String query) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/xero/contacts/?q=${Uri.encodeQueryComponent(query)}'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return (data['contacts'] as List<dynamic>)
+          .map((e) => XeroContact.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_invoiceError(response, 'Xero contact search failed'));
   }
 
   @override

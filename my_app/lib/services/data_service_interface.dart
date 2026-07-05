@@ -222,7 +222,7 @@ abstract class DataService {
   // require can_manage_payments)
   Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId});
   Future<Invoice> getInvoice(int id);
-  Future<({int created, int skipped})> generateInvoices(int year, int month, {int? customerId});
+  Future<({int created, int skipped, int manual})> generateInvoices(int year, int month, {int? customerId});
   Future<Invoice> sendInvoice(int id);
   Future<int> sendAllInvoices(int year, int month);
   Future<Invoice> regenerateInvoice(int id);
@@ -237,5 +237,11 @@ abstract class DataService {
   Future<BillingSettings> getBillingSettings();
   Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount});
   Future<List<CustomerRate>> getCustomerRates();
-  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate});
+  Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate, String? billingMode});
+
+  // Xero contact reconciliation (invoicing transition): match app customers
+  // to their existing Xero contacts and pin the right one.
+  Future<XeroContactMatches> getXeroContactMatches();
+  Future<CustomerRate> pinXeroContact(int userId, String contactId);
+  Future<List<XeroContact>> searchXeroContacts(String query);
 }

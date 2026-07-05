@@ -362,6 +362,48 @@ def create_invoice(invoice, contact_id):
     return created['InvoiceID'], created.get('InvoiceNumber', '')
 
 
+def email_invoice(xero_invoice_id):
+    """Ask Xero to email the invoice to its contact, using the org's branding
+    theme — the same email customers received when invoices were raised by
+    hand in Xero. The invoice must be AUTHORISED and the contact must have an
+    email address, otherwise Xero returns an error."""
+    _tenant_call('POST', f'Invoices/{xero_invoice_id}/Email', payload={})
+
+
+def fetch_all_contacts():
+    """Every contact in the connected org (summary fields only), paged.
+
+    Used by the reconciliation screen to match app customers against the
+    existing Xero contacts locally — one bulk fetch instead of a rate-limited
+    where-query per customer. Xero pages at 100 contacts; the page cap is a
+    runaway guard far above a daycare's client book.
+    """
+    contacts, page = [], 1
+    while page <= 50:
+        result = _tenant_call('GET', 'Contacts', params={'page': page, 'summaryOnly': 'true'})
+        batch = result.get('Contacts') or []
+        contacts.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return [c for c in contacts if c.get('ContactStatus') != 'ARCHIVED']
+
+
+def search_contacts(term):
+    """Contacts whose name or email contains ``term`` (Xero's searchTerm)."""
+    result = _tenant_call('GET', 'Contacts', params={'searchTerm': term, 'summaryOnly': 'true'})
+    return [c for c in (result.get('Contacts') or []) if c.get('ContactStatus') != 'ARCHIVED']
+
+
+def get_contact(contact_id):
+    """A single contact by ContactID. Raises XeroError if it doesn't exist."""
+    result = _tenant_call('GET', f'Contacts/{contact_id}')
+    contacts = result.get('Contacts') or []
+    if not contacts:
+        raise XeroError('No such contact in Xero.')
+    return contacts[0]
+
+
 def get_online_invoice_url(xero_invoice_id):
     """Return the customer-facing online invoice URL, or '' if unavailable."""
     result = _tenant_call('GET', f'Invoices/{xero_invoice_id}/OnlineInvoice')
