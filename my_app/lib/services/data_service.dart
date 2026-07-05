@@ -72,6 +72,20 @@ _ParsedFeedPage _parseFeedResponseBody(String body) {
   return _ParsedFeedPage(items, rawItems, hasMore);
 }
 
+/// Whether a picked file should be treated as a video, by extension.
+/// Library pickers can hand back more than just .mp4/.mov — cover the common
+/// containers so odd videos aren't uploaded (and processed) as photos.
+bool _isVideoFileName(String name) {
+  final n = name.toLowerCase();
+  return n.endsWith('.mp4') ||
+      n.endsWith('.mov') ||
+      n.endsWith('.avi') ||
+      n.endsWith('.m4v') ||
+      n.endsWith('.3gp') ||
+      n.endsWith('.webm') ||
+      n.endsWith('.mkv');
+}
+
 class ApiDataService implements DataService {
   static final ApiDataService _instance = ApiDataService._internal();
 
@@ -515,25 +529,23 @@ class ApiDataService implements DataService {
   @override
   Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt) async {
     final token = await _authService.getToken();
-    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/photos/'));
-    request.headers['Authorization'] = 'Token $token';
+    final isVideo = _isVideoFileName(imageName);
 
-    // Determine media type from file extension
-    final isVideo = imageName.toLowerCase().endsWith('.mp4') || 
-                    imageName.toLowerCase().endsWith('.mov') ||
-                    imageName.toLowerCase().endsWith('.avi');
-    
-    request.fields['dog'] = dogId;
-    request.fields['taken_at'] = takenAt.toIso8601String();
-    request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
-    request.files.add(http.MultipartFile.fromBytes(
-      'file',
-      imageBytes,
-      filename: imageName,
-    ));
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    final response = await http.sendMultipart(
+      method: 'POST',
+      url: Uri.parse('${AuthService.baseUrl}/api/photos/'),
+      fill: (request) {
+        request.headers['Authorization'] = 'Token $token';
+        request.fields['dog'] = dogId;
+        request.fields['taken_at'] = takenAt.toIso8601String();
+        request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          imageBytes,
+          filename: imageName,
+        ));
+      },
+    );
 
     if (response.statusCode == 201) {
       final data = json.decode(response.body);
@@ -553,26 +565,27 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images) async {
-    final uploadedPhotos = <Photo>[];
-    final failures = <String>[];
+  Future<PhotoBatchResult> uploadMultiplePhotos(
+    String dogId,
+    List<(Uint8List, String, DateTime)> images, {
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    final uploaded = <Photo>[];
+    final failures = <UploadFailure>[];
 
-    for (final (imageBytes, imageName, takenAt) in images) {
+    for (var i = 0; i < images.length; i++) {
+      final (imageBytes, imageName, takenAt) = images[i];
       try {
-        final photo = await uploadPhoto(dogId, imageBytes, imageName, takenAt);
-        uploadedPhotos.add(photo);
+        // uploadPhoto retries transient failures internally; keep going on a
+        // permanent failure so one bad photo doesn't abort the whole batch.
+        uploaded.add(await uploadPhoto(dogId, imageBytes, imageName, takenAt));
       } catch (e) {
-        // Honour the contract: keep going so one bad photo doesn't abort the
-        // whole batch (F6). Collect failures to report partial success.
-        failures.add(imageName);
+        failures.add((index: i, fileName: imageName, error: e));
       }
+      onProgress?.call(i + 1, images.length);
     }
 
-    // Only error when nothing uploaded, so a partial batch still succeeds.
-    if (uploadedPhotos.isEmpty && failures.isNotEmpty) {
-      throw Exception('Failed to upload ${failures.length} photo(s).');
-    }
-    return uploadedPhotos;
+    return (uploaded: uploaded, failures: failures);
   }
 
   @override
@@ -1034,41 +1047,45 @@ class ApiDataService implements DataService {
     String? caption,
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
+    void Function(int sentBytes, int totalBytes)? onSendProgress,
   }) async {
     final token = await _authService.getToken();
-    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/feed/'));
-    request.headers['Authorization'] = 'Token $token';
 
-    request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
-    if (caption != null && caption.isNotEmpty) {
-      request.fields['caption'] = caption;
-    }
-    if (taggedDogIds != null && taggedDogIds.isNotEmpty) {
-      for (final dogId in taggedDogIds) {
-        request.files.add(http.MultipartFile.fromString('tagged_dog_ids', dogId));
-      }
-    }
+    final response = await http.sendMultipart(
+      method: 'POST',
+      url: Uri.parse('${AuthService.baseUrl}/api/feed/'),
+      onProgress: onSendProgress,
+      fill: (request) {
+        request.headers['Authorization'] = 'Token $token';
+        request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
+        if (caption != null && caption.isNotEmpty) {
+          request.fields['caption'] = caption;
+        }
+        if (taggedDogIds != null && taggedDogIds.isNotEmpty) {
+          for (final dogId in taggedDogIds) {
+            request.files.add(http.MultipartFile.fromString('tagged_dog_ids', dogId));
+          }
+        }
 
-    request.files.add(http.MultipartFile.fromBytes(
-      'file',
-      fileBytes,
-      filename: fileName,
-      contentType: isVideo
-          ? http_parser.MediaType('video', 'mp4')
-          : http_parser.MediaType('image', fileName.endsWith('.png') ? 'png' : 'jpeg'),
-    ));
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          fileBytes,
+          filename: fileName,
+          contentType: isVideo
+              ? http_parser.MediaType('video', 'mp4')
+              : http_parser.MediaType('image', fileName.endsWith('.png') ? 'png' : 'jpeg'),
+        ));
 
-    if (thumbnailBytes != null) {
-      request.files.add(http.MultipartFile.fromBytes(
-        'thumbnail',
-        thumbnailBytes,
-        filename: 'thumbnail.jpg',
-        contentType: http_parser.MediaType('image', 'jpeg'),
-      ));
-    }
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+        if (thumbnailBytes != null) {
+          request.files.add(http.MultipartFile.fromBytes(
+            'thumbnail',
+            thumbnailBytes,
+            filename: 'thumbnail.jpg',
+            contentType: http_parser.MediaType('image', 'jpeg'),
+          ));
+        }
+      },
+    );
 
     if (response.statusCode != 201) {
       String errorMessage = 'Failed to upload media';
@@ -1086,28 +1103,26 @@ class ApiDataService implements DataService {
 
   /// Upload multiple media files to the group feed.
   ///
-  /// Each file is retried up to 3 times with backoff on failure; if it still
-  /// fails the batch continues with the remaining files. Returns the list of
-  /// files that ultimately failed (empty list means everything succeeded).
+  /// Transient failures (dead connections, stalls, 5xx) are retried per file
+  /// inside [uploadGroupMedia]; if a file still fails the batch continues with
+  /// the remaining files. Returns the list of files that ultimately failed
+  /// (empty list means everything succeeded).
   ///
   /// [onProgress] fires after each file is processed (success or final
-  /// failure) with (completed, total).
-  Future<List<({int index, String fileName, Object error})>>
-      uploadMultipleGroupMedia({
+  /// failure) with (completed, total). [onFileProgress] fires as bytes of
+  /// file [index] are sent, for byte-level progress UI.
+  Future<List<UploadFailure>> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
     List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
+    void Function(int index, int sentBytes, int totalBytes)? onFileProgress,
   }) async {
-    const maxAttempts = 3;
-    const backoffs = [Duration(seconds: 1), Duration(seconds: 3)];
-    final failures = <({int index, String fileName, Object error})>[];
+    final failures = <UploadFailure>[];
 
     for (int i = 0; i < files.length; i++) {
       final (bytes, fileName) = files[i];
-      final ext = fileName.toLowerCase();
-      final isVideo = ext.endsWith('.mp4') || ext.endsWith('.mov') || ext.endsWith('.avi');
       final fileCaption = (captionsByFile != null && i < captionsByFile.length)
           ? captionsByFile[i]
           : caption;
@@ -1115,28 +1130,19 @@ class ApiDataService implements DataService {
           ? taggedDogIdsByFile[i]
           : null;
 
-      Object? lastError;
-      for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          await uploadGroupMedia(
-            fileBytes: bytes,
-            fileName: fileName,
-            isVideo: isVideo,
-            caption: fileCaption,
-            taggedDogIds: dogIds,
-          );
-          lastError = null;
-          break;
-        } catch (e) {
-          lastError = e;
-          if (attempt < maxAttempts - 1) {
-            await Future.delayed(backoffs[attempt]);
-          }
-        }
-      }
-
-      if (lastError != null) {
-        failures.add((index: i, fileName: fileName, error: lastError));
+      try {
+        await uploadGroupMedia(
+          fileBytes: bytes,
+          fileName: fileName,
+          isVideo: _isVideoFileName(fileName),
+          caption: fileCaption,
+          taggedDogIds: dogIds,
+          onSendProgress: onFileProgress == null
+              ? null
+              : (sent, total) => onFileProgress(i, sent, total),
+        );
+      } catch (e) {
+        failures.add((index: i, fileName: fileName, error: e));
       }
       onProgress?.call(i + 1, files.length);
     }

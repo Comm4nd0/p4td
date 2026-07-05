@@ -1,11 +1,21 @@
 part of 'data_service.dart';
 
+/// One file of a batch upload that failed after all retries.
+typedef UploadFailure = ({int index, String fileName, Object error});
+
+/// Outcome of a multi-photo upload: which photos made it, which files didn't.
+typedef PhotoBatchResult = ({List<Photo> uploaded, List<UploadFailure> failures});
+
 abstract class DataService {
   Future<List<Dog>> getDogs();
   Future<Dog> getDogById(String dogId);
   Future<List<Photo>> getPhotos(String dogId);
   Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt);
-  Future<List<Photo>> uploadMultiplePhotos(String dogId, List<(Uint8List, String, DateTime)> images);
+  Future<PhotoBatchResult> uploadMultiplePhotos(
+    String dogId,
+    List<(Uint8List, String, DateTime)> images, {
+    void Function(int completed, int total)? onProgress,
+  });
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
   Future<void> updateStaffColor(String hexColor);
@@ -40,14 +50,15 @@ abstract class DataService {
     String? caption,
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
+    void Function(int sentBytes, int totalBytes)? onSendProgress,
   });
-  Future<List<({int index, String fileName, Object error})>>
-      uploadMultipleGroupMedia({
+  Future<List<UploadFailure>> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
     List<String?>? captionsByFile,
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
+    void Function(int index, int sentBytes, int totalBytes)? onFileProgress,
   });
   Future<void> deleteGroupMedia(String mediaId);
   Future<gm.GroupMedia> updateGroupMedia(String mediaId, {String? caption, List<String>? taggedDogIds});
