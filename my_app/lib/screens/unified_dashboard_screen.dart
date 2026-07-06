@@ -15,6 +15,7 @@ import '../utils/date_formats.dart';
 import '../utils/staff_rota.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dashboard_widgets.dart';
+import '../widgets/dog_quick_info_sheet.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
@@ -25,6 +26,7 @@ import 'dashboard/quick_actions_section.dart';
 import 'dashboard/unspayed_males_dialog.dart';
 import 'all_dogs_today_screen.dart';
 import 'day_board_screen.dart';
+import 'dog_home_screen.dart';
 import 'pickup_map_screen.dart';
 import 'staff_dog_detail_screen.dart';
 import 'staff_notifications_screen.dart';
@@ -1603,7 +1605,45 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Widget _buildBoardingSection() {
     return BoardingTonightSection(
       boardingTonight: _counts.boardingTonight,
-      onReassign: widget.canAssignDogs ? _reassignBoarding : null,
+      onTap: _showBoardingDogInfo,
+    );
+  }
+
+  /// Tap on a boarding row: the dog's quick-info popup, with the reassign
+  /// shortcut in its header (permission-gated) and full-profile navigation.
+  /// Requests covering several dogs go through a small chooser first.
+  Future<void> _showBoardingDogInfo(BoardingRequest request) async {
+    var index = 0;
+    if (request.dogIds.length > 1) {
+      final picked = await showModalBottomSheet<int>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < request.dogIds.length; i++)
+                ListTile(
+                  leading: Picon(PiconsDuotone.pawPrint, color: AppColors.primary),
+                  title: Text(i < request.dogNames.length ? request.dogNames[i] : 'Dog'),
+                  onTap: () => Navigator.pop(sheetContext, i),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (picked == null || !mounted) return;
+      index = picked;
+    }
+    final dog = await DogQuickInfoSheet.show(
+      context,
+      dogId: request.dogIds[index].toString(),
+      dogName: index < request.dogNames.length ? request.dogNames[index] : null,
+      onReassign: widget.canAssignDogs ? () => _reassignBoarding(request) : null,
+    );
+    if (dog == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DogHomeScreen(dog: dog, isStaff: true)),
     );
   }
 
