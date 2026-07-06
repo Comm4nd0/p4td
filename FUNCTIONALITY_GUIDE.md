@@ -83,7 +83,7 @@ All staff features require `is_staff` status. Individual capabilities are contro
 | can_add_feed_media | Upload, edit, and delete posts in the activity feed |
 | can_assign_dogs | Assign dogs to staff members for daily care |
 | can_reply_queries | Reply to owner support queries |
-| can_approve_timeoff | Approve or deny day-off requests from other staff |
+| can_manage_staff | Manage staff: set working days, approve or deny day-off requests |
 | can_view_inquiries | View and respond to website contact inquiries |
 | can_manage_vehicles | Manage fleet vehicles, MOT/service dates and defect statuses |
 | can_manage_payments | Generate and send customer invoices, record payments |
@@ -161,8 +161,9 @@ All staff can view, react to, and comment on feed posts (same as owners).
 | View Staff Coverage | See an overview of which staff are available each day |
 | Request Day Off | Submit a day-off request for a specific date |
 | Cancel Day-Off Request | Cancel your own pending request |
-| View Day-Off Requests | See all pending requests (requires `can_approve_timeoff`) |
-| Approve/Deny Day Off | Approve or deny another staff member's request (requires `can_approve_timeoff`) |
+| View Day-Off Requests | See all pending requests (requires `can_manage_staff`) |
+| Approve/Deny Day Off | Approve or deny another staff member's request (requires `can_manage_staff`) |
+| Set Staff Working Days | Set another staff member's regular working days from Team Coverage (requires `can_manage_staff`) |
 
 ### Owner Profile Management (All Staff)
 
@@ -209,7 +210,7 @@ All staff receive notifications for:
 
 ## Permission Summary Matrix
 
-| Feature | Owner | Staff (Basic) | + manage_requests | + add_feed_media | + assign_dogs | + reply_queries | + approve_timeoff |
+| Feature | Owner | Staff (Basic) | + manage_requests | + add_feed_media | + assign_dogs | + reply_queries | + manage_staff |
 |---------|:-----:|:-------------:|:-----------------:|:----------------:|:-------------:|:---------------:|:-----------------:|
 | View own dogs | Yes | - | - | - | - | - | - |
 | View all dogs | - | Yes | Yes | Yes | Yes | Yes | Yes |

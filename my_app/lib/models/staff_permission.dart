@@ -8,7 +8,7 @@ class StaffPermission {
   bool canAddFeedMedia;
   bool canManageRequests;
   bool canReplyQueries;
-  bool canApproveTimeoff;
+  bool canManageStaff;
   bool canViewInquiries;
   bool canManageVehicles;
   bool canManagePayments;
@@ -24,7 +24,7 @@ class StaffPermission {
     this.canAddFeedMedia = false,
     this.canManageRequests = false,
     this.canReplyQueries = false,
-    this.canApproveTimeoff = false,
+    this.canManageStaff = false,
     this.canViewInquiries = false,
     this.canManageVehicles = false,
     this.canManagePayments = false,
@@ -48,7 +48,7 @@ class StaffPermission {
       canAddFeedMedia: json['can_add_feed_media'] ?? false,
       canManageRequests: json['can_manage_requests'] ?? false,
       canReplyQueries: json['can_reply_queries'] ?? false,
-      canApproveTimeoff: json['can_approve_timeoff'] ?? false,
+      canManageStaff: json['can_manage_staff'] ?? json['can_approve_timeoff'] ?? false,
       canViewInquiries: json['can_view_inquiries'] ?? false,
       canManageVehicles: json['can_manage_vehicles'] ?? false,
       canManagePayments: json['can_manage_payments'] ?? false,

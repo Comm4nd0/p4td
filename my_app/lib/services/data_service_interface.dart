@@ -169,6 +169,10 @@ abstract class DataService {
   // Staff Availability
   Future<List<StaffAvailability>> getMyAvailability();
   Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability);
+  /// Weekly availability rows for another staff member (staff managers).
+  Future<List<StaffAvailability>> getStaffAvailability(int staffId);
+  /// Set another staff member's weekly availability (staff managers).
+  Future<List<StaffAvailability>> setStaffAvailability(int staffId, List<Map<String, dynamic>> availability);
   Future<Map<String, dynamic>> getStaffCoverage();
   Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date);
   /// Approved staff time off in [start]..[end], grouped by date (names only).

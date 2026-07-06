@@ -252,7 +252,7 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_approve_timeoff', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding')
+    list_display = ('user', 'phone_number', 'address', 'can_manage_requests', 'can_add_feed_media', 'can_assign_dogs', 'can_reply_queries', 'can_manage_staff', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding')
     # Permission flags are shown read-only here and edited deliberately on the
     # detail page. They are NOT list_editable: a bulk-toggle from the changelist
     # let anyone with 'change userprofile' self-escalate in one Save (B42).
@@ -736,7 +736,7 @@ class DayOffRequestAdmin(admin.ModelAdmin):
         readonly = super().get_readonly_fields(request, obj)
         if request.user.is_superuser:
             return readonly
-        if hasattr(request.user, 'profile') and request.user.profile.can_approve_timeoff:
+        if hasattr(request.user, 'profile') and request.user.profile.can_manage_staff:
             return readonly
         # Without permission, status cannot be changed either.
         return readonly + ('status',)
@@ -745,7 +745,7 @@ class DayOffRequestAdmin(admin.ModelAdmin):
         actions = super().get_actions(request)
         if request.user.is_superuser:
             return actions
-        if hasattr(request.user, 'profile') and request.user.profile.can_approve_timeoff:
+        if hasattr(request.user, 'profile') and request.user.profile.can_manage_staff:
             return actions
         if 'approve_requests' in actions:
             del actions['approve_requests']
@@ -796,7 +796,7 @@ class DayOffRequestAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
     def approve_requests(self, request, queryset):
-        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_approve_timeoff):
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_manage_staff):
             self.message_user(request, "You do not have permission to review time-off requests.", level='ERROR')
             return
         count = 0
@@ -810,7 +810,7 @@ class DayOffRequestAdmin(admin.ModelAdmin):
     approve_requests.short_description = 'Approve selected requests'
 
     def deny_requests(self, request, queryset):
-        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_approve_timeoff):
+        if not request.user.is_superuser and (not hasattr(request.user, 'profile') or not request.user.profile.can_manage_staff):
             self.message_user(request, "You do not have permission to review time-off requests.", level='ERROR')
             return
         count = 0

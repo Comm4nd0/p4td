@@ -9,8 +9,8 @@ import '../services/service_locator.dart';
 
 class StaffAvailabilityScreen extends StatefulWidget {
   final bool canAssignDogs;
-  final bool canApproveTimeoff;
-  const StaffAvailabilityScreen({super.key, required this.canAssignDogs, this.canApproveTimeoff = false});
+  final bool canManageStaff;
+  const StaffAvailabilityScreen({super.key, required this.canAssignDogs, this.canManageStaff = false});
 
   @override
   State<StaffAvailabilityScreen> createState() => _StaffAvailabilityScreenState();
@@ -46,10 +46,12 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     5: 'Friday',
   };
 
+  bool get _showCoverage => widget.canAssignDogs || widget.canManageStaff;
+
   int get _tabCount {
     // Everyone sees: My Availability, Time Off, Team Calendar.
     // Managers also get Team Coverage.
-    return widget.canAssignDogs ? 4 : 3;
+    return _showCoverage ? 4 : 3;
   }
 
   @override
@@ -60,7 +62,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     _loadMyAvailability();
     _loadDayOffRequests();
     _loadTeamOff(_focusedDay);
-    if (widget.canAssignDogs) _loadCoverage();
+    if (_showCoverage) _loadCoverage();
   }
 
   @override
@@ -105,7 +107,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     try {
       final myRequests = await _dataService.getMyDayOffRequests();
       List<DayOffRequest> allRequests = [];
-      if (widget.canApproveTimeoff) {
+      if (widget.canManageStaff) {
         allRequests = await _dataService.getAllDayOffRequests();
       }
       if (mounted) {
@@ -157,7 +159,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           const SnackBar(content: Text('Availability saved'), backgroundColor: AppColors.success),
         );
       }
-      if (widget.canAssignDogs) _loadCoverage();
+      if (_showCoverage) _loadCoverage();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -181,7 +183,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
             const Tab(text: 'My Availability'),
             const Tab(text: 'Time Off'),
             const Tab(text: 'Team Calendar'),
-            if (widget.canAssignDogs) const Tab(text: 'Team Coverage'),
+            if (_showCoverage) const Tab(text: 'Team Coverage'),
           ],
         ),
       ),
@@ -191,7 +193,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           _buildMyAvailabilityTab(),
           _buildDayOffTab(),
           _buildTeamCalendarTab(),
-          if (widget.canAssignDogs) _buildCoverageTab(),
+          if (_showCoverage) _buildCoverageTab(),
         ],
       ),
     );
@@ -352,7 +354,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
             ),
 
           // Pending approvals (staff with approve permission)
-          if (widget.canApproveTimeoff) ...[
+          if (widget.canManageStaff) ...[
             _buildPendingApprovals(),
           ],
         ],
@@ -833,6 +835,132 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
 
   // ── Team Coverage Tab ───────────────────────────────────────────────
 
+  /// Staff managers: edit another member's weekly working days in a bottom
+  /// sheet. Saves via the manager-only endpoint, then refreshes coverage.
+  Future<void> _editStaffDays(int staffId, String staffName) async {
+    final availability = <int, bool>{for (int d = 1; d <= 5; d++) d: true};
+    final notes = <int, String>{for (int d = 1; d <= 5; d++) d: ''};
+    try {
+      final rows = await _dataService.getStaffAvailability(staffId);
+      for (final a in rows) {
+        if (a.dayOfWeek >= 1 && a.dayOfWeek <= 5) {
+          availability[a.dayOfWeek] = a.isAvailableDaycare;
+          notes[a.dayOfWeek] = a.note;
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load availability: $e')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("$staffName's working days",
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  for (int day = 1; day <= 5; day++)
+                    SwitchListTile.adaptive(
+                      title: Text(_dayNames[day]!),
+                      subtitle: (notes[day] ?? '').isNotEmpty
+                          ? Text(notes[day]!, style: const TextStyle(fontSize: 12))
+                          : null,
+                      value: availability[day] ?? true,
+                      activeColor: AppColors.success,
+                      onChanged: saving
+                          ? null
+                          : (val) => setSheetState(() => availability[day] = val),
+                      dense: true,
+                    ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              setSheetState(() => saving = true);
+                              try {
+                                await _dataService.setStaffAvailability(staffId, [
+                                  for (int day = 1; day <= 5; day++)
+                                    {
+                                      'day_of_week': day,
+                                      'is_available': availability[day] ?? true,
+                                      'note': notes[day] ?? '',
+                                    },
+                                ]);
+                                if (sheetContext.mounted) Navigator.pop(sheetContext, true);
+                              } catch (e) {
+                                setSheetState(() => saving = false);
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                    SnackBar(content: Text('Failed to save: $e')),
+                                  );
+                                }
+                              }
+                            },
+                      icon: saving
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : Picon(PiconsDuotone.floppyDisk),
+                      label: const Text('Save Working Days'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Updated working days for $staffName'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadCoverage();
+    }
+  }
+
+  Widget _coverageChip(Map<String, dynamic> s, {required bool available}) {
+    final chip = Chip(
+      avatar: Picon(
+        available ? PiconsFill.checkCircle : PiconsFill.xCircle,
+        size: 16,
+        color: available ? AppColors.success : AppColors.error,
+      ),
+      label: Text(
+        s['name'] as String,
+        style: TextStyle(fontSize: 13, color: available ? null : AppColors.grey600),
+      ),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    final id = s['id'];
+    if (!widget.canManageStaff || id is! int) return chip;
+    return GestureDetector(
+      onTap: () => _editStaffDays(id, s['name'] as String),
+      child: chip,
+    );
+  }
+
   Widget _buildCoverageTab() {
     if (_loadingCoverage) return const Center(child: CircularProgressIndicator());
 
@@ -840,8 +968,26 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
       onRefresh: _loadCoverage,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: 5,
-        itemBuilder: (context, index) {
+        itemCount: widget.canManageStaff ? 6 : 5,
+        itemBuilder: (context, itemIndex) {
+          if (widget.canManageStaff && itemIndex == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Picon(PiconsDuotone.info, size: 16, color: AppColors.grey500),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      "Tap a staff member to set their working days.",
+                      style: TextStyle(fontSize: 12, color: AppColors.grey600),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          final index = widget.canManageStaff ? itemIndex - 1 : itemIndex;
           final dayKey = '${index + 1}';
           final dayData = _coverage[dayKey] as Map<String, dynamic>?;
           if (dayData == null) return const SizedBox.shrink();
@@ -883,12 +1029,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                     Wrap(
                       spacing: 6,
                       runSpacing: 4,
-                      children: available.map((s) => Chip(
-                        avatar: Picon(PiconsFill.checkCircle, size: 16, color: AppColors.success),
-                        label: Text(s['name'] as String, style: const TextStyle(fontSize: 13)),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )).toList(),
+                      children: available.map((s) => _coverageChip(s, available: true)).toList(),
                     ),
                   ],
                   if (unavailable.isNotEmpty) ...[
@@ -896,12 +1037,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
                     Wrap(
                       spacing: 6,
                       runSpacing: 4,
-                      children: unavailable.map((s) => Chip(
-                        avatar: Picon(PiconsFill.xCircle, size: 16, color: AppColors.error),
-                        label: Text(s['name'] as String, style: TextStyle(fontSize: 13, color: AppColors.grey600)),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )).toList(),
+                      children: unavailable.map((s) => _coverageChip(s, available: false)).toList(),
                     ),
                   ],
                 ],

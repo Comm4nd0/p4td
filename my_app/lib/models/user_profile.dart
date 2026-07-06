@@ -13,7 +13,7 @@ class UserProfile {
   final bool canAddFeedMedia;
   final bool canManageRequests;
   final bool canReplyQueries;
-  final bool canApproveTimeoff;
+  final bool canManageStaff;
   final bool canViewInquiries;
   final bool canManageVehicles;
   final bool canManagePayments;
@@ -47,7 +47,7 @@ class UserProfile {
     this.canAddFeedMedia = false,
     this.canManageRequests = false,
     this.canReplyQueries = false,
-    this.canApproveTimeoff = false,
+    this.canManageStaff = false,
     this.canViewInquiries = false,
     this.canManageVehicles = false,
     this.canManagePayments = false,
@@ -76,7 +76,7 @@ class UserProfile {
       canAddFeedMedia: json['can_add_feed_media'] ?? false,
       canManageRequests: json['can_manage_requests'] ?? false,
       canReplyQueries: json['can_reply_queries'] ?? false,
-      canApproveTimeoff: json['can_approve_timeoff'] ?? false,
+      canManageStaff: json['can_manage_staff'] ?? json['can_approve_timeoff'] ?? false,
       canViewInquiries: json['can_view_inquiries'] ?? false,
       canManageVehicles: json['can_manage_vehicles'] ?? false,
       canManagePayments: json['can_manage_payments'] ?? false,

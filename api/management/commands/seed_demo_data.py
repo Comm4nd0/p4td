@@ -159,7 +159,7 @@ class Command(BaseCommand):
         profile = user.profile
         for flag in (
             "can_manage_requests", "can_add_feed_media", "can_assign_dogs",
-            "can_reply_queries", "can_approve_timeoff", "can_view_inquiries",
+            "can_reply_queries", "can_manage_staff", "can_view_inquiries",
         ):
             if hasattr(profile, flag):
                 setattr(profile, flag, False)
