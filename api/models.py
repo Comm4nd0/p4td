@@ -16,7 +16,7 @@ class UserProfile(models.Model):
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
     can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
     can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
-    can_approve_timeoff = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny time off requests.')
+    can_manage_staff = models.BooleanField(default=False, help_text='Designates whether this user can manage staff: set working days and approve/deny time off requests.')
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
     can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
     can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
@@ -910,7 +910,7 @@ def notify_managers_new_dayoff_request(sender, instance, created, **kwargs):
         'click_action': 'FLUTTER_NOTIFICATION_CLICK',
     }
     from django.contrib.auth.models import User
-    for user in User.objects.filter(is_staff=True, profile__can_approve_timeoff=True):
+    for user in User.objects.filter(is_staff=True, profile__can_manage_staff=True):
         send_push_notification(user, title, body, data)
 
 

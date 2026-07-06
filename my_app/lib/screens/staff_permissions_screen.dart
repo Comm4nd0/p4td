@@ -221,12 +221,12 @@ class _StaffPermissionCardState extends State<_StaffPermissionCard> {
               setLocal: (v) => s.canReplyQueries = v,
             ),
             _buildSwitch(
-              label: 'Approve Time Off',
-              subtitle: 'Approve/deny staff day-off requests',
+              label: 'Manage Staff',
+              subtitle: 'Set staff working days, approve/deny day-off requests',
               icon: PiconsDuotone.calendarCheck,
-              value: s.canApproveTimeoff,
-              field: 'can_approve_timeoff',
-              setLocal: (v) => s.canApproveTimeoff = v,
+              value: s.canManageStaff,
+              field: 'can_manage_staff',
+              setLocal: (v) => s.canManageStaff = v,
             ),
             _buildSwitch(
               label: 'View Inquiries',

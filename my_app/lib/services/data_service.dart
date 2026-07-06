@@ -2363,6 +2363,35 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<List<StaffAvailability>> getStaffAvailability(int staffId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/staff-availability/?staff_member=$staffId'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => StaffAvailability.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load staff availability: ${response.statusCode}');
+  }
+
+  @override
+  Future<List<StaffAvailability>> setStaffAvailability(int staffId, List<Map<String, dynamic>> availability) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/staff-availability/set_staff_availability/'),
+      headers: headers,
+      body: json.encode({'staff_member': staffId, 'availability': availability}),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => StaffAvailability.fromJson(e)).toList();
+    }
+    throw Exception('Failed to set staff availability: ${response.body}');
+  }
+
+  @override
   Future<Map<String, dynamic>> getStaffCoverage() async {
     final headers = await _getHeaders();
     final response = await http.get(

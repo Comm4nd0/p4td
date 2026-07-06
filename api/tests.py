@@ -2369,6 +2369,52 @@ class StaffAvailabilityTests(TestCase):
         self.assertIn(self.staff.id, available_ids)
         self.assertIn(self.staff2.id, unavailable_ids)
 
+    def test_manager_can_set_staff_availability(self):
+        self.staff.profile.can_manage_staff = True
+        self.staff.profile.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/staff-availability/set_staff_availability/', {
+            'staff_member': self.staff2.id,
+            'availability': [
+                {'day_of_week': 1, 'is_available': True, 'note': ''},
+                {'day_of_week': 2, 'is_available': False, 'note': 'Not in Tuesdays'},
+            ],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 2)
+        tue = StaffAvailability.objects.get(staff_member=self.staff2, day_of_week=2)
+        self.assertFalse(tue.is_available)
+        self.assertFalse(tue.is_available_daycare)
+        self.assertEqual(tue.note, 'Not in Tuesdays')
+
+    def test_non_manager_cannot_set_staff_availability(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/staff-availability/set_staff_availability/', {
+            'staff_member': self.staff2.id,
+            'availability': [{'day_of_week': 1, 'is_available': False}],
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(StaffAvailability.objects.filter(staff_member=self.staff2).exists())
+
+    def test_set_staff_availability_rejects_non_staff_target(self):
+        self.staff.profile.can_manage_staff = True
+        self.staff.profile.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/staff-availability/set_staff_availability/', {
+            'staff_member': self.owner.id,
+            'availability': [{'day_of_week': 1, 'is_available': False}],
+        }, format='json')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_set_staff_availability_requires_staff_member(self):
+        self.staff.profile.can_manage_staff = True
+        self.staff.profile.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/staff-availability/set_staff_availability/', {
+            'availability': [{'day_of_week': 1, 'is_available': False}],
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
     def test_coverage_defaults_to_available(self):
         """Staff without explicit availability records should default to available."""
         self.client.login(username='staff', password='pw')
@@ -2556,10 +2602,32 @@ class StaffPermissionsManagementTests(TestCase):
         for entry in resp.data:
             for field in (
                 'can_manage_requests', 'can_assign_dogs', 'can_reply_queries',
-                'can_add_feed_media', 'can_approve_timeoff', 'can_view_inquiries',
+                'can_add_feed_media', 'can_manage_staff', 'can_view_inquiries',
+                # Legacy alias kept for app builds that predate the rename.
+                'can_approve_timeoff',
                 'is_superuser',
             ):
                 self.assertIn(field, entry)
+
+    def test_legacy_timeoff_alias_mirrors_manage_staff(self):
+        """Old app builds read and write can_approve_timeoff; both directions
+        must map onto can_manage_staff."""
+        self.staff.profile.can_manage_staff = True
+        self.staff.profile.save()
+        self.client.login(username='admin', password='pw')
+        resp = self.client.get('/api/profile/list_staff_permissions/')
+        entry = next(e for e in resp.data if e['username'] == 'staff1')
+        self.assertTrue(entry['can_approve_timeoff'])
+        self.assertTrue(entry['can_manage_staff'])
+
+        resp = self.client.post(
+            f'/api/profile/update_staff_permissions/?user_id={self.other_staff.id}',
+            {'can_approve_timeoff': True},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.other_staff.profile.refresh_from_db()
+        self.assertTrue(self.other_staff.profile.can_manage_staff)
 
     def test_superuser_can_update_staff_permissions(self):
         self.client.login(username='admin', password='pw')
