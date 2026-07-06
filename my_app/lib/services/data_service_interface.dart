@@ -41,6 +41,10 @@ abstract class DataService {
     required String dogId,
     required DateTime requestedDate,
   });
+
+  /// Past dates the dog actually attended (staff-only). Feeds the profile
+  /// calendar's past booked days so payment managers can edit history.
+  Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from});
   Future<List<gm.GroupMedia>> getFeed({String? dogId});
   Future<FeedPage> getFeedPage({String? dogId, int page = 1});
   Future<void> uploadGroupMedia({

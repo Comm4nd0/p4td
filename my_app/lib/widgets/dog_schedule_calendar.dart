@@ -36,6 +36,12 @@ class DogScheduleCalendar extends StatefulWidget {
   final Map<DateTime, ClosureDay> closures;
 
   final bool isStaff;
+
+  /// Payment managers may tap days before today too — past days are the
+  /// attendance history invoicing bills from. Everyone else's taps on past
+  /// days are ignored.
+  final bool allowPastEdits;
+
   final void Function(DateTime date) onBookedDayTap;
   final void Function(DateTime date) onFreeDayTap;
 
@@ -50,6 +56,7 @@ class DogScheduleCalendar extends StatefulWidget {
     required this.pendingBoardingDates,
     required this.closures,
     required this.isStaff,
+    this.allowPastEdits = false,
     required this.onBookedDayTap,
     required this.onFreeDayTap,
   });
@@ -68,7 +75,16 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
   @override
   void initState() {
     super.initState();
-    _focusedDay = widget.firstDay;
+    // Open on today (clamped into range) — with past editing enabled firstDay
+    // sits a year back, and the calendar must not open on last year.
+    final today = _norm(DateTime.now());
+    if (today.isBefore(widget.firstDay)) {
+      _focusedDay = widget.firstDay;
+    } else if (today.isAfter(widget.lastDay)) {
+      _focusedDay = widget.lastDay;
+    } else {
+      _focusedDay = today;
+    }
   }
 
   DateTime _norm(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -85,7 +101,7 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
 
   void _onDayTapped(DateTime day) {
     final d = _norm(day);
-    if (d.isBefore(_norm(DateTime.now()))) return;
+    if (d.isBefore(_norm(DateTime.now())) && !widget.allowPastEdits) return;
 
     final closure = widget.closures[d];
     if (widget.boardingDates.contains(d)) {
@@ -235,7 +251,10 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
         const SizedBox(height: 4),
         Text(
           widget.isStaff
-              ? 'Tap a booked day to cancel or move it, or a free day to add one.'
+              ? (widget.allowPastEdits
+                  ? 'Tap a booked day to cancel or move it, or a free day to add one. '
+                      'Past days can be edited too — changes update attendance used for invoicing.'
+                  : 'Tap a booked day to cancel or move it, or a free day to add one.')
               : 'Tap a booked day to request a cancellation or move, or a free day to request an extra day.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, color: Colors.grey[600]),

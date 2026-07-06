@@ -42,6 +42,29 @@ void main() {
     });
   });
 
+  group('calendarFirstDay', () {
+    test('payment managers can scroll a year back', () {
+      expect(
+        calendarFirstDay(now, canEditPastDates: true),
+        DateTime(2025, 6, 17),
+      );
+    });
+
+    test('everyone else starts at today', () {
+      expect(
+        calendarFirstDay(now, canEditPastDates: false),
+        DateTime(2026, 6, 17),
+      );
+    });
+
+    test('time-of-day is stripped', () {
+      expect(
+        calendarFirstDay(DateTime(2026, 6, 17, 14, 30), canEditPastDates: false),
+        DateTime(2026, 6, 17),
+      );
+    });
+  });
+
   group('isDateConfirmed', () {
     test('a date within one month is confirmed', () {
       expect(isDateConfirmed(DateTime(2026, 7, 10), now: now), isTrue);

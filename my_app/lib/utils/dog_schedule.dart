@@ -94,3 +94,13 @@ bool isDateConfirmed(DateTime date, {required DateTime now}) {
 DateTime calendarLastDay(DateTime now, {required bool isStaff}) => isStaff
     ? DateTime(now.year + 5, now.month, now.day)
     : DateTime(now.year, now.month + 3, now.day);
+
+/// Earliest date selectable on the dog's daycare calendar.
+///
+/// Past days are attendance history that feeds invoicing, so only staff who
+/// can manage payments may scroll back (a year, matching the server's
+/// past-attendance window). Everyone else starts at today.
+DateTime calendarFirstDay(DateTime now, {required bool canEditPastDates}) =>
+    canEditPastDates
+        ? DateTime(now.year - 1, now.month, now.day)
+        : DateTime(now.year, now.month, now.day);
