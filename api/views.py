@@ -1993,6 +1993,17 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         valid_statuses = dict(DailyDogAssignment.STATUS_CHOICES).keys()
         if new_status not in valid_statuses:
             return Response({'detail': 'Invalid status'}, status=400)
+        # On past rows, moving into or out of REMOVED changes whether the day
+        # is billed — that's a billing-history edit reserved for payment
+        # managers (same rule as the dog calendar and mark_removed).
+        from datetime import date as date_cls
+        if (
+            assignment.date < date_cls.today()
+            and 'REMOVED' in (new_status, assignment.status)
+            and new_status != assignment.status
+            and not _user_can_manage_payments(request.user)
+        ):
+            return Response({'detail': 'Only staff who can manage payments can change whether a past day is billed.'}, status=403)
         assignment.status = new_status
         assignment.save()
         return Response(self.get_serializer(assignment).data)
@@ -2139,6 +2150,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
         weekday = target_date.isoweekday()
+        is_past = target_date < date.today()
         created = []
         skipped = []
         for dog_id in dog_ids:
@@ -2147,9 +2159,23 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             except Dog.DoesNotExist:
                 continue
 
+            # A past day is billing history: recording who drove the dog on an
+            # existing attended (UNASSIGNED) day is fine for any assigner, but
+            # creating a new row — or reviving a REMOVED one — makes the day
+            # billable, which is reserved for payment managers (same rule as
+            # past edits on the dog calendar).
+            if is_past:
+                existing_row = DailyDogAssignment.objects.filter(dog=dog, date=target_date).first()
+                changes_billing = existing_row is None or existing_row.status == 'REMOVED'
+                if changes_billing and not _user_can_manage_payments(request.user):
+                    skipped.append({'dog': dog.name, 'reason': 'Past day — only staff who manage payments can add attendance'})
+                    continue
+
             # Silently upsert the persistent roster for recurring dogs, but
             # do not clobber an existing roster entry pointing elsewhere.
-            if dog.schedule_type != 'ad_hoc':
+            # Never for past days: recording history must not rewrite who
+            # picks the dog up every week from now on.
+            if dog.schedule_type != 'ad_hoc' and not is_past:
                 existing = DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).first()
                 if existing is None:
                     DogWeekdayPickup.objects.create(
@@ -2229,6 +2255,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
         weekday = target_date.isoweekday()
+        is_past = target_date < date.today()
         created = []
         skipped = []
         for dog_id in dog_ids:
@@ -2237,7 +2264,18 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             except Dog.DoesNotExist:
                 continue
 
-            if dog.schedule_type != 'ad_hoc':
+            # Same past-day rules as assign_to_me: recording the driver on an
+            # already-attended day is open to assigners, but making a past day
+            # (newly or via a REMOVED row) billable needs the payments
+            # permission, and history must never rewrite the weekly roster.
+            if is_past:
+                existing_row = DailyDogAssignment.objects.filter(dog=dog, date=target_date).first()
+                changes_billing = existing_row is None or existing_row.status == 'REMOVED'
+                if changes_billing and not _user_can_manage_payments(request.user):
+                    skipped.append({'dog': dog.name, 'reason': 'Past day — only staff who manage payments can add attendance'})
+                    continue
+
+            if dog.schedule_type != 'ad_hoc' and not is_past:
                 existing = DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).first()
                 if existing is None:
                     DogWeekdayPickup.objects.create(
@@ -2303,6 +2341,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
 
+        # Removing a past day takes it off the invoice — a billing-history
+        # edit reserved for payment managers (same rule as the dog calendar).
+        if target_date < date_cls.today() and not _user_can_manage_payments(request.user):
+            return Response({'detail': 'Only staff who can manage payments can remove past days.'}, status=403)
+
         try:
             dog = Dog.objects.get(id=dog_id)
         except Dog.DoesNotExist:
@@ -2317,12 +2360,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             assignment.status = 'REMOVED'
             assignment.save(update_fields=['status', 'updated_at'])
 
-        # Removing a dog frees a spot — let the waitlist know.
-        try:
-            from .scheduling import process_waitlist_for_date
-            process_waitlist_for_date(target_date)
-        except Exception as e:
-            print(f"Failed to process waitlist: {e}")
+        # Removing a dog frees a spot — let the waitlist know. Not for past
+        # days: nobody can be offered a spot on a day that already happened.
+        if target_date >= date_cls.today():
+            try:
+                from .scheduling import process_waitlist_for_date
+                process_waitlist_for_date(target_date)
+            except Exception as e:
+                print(f"Failed to process waitlist: {e}")
         return Response(status=204)
 
     @action(detail=True, methods=['post'])
@@ -2410,6 +2455,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         dog = assignment.dog
         assignment_date = assignment.date
         weekday = assignment_date.isoweekday()
+
+        # from_now_on deletes this row outright; on a past date that erases
+        # billed attendance, so it needs the payments permission. just_this_day
+        # only flips to UNASSIGNED (still attended, still billed) — fine for
+        # any assigner.
+        from datetime import date as date_cls
+        if scope == 'from_now_on' and assignment_date < date_cls.today() and not _user_can_manage_payments(request.user):
+            return Response({'detail': 'Only staff who can manage payments can delete past attendance.'}, status=403)
 
         if scope == 'from_now_on':
             assignment.delete()

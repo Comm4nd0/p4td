@@ -289,6 +289,164 @@ class DogPastAttendanceTests(TestCase):
         self.assertEqual(resp.status_code, 400)
 
 
+class PastAssignmentTests(TestCase):
+    """Dashboard assignment endpoints follow the same past-date rules as the
+    calendar: any assigner may record who drove an already-attended day, but
+    making a past day billable (creating/reviving a row) or un-billing it
+    (removing/deleting) needs can_manage_payments — and past edits must never
+    rewrite the persistent weekly roster."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.staff.profile.can_assign_dogs = True
+        self.staff.profile.save()
+        self.payments = User.objects.create_user(username='payments', password='pw', is_staff=True)
+        self.payments.profile.can_assign_dogs = True
+        self.payments.profile.can_manage_payments = True
+        self.payments.profile.save()
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.past = date.today() - timedelta(days=5)
+        self.client = APIClient()
+
+    def _assign_to_me(self, **extra):
+        return self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id],
+            'date': self.past.isoformat(),
+            **extra,
+        }, format='json')
+
+    def test_any_assigner_can_record_driver_on_attended_past_day(self):
+        # The row a payment manager's past ADD_DAY creates: attended, no driver.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.payments, date=self.past, status='UNASSIGNED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'ASSIGNED')
+        self.assertEqual(assignment.staff_member, self.staff)
+        # Recording history must not rewrite the future weekly roster.
+        self.assertFalse(DogWeekdayPickup.objects.exists())
+
+    def test_plain_staff_cannot_create_past_attendance(self):
+        self.client.login(username='staff', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], [])
+        self.assertEqual(len(resp.data['skipped']), 1)
+        self.assertFalse(DailyDogAssignment.objects.exists())
+
+    def test_plain_staff_cannot_revive_removed_past_day(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.payments, date=self.past, status='REMOVED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['skipped']), 1)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'REMOVED')
+
+    def test_payment_manager_can_create_past_attendance(self):
+        self.client.login(username='payments', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'ASSIGNED')
+        self.assertFalse(DogWeekdayPickup.objects.exists())
+
+    def test_assign_dogs_applies_same_past_rules(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_dogs/', {
+            'dog_ids': [self.dog.id],
+            'date': self.past.isoformat(),
+            'staff_member_id': self.payments.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['skipped']), 1)
+        self.assertFalse(DailyDogAssignment.objects.exists())
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_dogs/', {
+            'dog_ids': [self.dog.id],
+            'date': self.past.isoformat(),
+            'staff_member_id': self.staff.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.staff_member, self.staff)
+        self.assertFalse(DogWeekdayPickup.objects.exists())
+
+    def test_mark_removed_on_past_day_needs_payments_permission(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id, 'date': self.past.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        with patch('api.scheduling.process_waitlist_for_date') as waitlist:
+            resp = self.client.post('/api/daily-assignments/mark_removed/', {
+                'dog_id': self.dog.id, 'date': self.past.isoformat(),
+            }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'REMOVED')
+        waitlist.assert_not_called()
+
+    def test_update_status_gates_past_removed_transitions(self):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        url = f'/api/daily-assignments/{assignment.id}/update_status/'
+        self.client.login(username='staff', password='pw')
+        # Un-billing a past day via a status change is blocked...
+        resp = self.client.post(url, {'status': 'REMOVED'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        # ...but billing-neutral corrections (e.g. fixing the leg status) work.
+        resp = self.client.post(url, {'status': 'PICKED_UP'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        resp = self.client.post(url, {'status': 'REMOVED'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'REMOVED')
+
+    def test_unassign_from_now_on_needs_payments_permission_for_past_rows(self):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'from_now_on'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        # just_this_day only clears the driver — the day stays attended/billed.
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'just_this_day'}, format='json')
+        self.assertEqual(resp.status_code, 204)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'UNASSIGNED')
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'from_now_on'}, format='json')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(DailyDogAssignment.objects.exists())
+
+
 class DateChangeMoveTests(TestCase):
     """Approving a CHANGE frees the old day and surfaces the dog in the
     unassigned list for the new day (staff pick the driver). A move must never
