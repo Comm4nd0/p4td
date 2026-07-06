@@ -3056,16 +3056,11 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save()
 
-    @action(detail=False, methods=['post'])
-    def set_my_availability(self, request):
-        """Set the current staff member's availability for multiple days at once.
-        Accepts: {"availability": [{"day_of_week": 1, "is_available": true, "note": ""}, ...]}"""
+    @staticmethod
+    def _apply_availability(staff_member, availability_data):
+        """Upsert weekly availability rows for a staff member. Returns the
+        saved objects."""
         from .models import StaffAvailability
-        from .serializers import StaffAvailabilitySerializer
-
-        availability_data = request.data.get('availability', [])
-        if not availability_data:
-            return Response({'detail': 'availability list is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         results = []
         for entry in availability_data:
@@ -3079,7 +3074,7 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
                 continue
             is_available = bool(entry.get('is_available', True))
             obj, _ = StaffAvailability.objects.update_or_create(
-                staff_member=request.user,
+                staff_member=staff_member,
                 day_of_week=day,
                 defaults={
                     'is_available': is_available,
@@ -3089,7 +3084,49 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
                 },
             )
             results.append(obj)
+        return results
 
+    @action(detail=False, methods=['post'])
+    def set_my_availability(self, request):
+        """Set the current staff member's availability for multiple days at once.
+        Accepts: {"availability": [{"day_of_week": 1, "is_available": true, "note": ""}, ...]}"""
+        from .serializers import StaffAvailabilitySerializer
+
+        availability_data = request.data.get('availability', [])
+        if not availability_data:
+            return Response({'detail': 'availability list is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        results = self._apply_availability(request.user, availability_data)
+        serializer = StaffAvailabilitySerializer(results, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def set_staff_availability(self, request):
+        """Set another staff member's weekly availability (staff managers only).
+        Accepts: {"staff_member": <user id>, "availability": [{"day_of_week": 1,
+        "is_available": true, "note": ""}, ...]}"""
+        from .serializers import StaffAvailabilitySerializer
+
+        profile = getattr(request.user, 'profile', None)
+        if not (request.user.is_superuser or (profile and profile.can_manage_staff)):
+            return Response({'detail': 'Not authorized to manage staff availability.'},
+                            status=drf_status.HTTP_403_FORBIDDEN)
+
+        try:
+            staff_id = int(request.data.get('staff_member'))
+        except (TypeError, ValueError):
+            return Response({'detail': 'staff_member is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        try:
+            staff_member = User.objects.get(pk=staff_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found'}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        availability_data = request.data.get('availability', [])
+        if not availability_data:
+            return Response({'detail': 'availability list is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        results = self._apply_availability(staff_member, availability_data)
         serializer = StaffAvailabilitySerializer(results, many=True)
         return Response(serializer.data)
 
@@ -3230,7 +3267,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         if not user.is_staff:
             return qs.none()
         profile = getattr(user, 'profile', None)
-        if profile and profile.can_approve_timeoff:
+        if profile and profile.can_manage_staff:
             return qs.all()
         # Ordinary staff only see (and can touch) their own requests; this scopes
         # retrieve/update/destroy so private day-off reasons can't be read or
@@ -3242,13 +3279,13 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         return DayOffRequestSerializer
 
     def list(self, request):
-        """List all day-off requests (staff with can_approve_timeoff permission)."""
+        """List all day-off requests (staff with can_manage_staff permission)."""
         from .models import DayOffRequest
         if not request.user.is_staff:
             return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         profile = getattr(request.user, 'profile', None)
-        if not profile or not profile.can_approve_timeoff:
+        if not profile or not profile.can_manage_staff:
             return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         queryset = DayOffRequest.objects.select_related('staff_member', 'reviewed_by').all()
@@ -3341,7 +3378,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         from django.utils import timezone
 
         profile = getattr(request.user, 'profile', None)
-        if not (request.user.is_staff and profile and profile.can_approve_timeoff):
+        if not (request.user.is_staff and profile and profile.can_manage_staff):
             return Response({'detail': 'Not authorized to review requests.'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         try:

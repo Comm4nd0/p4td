@@ -69,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canAddFeedMedia = false;
   bool _canManageRequests = false;
   bool _canReplyQueries = false;
-  bool _canApproveTimeoff = false;
+  bool _canManageStaff = false;
   bool _canViewInquiries = false;
   bool _canManageVehicles = false;
   bool _canManagePayments = false;
@@ -203,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canAddFeedMedia = profile.canAddFeedMedia;
           _canManageRequests = profile.canManageRequests;
           _canReplyQueries = profile.canReplyQueries;
-          _canApproveTimeoff = profile.canApproveTimeoff;
+          _canManageStaff = profile.canManageStaff;
           _canViewInquiries = profile.canViewInquiries;
           _canManageVehicles = profile.canManageVehicles;
           _canManagePayments = profile.canManagePayments;
@@ -726,7 +726,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canApproveTimeoff: _canApproveTimeoff),
+                        builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canManageStaff: _canManageStaff),
                       ),
                     );
                   },

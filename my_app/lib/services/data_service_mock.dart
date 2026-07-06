@@ -479,6 +479,10 @@ class MockDataService implements DataService {
   @override
   Future<List<StaffAvailability>> setMyAvailability(List<Map<String, dynamic>> availability) async => [];
   @override
+  Future<List<StaffAvailability>> getStaffAvailability(int staffId) async => [];
+  @override
+  Future<List<StaffAvailability>> setStaffAvailability(int staffId, List<Map<String, dynamic>> availability) async => [];
+  @override
   Future<Map<String, dynamic>> getStaffCoverage() async => {};
   @override
   Future<List<Map<String, dynamic>>> getAvailableStaffForDate(DateTime date) async => [];

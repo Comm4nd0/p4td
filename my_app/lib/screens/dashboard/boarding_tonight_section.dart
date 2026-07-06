@@ -11,11 +11,11 @@ import '../../models/boarding_request.dart';
 class BoardingTonightSection extends StatelessWidget {
   final List<BoardingRequest> boardingTonight;
 
-  /// When provided, each boarding row becomes tappable to (re)assign the staff
-  /// member the dog boards with.
-  final void Function(BoardingRequest request)? onReassign;
+  /// When provided, each boarding row becomes tappable. The dashboard opens
+  /// the dog's quick-info popup (which carries its own reassign shortcut).
+  final void Function(BoardingRequest request)? onTap;
 
-  const BoardingTonightSection({super.key, required this.boardingTonight, this.onReassign});
+  const BoardingTonightSection({super.key, required this.boardingTonight, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +54,7 @@ class BoardingTonightSection extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${request.dogNames.join(", ")} (${request.ownerName})',
+              Text(request.dogNames.join(', '),
                   style: const TextStyle(fontSize: 14)),
               const SizedBox(height: 2),
               Row(children: [
@@ -68,10 +68,10 @@ class BoardingTonightSection extends StatelessWidget {
             ],
           ),
         ),
-        if (onReassign != null) Picon(PiconsDuotone.caretRight, size: 16, color: Colors.grey[400]),
+        if (onTap != null) Picon(PiconsDuotone.caretRight, size: 16, color: Colors.grey[400]),
       ]),
     );
-    if (onReassign == null) return row;
-    return InkWell(onTap: () => onReassign!(request), child: row);
+    if (onTap == null) return row;
+    return InkWell(onTap: () => onTap!(request), child: row);
   }
 }
