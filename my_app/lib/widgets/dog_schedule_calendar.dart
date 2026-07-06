@@ -213,6 +213,11 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     return Column(
       children: [
         TableCalendar(
+          // TableCalendar computes its page range once from firstDay/lastDay;
+          // when past editing unlocks after the async permission load the
+          // range extends backwards, and without a new key the header chevron
+          // would still refuse to page before the original firstDay.
+          key: ValueKey((widget.firstDay, widget.lastDay)),
           firstDay: widget.firstDay,
           lastDay: widget.lastDay,
           focusedDay: _focusedDay,
