@@ -226,6 +226,9 @@ class MockDataService implements DataService {
     required DateTime requestedDate,
   }) async {}
 
+  @override
+  Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from}) async => [];
+
 
   @override
   Future<List<gm.GroupMedia>> getFeed({String? dogId}) async => [];
