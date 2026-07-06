@@ -957,6 +957,21 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from}) async {
+    final headers = await _getHeaders();
+    var uri = Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/past-attendance/');
+    if (from != null) {
+      uri = uri.replace(queryParameters: {'from': from.toIso8601String().split('T').first});
+    }
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load past attendance: ${response.statusCode}');
+    }
+    final data = json.decode(response.body);
+    return (data['dates'] as List).map((d) => DateTime.parse(d as String)).toList();
+  }
+
+  @override
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
     final data = await _fetchAllPages(
       Uri.parse('${AuthService.baseUrl}/api/date-change-requests/'),

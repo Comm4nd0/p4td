@@ -65,6 +65,10 @@ class DateChangeRequestCreateTests(TestCase):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
         self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        # Relative dates: past dates are gated behind can_manage_payments, so
+        # these tests must always target the future regardless of when they run.
+        self.day = date.today() + timedelta(days=10)
+        self.other_day = date.today() + timedelta(days=12)
         self.client = APIClient()
 
     def _post(self, **kwargs):
@@ -73,7 +77,7 @@ class DateChangeRequestCreateTests(TestCase):
 
     def test_owner_cancel_stays_pending(self):
         self.client.login(username='owner', password='pw')
-        resp = self._post(request_type='CANCEL', original_date='2026-05-10')
+        resp = self._post(request_type='CANCEL', original_date=self.day.isoformat())
         self.assertEqual(resp.status_code, 201)
         req = DateChangeRequest.objects.get(id=resp.data['id'])
         self.assertEqual(req.status, 'PENDING')
@@ -81,17 +85,17 @@ class DateChangeRequestCreateTests(TestCase):
 
     def test_staff_cancel_auto_approves_and_unassigns(self):
         DailyDogAssignment.objects.create(
-            dog=self.dog, staff_member=self.staff, date='2026-05-10', status='ASSIGNED'
+            dog=self.dog, staff_member=self.staff, date=self.day, status='ASSIGNED'
         )
         self.client.login(username='staff', password='pw')
-        resp = self._post(request_type='CANCEL', original_date='2026-05-10')
+        resp = self._post(request_type='CANCEL', original_date=self.day.isoformat())
         self.assertEqual(resp.status_code, 201)
         req = DateChangeRequest.objects.get(id=resp.data['id'])
         self.assertEqual(req.status, 'APPROVED')
         self.assertEqual(req.approved_by, self.staff)
         self.assertIsNotNone(req.approved_at)
         self.assertFalse(
-            DailyDogAssignment.objects.filter(dog=self.dog, date='2026-05-10').exists()
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.day).exists()
         )
         hist = DateChangeRequestHistory.objects.filter(request=req).first()
         self.assertIsNotNone(hist)
@@ -102,8 +106,8 @@ class DateChangeRequestCreateTests(TestCase):
         self.client.login(username='staff', password='pw')
         resp = self._post(
             request_type='CHANGE',
-            original_date='2026-05-10',
-            new_date='2026-05-12',
+            original_date=self.day.isoformat(),
+            new_date=self.other_day.isoformat(),
         )
         self.assertEqual(resp.status_code, 201)
         req = DateChangeRequest.objects.get(id=resp.data['id'])
@@ -113,25 +117,334 @@ class DateChangeRequestCreateTests(TestCase):
         # A staff CHANGE should free up the original date (like a cancel); the
         # new date is surfaced separately by the roster queries.
         DailyDogAssignment.objects.create(
-            dog=self.dog, staff_member=self.staff, date='2026-05-10', status='ASSIGNED'
+            dog=self.dog, staff_member=self.staff, date=self.day, status='ASSIGNED'
         )
         self.client.login(username='staff', password='pw')
         resp = self._post(
             request_type='CHANGE',
-            original_date='2026-05-10',
-            new_date='2026-05-12',
+            original_date=self.day.isoformat(),
+            new_date=self.other_day.isoformat(),
         )
         self.assertEqual(resp.status_code, 201)
         self.assertFalse(
-            DailyDogAssignment.objects.filter(dog=self.dog, date='2026-05-10').exists()
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.day).exists()
         )
 
     def test_staff_add_day_auto_approves(self):
         self.client.login(username='staff', password='pw')
-        resp = self._post(request_type='ADD_DAY', new_date='2026-05-15')
+        resp = self._post(request_type='ADD_DAY', new_date=self.other_day.isoformat())
         self.assertEqual(resp.status_code, 201)
         req = DateChangeRequest.objects.get(id=resp.data['id'])
         self.assertEqual(req.status, 'APPROVED')
+
+
+class PastDateEditTests(TestCase):
+    """Past dates are billing history: only staff with can_manage_payments may
+    add/cancel/move them. Owners and other staff are limited to today onwards,
+    and past edits must update the attendance rows invoicing reads."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.payments = User.objects.create_user(username='payments', password='pw', is_staff=True)
+        self.payments.profile.can_manage_payments = True
+        self.payments.profile.save()
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.past = date.today() - timedelta(days=5)
+        self.other_past = date.today() - timedelta(days=3)
+        self.future = date.today() + timedelta(days=5)
+        self.client = APIClient()
+
+    def _post(self, **kwargs):
+        payload = {'dog': self.dog.id, **kwargs}
+        return self.client.post('/api/date-change-requests/', payload, format='json')
+
+    def test_owner_cannot_touch_past_dates(self):
+        self.client.login(username='owner', password='pw')
+        resp = self._post(request_type='CANCEL', original_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 403)
+        resp = self._post(request_type='ADD_DAY', new_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 403)
+
+    def test_staff_without_payments_permission_cannot_touch_past_dates(self):
+        self.client.login(username='staff', password='pw')
+        resp = self._post(request_type='CANCEL', original_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 403)
+        resp = self._post(
+            request_type='CHANGE',
+            original_date=self.past.isoformat(),
+            new_date=self.future.isoformat(),
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(DateChangeRequest.objects.exists())
+
+    def test_payment_manager_can_cancel_past_day(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        self.client.login(username='payments', password='pw')
+        with patch('api.scheduling.process_waitlist_for_date') as waitlist:
+            resp = self._post(request_type='CANCEL', original_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'APPROVED')
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.past).exists()
+        )
+        # Nobody can be offered a spot on a day that already happened.
+        waitlist.assert_not_called()
+
+    def test_payment_manager_can_add_past_day(self):
+        self.client.login(username='payments', password='pw')
+        resp = self._post(request_type='ADD_DAY', new_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 201)
+        req = DateChangeRequest.objects.get(id=resp.data['id'])
+        self.assertEqual(req.status, 'APPROVED')
+        # Roster materialization never runs for past dates, so the attendance
+        # row invoicing bills from must have been created directly.
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'UNASSIGNED')
+
+    def test_add_past_day_revives_removed_assignment(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='REMOVED'
+        )
+        self.client.login(username='payments', password='pw')
+        resp = self._post(request_type='ADD_DAY', new_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'UNASSIGNED')
+
+    def test_payment_manager_can_move_past_day(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        self.client.login(username='payments', password='pw')
+        resp = self._post(
+            request_type='CHANGE',
+            original_date=self.past.isoformat(),
+            new_date=self.other_past.isoformat(),
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.past).exists()
+        )
+        moved = DailyDogAssignment.objects.get(dog=self.dog, date=self.other_past)
+        self.assertEqual(moved.status, 'UNASSIGNED')
+
+    def test_superuser_can_edit_past_dates(self):
+        User.objects.create_superuser(username='admin', password='pw')
+        self.client.login(username='admin', password='pw')
+        resp = self._post(request_type='ADD_DAY', new_date=self.past.isoformat())
+        self.assertEqual(resp.status_code, 201)
+
+    def test_today_is_not_past(self):
+        # An owner cancelling today's booking still goes through the normal flow.
+        self.client.login(username='owner', password='pw')
+        resp = self._post(request_type='CANCEL', original_date=date.today().isoformat())
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(DateChangeRequest.objects.get(id=resp.data['id']).status, 'PENDING')
+
+
+class DogPastAttendanceTests(TestCase):
+    """Staff-only endpoint feeding the profile calendar's past booked days."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.client = APIClient()
+
+    def test_owner_cannot_view(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_staff_sees_attended_dates_only(self):
+        attended = date.today() - timedelta(days=4)
+        removed = date.today() - timedelta(days=3)
+        future = date.today() + timedelta(days=4)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=attended, status='DROPPED_OFF')
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=removed, status='REMOVED')
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=future, status='ASSIGNED')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['dates'], [attended.isoformat()])
+
+    def test_from_param_bounds_range(self):
+        old = date.today() - timedelta(days=30)
+        recent = date.today() - timedelta(days=2)
+        for d in (old, recent):
+            DailyDogAssignment.objects.create(
+                dog=self.dog, staff_member=self.staff, date=d, status='DROPPED_OFF')
+        self.client.login(username='staff', password='pw')
+        since = (date.today() - timedelta(days=7)).isoformat()
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/?from={since}')
+        self.assertEqual(resp.data['dates'], [recent.isoformat()])
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/?from=not-a-date')
+        self.assertEqual(resp.status_code, 400)
+
+
+class PastAssignmentTests(TestCase):
+    """Dashboard assignment endpoints follow the same past-date rules as the
+    calendar: any assigner may record who drove an already-attended day, but
+    making a past day billable (creating/reviving a row) or un-billing it
+    (removing/deleting) needs can_manage_payments — and past edits must never
+    rewrite the persistent weekly roster."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.staff.profile.can_assign_dogs = True
+        self.staff.profile.save()
+        self.payments = User.objects.create_user(username='payments', password='pw', is_staff=True)
+        self.payments.profile.can_assign_dogs = True
+        self.payments.profile.can_manage_payments = True
+        self.payments.profile.save()
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.past = date.today() - timedelta(days=5)
+        self.client = APIClient()
+
+    def _assign_to_me(self, **extra):
+        return self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id],
+            'date': self.past.isoformat(),
+            **extra,
+        }, format='json')
+
+    def test_any_assigner_can_record_driver_on_attended_past_day(self):
+        # The row a payment manager's past ADD_DAY creates: attended, no driver.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.payments, date=self.past, status='UNASSIGNED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'ASSIGNED')
+        self.assertEqual(assignment.staff_member, self.staff)
+        # Recording history must not rewrite the future weekly roster.
+        self.assertFalse(DogWeekdayPickup.objects.exists())
+
+    def test_plain_staff_cannot_create_past_attendance(self):
+        self.client.login(username='staff', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], [])
+        self.assertEqual(len(resp.data['skipped']), 1)
+        self.assertFalse(DailyDogAssignment.objects.exists())
+
+    def test_plain_staff_cannot_revive_removed_past_day(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.payments, date=self.past, status='REMOVED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['skipped']), 1)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'REMOVED')
+
+    def test_payment_manager_can_create_past_attendance(self):
+        self.client.login(username='payments', password='pw')
+        resp = self._assign_to_me()
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'ASSIGNED')
+        self.assertFalse(DogWeekdayPickup.objects.exists())
+
+    def test_assign_dogs_applies_same_past_rules(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_dogs/', {
+            'dog_ids': [self.dog.id],
+            'date': self.past.isoformat(),
+            'staff_member_id': self.payments.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['skipped']), 1)
+        self.assertFalse(DailyDogAssignment.objects.exists())
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_dogs/', {
+            'dog_ids': [self.dog.id],
+            'date': self.past.isoformat(),
+            'staff_member_id': self.staff.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.staff_member, self.staff)
+        self.assertFalse(DogWeekdayPickup.objects.exists())
+
+    def test_mark_removed_on_past_day_needs_payments_permission(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id, 'date': self.past.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        with patch('api.scheduling.process_waitlist_for_date') as waitlist:
+            resp = self.client.post('/api/daily-assignments/mark_removed/', {
+                'dog_id': self.dog.id, 'date': self.past.isoformat(),
+            }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.past)
+        self.assertEqual(assignment.status, 'REMOVED')
+        waitlist.assert_not_called()
+
+    def test_update_status_gates_past_removed_transitions(self):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        url = f'/api/daily-assignments/{assignment.id}/update_status/'
+        self.client.login(username='staff', password='pw')
+        # Un-billing a past day via a status change is blocked...
+        resp = self.client.post(url, {'status': 'REMOVED'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        # ...but billing-neutral corrections (e.g. fixing the leg status) work.
+        resp = self.client.post(url, {'status': 'PICKED_UP'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        resp = self.client.post(url, {'status': 'REMOVED'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'REMOVED')
+
+    def test_unassign_from_now_on_needs_payments_permission_for_past_rows(self):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='DROPPED_OFF'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'from_now_on'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        # just_this_day only clears the driver — the day stays attended/billed.
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'just_this_day'}, format='json')
+        self.assertEqual(resp.status_code, 204)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'UNASSIGNED')
+
+        self.client.logout()
+        self.client.login(username='payments', password='pw')
+        resp = self.client.post(
+            f'/api/daily-assignments/{assignment.id}/unassign/',
+            {'scope': 'from_now_on'}, format='json')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(DailyDogAssignment.objects.exists())
 
 
 class DateChangeMoveTests(TestCase):
@@ -5500,7 +5813,9 @@ class BillingGenerationTests(BillingTestsBase):
     def test_zero_attendance_is_skipped_ownerless_dogs_bill_in_dogs_name(self):
         from api import billing
 
-        stray = Dog.objects.create(owner=None, name='Stray')
+        # APP mode: MANUAL ownerless dogs are deliberately skipped by monthly
+        # generation (the business still invoices those by hand in Xero).
+        stray = Dog.objects.create(owner=None, name='Stray', billing_mode='APP')
         self._attend(stray, 1)
         self._attend(self.dog, 2, 'REMOVED')  # removed day: nothing to bill
 

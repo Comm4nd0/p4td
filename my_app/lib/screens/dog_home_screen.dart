@@ -39,6 +39,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   bool _loadingBoardingRequests = false;
   List<ClosureDay> _closureDays = [];
 
+  // Payment managers can edit past days (attendance history feeding
+  // invoicing); the calendar then scrolls back a year and paints the days the
+  // dog actually attended.
+  bool _canEditPastDates = false;
+  Set<DateTime> _pastAttendance = {};
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +54,37 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     // boarding-requests list section below stays staff-only.
     _loadBoardingRequests();
     _loadClosureDays();
+    if (widget.isStaff) _loadPastEditability();
+  }
+
+  /// Staff with the payments permission may edit past calendar days. When
+  /// that's the case, also fetch the dog's actual past attendance so the
+  /// calendar paints history accurately (materialized roster, staff removals),
+  /// not just the recurring schedule.
+  Future<void> _loadPastEditability() async {
+    try {
+      final profile = await _dataService.getProfile();
+      if (!profile.canManagePayments && !profile.isSuperuser) return;
+      final attendance = await _dataService.getDogPastAttendance(_dog.id);
+      if (mounted) {
+        setState(() {
+          _canEditPastDates = true;
+          _pastAttendance = attendance.map(_dateOnly).toSet();
+        });
+      }
+    } catch (_) {
+      // Non-fatal: the calendar just stays today-onwards.
+    }
+  }
+
+  Future<void> _reloadPastAttendance() async {
+    if (!_canEditPastDates) return;
+    try {
+      final attendance = await _dataService.getDogPastAttendance(_dog.id);
+      if (mounted) {
+        setState(() => _pastAttendance = attendance.map(_dateOnly).toSet());
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadClosureDays() async {
@@ -484,8 +521,14 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     return isDateConfirmed(date, now: DateTime.now());
   }
 
+  bool _isPast(DateTime date) =>
+      _dateOnly(date).isBefore(_dateOnly(DateTime.now()));
+
   void _showDateChangeRequest(DateTime date) {
-    final isConfirmed = _isConfirmed(date);
+    final isPast = _isPast(date);
+    // The late-change warning is about upcoming days; past days get their own
+    // invoicing note instead.
+    final isConfirmed = !isPast && _isConfirmed(date);
     final formattedDate = ukDateWithDay(date);
 
     showDialog(
@@ -498,6 +541,29 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           children: [
             Text('Date: $formattedDate'),
             const SizedBox(height: 16),
+            if (isPast) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue),
+                ),
+                child: Row(
+                  children: [
+                    Picon(PiconsDuotone.info, color: Colors.blue[800]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This day is in the past. Changes update ${_dog.name}\'s attendance record, which invoices are billed from.',
+                        style: TextStyle(color: Colors.blue[800]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             if (isConfirmed) ...[
               Container(
                 padding: const EdgeInsets.all(12),
@@ -551,6 +617,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   void _showCancelConfirmation(DateTime originalDate, bool isConfirmed) {
     final formattedDate = ukDateWithDay(originalDate);
+    final isPast = _isPast(originalDate);
 
     showDialog(
       context: context,
@@ -560,7 +627,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Are you sure you want to cancel your daycare booking for $formattedDate?'),
+            Text(isPast
+                ? 'Remove $formattedDate from ${_dog.name}\'s attendance record? The day will no longer be billed.'
+                : 'Are you sure you want to cancel your daycare booking for $formattedDate?'),
             if (isConfirmed) ...[
               const SizedBox(height: 16),
               Container(
@@ -609,10 +678,12 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   Future<void> _showDatePicker(DateTime originalDate, bool isConfirmed) async {
     final now = DateTime.now();
+    // Payment managers may move a day to (or from) a past date — attendance
+    // corrections; everyone else picks from today onwards.
     final newDate = await showDatePicker(
       context: context,
       initialDate: originalDate.add(const Duration(days: 7)),
-      firstDate: now,
+      firstDate: calendarFirstDay(now, canEditPastDates: _canEditPastDates),
       lastDate: _calendarLastDay(now),
       helpText: 'Select new date',
     );
@@ -716,6 +787,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           ),
         );
         _loadRequests(); // Refresh the requests list
+        _reloadPastAttendance(); // Past edits change attendance immediately
       }
     } catch (e) {
       if (mounted) {
@@ -758,6 +830,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
     bool isAlreadyBooked(DateTime day) {
       final normalized = DateTime(day.year, day.month, day.day);
+      // Past days go by the actual attendance record, not the recurring
+      // schedule — that's what payment managers are correcting.
+      if (normalized.isBefore(today)) return _pastAttendance.contains(normalized);
       // Check if there's an approved cancellation for this date
       if (cancelledDates.contains(normalized)) return false;
       // Check if it's a regular daycare day
@@ -786,7 +861,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   SizedBox(
                     height: 350,
                     child: TableCalendar(
-                      firstDay: today,
+                      firstDay: calendarFirstDay(now,
+                          canEditPastDates: _canEditPastDates),
                       lastDay: _calendarLastDay(now),
                       focusedDay: focusedDay,
                       startingDayOfWeek: StartingDayOfWeek.monday,
@@ -912,6 +988,13 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 'These days will be added immediately.',
                 style: TextStyle(color: Colors.green[700], fontSize: 13),
               ),
+            if (widget.isStaff && sortedDates.any(_isPast)) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Past days are added to ${_dog.name}\'s attendance record and will be billed on the invoice.',
+                style: TextStyle(color: Colors.blue[700], fontSize: 13),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -966,6 +1049,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         );
       }
       _loadRequests();
+      _reloadPastAttendance(); // Past adds create attendance rows immediately
     }
   }
 
@@ -1696,15 +1780,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: DogScheduleCalendar(
-                          firstDay: _dateOnly(DateTime.now()),
+                          firstDay: calendarFirstDay(DateTime.now(),
+                              canEditPastDates: _canEditPastDates),
                           lastDay: calendarLastDay(DateTime.now(), isStaff: widget.isStaff),
-                          bookedDates: upcomingDates.toSet(),
+                          bookedDates: {...upcomingDates, ..._pastAttendance},
                           pendingAddDates: _pendingAddDates(),
                           pendingRemoveDates: _pendingRemoveDates(),
                           boardingDates: _boardingDates(BoardingRequestStatus.approved),
                           pendingBoardingDates: _boardingDates(BoardingRequestStatus.pending),
                           closures: _closureMap(),
                           isStaff: widget.isStaff,
+                          allowPastEdits: _canEditPastDates,
                           onBookedDayTap: _showDateChangeRequest,
                           onFreeDayTap: _onCalendarFreeDayTap,
                         ),
