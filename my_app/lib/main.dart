@@ -42,6 +42,10 @@ void main() async {
     if (_handlingUnauthorized) return;
     _handlingUnauthorized = true;
     try {
+      // A 401 with no stored token isn't an invalidated session — it's an
+      // anonymous call (e.g. while browsing the logged-out landing page).
+      // Don't hijack navigation to the login screen for those.
+      if (await AuthService().getToken() == null) return;
       await AuthService().logoutAll();
       navigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
