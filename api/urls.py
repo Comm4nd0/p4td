@@ -9,7 +9,7 @@ from .views import (
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
     InvoiceViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
-    delete_account, postcode_lookup, daycare_settings,
+    delete_account, postcode_lookup, daycare_settings, submit_contact_inquiry,
     xero_status, xero_connect, xero_callback, xero_disconnect,
     billing_settings, customer_rates,
     xero_contact_matches, xero_pin_contact, xero_contact_search,
@@ -58,4 +58,7 @@ urlpatterns = [
     path('password/change/', change_password, name='password-change'),
     path('account/delete/', delete_account, name='account-delete'),
     path('postcode/lookup/', postcode_lookup, name='postcode-lookup'),
+    # Outside the contact-inquiries/ router prefix so the DefaultRouter detail
+    # route can't shadow it.
+    path('public/contact-inquiry/', submit_contact_inquiry, name='public-contact-inquiry'),
 ]

@@ -809,6 +809,24 @@ class ContactInquirySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'name', 'email', 'service', 'service_display', 'message', 'created_at']
 
 
+class PublicContactInquirySerializer(serializers.ModelSerializer):
+    """Anonymous enquiries from the app's logged-out landing page. Unlike
+    ContactInquirySerializer (staff read/manage), the content fields are
+    writable; `website` is a honeypot mirroring the website contact form."""
+    website = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # The model field is an uncapped TextField; mirror the website form's limit.
+    message = serializers.CharField(max_length=2000)
+
+    class Meta:
+        from website.models import ContactInquiry
+        model = ContactInquiry
+        fields = ['name', 'email', 'service', 'message', 'website']
+
+    def create(self, validated_data):
+        validated_data.pop('website', None)
+        return super().create(validated_data)
+
+
 # Current Privacy Policy version users must accept at sign-up. Bump this when
 # the policy materially changes (matches the "Last updated" date on the page).
 PRIVACY_POLICY_VERSION = '2026-02-02'
