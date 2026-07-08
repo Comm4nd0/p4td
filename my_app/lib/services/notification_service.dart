@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'auth_service.dart';
 import 'data_service.dart';
 import '../screens/home_screen.dart';
 import '../main.dart';
@@ -111,6 +112,12 @@ class NotificationService {
 
   Future<void> updateToken() async {
     try {
+      // Registering the device token is an authenticated call, and login /
+      // account-switch re-register it anyway. Skipping while signed out
+      // avoids an anonymous 401 at startup, which the global 401 handler
+      // would treat as an expired session and bounce logged-out visitors
+      // off the landing page onto the login screen.
+      if (await AuthService().getToken() == null) return;
       String? apnsToken = await _fcm.getAPNSToken();
       if (apnsToken != null) {
         if (kDebugMode) {
