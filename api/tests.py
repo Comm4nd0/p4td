@@ -7613,3 +7613,85 @@ class XeroContactApiModuleTests(TestCase):
         result = xero.search_contacts('oli')
         self.assertEqual(result[0]['ContactID'], 'c-1')
         self.assertEqual(mock_api.call_args.kwargs['params']['searchTerm'], 'oli')
+
+
+class PublicContactInquiryTests(TestCase):
+    """Anonymous enquiry endpoint behind the app's logged-out landing page:
+    open to AllowAny, honeypot drops spam silently, throttled 5/hour/IP, and a
+    real submission reaches staff by email and push."""
+
+    URL = '/api/public/contact-inquiry/'
+    PAYLOAD = {
+        'name': 'Jane Prospect',
+        'email': 'jane@example.com',
+        'service': 'daycare',
+        'message': 'Do you have space for a spaniel on Tuesdays?',
+    }
+
+    def setUp(self):
+        from django.core.cache import cache
+        # The anon throttle cache survives between tests in-process.
+        cache.clear()
+        self.client = APIClient()
+
+    def _post(self, **overrides):
+        return self.client.post(self.URL, {**self.PAYLOAD, **overrides}, format='json')
+
+    def test_anonymous_submit_creates_inquiry(self):
+        from website.models import ContactInquiry
+        resp = self._post()
+        self.assertEqual(resp.status_code, 201)
+        inquiry = ContactInquiry.objects.get()
+        self.assertEqual(inquiry.name, 'Jane Prospect')
+        self.assertEqual(inquiry.email, 'jane@example.com')
+        self.assertEqual(inquiry.service, 'daycare')
+        self.assertFalse(inquiry.is_read)
+
+    def test_submit_sends_notification_email(self):
+        from django.core import mail
+        self._post()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Daycare', mail.outbox[0].subject)
+        self.assertEqual(mail.outbox[0].reply_to, ['jane@example.com'])
+
+    def test_missing_fields_rejected(self):
+        from website.models import ContactInquiry
+        for field in ('name', 'email', 'service', 'message'):
+            data = {**self.PAYLOAD}
+            data.pop(field)
+            resp = self.client.post(self.URL, data, format='json')
+            self.assertEqual(resp.status_code, 400, f'missing {field} should 400')
+        self.assertEqual(ContactInquiry.objects.count(), 0)
+
+    def test_invalid_email_rejected(self):
+        self.assertEqual(self._post(email='not-an-email').status_code, 400)
+
+    def test_invalid_service_rejected(self):
+        self.assertEqual(self._post(service='grooming').status_code, 400)
+
+    def test_message_too_long_rejected(self):
+        self.assertEqual(self._post(message='x' * 2001).status_code, 400)
+
+    def test_honeypot_looks_successful_but_saves_nothing(self):
+        from django.core import mail
+        from website.models import ContactInquiry
+        resp = self._post(website='http://spam.example.com')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(ContactInquiry.objects.count(), 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_throttled_after_five_submissions(self):
+        for _ in range(5):
+            self.assertEqual(self._post().status_code, 201)
+        self.assertEqual(self._post().status_code, 429)
+
+    def test_staff_push_only_to_flagged_staff(self):
+        flagged = User.objects.create_user(username='inbox', password='pw', is_staff=True)
+        flagged.profile.can_view_inquiries = True
+        flagged.profile.save()
+        unflagged = User.objects.create_user(username='other', password='pw', is_staff=True)
+        with patch('api.notifications.send_push_notification') as mock_push:
+            self._post()
+        notified = [call.args[0] for call in mock_push.call_args_list]
+        self.assertIn(flagged, notified)
+        self.assertNotIn(unflagged, notified)

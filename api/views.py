@@ -4,12 +4,12 @@ from rest_framework.decorators import action, api_view, permission_classes as pe
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny, BasePermission, SAFE_METHODS
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth.models import User
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMessage
 from django.conf import settings
 from django.db.models import Prefetch
 from .pagination import FeedPagination, OptInPagination
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
 from website.models import ContactInquiry
 
 # Dog fields an owner may propose to change via a profile-change request. Used
@@ -3865,6 +3865,55 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
             return Response({'count': 0})
         count = ContactInquiry.objects.filter(is_read=False).count()
         return Response({'count': count})
+
+
+class ContactInquiryCreateThrottle(AnonRateThrottle):
+    """Limits anonymous enquiry submissions per client IP (rate set in
+    DEFAULT_THROTTLE_RATES)."""
+    scope = 'contact_inquiry'
+
+
+@api_view(['POST'])
+@throttle_classes([ContactInquiryCreateThrottle])
+@perm_classes([AllowAny])
+def submit_contact_inquiry(request):
+    """Public enquiry form on the app's logged-out landing page.
+
+    Mirrors the website contact form (website/views.py): a tripped honeypot
+    looks successful but saves nothing, and a real submission reaches staff
+    the same two ways — the notification email below and the push sent by the
+    ContactInquiry post_save signal."""
+    serializer = PublicContactInquirySerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    if (serializer.validated_data.get('website') or '').strip():
+        return Response(
+            {'detail': 'Thank you! Your message has been received.'},
+            status=drf_status.HTTP_201_CREATED,
+        )
+
+    inquiry = serializer.save()
+    recipient = getattr(settings, 'CONTACT_INQUIRY_EMAIL', settings.DEFAULT_FROM_EMAIL)
+    try:
+        EmailMessage(
+            subject=f'New Contact Inquiry: {inquiry.get_service_display()}',
+            body=(
+                f'Name: {inquiry.name}\n'
+                f'Email: {inquiry.email}\n'
+                f'Service: {inquiry.get_service_display()}\n\n'
+                f'Message:\n{inquiry.message}'
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[recipient],
+            reply_to=[inquiry.email],
+        ).send(fail_silently=True)
+    except Exception:
+        pass
+
+    return Response(
+        {'detail': 'Thank you! Your message has been received.'},
+        status=drf_status.HTTP_201_CREATED,
+    )
 
 
 class IsStaffReadOrVehicleManager(BasePermission):

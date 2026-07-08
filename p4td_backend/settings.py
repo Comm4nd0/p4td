@@ -230,6 +230,8 @@ REST_FRAMEWORK = {
         'anon': '60/min',
         'password_reset': '5/hour',
         'password_reset_confirm': '10/hour',
+        # Same rate as the website contact form (website/views.py).
+        'contact_inquiry': '5/hour',
     },
     # One reverse proxy (Caddy) in front of gunicorn — throttle the real
     # client IP from X-Forwarded-For, not the proxy's.

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+import '../constants/business_info.dart';
+import '../widgets/service_detail_sheet.dart';
+import 'enquiry_screen.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 
@@ -29,6 +33,9 @@ class LandingScreen extends StatelessWidget {
 
               // ── App features ──────────────────────────────────────
               _buildAppFeaturesSection(context, isDark),
+
+              // ── Contact ───────────────────────────────────────────
+              _buildContactSection(context, isDark),
 
               // ── CTA section ───────────────────────────────────────
               _buildCtaSection(context, isDark),
@@ -157,6 +164,7 @@ class LandingScreen extends StatelessWidget {
                   title: 'Day Care',
                   description: 'Supervised group play across 10 secure, licensed acres',
                   isDark: isDark,
+                  onTap: () => ServiceDetailSheet.show(context, ServiceDetail.dayCare),
                 ),
               ),
               const SizedBox(width: 12),
@@ -166,6 +174,7 @@ class LandingScreen extends StatelessWidget {
                   title: 'Training',
                   description: '1-to-1 sessions using positive reinforcement methods',
                   isDark: isDark,
+                  onTap: () => ServiceDetailSheet.show(context, ServiceDetail.training),
                 ),
               ),
             ],
@@ -179,6 +188,7 @@ class LandingScreen extends StatelessWidget {
                   title: 'Puppy Classes',
                   description: 'Foundation training and socialisation for puppies',
                   isDark: isDark,
+                  onTap: () => ServiceDetailSheet.show(context, ServiceDetail.puppyClasses),
                 ),
               ),
               const SizedBox(width: 12),
@@ -186,8 +196,9 @@ class LandingScreen extends StatelessWidget {
                 child: _ServiceCard(
                   icon: PiconsDuotone.park,
                   title: 'Field Hire',
-                  description: 'Private hire of our secure 10-acre enclosed field',
+                  description: 'Private hire of our secure 5-acre enclosed field',
                   isDark: isDark,
+                  onTap: () => ServiceDetailSheet.show(context, ServiceDetail.fieldHire),
                 ),
               ),
             ],
@@ -296,6 +307,80 @@ class LandingScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildContactSection(BuildContext context, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.darkSurfaceVariant
+            : AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? AppColors.primaryLight.withValues(alpha: 0.2)
+              : AppColors.primary.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Get in Touch',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? AppColors.cream : AppColors.primaryDark,
+                ),
+          ),
+          const SizedBox(height: 16),
+          _TrustRow(
+            icon: PiconsDuotone.phone,
+            title: BusinessInfo.phoneDisplay,
+            description: 'Tap to call · ${BusinessInfo.hours}',
+            isDark: isDark,
+            onTap: () => launchUrl(Uri(scheme: 'tel', path: BusinessInfo.phone)),
+          ),
+          const SizedBox(height: 14),
+          _TrustRow(
+            icon: PiconsDuotone.mapPin,
+            title: BusinessInfo.serviceArea,
+            description: BusinessInfo.serviceAreaDetail,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 14),
+          _TrustRow(
+            icon: PiconsDuotone.facebookLogo,
+            title: 'Find us on Facebook',
+            description: 'Photos, news and updates from the fields',
+            isDark: isDark,
+            onTap: () => launchUrl(
+              Uri.parse(BusinessInfo.facebookUrl),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const EnquiryScreen()),
+              ),
+              icon: const Picon(PiconsDuotone.chatCircle, size: 20),
+              label: const Text('Send Us a Message'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                textStyle:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCtaSection(BuildContext context, bool isDark) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -371,55 +456,72 @@ class _ServiceCard extends StatelessWidget {
   final String title;
   final String description;
   final bool isDark;
+  final VoidCallback onTap;
 
   const _ServiceCard({
     required this.icon,
     required this.title,
     required this.description,
     required this.isDark,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.surface,
+    return Material(
+      color: isDark ? AppColors.darkSurface : AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isDark ? AppColors.darkSurfaceVariant : AppColors.grey300,
-        ),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? AppColors.primaryLight.withValues(alpha: 0.15)
-                  : AppColors.primary.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark ? AppColors.darkSurfaceVariant : AppColors.grey300,
             ),
-            child: Picon(icon, size: 28, color: AppColors.primaryLight),
           ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.primaryLight.withValues(alpha: 0.15)
+                      : AppColors.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
                 ),
-            textAlign: TextAlign.center,
+                child: Picon(icon, size: 28, color: AppColors.primaryLight),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isDark ? AppColors.grey400 : AppColors.grey600,
+                      height: 1.3,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Learn more ›',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.primaryLight,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            description,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isDark ? AppColors.grey400 : AppColors.grey600,
-                  height: 1.3,
-                ),
-            textAlign: TextAlign.center,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -430,17 +532,19 @@ class _TrustRow extends StatelessWidget {
   final String title;
   final String description;
   final bool isDark;
+  final VoidCallback? onTap;
 
   const _TrustRow({
     required this.icon,
     required this.title,
     required this.description,
     required this.isDark,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
@@ -476,6 +580,12 @@ class _TrustRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+    if (onTap == null) return row;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: row,
     );
   }
 }
