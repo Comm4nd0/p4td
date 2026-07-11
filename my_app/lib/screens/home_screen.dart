@@ -12,6 +12,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
+import '../services/offline_prefetch_service.dart';
 import '../widgets/grouped_section.dart';
 import '../widgets/no_connection_widget.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -103,8 +104,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _isOffline) {
-      _refresh();
+    if (state == AppLifecycleState.resumed) {
+      if (_isOffline) _refresh();
+      // Re-warm the offline caches on foreground (throttled inside the
+      // service), e.g. a staff member checking the app before setting off.
+      if (_isStaff) getIt<OfflinePrefetchService>().prefetchForToday();
     }
   }
 
@@ -121,8 +125,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     // Only show loading spinner on initial load, not on refresh
     final isInitialLoad = _allDogs.isEmpty;
+
+    // Seed from the offline cache so the list renders instantly instead of
+    // spinning while a (possibly doomed) network request runs; the fresh
+    // result below replaces it when it arrives.
+    if (isInitialLoad) {
+      final cached = _dataService.cachedDogs();
+      if (cached != null && mounted) {
+        final dogs = cached.data
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        setState(() {
+          _allDogs = dogs;
+          _filteredDogs = _applyFilter(_searchController.text);
+        });
+      }
+    }
+
     setState(() {
-      if (isInitialLoad) _loadingDogs = true;
+      if (isInitialLoad && _allDogs.isEmpty) _loadingDogs = true;
       _isOffline = false;
     });
 
@@ -215,6 +235,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (widget.initialRoute == null && _currentIndex == 1) {
             setState(() => _currentIndex = 2);
           }
+          // Warm the offline caches (route + dog photos) while on WiFi, so
+          // the app keeps working through signal dead zones mid-route.
+          getIt<OfflinePrefetchService>().prefetchForToday();
           await _loadPendingRequestCount();
           await _notificationService.subscribeToTopic('staff_notifications');
         } else {
@@ -230,7 +253,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (mounted) {
         if (NoConnectionException.isNetworkError(e)) {
-          setState(() => _isOffline = true);
+          // Only block the app when there's nothing cached to show; a cold
+          // profile cache alone mustn't blank out a cached dogs list.
+          if (_allDogs.isEmpty) setState(() => _isOffline = true);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Failed to check staff status: $e'), backgroundColor: AppColors.error),
@@ -523,7 +548,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
         ),
       ),
-      body: _isOffline
+      // Full-screen offline block only when there is truly nothing to show —
+      // with a warm cache the app keeps working offline (saved data).
+      body: _isOffline && _allDogs.isEmpty
           ? NoConnectionWidget(onRetry: _refresh)
           : _currentIndex == 0
               ? _buildDogsView()

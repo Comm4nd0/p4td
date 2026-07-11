@@ -67,8 +67,11 @@ Future<http.Response> _log(
   }
 }
 
-Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
-    _log('GET', url, () => http.get(url, headers: headers));
+/// [timeout] lets read paths that have a cache fallback give up early instead
+/// of holding the UI on the full default timeout.
+Future<http.Response> get(Uri url,
+        {Map<String, String>? headers, Duration timeout = _defaultTimeout}) =>
+    _log('GET', url, () => http.get(url, headers: headers), timeout: timeout);
 
 Future<http.Response> post(Uri url,
         {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
@@ -90,8 +93,9 @@ Future<http.Response> delete(Uri url,
     _log('DELETE', url,
         () => http.delete(url, headers: headers, body: body, encoding: encoding));
 
-Future<http.Response> head(Uri url, {Map<String, String>? headers}) =>
-    _log('HEAD', url, () => http.head(url, headers: headers));
+Future<http.Response> head(Uri url,
+        {Map<String, String>? headers, Duration timeout = _defaultTimeout}) =>
+    _log('HEAD', url, () => http.head(url, headers: headers), timeout: timeout);
 
 /// A [http.MultipartRequest] that reports how many body bytes have been
 /// handed to the HTTP client. The socket applies backpressure, so this tracks

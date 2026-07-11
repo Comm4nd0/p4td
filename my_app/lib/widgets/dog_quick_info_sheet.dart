@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
+import '../services/connectivity_status.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 
@@ -394,9 +395,17 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
       ];
     }
     if (_loadFailed) {
+      // getDogById already falls back to the offline cache, so reaching this
+      // offline means the dog was never synced to this device.
+      final online = ConnectivityStatus().isOnline.value;
       return [
         _sectionLabel(context, 'Care'),
-        _infoRow(context, PiconsDuotone.warningCircle, "Couldn't load full details",
+        _infoRow(
+            context,
+            PiconsDuotone.warningCircle,
+            online
+                ? "Couldn't load full details"
+                : 'Offline — full details not saved on this device yet',
             color: AppColors.warning),
       ];
     }

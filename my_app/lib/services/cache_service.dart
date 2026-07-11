@@ -3,15 +3,24 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+/// A cached value together with when it was stored, for "saved HH:mm"
+/// staleness indicators. [cachedAt] is null only for entries written before
+/// timestamps existed.
+typedef CachedEntry<T> = ({T data, DateTime? cachedAt});
+
 /// Lightweight local cache using Hive for stale-while-revalidate patterns.
 ///
 /// Cached data types (safe to cache):
 ///   - dogs list (core, rarely changes)
 ///   - user profile (permissions, preferences)
 ///   - feed posts (last 20 for quick viewing)
+///   - daily assignments per date (staff need their route offline; the UI
+///     shows a "saved data" indicator so staleness is visible)
 ///
 /// NOT cached (stale data is dangerous):
 ///   - requests, queries, inquiries (status changes matter)
+///   - unassigned dogs and compatibility conflicts (stale data would invite
+///     double-assignment)
 class CacheService {
   static final CacheService _instance = CacheService._internal();
   factory CacheService() => _instance;
@@ -19,8 +28,11 @@ class CacheService {
 
   static const _boxName = 'p4td_cache';
   static const _feedKey = 'feed';
-  static const _dogsKey = 'dogs';
-  static const _profileKey = 'profile';
+  // dogs/profile moved to a timestamped envelope format; the key rename is the
+  // migration (old un-enveloped keys are deleted in [init]).
+  static const _dogsKey = 'dogs_v2';
+  static const _profileKey = 'profile_v2';
+  static const _legacyKeys = ['dogs', 'profile'];
 
   Box? _box;
   bool _isInitialized = false;
@@ -44,6 +56,9 @@ class CacheService {
       // recreate it encrypted — the data is re-fetched from the network.
       await Hive.deleteBoxFromDisk(_boxName);
       _box = await Hive.openBox(_boxName, encryptionCipher: cipher);
+    }
+    for (final key in _legacyKeys) {
+      await _box!.delete(key);
     }
     _isInitialized = true;
   }
@@ -85,28 +100,93 @@ class CacheService {
     return jsonDecode(raw as String);
   }
 
+  /// Store [value] wrapped in a `{'v': ..., 't': <iso8601>}` envelope so reads
+  /// can report when the data was cached.
+  Future<void> _putEntry(String key, dynamic value) =>
+      _put(key, {'v': value, 't': DateTime.now().toIso8601String()});
+
+  /// Read an envelope written by [_putEntry]. Returns null on a cache miss.
+  CachedEntry<dynamic>? _getEntry(String key) {
+    final raw = _get(key);
+    if (raw == null) return null;
+    final map = raw as Map;
+    return (
+      data: map['v'],
+      cachedAt: DateTime.tryParse(map['t'] as String? ?? ''),
+    );
+  }
+
   // ── Dogs ────────────────────────────────────────────────────────
 
   /// Cache the dogs list as JSON.
   Future<void> cacheDogs(List<Map<String, dynamic>> dogsJson) =>
-      _put(_dogsKey, dogsJson);
+      _putEntry(_dogsKey, dogsJson);
 
   /// Retrieve cached dogs JSON list, or null if no cache.
-  List<Map<String, dynamic>>? getCachedDogs() {
-    final data = _get(_dogsKey);
-    if (data == null) return null;
-    return (data as List).cast<Map<String, dynamic>>();
+  List<Map<String, dynamic>>? getCachedDogs() => getCachedDogsEntry()?.data;
+
+  /// Cached dogs with the time they were stored, or null if no cache.
+  CachedEntry<List<Map<String, dynamic>>>? getCachedDogsEntry() {
+    final entry = _getEntry(_dogsKey);
+    if (entry == null) return null;
+    return (
+      data: (entry.data as List).cast<Map<String, dynamic>>(),
+      cachedAt: entry.cachedAt,
+    );
   }
 
   // ── Profile ─────────────────────────────────────────────────────
 
   Future<void> cacheProfile(Map<String, dynamic> profileJson) =>
-      _put(_profileKey, profileJson);
+      _putEntry(_profileKey, profileJson);
 
-  Map<String, dynamic>? getCachedProfile() {
-    final data = _get(_profileKey);
-    if (data == null) return null;
-    return Map<String, dynamic>.from(data as Map);
+  Map<String, dynamic>? getCachedProfile() => getCachedProfileEntry()?.data;
+
+  /// Cached profile with the time it was stored, or null if no cache.
+  CachedEntry<Map<String, dynamic>>? getCachedProfileEntry() {
+    final entry = _getEntry(_profileKey);
+    if (entry == null) return null;
+    return (
+      data: Map<String, dynamic>.from(entry.data as Map),
+      cachedAt: entry.cachedAt,
+    );
+  }
+
+  // ── Daily assignments ───────────────────────────────────────────
+
+  static const _assignmentsPrefix = 'assignments_';
+
+  String _assignmentsKey(DateTime date) {
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$_assignmentsPrefix${date.year}-$m-$d';
+  }
+
+  /// Cache one day's assignments as raw JSON, keyed per date so staff can view
+  /// their route offline. Prunes entries dated more than 2 days in the past —
+  /// the offline use case is today ± 1; history is reviewed online.
+  Future<void> cacheAssignments(
+      DateTime date, List<Map<String, dynamic>> assignmentsJson) async {
+    if (_box == null) return;
+    await _putEntry(_assignmentsKey(date), assignmentsJson);
+    final cutoff = _assignmentsKey(DateTime.now().subtract(const Duration(days: 2)));
+    final stale = _box!.keys
+        .whereType<String>()
+        .where((k) => k.startsWith(_assignmentsPrefix) && k.compareTo(cutoff) < 0)
+        .toList();
+    for (final key in stale) {
+      await _box!.delete(key);
+    }
+  }
+
+  /// Cached assignments for [date] with when they were stored, or null if none.
+  CachedEntry<List<Map<String, dynamic>>>? getCachedAssignments(DateTime date) {
+    final entry = _getEntry(_assignmentsKey(date));
+    if (entry == null) return null;
+    return (
+      data: (entry.data as List).cast<Map<String, dynamic>>(),
+      cachedAt: entry.cachedAt,
+    );
   }
 
   // ── Feed ────────────────────────────────────────────────────────
@@ -171,6 +251,21 @@ class CacheService {
     final data = _get(_recentReactionsKey);
     if (data == null) return [];
     return (data as List).cast<String>();
+  }
+
+  // ── Offline prefetch bookkeeping ────────────────────────────────
+
+  static const _lastPrefetchKey = 'last_prefetch_at';
+
+  /// Record that an offline prefetch completed successfully just now.
+  Future<void> recordPrefetchCompleted() =>
+      _put(_lastPrefetchKey, DateTime.now().toIso8601String());
+
+  /// When the last successful offline prefetch ran, or null if never.
+  DateTime? getLastPrefetchAt() {
+    final raw = _get(_lastPrefetchKey);
+    if (raw == null) return null;
+    return DateTime.tryParse(raw as String);
   }
 
   // ── Utilities ───────────────────────────────────────────────────

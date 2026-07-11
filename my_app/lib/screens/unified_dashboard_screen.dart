@@ -8,6 +8,7 @@ import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart';
+import '../services/connectivity_status.dart';
 import '../services/data_service.dart';
 import '../services/media_upload_flow.dart';
 import '../services/service_locator.dart';
@@ -127,6 +128,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadDay(_selectedDate);
     _loadClosureDays();
     _counts.refresh();
+    // Refresh automatically when signal returns mid-route, so stale
+    // cache-served data clears without a manual pull.
+    ConnectivityStatus().isOnline.addListener(_onConnectivityChanged);
     // Today now sits mid-strip (past weekdays precede it), so scroll it into
     // view once the list is laid out.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -137,10 +141,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   @override
   void dispose() {
+    ConnectivityStatus().isOnline.removeListener(_onConnectivityChanged);
     _counts.removeListener(_onCountsChanged);
     _counts.dispose();
     _dateScrollController.dispose();
     super.dispose();
+  }
+
+  void _onConnectivityChanged() {
+    if (ConnectivityStatus().isOnline.value && mounted) {
+      _loadDay(_selectedDate, force: true);
+    }
   }
 
   /// Rebuild when any action-item count changes. Guards on [mounted] so a late
@@ -294,18 +305,41 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (!force && existing != null && existing.loaded) return;
 
     final closure = _closureDays[key];
+
+    // Seed from the offline cache so the day renders in one frame instead of
+    // showing a skeleton while a (possibly doomed) network request runs. The
+    // network result below replaces the seed when it arrives.
+    var seed = existing ?? const DayData();
+    if (!seed.loaded && seed.assignments.isEmpty) {
+      final cached = _dataService.cachedTodayAssignments(date);
+      if (cached != null) {
+        seed = seed.copyWith(
+            assignments: cached.data, cachedAt: cached.cachedAt, loaded: true);
+      }
+    }
     setState(() {
-      _dayCache[key] = (existing ?? const DayData())
-          .copyWith(loading: true, clearError: true, closure: closure, clearClosure: closure == null);
+      _dayCache[key] = seed.copyWith(
+          loading: true, clearError: true, closure: closure, clearClosure: closure == null);
     });
 
     // Assignments — drives the loading/error state shown by the day view.
     try {
       final assignments = await _dataService.getTodayAssignments(date: date);
       if (mounted) {
+        // getTodayAssignments falls back to the saved copy offline instead of
+        // throwing, so a "success" while offline is cached data — keep its
+        // saved-at marker so the staleness banner stays honest.
+        final online = ConnectivityStatus().isOnline.value;
+        final cachedAt =
+            online ? null : _dataService.cachedTodayAssignments(date)?.cachedAt;
         setState(() {
-          _dayCache[key] = _dayData(date)
-              .copyWith(assignments: assignments, loading: false, loaded: true, clearError: true);
+          _dayCache[key] = _dayData(date).copyWith(
+              assignments: assignments,
+              loading: false,
+              loaded: true,
+              clearError: true,
+              cachedAt: cachedAt,
+              clearCachedAt: online);
         });
       }
     } catch (e) {
@@ -313,7 +347,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         setState(() {
           _dayCache[key] = _dayData(date).copyWith(loading: false, loaded: true, error: e);
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load assignments: $e')));
+        // With cache-seeded data on screen the day is still usable — the
+        // offline banner communicates the situation without a snackbar.
+        if (_dayData(date).assignments.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load assignments: $e')));
+        }
       }
     }
 
@@ -1008,6 +1046,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         : Column(
                             key: ValueKey(dateKey),
                             children: [
+                              _buildSavedDataBanner(day),
                               _buildUnassignedBanner(_selectedDate),
                               _buildCompatibilityWarning(_selectedDate),
                               _buildOverviewMetrics(assignments),
@@ -1030,6 +1069,43 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Amber "saved data" row shown when the day is rendered from the offline
+  /// cache, so staff can't mistake a stale route for a live one. Only shown
+  /// while offline — reconnecting triggers a refresh that clears [DayData.cachedAt].
+  Widget _buildSavedDataBanner(DayData day) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: ConnectivityStatus().isOnline,
+      builder: (context, online, _) {
+        final cachedAt = day.cachedAt;
+        if (online || cachedAt == null) return const SizedBox.shrink();
+        final when = _isSameDay(cachedAt, DateTime.now())
+            ? DateFormat('HH:mm').format(cachedAt)
+            : DateFormat('EEE HH:mm').format(cachedAt);
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.amber.shade200),
+          ),
+          child: Row(children: [
+            Picon(PiconsDuotone.warning, size: 18, color: Colors.amber[800]),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Saved data from $when — pull down to refresh',
+                style: TextStyle(
+                    color: Colors.amber[900], fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ]),
+        );
+      },
     );
   }
 
@@ -1727,6 +1803,10 @@ class DayData {
   /// check that gated the skeleton loader.
   final bool loaded;
 
+  /// When the assignments were saved to the offline cache, or null when they
+  /// came fresh from the network. Drives the "saved data" staleness banner.
+  final DateTime? cachedAt;
+
   const DayData({
     this.assignments = const [],
     this.unassignedDogs = const [],
@@ -1735,6 +1815,7 @@ class DayData {
     this.loading = false,
     this.error,
     this.loaded = false,
+    this.cachedAt,
   });
 
   DayData copyWith({
@@ -1747,6 +1828,8 @@ class DayData {
     Object? error,
     bool clearError = false,
     bool? loaded,
+    DateTime? cachedAt,
+    bool clearCachedAt = false,
   }) {
     return DayData(
       assignments: assignments ?? this.assignments,
@@ -1756,6 +1839,7 @@ class DayData {
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),
       loaded: loaded ?? this.loaded,
+      cachedAt: clearCachedAt ? null : (cachedAt ?? this.cachedAt),
     );
   }
 }

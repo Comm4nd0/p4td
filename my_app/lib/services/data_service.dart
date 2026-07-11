@@ -33,6 +33,7 @@ import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
+import 'no_connection_exception.dart';
 
 part 'data_service_exceptions.dart';
 part 'data_service_interface.dart';
@@ -97,6 +98,11 @@ class ApiDataService implements DataService {
 
   final _authService = AuthService();
 
+  /// Timeout for read GETs. Shorter than the 30s wrapper default so screens
+  /// with a cache fallback stop waiting on a dead rural connection quickly —
+  /// the perceived "hang" before cached data appears is bounded by this.
+  static const _readTimeout = Duration(seconds: 10);
+
   Future<Map<String, String>> _getHeaders() async {
     final token = await _authService.getToken();
     // Don't send the literal "Token null" when logged out / cleared mid-flight —
@@ -129,7 +135,7 @@ class ApiDataService implements DataService {
       'page_size': '200',
     });
 
-    var response = await http.get(firstUrl, headers: headers);
+    var response = await http.get(firstUrl, headers: headers, timeout: _readTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load list: ${response.statusCode}');
     }
@@ -147,7 +153,7 @@ class ApiDataService implements DataService {
     aggregated.addAll(page['results'] as List<dynamic>);
     var next = page['next'];
     while (next != null) {
-      response = await http.get(Uri.parse(next as String), headers: headers);
+      response = await http.get(Uri.parse(next as String), headers: headers, timeout: _readTimeout);
       if (response.statusCode != 200) {
         throw Exception('Failed to load list page: ${response.statusCode}');
       }
@@ -227,15 +233,62 @@ class ApiDataService implements DataService {
 
   @override
   Future<Dog> getDogById(String dogId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/'),
-      headers: headers,
-    );
+    http.Response response;
+    try {
+      final headers = await _getHeaders();
+      response = await http.get(
+        Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/'),
+        headers: headers,
+        timeout: _readTimeout,
+      );
+    } catch (e) {
+      // Offline: serve the dog from the cached dogs list — the list and detail
+      // endpoints share a serializer, so the saved copy is complete.
+      if (NoConnectionException.isNetworkError(e)) {
+        final cached = cachedDogById(dogId);
+        if (cached != null) return cached.data;
+      }
+      rethrow;
+    }
     if (response.statusCode == 200) {
       return _parseDogsList([json.decode(response.body)]).first;
     }
+    if (response.statusCode != 404) {
+      // Server hiccup (e.g. 502 mid-deploy) — the saved copy still serves.
+      // A 404 means the dog was deleted; the cache must not resurrect it.
+      final cached = cachedDogById(dogId);
+      if (cached != null) return cached.data;
+    }
     throw Exception('Failed to load dog');
+  }
+
+  // ── Synchronous cache accessors (offline-first rendering) ───────
+
+  @override
+  CachedEntry<List<Dog>>? cachedDogs() {
+    final entry = CacheService().getCachedDogsEntry();
+    if (entry == null || entry.data.isEmpty) return null;
+    return (data: _parseDogsList(entry.data), cachedAt: entry.cachedAt);
+  }
+
+  @override
+  CachedEntry<Dog>? cachedDogById(String dogId) {
+    final entry = CacheService().getCachedDogsEntry();
+    if (entry == null) return null;
+    final match =
+        entry.data.where((j) => j['id'].toString() == dogId).toList();
+    if (match.isEmpty) return null;
+    return (data: _parseDogsList(match).first, cachedAt: entry.cachedAt);
+  }
+
+  @override
+  CachedEntry<List<DailyDogAssignment>>? cachedTodayAssignments(DateTime date) {
+    final entry = CacheService().getCachedAssignments(date);
+    if (entry == null) return null;
+    return (
+      data: entry.data.map((j) => DailyDogAssignment.fromJson(j)).toList(),
+      cachedAt: entry.cachedAt,
+    );
   }
 
   @override
@@ -243,7 +296,8 @@ class ApiDataService implements DataService {
     final cache = CacheService();
     try {
       final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/profile/'), headers: headers);
+      final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/profile/'),
+          headers: headers, timeout: _readTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -1496,16 +1550,31 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date}) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/today/${_dateParam(date)}'),
-      headers: headers,
-    );
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
-    } else {
-      throw Exception('Failed to load today assignments');
+    final cache = CacheService();
+    final effectiveDate = date ?? DateTime.now();
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse('${AuthService.baseUrl}/api/daily-assignments/today/${_dateParam(date)}'),
+        headers: headers,
+        timeout: _readTimeout,
+      );
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        // Cache the raw JSON so staff can view their route offline
+        cache.cacheAssignments(effectiveDate, data.cast<Map<String, dynamic>>());
+        return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+      } else {
+        throw Exception('Failed to load today assignments');
+      }
+    } catch (e) {
+      // On network error, try to return the saved copy — the dashboard shows a
+      // "saved data" indicator so staleness is visible.
+      final cached = cache.getCachedAssignments(effectiveDate);
+      if (cached != null) {
+        return cached.data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+      }
+      rethrow;
     }
   }
 

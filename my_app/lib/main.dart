@@ -4,6 +4,7 @@ import 'screens/home_screen.dart';
 import 'screens/landing_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/connectivity_status.dart';
 import 'services/http_client.dart' as http;
 import 'services/theme_service.dart';
 import 'services/cache_service.dart';
@@ -54,6 +55,15 @@ void main() async {
     } finally {
       _handlingUnauthorized = false;
     }
+  };
+
+  // While offline, periodically probe the server so the app flips back online
+  // (and refreshes stale cached screens) as soon as signal returns, rather
+  // than waiting for the user to trigger a request. Any response — even an
+  // error status — marks the server reachable via the http wrapper.
+  ConnectivityStatus().onProbe = () async {
+    await http.head(Uri.parse(AuthService.baseUrl),
+        timeout: const Duration(seconds: 5));
   };
 
   // Initialize local cache
