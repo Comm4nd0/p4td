@@ -83,7 +83,8 @@ void main() {
     });
 
     test('cachedTodayAssignments parses the saved day', () async {
-      final date = DateTime(2026, 7, 10);
+      // A recent date — older ones are pruned by cacheAssignments itself.
+      final date = DateTime.now();
       await CacheService().cacheAssignments(date, [assignmentJson]);
 
       final entry = ApiDataService().cachedTodayAssignments(date);
@@ -97,7 +98,7 @@ void main() {
 
   group('network fallbacks (HTTP blocked by the test binding)', () {
     test('getTodayAssignments falls back to the saved day', () async {
-      final date = DateTime(2026, 7, 10);
+      final date = DateTime.now();
       await CacheService().cacheAssignments(date, [assignmentJson]);
 
       final assignments =
@@ -107,7 +108,7 @@ void main() {
 
     test('getTodayAssignments rethrows on a cold cache', () async {
       expect(
-        () => ApiDataService().getTodayAssignments(date: DateTime(2026, 7, 10)),
+        () => ApiDataService().getTodayAssignments(date: DateTime.now()),
         throwsA(anything),
       );
     });
