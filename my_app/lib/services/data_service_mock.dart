@@ -29,6 +29,20 @@ class MockDataService implements DataService {
     return _dogs[index];
   }
 
+  @override
+  CachedEntry<List<Dog>>? cachedDogs() =>
+      (data: _dogs, cachedAt: DateTime.now());
+
+  @override
+  CachedEntry<Dog>? cachedDogById(String dogId) {
+    final index = _dogs.indexWhere((d) => d.id == dogId);
+    if (index == -1) return null;
+    return (data: _dogs[index], cachedAt: DateTime.now());
+  }
+
+  @override
+  CachedEntry<List<DailyDogAssignment>>? cachedTodayAssignments(DateTime date) =>
+      null;
 
   @override
   Future<UserProfile> getProfile() async {

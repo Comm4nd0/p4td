@@ -4,6 +4,7 @@ import 'auth_service.dart';
 import 'cache_service.dart';
 import 'data_service.dart';
 import 'notification_service.dart';
+import 'offline_prefetch_service.dart';
 import 'theme_service.dart';
 
 /// Global service locator.
@@ -24,4 +25,5 @@ void setupLocator() {
   getIt.registerLazySingleton<DataService>(() => ApiDataService());
   getIt.registerLazySingleton<ThemeService>(() => ThemeService());
   getIt.registerLazySingleton<NotificationService>(() => NotificationService());
+  getIt.registerLazySingleton<OfflinePrefetchService>(() => OfflinePrefetchService());
 }

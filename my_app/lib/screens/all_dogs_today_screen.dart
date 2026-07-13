@@ -289,7 +289,9 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     if (confirmed != true || !mounted) return;
 
     try {
-      await _dataService.unassignDog(assignment.id, scope: AssignmentScope.justThisDay);
+      // mark_removed, not unassign: REMOVED means "not coming this day", so
+      // the dog leaves the day entirely instead of surfacing as unassigned.
+      await _dataService.removeDogFromDay(assignment.dogId, widget.date);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${assignment.dogName} removed from $dateLabel'), backgroundColor: AppColors.success),

@@ -9,6 +9,13 @@ typedef PhotoBatchResult = ({List<Photo> uploaded, List<UploadFailure> failures}
 abstract class DataService {
   Future<List<Dog>> getDogs();
   Future<Dog> getDogById(String dogId);
+
+  /// Synchronous reads of the offline cache, for rendering instantly before a
+  /// network refresh completes. Null means cache miss. [CachedEntry.cachedAt]
+  /// drives "saved data from HH:mm" staleness indicators.
+  CachedEntry<List<Dog>>? cachedDogs();
+  CachedEntry<Dog>? cachedDogById(String dogId);
+  CachedEntry<List<DailyDogAssignment>>? cachedTodayAssignments(DateTime date);
   Future<List<Photo>> getPhotos(String dogId);
   Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt);
   Future<PhotoBatchResult> uploadMultiplePhotos(
