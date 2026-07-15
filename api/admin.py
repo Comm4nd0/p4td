@@ -326,19 +326,19 @@ class DateChangeRequestAdmin(admin.ModelAdmin):
         
         pending = queryset.filter(status='PENDING')
 
-        # Unassign-cancellations and the bulk approval run in one transaction so
+        # Roster side-effects and the bulk approval run in one transaction so
         # a mid-loop failure can't leave assignments deleted with the requests
-        # still PENDING (B41).
+        # still PENDING (B41). The shared helper mirrors the API approval
+        # paths: CANCEL/CHANGE free their original date, ADD_DAY/CHANGE clear
+        # any stale "removed from this day" marker on the new date so a dog
+        # added back onto a day it was removed from shows up again.
         from django.db import transaction
+        from .views import DateChangeRequestViewSet
         with transaction.atomic():
-            cancel_requests = pending.filter(request_type='CANCEL', original_date__isnull=False)
-            for req in cancel_requests:
-                DailyDogAssignment.objects.filter(
-                    dog=req.dog,
-                    date=req.original_date,
-                ).delete()
-
+            approved_ids = list(pending.values_list('id', flat=True))
             updated = pending.update(status='APPROVED', approved_by=request.user, approved_at=timezone.now())
+            for req in DateChangeRequest.objects.filter(id__in=approved_ids):
+                DateChangeRequestViewSet._apply_approved_schedule_change(req)
         self.message_user(request, f'{updated} request(s) approved.')
     approve_requests.short_description = 'Approve selected requests'
 

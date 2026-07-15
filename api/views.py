@@ -1106,12 +1106,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
 
         * CANCEL/CHANGE free the original date: the assignment there is removed
           and the waitlist is processed.
-        * CHANGE additionally *moves* the dog onto the new date. We deliberately
-          do not assign a driver here — the dog shows up in the unassigned list
-          for staff to pick a driver — but we must clear any stale REMOVED marker
+        * ADD_DAY/CHANGE put the dog onto the new date. We deliberately do not
+          assign a driver here — the dog shows up in the unassigned list for
+          staff to pick a driver — but we must clear any stale REMOVED marker
           on the new date. Without that, the dog is treated as "already cancelled
-          for this day" and would never surface anywhere (the move would silently
-          do nothing on the target day).
+          for this day" and would never surface anywhere (the approved addition
+          would silently do nothing on the target day).
 
         Past dates get special handling (payment managers may correct billing
         history): freeing a past date never processes the waitlist (nobody can
@@ -1138,10 +1138,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     print(f"Failed to process waitlist: {e}")
 
-        if instance.request_type == 'CHANGE' and instance.new_date:
-            # Clear a prior "removed from this day" marker so the move takes
+        if instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date:
+            # Clear a prior "removed from this day" marker so the addition takes
             # effect; the dog then surfaces in unassigned_dogs for the new date
-            # (an approved CHANGE counts as an added day there).
+            # (an approved ADD_DAY/CHANGE counts as an added day there). A dog
+            # staff removed from a day can therefore be put back on it by
+            # approving a new request for that same day.
             DailyDogAssignment.objects.filter(
                 dog=instance.dog, date=instance.new_date, status='REMOVED',
             ).delete()
@@ -1792,35 +1794,29 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def _cancelled_dog_ids_for_date(target_date, dog_ids=None):
         """Dog ids that should be REMOVED from the roster for ``target_date``.
 
-        A dog is cancelled for a date if it has an APPROVED CANCEL whose
-        original_date matches, OR an APPROVED CHANGE moving *away* from that
-        date (original_date matches) — a CHANGE is a cancel of the old date
-        plus an add of the new date.
+        A dog is cancelled for a date if its most recently approved request
+        for that date is a CANCEL whose original_date matches, or a CHANGE
+        moving *away* from that date — a CHANGE is a cancel of the old date
+        plus an add of the new date. A later approved ADD_DAY/CHANGE-to for
+        the same date supersedes the cancellation (the dog was added back).
         """
-        from django.db.models import Q
-        qs = DateChangeRequest.objects.filter(
-            status='APPROVED',
-            original_date=target_date,
-        ).filter(Q(request_type='CANCEL') | Q(request_type='CHANGE'))
-        if dog_ids is not None:
-            qs = qs.filter(dog_id__in=dog_ids)
-        return qs.values_list('dog_id', flat=True)
+        from .scheduling import effective_change_actions
+        _, cancels_by_date = effective_change_actions(
+            target_date, target_date, dog_ids=dog_ids,
+        )
+        return cancels_by_date.get(target_date, set())
 
     @staticmethod
     def _added_dogs_for_date(target_date):
         """Dogs that should be ADDED to the roster for ``target_date``.
 
-        Covers both APPROVED ADD_DAY requests (new_date matches) and APPROVED
-        CHANGE requests moving *to* that date (new_date matches).
+        Covers APPROVED ADD_DAY requests (new_date matches) and APPROVED
+        CHANGE requests moving *to* that date — unless a later approved
+        CANCEL/CHANGE-away for the same date supersedes the addition.
         """
-        from django.db.models import Q
-        return Dog.objects.filter(
-            date_change_requests__status='APPROVED',
-            date_change_requests__new_date=target_date,
-        ).filter(
-            Q(date_change_requests__request_type='ADD_DAY')
-            | Q(date_change_requests__request_type='CHANGE')
-        )
+        from .scheduling import effective_change_actions
+        adds_by_date, _ = effective_change_actions(target_date, target_date)
+        return Dog.objects.filter(id__in=adds_by_date.get(target_date, set()))
 
     def _materialize_roster_for_date(self, target_date):
         """Create any missing DailyDogAssignment rows for ``target_date`` from

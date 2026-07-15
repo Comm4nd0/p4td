@@ -7,9 +7,11 @@ DateChangeRequest _req({
   required RequestStatus status,
   DateTime? originalDate,
   DateTime? newDate,
+  String id = '1',
+  DateTime? createdAt,
 }) {
   return DateChangeRequest(
-    id: '1',
+    id: id,
     dogId: '1',
     dogName: 'Rex',
     ownerName: 'Owner',
@@ -18,7 +20,7 @@ DateChangeRequest _req({
     newDate: newDate,
     status: status,
     isCharged: false,
-    createdAt: DateTime(2026, 1, 1),
+    createdAt: createdAt ?? DateTime(2026, 1, 1),
   );
 }
 
@@ -188,6 +190,82 @@ void main() {
         staffRemovedDates: [DateTime(2026, 6, 22, 9, 30)],
       );
       expect(dates.contains(DateTime(2026, 6, 22)), isFalse);
+    });
+
+    test('a day cancelled and later added back is booked again', () {
+      // Approved CANCEL for Mon 22 Jun, then a later approved ADD_DAY for the
+      // same date: the re-add wins, the cancellation must not veto it.
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: {1},
+        requests: [
+          _req(
+            id: '1',
+            type: RequestType.cancel,
+            status: RequestStatus.approved,
+            originalDate: DateTime(2026, 6, 22),
+            createdAt: DateTime(2026, 6, 1),
+          ),
+          _req(
+            id: '2',
+            type: RequestType.addDay,
+            status: RequestStatus.approved,
+            newDate: DateTime(2026, 6, 22),
+            createdAt: DateTime(2026, 6, 2),
+          ),
+        ],
+      );
+      expect(dates.contains(DateTime(2026, 6, 22)), isTrue);
+    });
+
+    test('a day added and later cancelled stays cancelled', () {
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: const {},
+        requests: [
+          _req(
+            id: '1',
+            type: RequestType.addDay,
+            status: RequestStatus.approved,
+            newDate: DateTime(2026, 6, 19),
+            createdAt: DateTime(2026, 6, 1),
+          ),
+          _req(
+            id: '2',
+            type: RequestType.cancel,
+            status: RequestStatus.approved,
+            originalDate: DateTime(2026, 6, 19),
+            createdAt: DateTime(2026, 6, 2),
+          ),
+        ],
+      );
+      expect(dates.contains(DateTime(2026, 6, 19)), isFalse);
+    });
+
+    test('requests created at the same instant fall back to id order', () {
+      final sameMoment = DateTime(2026, 6, 1);
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: {1},
+        requests: [
+          _req(
+            id: '10',
+            type: RequestType.addDay,
+            status: RequestStatus.approved,
+            newDate: DateTime(2026, 6, 22),
+            createdAt: sameMoment,
+          ),
+          _req(
+            id: '9',
+            type: RequestType.cancel,
+            status: RequestStatus.approved,
+            originalDate: DateTime(2026, 6, 22),
+            createdAt: sameMoment,
+          ),
+        ],
+      );
+      // id 10 (the add) supersedes id 9 (the cancel).
+      expect(dates.contains(DateTime(2026, 6, 22)), isTrue);
     });
 
     test('added dates outside the window are excluded', () {

@@ -7,6 +7,19 @@ import '../models/date_change_request.dart';
 /// dragging in widget/networking state. They take all their inputs explicitly
 /// (including `now`) and never read the clock or touch any service.
 
+/// True when request [a] supersedes request [b]: created later, with the
+/// (numeric) id as a tie-break so two requests created in the same instant
+/// still order stably.
+bool requestSupersedes(DateChangeRequest a, DateChangeRequest b) {
+  if (!a.createdAt.isAtSameMomentAs(b.createdAt)) {
+    return a.createdAt.isAfter(b.createdAt);
+  }
+  final aId = int.tryParse(a.id);
+  final bId = int.tryParse(b.id);
+  if (aId != null && bId != null && aId != bId) return aId > bId;
+  return a.id.compareTo(b.id) > 0;
+}
+
 /// Compute the dog's upcoming booked daycare dates, from today up to (but not
 /// including) [monthsAhead] months from [now] (three by default).
 ///
@@ -16,9 +29,16 @@ import '../models/date_change_request.dart';
 ///  - additional days and the *new* date of a change add a date (only when it
 ///    falls within the [now, now + 3 months) window).
 ///
+/// When several requests touch the same date, the most recent one wins — a
+/// day can be cancelled and later added back (or added and then cancelled),
+/// so no single request permanently vetoes the date. This mirrors the
+/// server's roster projection.
+///
 /// [staffRemovedDates] are days staff have taken the dog off for the day
 /// (server-side REMOVED assignments with no matching cancellation request).
-/// They are dropped from the result so the profile matches the staff dashboard.
+/// They are dropped from the result so the profile matches the staff
+/// dashboard. The server deletes these markers when a later re-add is
+/// approved, so they always represent the latest word on their date.
 ///
 /// The returned list is normalised to midnight and sorted ascending.
 List<DateTime> upcomingDaycareDates({
@@ -34,28 +54,41 @@ List<DateTime> upcomingDaycareDates({
   DateTime norm(DateTime d) => DateTime(d.year, d.month, d.day);
   bool isActive(DateChangeRequest r) => r.status != RequestStatus.denied;
 
-  // Dates removed from the schedule: cancellations and the *original* date of
-  // a change (a change moves a day from its original date to its new date).
-  final removedDates = requests
-      .where((r) =>
-          isActive(r) &&
-          (r.requestType == RequestType.cancel ||
-              r.requestType == RequestType.change) &&
-          r.originalDate != null)
-      .map((r) => norm(r.originalDate!))
-      .toSet();
+  // For each date, keep only the latest active request touching it and
+  // whether that request adds or removes the day. A change acts on two
+  // dates: it removes its original date and adds its new date.
+  final latestByDate = <DateTime, ({DateChangeRequest request, bool isAdd})>{};
+  void consider(DateTime? raw, DateChangeRequest r, {required bool isAdd}) {
+    if (raw == null) return;
+    final day = norm(raw);
+    final current = latestByDate[day];
+    if (current == null || requestSupersedes(r, current.request)) {
+      latestByDate[day] = (request: r, isAdd: isAdd);
+    }
+  }
 
-  // Dates added to the schedule: additional days and the *new* date of a
-  // change. These may fall on non-recurring weekdays, so add them explicitly.
-  final addedDates = requests
-      .where((r) =>
-          isActive(r) &&
-          (r.requestType == RequestType.addDay ||
-              r.requestType == RequestType.change) &&
-          r.newDate != null)
-      .map((r) => norm(r.newDate!))
-      .where((d) => !d.isBefore(today) && d.isBefore(windowEnd))
-      .toSet();
+  for (final r in requests.where(isActive)) {
+    if (r.requestType == RequestType.cancel ||
+        r.requestType == RequestType.change) {
+      consider(r.originalDate, r, isAdd: false);
+    }
+    if (r.requestType == RequestType.addDay ||
+        r.requestType == RequestType.change) {
+      consider(r.newDate, r, isAdd: true);
+    }
+  }
+
+  final removedDates = <DateTime>{};
+  final addedDates = <DateTime>{};
+  latestByDate.forEach((day, entry) {
+    if (entry.isAdd) {
+      // Added dates may fall on non-recurring weekdays; only surface the
+      // ones inside the visible window.
+      if (!day.isBefore(today) && day.isBefore(windowEnd)) addedDates.add(day);
+    } else {
+      removedDates.add(day);
+    }
+  });
 
   final dates = <DateTime>{};
   var current = today;

@@ -541,6 +541,150 @@ class DateChangeMoveTests(TestCase):
         self._assert_in_unassigned(self.new)
 
 
+class DogReAddAfterRemovalTests(TestCase):
+    """A dog taken off a day (staff removal or approved cancellation) and then
+    added back via an approved request must show as attending again — the
+    latest approved action wins, nothing permanently vetoes the date."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.target = date.today() + timedelta(days=7)
+        self.weekday = self.target.isoweekday()
+        self.dog = Dog.objects.create(
+            owner=self.owner, name='Biscuit', daycare_days=[self.weekday],
+        )
+        self.client = APIClient()
+
+    def _calendar_dog_names(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(
+            f'/api/dogs/calendar/?start={self.target}&end={self.target}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        return [d['name'] for d in resp.data['days'][0]['dogs']]
+
+    def _assert_in_unassigned(self):
+        # The unassigned_dogs query uses a JSON `contains` lookup that SQLite
+        # (the test DB) doesn't support; only assert membership on Postgres.
+        from django.db import connection
+        if connection.vendor == 'sqlite':
+            return
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(
+            f'/api/daily-assignments/unassigned_dogs/?date={self.target.isoformat()}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.dog.id, [d['id'] for d in resp.data])
+
+    def test_approving_add_day_clears_stale_removal(self):
+        # Staff removed the dog from the day; the owner asks for it back and
+        # staff approve. The REMOVED marker must be cleared or the approved
+        # re-add silently does nothing.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.target, status='REMOVED'
+        )
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog.id,
+            'request_type': 'ADD_DAY',
+            'new_date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        req_id = resp.data['id']
+
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(
+            f'/api/date-change-requests/{req_id}/change_status/',
+            {'status': 'APPROVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(
+                dog=self.dog, date=self.target, status='REMOVED'
+            ).exists()
+        )
+        self.assertEqual(self._calendar_dog_names(), ['Biscuit'])
+        # The dog profile no longer lists the day as cancelled either.
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/')
+        self.assertNotIn(self.target.isoformat(), resp.data['cancelled_dates'])
+        self._assert_in_unassigned()
+
+    def test_staff_add_day_clears_stale_removal(self):
+        # Staff-created additions auto-approve in perform_create; that path
+        # must clear the marker too.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.target, status='REMOVED'
+        )
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog.id,
+            'request_type': 'ADD_DAY',
+            'new_date': self.target.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(
+                dog=self.dog, date=self.target, status='REMOVED'
+            ).exists()
+        )
+        self.assertEqual(self._calendar_dog_names(), ['Biscuit'])
+
+    def test_add_back_after_approved_cancellation(self):
+        # Day cancelled, then added back: the later approval wins, so the dog
+        # attends again even though the approved CANCEL row still exists.
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL',
+            original_date=self.target, status='APPROVED',
+        )
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY',
+            new_date=self.target, status='APPROVED',
+        )
+        self.assertEqual(self._calendar_dog_names(), ['Biscuit'])
+        self._assert_in_unassigned()
+
+    def test_cancel_after_add_still_cancels(self):
+        # The reverse order must keep working: an extra day that is later
+        # cancelled stays cancelled.
+        extra = self.target + timedelta(days=1)
+        ad_hoc = Dog.objects.create(owner=self.owner, name='Ziggy', schedule_type='ad_hoc')
+        DateChangeRequest.objects.create(
+            dog=ad_hoc, request_type='ADD_DAY',
+            new_date=extra, status='APPROVED',
+        )
+        DateChangeRequest.objects.create(
+            dog=ad_hoc, request_type='CANCEL',
+            original_date=extra, status='APPROVED',
+        )
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/dogs/calendar/?start={extra}&end={extra}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('Ziggy', [d['name'] for d in resp.data['days'][0]['dogs']])
+
+    def test_approval_order_beats_creation_order(self):
+        # A pending re-add created before the cancellation was approved still
+        # wins if its approval comes later — the roster reflects the latest
+        # approved decision.
+        add_req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY',
+            new_date=self.target, status='APPROVED',
+            approved_at=timezone.now(),
+        )
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL',
+            original_date=self.target, status='APPROVED',
+            approved_at=timezone.now() - timedelta(hours=1),
+        )
+        self.assertEqual(self._calendar_dog_names(), ['Biscuit'])
+        add_req.approved_at = timezone.now() - timedelta(hours=2)
+        add_req.save(update_fields=['approved_at'])
+        self.assertEqual(self._calendar_dog_names(), [])
+
+
 class DogCancelledDatesTests(TestCase):
     """The dog serializer surfaces upcoming staff-removed days so the profile can
     drop them from the recurring-schedule view (matching the dashboard)."""
@@ -3400,6 +3544,79 @@ class AdminNullOwnerTests(TestCase):
     def test_date_change_changelist_ok_with_null_owner(self):
         resp = self.client.get('/admin/api/datechangerequest/')
         self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(STORAGES={
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+})
+class AdminApproveRequestsTests(TestCase):
+    """The admin bulk-approve action must apply the same roster side-effects
+    as the API approval paths: cancellations free their day, additions clear
+    a stale "removed from this day" marker so the dog shows up again."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(username='admin', password='pw')
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.target = date.today() + timedelta(days=7)
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def _approve(self, req):
+        resp = self.client.post('/admin/api/datechangerequest/', {
+            'action': 'approve_requests',
+            '_selected_action': [str(req.id)],
+        })
+        self.assertEqual(resp.status_code, 302)
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'APPROVED')
+
+    def test_bulk_approve_add_day_clears_stale_removal(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.admin, date=self.target, status='REMOVED'
+        )
+        req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=self.target,
+        )
+        self._approve(req)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(
+                dog=self.dog, date=self.target, status='REMOVED'
+            ).exists()
+        )
+
+    def test_bulk_approve_cancel_frees_the_day(self):
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.admin, date=self.target, status='ASSIGNED'
+        )
+        req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL', original_date=self.target,
+        )
+        self._approve(req)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.target).exists()
+        )
+
+    def test_bulk_approve_change_moves_the_day(self):
+        new_date = self.target + timedelta(days=1)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.admin, date=self.target, status='ASSIGNED'
+        )
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.admin, date=new_date, status='REMOVED'
+        )
+        req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CHANGE',
+            original_date=self.target, new_date=new_date,
+        )
+        self._approve(req)
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=self.target).exists()
+        )
+        self.assertFalse(
+            DailyDogAssignment.objects.filter(dog=self.dog, date=new_date).exists()
+        )
 
 
 class DogAssignOwnerTests(TestCase):

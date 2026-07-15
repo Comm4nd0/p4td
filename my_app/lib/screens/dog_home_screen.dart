@@ -810,36 +810,48 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     // Build set of dates the dog is already booked for
     final bookedWeekdays = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
 
-    // Dates with existing pending/approved ADD_DAY requests
-    final pendingAddDayDates = _requests
-        .where((r) =>
-            r.requestType == RequestType.addDay &&
-            r.status != RequestStatus.denied &&
-            r.newDate != null)
-        .map((r) => DateTime(r.newDate!.year, r.newDate!.month, r.newDate!.day))
-        .toSet();
-
-    // Dates with approved cancellations (these are no longer booked)
-    final cancelledDates = _requests
-        .where((r) =>
-            r.requestType == RequestType.cancel &&
-            r.status == RequestStatus.approved &&
-            r.originalDate != null)
-        .map((r) => DateTime(r.originalDate!.year, r.originalDate!.month, r.originalDate!.day))
-        .toSet();
+    // Latest pending/approved ADD_DAY request per date
+    final latestAddByDate = <DateTime, DateChangeRequest>{};
+    // Latest approved cancellation per date (these un-book the day)
+    final latestCancelByDate = <DateTime, DateChangeRequest>{};
+    for (final r in _requests) {
+      if (r.requestType == RequestType.addDay &&
+          r.status != RequestStatus.denied &&
+          r.newDate != null) {
+        final day = DateTime(r.newDate!.year, r.newDate!.month, r.newDate!.day);
+        final current = latestAddByDate[day];
+        if (current == null || requestSupersedes(r, current)) {
+          latestAddByDate[day] = r;
+        }
+      }
+      if (r.requestType == RequestType.cancel &&
+          r.status == RequestStatus.approved &&
+          r.originalDate != null) {
+        final day = DateTime(
+            r.originalDate!.year, r.originalDate!.month, r.originalDate!.day);
+        final current = latestCancelByDate[day];
+        if (current == null || requestSupersedes(r, current)) {
+          latestCancelByDate[day] = r;
+        }
+      }
+    }
 
     bool isAlreadyBooked(DateTime day) {
       final normalized = DateTime(day.year, day.month, day.day);
       // Past days go by the actual attendance record, not the recurring
       // schedule — that's what payment managers are correcting.
       if (normalized.isBefore(today)) return _pastAttendance.contains(normalized);
-      // Check if there's an approved cancellation for this date
-      if (cancelledDates.contains(normalized)) return false;
+      final add = latestAddByDate[normalized];
+      final cancel = latestCancelByDate[normalized];
+      // An approved cancellation un-books the day, unless a later ADD_DAY
+      // request put the dog back on it — the most recent request wins.
+      if (cancel != null && (add == null || requestSupersedes(cancel, add))) {
+        return false;
+      }
       // Check if it's a regular daycare day
       if (bookedWeekdays.contains(day.weekday)) return true;
       // Check if there's already a pending/approved ADD_DAY request
-      if (pendingAddDayDates.contains(normalized)) return true;
-      return false;
+      return add != null;
     }
 
     final result = await showDialog<Set<DateTime>>(

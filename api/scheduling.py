@@ -11,7 +11,12 @@ need to answer "which dogs attend on date X?". The rules mirror
                 - approved CANCEL / CHANGE-away requests for the date
                 - dogs staff explicitly REMOVED for the date
 
-and nobody attends on a CLOSED closure day.
+When the same (dog, date) has both approved cancellations and approved
+additions, the most recently approved request wins — a dog can be taken off
+a day and later added back (or added and then cancelled again); no single
+request permanently vetoes the date. See ``effective_change_actions``.
+
+Nobody attends on a CLOSED closure day.
 
 Note: fortnightly dogs are intentionally treated like weekly dogs — the rest
 of the system (roster materialization, unassigned_dogs) does the same.
@@ -31,14 +36,61 @@ def daterange(start, end):
         current += timedelta(days=1)
 
 
+def effective_change_actions(start, end, dog_ids=None):
+    """Resolve approved date-change requests into per-day overlays where the
+    most recently approved request wins for each (dog, date).
+
+    Returns ``(adds_by_date, cancels_by_date)`` — dicts of date -> set of dog
+    ids. A dog appears in at most one of the two sets for a given date: in
+    ``adds_by_date`` when its latest approved action for the date is an
+    ADD_DAY / CHANGE-to, in ``cancels_by_date`` when it is a CANCEL /
+    CHANGE-away. Recency is ``approved_at`` (falling back to ``created_at``
+    for rows approved before approved_at existed), with id as tie-break.
+    """
+    from .models import DateChangeRequest
+
+    qs = DateChangeRequest.objects.filter(status='APPROVED').filter(
+        Q(request_type__in=('CANCEL', 'CHANGE'), original_date__range=(start, end))
+        | Q(request_type__in=('ADD_DAY', 'CHANGE'), new_date__range=(start, end))
+    )
+    if dog_ids is not None:
+        qs = qs.filter(dog_id__in=dog_ids)
+
+    latest = {}  # (date, dog_id) -> (sort_key, is_add)
+    rows = qs.values_list(
+        'id', 'dog_id', 'request_type', 'original_date', 'new_date',
+        'approved_at', 'created_at',
+    )
+    for req_id, dog_id, request_type, original_date, new_date, approved_at, created_at in rows:
+        sort_key = (approved_at or created_at, req_id)
+        # A CHANGE acts on two dates: a cancel of original_date plus an add of
+        # new_date (never the same date — the serializer forbids it).
+        actions = []
+        if request_type in ('CANCEL', 'CHANGE'):
+            actions.append((original_date, False))
+        if request_type in ('ADD_DAY', 'CHANGE'):
+            actions.append((new_date, True))
+        for day, is_add in actions:
+            if day is None or not (start <= day <= end):
+                continue
+            key = (day, dog_id)
+            if key not in latest or sort_key > latest[key][0]:
+                latest[key] = (sort_key, is_add)
+
+    adds_by_date = defaultdict(set)
+    cancels_by_date = defaultdict(set)
+    for (day, dog_id), (_, is_add) in latest.items():
+        (adds_by_date if is_add else cancels_by_date)[day].add(dog_id)
+    return adds_by_date, cancels_by_date
+
+
 class ScheduleIndex:
     """Bulk-loads everything needed to answer attendance and capacity
     questions for every day in [start, end] with a fixed number of queries."""
 
     def __init__(self, start, end):
         from .models import (
-            BoardingRequest, ClosureDay, DailyDogAssignment, DateChangeRequest,
-            DaycareSettings, Dog,
+            BoardingRequest, ClosureDay, DailyDogAssignment, DaycareSettings, Dog,
         )
         self.start = start
         self.end = end
@@ -47,23 +99,7 @@ class ScheduleIndex:
             c.date: c for c in ClosureDay.objects.filter(date__range=(start, end))
         }
 
-        self.cancels_by_date = defaultdict(set)
-        cancel_rows = DateChangeRequest.objects.filter(
-            status='APPROVED', original_date__range=(start, end),
-        ).filter(
-            Q(request_type='CANCEL') | Q(request_type='CHANGE')
-        ).values_list('original_date', 'dog_id')
-        for day, dog_id in cancel_rows:
-            self.cancels_by_date[day].add(dog_id)
-
-        self.adds_by_date = defaultdict(set)
-        add_rows = DateChangeRequest.objects.filter(
-            status='APPROVED', new_date__range=(start, end),
-        ).filter(
-            Q(request_type='ADD_DAY') | Q(request_type='CHANGE')
-        ).values_list('new_date', 'dog_id')
-        for day, dog_id in add_rows:
-            self.adds_by_date[day].add(dog_id)
+        self.adds_by_date, self.cancels_by_date = effective_change_actions(start, end)
 
         self.weekday_dogs = defaultdict(set)
         for dog_id, days in Dog.objects.values_list('id', 'daycare_days'):
