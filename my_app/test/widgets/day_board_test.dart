@@ -103,6 +103,47 @@ void main() {
     expect(find.text('James (off)'), findsOneWidget);
   });
 
+  testWidgets('density toggle cycles card size and scales the dog cards',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      home: DayBoardScreen(
+        date: DateTime(2030, 6, 3),
+        assignments: [make(1, 7, 'Sarah', 'Bella', 0, AssignmentStatus.assigned)],
+        staffMembers: const [
+          {'id': 7, 'username': 'sarah', 'first_name': 'Sarah', 'staff_color': ''},
+        ],
+        canAssignDogs: true,
+      ),
+    ));
+
+    double nameFontSize() =>
+        tester.widget<Text>(find.text('Bella')).style!.fontSize!;
+
+    expect(find.byIcon(Icons.density_large), findsOneWidget);
+    final comfortable = nameFontSize();
+
+    await tester.tap(find.byIcon(Icons.density_large));
+    await tester.pump();
+    expect(find.byIcon(Icons.density_medium), findsOneWidget);
+    final compact = nameFontSize();
+    expect(compact, lessThan(comfortable));
+
+    await tester.tap(find.byIcon(Icons.density_medium));
+    await tester.pump();
+    expect(find.byIcon(Icons.density_small), findsOneWidget);
+    expect(nameFontSize(), lessThan(compact));
+
+    // Cycles back around to comfortable.
+    await tester.tap(find.byIcon(Icons.density_small));
+    await tester.pump();
+    expect(find.byIcon(Icons.density_large), findsOneWidget);
+    expect(nameFontSize(), comfortable);
+  });
+
   testWidgets(
       'long-press drag condenses the board to tiles and hover expands a run',
       (tester) async {

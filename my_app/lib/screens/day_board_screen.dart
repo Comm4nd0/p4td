@@ -16,6 +16,98 @@ import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
 
+/// Card/text sizing for the board, cycled from the app bar and persisted
+/// on-device. Compact and dense scale the whole card down — column width,
+/// photo, padding and text together — so more staff columns and more dogs
+/// fit on screen at once without dropping any information.
+enum _BoardDensity {
+  comfortable,
+  compact,
+  dense;
+
+  String get label => switch (this) {
+        comfortable => 'Comfortable',
+        compact => 'Compact',
+        dense => 'Dense',
+      };
+
+  double get columnWidth => switch (this) {
+        comfortable => 260,
+        compact => 212,
+        dense => 174,
+      };
+
+  /// Dog photo diameter on a card.
+  double get avatarSize => switch (this) {
+        comfortable => 36,
+        compact => 30,
+        dense => 24,
+      };
+
+  double get nameFontSize => switch (this) {
+        comfortable => 14,
+        compact => 12.5,
+        dense => 11,
+      };
+
+  /// Transport/boarding hint line under the name.
+  double get hintFontSize => switch (this) {
+        comfortable => 10,
+        compact => 9,
+        dense => 8,
+      };
+
+  /// Pickup-run number badge on the photo.
+  double get badgeSize => switch (this) {
+        comfortable => 17,
+        compact => 15,
+        dense => 13,
+      };
+
+  double get statusIconSize => switch (this) {
+        comfortable => 16,
+        compact => 14,
+        dense => 12,
+      };
+
+  double get rowVerticalPadding => switch (this) {
+        comfortable => 6,
+        compact => 4,
+        dense => 3,
+      };
+
+  double get rowHorizontalPadding => switch (this) {
+        comfortable => 8,
+        compact => 6,
+        dense => 5,
+      };
+
+  /// Gap below each card, and between the photo and the name.
+  double get rowSpacing => switch (this) {
+        comfortable => 6,
+        compact => 4,
+        dense => 3,
+      };
+
+  double get columnListPadding => switch (this) {
+        comfortable => 8,
+        compact => 6,
+        dense => 5,
+      };
+
+  double get headerAvatarRadius => switch (this) {
+        comfortable => 14,
+        compact => 12,
+        dense => 11,
+      };
+
+  double get headerNameFontSize => switch (this) {
+        comfortable => 15,
+        compact => 13.5,
+        dense => 12.5,
+      };
+}
+
 /// What gets dragged around the board: an existing assignment, or an
 /// unassigned rostered dog.
 class _DragItem {
@@ -72,6 +164,10 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   /// the default (working staff shown, off staff hidden unless they have dogs).
   final Map<int, bool> _columnOverrides = {};
   bool _showUnassigned = true;
+
+  /// Card/text size, cycled from the app bar and persisted with the column
+  /// prefs so it sticks across visits.
+  _BoardDensity _density = _BoardDensity.comfortable;
 
   /// While a dog is being dragged, the board condenses into one-screen staff
   /// tiles. Hovering a tile for a moment expands that member's run so the dog
@@ -144,15 +240,31 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
         if (id != null && value is bool) _columnOverrides[id] = value;
       });
     }
+    final density = prefs['density'];
+    if (density is String) {
+      _density = _BoardDensity.values.firstWhere(
+        (d) => d.name == density,
+        orElse: () => _BoardDensity.comfortable,
+      );
+    }
   }
 
   void _saveColumnPrefs() {
     _cacheService.cacheDayBoardColumns({
       'show_unassigned': _showUnassigned,
+      'density': _density.name,
       'overrides': {
         for (final entry in _columnOverrides.entries) '${entry.key}': entry.value,
       },
     });
+  }
+
+  void _cycleDensity() {
+    setState(() {
+      _density = _BoardDensity
+          .values[(_density.index + 1) % _BoardDensity.values.length];
+    });
+    _saveColumnPrefs();
   }
 
   /// Whether a staff member is on the rota for this date. An empty
@@ -393,6 +505,15 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
             ],
           ),
           actions: [
+            IconButton(
+              icon: Icon(switch (_density) {
+                _BoardDensity.comfortable => Icons.density_large,
+                _BoardDensity.compact => Icons.density_medium,
+                _BoardDensity.dense => Icons.density_small,
+              }),
+              tooltip: 'Card size: ${_density.label} — tap to change',
+              onPressed: _cycleDensity,
+            ),
             IconButton(
               icon: const Icon(Icons.filter_list),
               tooltip: 'Show/hide columns',
@@ -708,7 +829,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     // drag starts), so the full column is display-only.
     final count = staffId == null ? unassigned.length : dogs.length;
     return Container(
-          width: 260,
+          width: _density.columnWidth,
           margin: const EdgeInsets.only(right: 12),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
@@ -731,7 +852,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                 child: Row(
                   children: [
                     CircleAvatar(
-                      radius: 14,
+                      radius: _density.headerAvatarRadius,
                       backgroundColor: color,
                       child: staffId == null
                           ? const Icon(Icons.person_off_outlined, color: Colors.white, size: 16)
@@ -744,7 +865,9 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                       child: Text(
                         isOff ? '$name (off)' : name,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: _density.headerNameFontSize),
                       ),
                     ),
                     Container(
@@ -796,7 +919,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                         ),
                       )
                     : ListView(
-                        padding: const EdgeInsets.all(8),
+                        padding: EdgeInsets.all(_density.columnListPadding),
                         children: staffId == null
                             ? [for (final d in unassigned) _buildUnassignedRow(d)]
                             : [for (final a in dogs) _buildDogRow(a, staffId)],
@@ -856,6 +979,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       ownerBrings: a.effectiveOwnerBrings,
       ownerCollects: a.effectiveOwnerCollects,
       isBoarding: a.isBoarding,
+      density: _density,
       onTap: () => _openQuickInfo(assignment: a),
     );
     return _draggable(_DragItem.assignment(a), row);
@@ -869,6 +993,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       number: null,
       color: kUnassignedColor,
       status: null,
+      density: _density,
       onTap: () => _openQuickInfo(dog: d),
     );
     return _draggable(_DragItem.dog(d), row);
@@ -884,7 +1009,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       feedback: Material(
         color: Colors.transparent,
         child: Container(
-          width: 236,
+          width: _density.columnWidth - 24,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
@@ -902,7 +1027,8 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
 }
 
 /// One compact dog card on the board: photo (with run-number badge), name,
-/// transport/boarding hints and a status tick.
+/// transport/boarding hints and a status tick. All sizes scale with
+/// [density] so compact/dense boards fit more on screen.
 class _DogRow extends StatelessWidget {
   final String name;
   final String? imageUrl;
@@ -912,6 +1038,7 @@ class _DogRow extends StatelessWidget {
   final bool ownerBrings;
   final bool ownerCollects;
   final bool isBoarding;
+  final _BoardDensity density;
   final VoidCallback onTap;
 
   const _DogRow({
@@ -924,13 +1051,17 @@ class _DogRow extends StatelessWidget {
     this.ownerBrings = false,
     this.ownerCollects = false,
     this.isBoarding = false,
+    this.density = _BoardDensity.comfortable,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final avatar = density.avatarSize;
+    final hintStyleTeal =
+        TextStyle(fontSize: density.hintFontSize, color: Colors.teal);
     return Card(
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: EdgeInsets.only(bottom: density.rowSpacing),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
@@ -940,7 +1071,9 @@ class _DogRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: EdgeInsets.symmetric(
+              horizontal: density.rowHorizontalPadding,
+              vertical: density.rowVerticalPadding),
           child: Row(
             children: [
               Stack(
@@ -948,33 +1081,36 @@ class _DogRow extends StatelessWidget {
                 children: [
                   imageUrl != null
                       ? ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(avatar / 2),
                           child: CachedNetworkImage(
                             imageUrl: imageUrl!,
-                            width: 36,
-                            height: 36,
+                            width: avatar,
+                            height: avatar,
                             fit: BoxFit.cover,
                             memCacheWidth:
-                                (36 * MediaQuery.of(context).devicePixelRatio).round(),
+                                (avatar * MediaQuery.of(context).devicePixelRatio).round(),
                             memCacheHeight:
-                                (36 * MediaQuery.of(context).devicePixelRatio).round(),
+                                (avatar * MediaQuery.of(context).devicePixelRatio).round(),
                             placeholder: (context, url) => Container(
-                                width: 36,
-                                height: 36,
+                                width: avatar,
+                                height: avatar,
                                 color: Colors.grey[200],
-                                child: Picon(PiconsDuotone.pawPrint, size: 18)),
+                                child: Picon(PiconsDuotone.pawPrint, size: avatar / 2)),
                             errorWidget: (context, url, error) => CircleAvatar(
-                                radius: 18, child: Picon(PiconsDuotone.pawPrint, size: 18)),
+                                radius: avatar / 2,
+                                child: Picon(PiconsDuotone.pawPrint, size: avatar / 2)),
                           ),
                         )
-                      : CircleAvatar(radius: 18, child: Picon(PiconsDuotone.pawPrint, size: 18)),
+                      : CircleAvatar(
+                          radius: avatar / 2,
+                          child: Picon(PiconsDuotone.pawPrint, size: avatar / 2)),
                   if (number != null)
                     Positioned(
                       left: -5,
                       top: -5,
                       child: Container(
-                        width: 17,
-                        height: 17,
+                        width: density.badgeSize,
+                        height: density.badgeSize,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: color,
@@ -982,38 +1118,45 @@ class _DogRow extends StatelessWidget {
                           border: Border.all(color: Colors.white, width: 1.5),
                         ),
                         child: Text('$number',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: density.hintFontSize,
+                                fontWeight: FontWeight.bold)),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: density.rowSpacing + 4),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(name,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: density.nameFontSize)),
                     if (ownerBrings || ownerCollects || isBoarding)
                       Row(children: [
                         if (isBoarding) ...[
-                          Picon(PiconsDuotone.bed, size: 12, color: Colors.deepPurple),
+                          Picon(PiconsDuotone.bed,
+                              size: density.hintFontSize + 2, color: Colors.deepPurple),
                           const SizedBox(width: 2),
-                          const Text('Boarding',
-                              style: TextStyle(fontSize: 10, color: Colors.deepPurple)),
+                          Text('Boarding',
+                              style: TextStyle(
+                                  fontSize: density.hintFontSize,
+                                  color: Colors.deepPurple)),
                           const SizedBox(width: 6),
                         ],
                         if (ownerBrings && ownerCollects)
-                          const Text('Owner brings & collects',
-                              style: TextStyle(fontSize: 10, color: Colors.teal))
+                          Text('Owner brings & collects', style: hintStyleTeal)
                         else if (ownerBrings)
-                          const Text('Owner drops off',
-                              style: TextStyle(fontSize: 10, color: Colors.teal))
+                          Text('Owner drops off', style: hintStyleTeal)
                         else if (ownerCollects)
-                          const Text('Owner picks up',
-                              style: TextStyle(fontSize: 10, color: Colors.indigo)),
+                          Text('Owner picks up',
+                              style: TextStyle(
+                                  fontSize: density.hintFontSize,
+                                  color: Colors.indigo)),
                       ]),
                   ],
                 ),
@@ -1027,13 +1170,14 @@ class _DogRow extends StatelessWidget {
   }
 
   Widget _statusTick(AssignmentStatus status) {
+    final size = density.statusIconSize;
     switch (status) {
       case AssignmentStatus.assigned:
-        return Picon(PiconsDuotone.clipboardText, size: 16, color: Colors.orange);
+        return Picon(PiconsDuotone.clipboardText, size: size, color: Colors.orange);
       case AssignmentStatus.pickedUp:
-        return const Icon(Icons.check, size: 16, color: AppColors.success);
+        return Icon(Icons.check, size: size, color: AppColors.success);
       case AssignmentStatus.droppedOff:
-        return const Icon(Icons.done_all, size: 16, color: AppColors.success);
+        return Icon(Icons.done_all, size: size, color: AppColors.success);
     }
   }
 }
