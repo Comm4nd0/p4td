@@ -4,16 +4,18 @@ import 'package:picons/picons.dart';
 /// The "Quick Actions" chip row on the staff dashboard.
 ///
 /// Extracted verbatim from [UnifiedDashboardScreen] (audit F14). The screen
-/// still owns each action (upload media, add dog, swap staff, manage
-/// permissions); this widget just renders the chips and fires the matching
-/// callback. Chips other than "Upload to Feed" appear only when their
-/// permission flag is set, reproducing the original conditionals.
+/// still owns each action (upload media, share to socials, add dog, swap
+/// staff, manage permissions); this widget just renders the chips and fires
+/// the matching callback. Chips other than "Upload to Feed" and "Share to
+/// Socials" appear only when their permission flag is set, reproducing the
+/// original conditionals.
 class QuickActionsSection extends StatelessWidget {
   final bool canAssignDogs;
   final bool canManagePayments;
   final bool isSuperuser;
 
   final VoidCallback onUploadMedia;
+  final VoidCallback onShareToSocial;
   final VoidCallback onAddDogToDay;
   final VoidCallback onSwapStaff;
   final VoidCallback onManagePermissions;
@@ -25,6 +27,7 @@ class QuickActionsSection extends StatelessWidget {
     this.canManagePayments = false,
     required this.isSuperuser,
     required this.onUploadMedia,
+    required this.onShareToSocial,
     required this.onAddDogToDay,
     required this.onSwapStaff,
     required this.onManagePermissions,
@@ -50,6 +53,11 @@ class QuickActionsSection extends StatelessWidget {
               avatar: Picon(PiconsDuotone.uploadSimple, size: 18),
               label: const Text('Upload to Feed'),
               onPressed: onUploadMedia,
+            ),
+            ActionChip(
+              avatar: Picon(PiconsDuotone.shareNetwork, size: 18),
+              label: const Text('Share to Socials'),
+              onPressed: onShareToSocial,
             ),
             if (canAssignDogs)
               ActionChip(

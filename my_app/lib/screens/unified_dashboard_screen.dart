@@ -39,6 +39,7 @@ import 'facility_defects_screen.dart';
 import 'fleet_screen.dart';
 import 'staff_permissions_screen.dart';
 import 'customer_payments_screen.dart';
+import 'social_share_screen.dart';
 
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -1755,6 +1756,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       canManagePayments: widget.canManagePayments,
       isSuperuser: widget.isSuperuser,
       onUploadMedia: _uploadMediaFromDashboard,
+      onShareToSocial: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const SocialShareScreen()),
+        );
+      },
       onAddDogToDay: _showAddDogToDayDialog,
       onSwapStaff: _showSwapStaffDialog,
       onManagePermissions: () {

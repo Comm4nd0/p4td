@@ -58,16 +58,35 @@ Future<void> saveImageToGallery(BuildContext context, String url) async {
 /// Downloads (or reuses the cached copy of) the image at [url] and opens the
 /// system share sheet. The share popover is anchored to [context]'s widget
 /// (required on iPad).
-Future<void> shareImage(BuildContext context, String url) async {
+Future<void> shareImage(BuildContext context, String url) =>
+    shareImages(context, [url]);
+
+/// Downloads (or reuses cached copies of) the images at [urls] and opens the
+/// system share sheet with all of them attached, preserving list order — on
+/// Facebook/Instagram that order becomes the post's photo order. The share
+/// popover is anchored to [context]'s widget (required on iPad).
+///
+/// [onProgress] reports how many files have been prepared so far, for UI
+/// feedback while large batches download.
+Future<void> shareImages(
+  BuildContext context,
+  List<String> urls, {
+  void Function(int done, int total)? onProgress,
+}) async {
   final messenger = ScaffoldMessenger.of(context);
   final box = context.findRenderObject() as RenderBox?;
   final origin = box != null
       ? box.localToGlobal(Offset.zero) & box.size
       : Rect.zero;
   try {
-    final file = await DefaultCacheManager().getSingleFile(url);
+    final files = <XFile>[];
+    for (final url in urls) {
+      final file = await DefaultCacheManager().getSingleFile(url);
+      files.add(XFile(file.path, name: suggestedMediaFileName(url)));
+      onProgress?.call(files.length, urls.length);
+    }
     await SharePlus.instance.share(ShareParams(
-      files: [XFile(file.path, name: suggestedMediaFileName(url))],
+      files: files,
       sharePositionOrigin: origin,
     ));
   } catch (e) {
