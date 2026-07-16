@@ -12,6 +12,7 @@ void main() {
   Widget buildCalendar({
     required void Function(DateTime) onBookedDayTap,
     required void Function(DateTime) onFreeDayTap,
+    void Function(DateTime)? onBoardingDayTap,
     bool isStaff = false,
   }) {
     return MaterialApp(
@@ -36,6 +37,7 @@ void main() {
             isStaff: isStaff,
             onBookedDayTap: onBookedDayTap,
             onFreeDayTap: onFreeDayTap,
+            onBoardingDayTap: onBoardingDayTap,
           ),
         ),
       ),
@@ -95,6 +97,41 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(find.textContaining('awaiting staff approval'), findsOneWidget);
+    expect(bookedTapped, isNull);
+    expect(freeTapped, isNull);
+  });
+
+  testWidgets('boarding days fire onBoardingDayTap when provided (staff)',
+      (tester) async {
+    DateTime? boardingTapped;
+    await tester.pumpWidget(buildCalendar(
+      isStaff: true,
+      onBookedDayTap: (_) {},
+      onFreeDayTap: (_) {},
+      onBoardingDayTap: (d) => boardingTapped = d,
+    ));
+
+    // Approved boarding day.
+    await tester.tap(find.text('13'));
+    expect(boardingTapped, DateTime(2030, 6, 13));
+
+    // Pending boarding day fires it too.
+    await tester.tap(find.text('14'));
+    expect(boardingTapped, DateTime(2030, 6, 14));
+  });
+
+  testWidgets('boarding days only explain when no handler is provided',
+      (tester) async {
+    DateTime? bookedTapped;
+    DateTime? freeTapped;
+    await tester.pumpWidget(buildCalendar(
+      onBookedDayTap: (d) => bookedTapped = d,
+      onFreeDayTap: (d) => freeTapped = d,
+    ));
+
+    await tester.tap(find.text('13'));
+    await tester.pump();
+    expect(find.textContaining('Boarding day'), findsOneWidget);
     expect(bookedTapped, isNull);
     expect(freeTapped, isNull);
   });

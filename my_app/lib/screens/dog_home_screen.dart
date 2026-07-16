@@ -1281,11 +1281,27 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 ],
               ),
               trailing: widget.isStaff
-                  ? IconButton(
-                      icon: Picon(PiconsDuotone.trash, size: 18, color: Colors.red[700]),
-                      tooltip: 'Delete booking',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => _deleteBoardingRequest(request),
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Cancelling is open to all staff; the permanent
+                        // delete stays a boarding-manager cleanup tool
+                        // (enforced server-side).
+                        if (request.status == BoardingRequestStatus.pending ||
+                            request.status == BoardingRequestStatus.approved)
+                          IconButton(
+                            icon: Picon(PiconsDuotone.calendarX, size: 18, color: Colors.orange[800]),
+                            tooltip: 'Cancel booking',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _cancelBoardingRequest(request),
+                          ),
+                        IconButton(
+                          icon: Picon(PiconsDuotone.trash, size: 18, color: Colors.red[700]),
+                          tooltip: 'Delete booking',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _deleteBoardingRequest(request),
+                        ),
+                      ],
                     )
                   : null,
             ),
@@ -1293,6 +1309,75 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         }).toList(),
       ),
     );
+  }
+
+  /// Staff tapped a boarding-covered day on the schedule calendar: offer to
+  /// cancel the stay covering it (approved stays first, then pending ones).
+  void _onBoardingDayTap(DateTime date) {
+    final d = DateTime(date.year, date.month, date.day);
+    bool covers(BoardingRequest r) {
+      final start = DateTime(r.startDate.year, r.startDate.month, r.startDate.day);
+      final end = DateTime(r.endDate.year, r.endDate.month, r.endDate.day);
+      return !d.isBefore(start) && !d.isAfter(end);
+    }
+
+    BoardingRequest? request;
+    for (final r in _boardingRequests) {
+      if (!covers(r)) continue;
+      if (r.status == BoardingRequestStatus.approved) {
+        request = r;
+        break;
+      }
+      if (r.status == BoardingRequestStatus.pending) request ??= r;
+    }
+    if (request == null) return;
+    _cancelBoardingRequest(request);
+  }
+
+  /// Cancel a booked stay (the owner rang up, the dog isn't coming), after
+  /// confirmation. Unlike delete/approve/deny this is open to all staff —
+  /// the backend allows any staff member to set CANCELLED.
+  Future<void> _cancelBoardingRequest(BoardingRequest request) async {
+    final nights = request.endDate.difference(request.startDate).inDays;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel boarding?'),
+        content: Text(
+          'Cancel the boarding stay for ${request.dogNames.join(', ')} '
+          '(${ukDate(request.startDate)} - ${ukDate(request.endDate)}, '
+          '$nights night${nights == 1 ? '' : 's'})? '
+          'The owner will be notified and the stay will not be billed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep Booking'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Cancel Booking'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _dataService.updateBoardingRequestStatus(request.id, 'CANCELLED');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Boarding cancelled'), backgroundColor: AppColors.success),
+        );
+        _loadBoardingRequests();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to cancel: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
   }
 
   /// Staff-only: permanently delete a boarding booking (duplicate cleanup),
@@ -1346,6 +1431,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         return Colors.green;
       case BoardingRequestStatus.denied:
         return Colors.red;
+      case BoardingRequestStatus.cancelled:
+        return Colors.grey;
     }
   }
 
@@ -1805,6 +1892,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           allowPastEdits: _canEditPastDates,
                           onBookedDayTap: _showDateChangeRequest,
                           onFreeDayTap: _onCalendarFreeDayTap,
+                          onBoardingDayTap:
+                              widget.isStaff ? _onBoardingDayTap : null,
                         ),
                       ),
                     ],

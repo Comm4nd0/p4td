@@ -6672,11 +6672,12 @@ class BoardingBillingTests(BillingTestsBase):
         self.assertEqual(line.quantity, 2)
         self.assertEqual(line.line_total, Decimal('0.00'))
 
-    def test_pending_and_denied_requests_not_billed(self):
+    def test_pending_denied_and_cancelled_requests_not_billed(self):
         from api import billing
 
         self._board(date(2026, 6, 1), date(2026, 6, 3), status='PENDING')
         self._board(date(2026, 6, 10), date(2026, 6, 12), status='DENIED')
+        self._board(date(2026, 6, 20), date(2026, 6, 22), status='CANCELLED')
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created, [])
 
@@ -6731,7 +6732,9 @@ class BoardingBillingTests(BillingTestsBase):
 
 class BoardingPermissionTests(TestCase):
     """Managing boarding requests requires the can_manage_boarding flag;
-    staff without it keep read access only (needed for care logistics)."""
+    staff without it keep read access (needed for care logistics) plus one
+    write: cancelling a booking (owner rang up, dog isn't coming), which is
+    routine front-desk work done from the dog's profile."""
 
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
@@ -6758,6 +6761,51 @@ class BoardingPermissionTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         br.refresh_from_db()
         self.assertEqual(br.status, 'PENDING')
+
+    def test_any_staff_can_cancel_booking(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05',
+            status='APPROVED')
+        br.dogs.add(self.dog)
+        self.client.login(username='plainstaff', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/',
+                                    {'status': 'CANCELLED'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertEqual(br.status, 'CANCELLED')
+        hist = BoardingRequestHistory.objects.filter(request=br).first()
+        self.assertEqual(hist.from_status, 'APPROVED')
+        self.assertEqual(hist.to_status, 'CANCELLED')
+        self.assertEqual(hist.changed_by, self.plain_staff)
+        owner_pushes = [c for c in mock_push.call_args_list if c.args[0] == self.owner]
+        self.assertEqual(len(owner_pushes), 1)
+        self.assertIn('cancelled', owner_pushes[0].args[2])
+
+    def test_owner_cannot_cancel_via_change_status(self):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05',
+            status='APPROVED')
+        br.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/',
+                                {'status': 'CANCELLED'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        br.refresh_from_db()
+        self.assertEqual(br.status, 'APPROVED')
+
+    def test_cancelled_booking_does_not_block_rebooking(self):
+        cancelled = BoardingRequest.objects.create(
+            owner=self.owner, start_date='2026-04-01', end_date='2026-04-05',
+            status='CANCELLED')
+        cancelled.dogs.add(self.dog)
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': '2026-04-01',
+            'end_date': '2026-04-05',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
 
     def test_flag_holder_and_superuser_can_change_status(self):
         for username in ('bmanager', 'admin'):

@@ -10,9 +10,11 @@ import '../models/closure_day.dart';
 ///  - tapping a booked day fires [onBookedDayTap] (cancel / move the day),
 ///  - tapping a free day fires [onFreeDayTap] (request / add an extra day).
 ///
-/// Pending requests, boarding stays and facility closures are painted but not
-/// editable here — tapping them explains why in a snackbar. All date sets must
-/// be normalised to midnight (the widget normalises its own lookups too).
+/// Pending requests and facility closures are painted but not editable here —
+/// tapping them explains why in a snackbar. Boarding stays are the same unless
+/// [onBoardingDayTap] is set (staff), in which case tapping a boarding day
+/// fires it so the covering stay can be cancelled. All date sets must be
+/// normalised to midnight (the widget normalises its own lookups too).
 class DogScheduleCalendar extends StatefulWidget {
   final DateTime firstDay;
   final DateTime lastDay;
@@ -45,6 +47,11 @@ class DogScheduleCalendar extends StatefulWidget {
   final void Function(DateTime date) onBookedDayTap;
   final void Function(DateTime date) onFreeDayTap;
 
+  /// Staff handler for tapping a day covered by a boarding stay (approved or
+  /// pending) so the stay can be cancelled. When null, tapping a boarding day
+  /// just explains in a snackbar that boarding is managed elsewhere.
+  final void Function(DateTime date)? onBoardingDayTap;
+
   const DogScheduleCalendar({
     super.key,
     required this.firstDay,
@@ -59,6 +66,7 @@ class DogScheduleCalendar extends StatefulWidget {
     this.allowPastEdits = false,
     required this.onBookedDayTap,
     required this.onFreeDayTap,
+    this.onBoardingDayTap,
   });
 
   @override
@@ -104,10 +112,15 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     if (d.isBefore(_norm(DateTime.now())) && !widget.allowPastEdits) return;
 
     final closure = widget.closures[d];
-    if (widget.boardingDates.contains(d)) {
-      _snack('Boarding day — manage it from the boarding request.');
-    } else if (widget.pendingBoardingDates.contains(d)) {
-      _snack('A boarding request covering this day is awaiting approval.');
+    if (widget.boardingDates.contains(d) ||
+        widget.pendingBoardingDates.contains(d)) {
+      if (widget.onBoardingDayTap != null) {
+        widget.onBoardingDayTap!(d);
+      } else if (widget.boardingDates.contains(d)) {
+        _snack('Boarding day — manage it from the boarding request.');
+      } else {
+        _snack('A boarding request covering this day is awaiting approval.');
+      }
     } else if (widget.pendingRemoveDates.contains(d)) {
       _snack(widget.isStaff
           ? 'A change for this day is awaiting approval — see Requests.'
@@ -256,10 +269,13 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
         const SizedBox(height: 4),
         Text(
           widget.isStaff
-              ? (widget.allowPastEdits
-                  ? 'Tap a booked day to cancel or move it, or a free day to add one. '
-                      'Past days can be edited too — changes update attendance used for invoicing.'
-                  : 'Tap a booked day to cancel or move it, or a free day to add one.')
+              ? [
+                  'Tap a booked day to cancel or move it, or a free day to add one.',
+                  if (widget.onBoardingDayTap != null)
+                    'Tap a boarding day to cancel the stay.',
+                  if (widget.allowPastEdits)
+                    'Past days can be edited too — changes update attendance used for invoicing.',
+                ].join(' ')
               : 'Tap a booked day to request a cancellation or move, or a free day to request an extra day.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, color: Colors.grey[600]),

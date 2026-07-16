@@ -304,6 +304,10 @@ class BoardingRequest(models.Model):
         ('PENDING', 'Pending'),
         ('APPROVED', 'Approved'),
         ('DENIED', 'Denied'),
+        # A booked stay called off (owner rang up, dog isn't coming). Kept as
+        # a record rather than deleted; excluded from calendars and billing
+        # like DENIED. Any staff member can cancel — see change_status.
+        ('CANCELLED', 'Cancelled'),
     ]
 
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='boarding_requests')

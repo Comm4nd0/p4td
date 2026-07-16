@@ -3,6 +3,10 @@ enum BoardingRequestStatus {
   pending,
   approved,
   denied,
+
+  /// A booked stay called off (owner rang up, dog isn't coming). Any staff
+  /// member can cancel; excluded from calendars and billing like denied.
+  cancelled,
 }
 
 class BoardingRequest {

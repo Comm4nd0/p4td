@@ -1652,14 +1652,23 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
-        if not _user_can_manage_boarding(request.user):
+        new_status = request.data.get('status')
+        if new_status not in dict(BoardingRequest.STATUS_CHOICES).keys():
+            return Response({'detail': 'Invalid status'}, status=400)
+
+        # Cancelling a booked stay (the owner rang up, the dog isn't coming)
+        # is routine front-desk work any staff member handles from the dog's
+        # profile. Every other transition — approve/deny/reopen — stays with
+        # boarding managers because it drives billing.
+        if new_status == 'CANCELLED':
+            if not request.user.is_staff:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('Only staff can cancel a boarding booking.')
+        elif not _user_can_manage_boarding(request.user):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('You do not have permission to manage boarding requests.')
 
         instance = self.get_object()
-        new_status = request.data.get('status')
-        if new_status not in dict(BoardingRequest.STATUS_CHOICES).keys():
-            return Response({'detail': 'Invalid status'}, status=400)
 
         old_status = instance.status
         if old_status == new_status:

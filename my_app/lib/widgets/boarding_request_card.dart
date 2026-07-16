@@ -238,6 +238,8 @@ class BoardingStatusBadge extends StatelessWidget {
         return Colors.red;
       case BoardingRequestStatus.pending:
         return Colors.orange;
+      case BoardingRequestStatus.cancelled:
+        return Colors.grey;
     }
   }
 
@@ -249,6 +251,8 @@ class BoardingStatusBadge extends StatelessWidget {
         return 'Denied';
       case BoardingRequestStatus.pending:
         return 'Pending';
+      case BoardingRequestStatus.cancelled:
+        return 'Cancelled';
     }
   }
 

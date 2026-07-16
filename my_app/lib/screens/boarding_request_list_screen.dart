@@ -38,7 +38,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
   List<BoardingRequest> _requests = [];
   bool _loading = true;
   String? _error;
-  String _filter = 'ALL'; // ALL, PENDING, APPROVED, DENIED
+  String _filter = 'ALL'; // ALL, PENDING, APPROVED, DENIED, CANCELLED
 
   // Calendar state
   DateTime _focusedDay = DateTime.now();
@@ -79,9 +79,12 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
   void _processEvents(List<BoardingRequest> requests) {
     _events = {};
     for (var request in requests) {
-      // Denied requests aren't stays, so keep them off the calendar (they
-      // remain visible in the list tab).
-      if (request.status == BoardingRequestStatus.denied) continue;
+      // Denied/cancelled requests aren't stays, so keep them off the calendar
+      // (they remain visible in the list tab).
+      if (request.status == BoardingRequestStatus.denied ||
+          request.status == BoardingRequestStatus.cancelled) {
+        continue;
+      }
 
       for (var day = request.startDate;
           !day.isAfter(request.endDate);
@@ -358,6 +361,8 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
               _buildFilterChip('APPROVED', 'Approved'),
               const SizedBox(width: 8),
               _buildFilterChip('DENIED', 'Denied'),
+              const SizedBox(width: 8),
+              _buildFilterChip('CANCELLED', 'Cancelled'),
             ],
           ),
         ),
