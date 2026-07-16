@@ -144,6 +144,55 @@ void main() {
     expect(nameFontSize(), comfortable);
   });
 
+  testWidgets('pinching the board rescales the cards continuously',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      home: DayBoardScreen(
+        date: DateTime(2030, 6, 3),
+        assignments: [make(1, 7, 'Sarah', 'Bella', 0, AssignmentStatus.assigned)],
+        staffMembers: const [
+          {'id': 7, 'username': 'sarah', 'first_name': 'Sarah', 'staff_color': ''},
+        ],
+        canAssignDogs: true,
+      ),
+    ));
+
+    double nameFontSize() =>
+        tester.widget<Text>(find.text('Bella')).style!.fontSize!;
+    final before = nameFontSize();
+
+    // Two-finger pinch-in over the board (clear of the columns): fingers
+    // converge vertically so the horizontal column scroll doesn't claim them.
+    final g1 = await tester.startGesture(const Offset(900, 300));
+    final g2 = await tester.startGesture(const Offset(900, 500));
+    await tester.pump();
+    await g1.moveBy(const Offset(0, 60));
+    await g2.moveBy(const Offset(0, -60));
+    await tester.pump();
+    await g1.up();
+    await g2.up();
+    await tester.pump();
+
+    final zoomedOut = nameFontSize();
+    expect(zoomedOut, lessThan(before));
+
+    // Pinching out zooms back in (larger cards).
+    final g3 = await tester.startGesture(const Offset(900, 390));
+    final g4 = await tester.startGesture(const Offset(900, 410));
+    await tester.pump();
+    await g3.moveBy(const Offset(0, -80));
+    await g4.moveBy(const Offset(0, 80));
+    await tester.pump();
+    await g3.up();
+    await g4.up();
+    await tester.pump();
+    expect(nameFontSize(), greaterThan(zoomedOut));
+  });
+
   testWidgets(
       'long-press drag condenses the board to tiles and hover expands a run',
       (tester) async {

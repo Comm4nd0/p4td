@@ -16,96 +16,63 @@ import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
 
-/// Card/text sizing for the board, cycled from the app bar and persisted
-/// on-device. Compact and dense scale the whole card down — column width,
-/// photo, padding and text together — so more staff columns and more dogs
-/// fit on screen at once without dropping any information.
-enum _BoardDensity {
-  comfortable,
-  compact,
-  dense;
+/// Continuous card/text sizing for the board, driven by pinch-zoom on the
+/// board itself and by the app-bar presets, and persisted on-device.
+///
+/// Unlike an image-style zoom (which only scales pixels and leaves blank
+/// space), the scale feeds the actual layout: pinching in makes columns and
+/// cards genuinely smaller so more staff and more dogs fit on screen, with
+/// nothing dropped. Boxes/paddings scale linearly; text follows a gentler
+/// curve so names stay readable at the smallest sizes.
+class _BoardSizing {
+  /// 1.0 = the board's original ("comfortable") look.
+  final double scale;
 
-  String get label => switch (this) {
-        comfortable => 'Comfortable',
-        compact => 'Compact',
-        dense => 'Dense',
-      };
+  const _BoardSizing(this.scale);
 
-  double get columnWidth => switch (this) {
-        comfortable => 260,
-        compact => 212,
-        dense => 174,
-      };
+  static const double min = 0.55;
+  static const double max = 1.25;
+
+  /// Preset stops for the app-bar button (comfortable / compact / dense).
+  static const double comfortable = 1.0;
+  static const double compact = 0.82;
+  static const double dense = 0.67;
+
+  double get _text => 0.5 + 0.5 * scale;
+
+  String get label => scale > 0.9
+      ? 'Comfortable'
+      : scale > 0.72
+          ? 'Compact'
+          : 'Dense';
+
+  double get columnWidth => 260 * scale;
 
   /// Dog photo diameter on a card.
-  double get avatarSize => switch (this) {
-        comfortable => 36,
-        compact => 30,
-        dense => 24,
-      };
+  double get avatarSize => 36 * scale;
 
-  double get nameFontSize => switch (this) {
-        comfortable => 14,
-        compact => 12.5,
-        dense => 11,
-      };
+  double get nameFontSize => 14 * _text;
 
   /// Transport/boarding hint line under the name.
-  double get hintFontSize => switch (this) {
-        comfortable => 10,
-        compact => 9,
-        dense => 8,
-      };
+  double get hintFontSize => 10 * _text;
 
   /// Pickup-run number badge on the photo.
-  double get badgeSize => switch (this) {
-        comfortable => 17,
-        compact => 15,
-        dense => 13,
-      };
+  double get badgeSize => 17 * _text;
 
-  double get statusIconSize => switch (this) {
-        comfortable => 16,
-        compact => 14,
-        dense => 12,
-      };
+  double get statusIconSize => 16 * _text;
 
-  double get rowVerticalPadding => switch (this) {
-        comfortable => 6,
-        compact => 4,
-        dense => 3,
-      };
+  double get rowVerticalPadding => 6 * scale;
 
-  double get rowHorizontalPadding => switch (this) {
-        comfortable => 8,
-        compact => 6,
-        dense => 5,
-      };
+  double get rowHorizontalPadding => 8 * scale;
 
   /// Gap below each card, and between the photo and the name.
-  double get rowSpacing => switch (this) {
-        comfortable => 6,
-        compact => 4,
-        dense => 3,
-      };
+  double get rowSpacing => 6 * scale;
 
-  double get columnListPadding => switch (this) {
-        comfortable => 8,
-        compact => 6,
-        dense => 5,
-      };
+  double get columnListPadding => 8 * scale;
 
-  double get headerAvatarRadius => switch (this) {
-        comfortable => 14,
-        compact => 12,
-        dense => 11,
-      };
+  double get headerAvatarRadius => 14 * _text;
 
-  double get headerNameFontSize => switch (this) {
-        comfortable => 15,
-        compact => 13.5,
-        dense => 12.5,
-      };
+  double get headerNameFontSize => 15 * _text;
 }
 
 /// What gets dragged around the board: an existing assignment, or an
@@ -165,9 +132,12 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   final Map<int, bool> _columnOverrides = {};
   bool _showUnassigned = true;
 
-  /// Card/text size, cycled from the app bar and persisted with the column
-  /// prefs so it sticks across visits.
-  _BoardDensity _density = _BoardDensity.comfortable;
+  /// Board zoom: pinched on the board or cycled through the app-bar presets,
+  /// persisted with the column prefs so it sticks across visits.
+  double _boardScale = _BoardSizing.comfortable;
+  double _pinchStartScale = _BoardSizing.comfortable;
+
+  _BoardSizing get _sizing => _BoardSizing(_boardScale);
 
   /// While a dog is being dragged, the board condenses into one-screen staff
   /// tiles. Hovering a tile for a moment expands that member's run so the dog
@@ -240,31 +210,58 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
         if (id != null && value is bool) _columnOverrides[id] = value;
       });
     }
-    final density = prefs['density'];
-    if (density is String) {
-      _density = _BoardDensity.values.firstWhere(
-        (d) => d.name == density,
-        orElse: () => _BoardDensity.comfortable,
-      );
+    final scale = prefs['scale'];
+    if (scale is num) {
+      _boardScale =
+          scale.toDouble().clamp(_BoardSizing.min, _BoardSizing.max);
+    } else {
+      // Pre-pinch versions stored a named density preset.
+      _boardScale = switch (prefs['density']) {
+        'compact' => _BoardSizing.compact,
+        'dense' => _BoardSizing.dense,
+        _ => _BoardSizing.comfortable,
+      };
     }
   }
 
   void _saveColumnPrefs() {
     _cacheService.cacheDayBoardColumns({
       'show_unassigned': _showUnassigned,
-      'density': _density.name,
+      'scale': _boardScale,
       'overrides': {
         for (final entry in _columnOverrides.entries) '${entry.key}': entry.value,
       },
     });
   }
 
-  void _cycleDensity() {
+  /// App-bar button: jump to the next preset stop (comfortable → compact →
+  /// dense → comfortable), from wherever pinching has left the scale.
+  void _cycleSizePreset() {
     setState(() {
-      _density = _BoardDensity
-          .values[(_density.index + 1) % _BoardDensity.values.length];
+      _boardScale = _boardScale > 0.9
+          ? _BoardSizing.compact
+          : _boardScale > 0.72
+              ? _BoardSizing.dense
+              : _BoardSizing.comfortable;
     });
     _saveColumnPrefs();
+  }
+
+  // Pinch-zoom on the board: two fingers rescale the layout live; the final
+  // value is persisted on release. One-finger drags stay with the lists.
+  void _onPinchStart(ScaleStartDetails details) {
+    _pinchStartScale = _boardScale;
+  }
+
+  void _onPinchUpdate(ScaleUpdateDetails details) {
+    if (details.pointerCount < 2) return;
+    final next = (_pinchStartScale * details.scale)
+        .clamp(_BoardSizing.min, _BoardSizing.max);
+    if (next != _boardScale) setState(() => _boardScale = next);
+  }
+
+  void _onPinchEnd(ScaleEndDetails details) {
+    if (_boardScale != _pinchStartScale) _saveColumnPrefs();
   }
 
   /// Whether a staff member is on the rota for this date. An empty
@@ -506,13 +503,14 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
           ),
           actions: [
             IconButton(
-              icon: Icon(switch (_density) {
-                _BoardDensity.comfortable => Icons.density_large,
-                _BoardDensity.compact => Icons.density_medium,
-                _BoardDensity.dense => Icons.density_small,
-              }),
-              tooltip: 'Card size: ${_density.label} — tap to change',
-              onPressed: _cycleDensity,
+              icon: Icon(_boardScale > 0.9
+                  ? Icons.density_large
+                  : _boardScale > 0.72
+                      ? Icons.density_medium
+                      : Icons.density_small),
+              tooltip:
+                  'Card size: ${_sizing.label} — tap to change, or pinch the board',
+              onPressed: _cycleSizePreset,
             ),
             IconButton(
               icon: const Icon(Icons.filter_list),
@@ -547,26 +545,34 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                           style:
                               TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     )
-                  : ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.all(12),
-                      children: [
-                        if (_showUnassigned)
-                          _buildColumn(
-                            staffId: null,
-                            name: 'Unassigned',
-                            color: kUnassignedColor,
-                            dogs: const [],
-                            unassigned: _unassignedDogs,
-                          ),
-                        for (final staff in columns)
-                          _buildColumn(
-                            staffId: staff.id,
-                            name: staff.name,
-                            color: _staffColors.of(staff.id),
-                            dogs: _dogsFor(staff.id),
-                          ),
-                      ],
+                  // Two-finger pinch rescales the board layout (more columns
+                  // and dogs on screen, not just smaller pixels); one-finger
+                  // drags keep scrolling the lists as before.
+                  : GestureDetector(
+                      onScaleStart: _onPinchStart,
+                      onScaleUpdate: _onPinchUpdate,
+                      onScaleEnd: _onPinchEnd,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          if (_showUnassigned)
+                            _buildColumn(
+                              staffId: null,
+                              name: 'Unassigned',
+                              color: kUnassignedColor,
+                              dogs: const [],
+                              unassigned: _unassignedDogs,
+                            ),
+                          for (final staff in columns)
+                            _buildColumn(
+                              staffId: staff.id,
+                              name: staff.name,
+                              color: _staffColors.of(staff.id),
+                              dogs: _dogsFor(staff.id),
+                            ),
+                        ],
+                      ),
                     ),
             ),
             if (_dragging != null) Positioned.fill(child: _buildDragOverview(columns)),
@@ -829,7 +835,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     // drag starts), so the full column is display-only.
     final count = staffId == null ? unassigned.length : dogs.length;
     return Container(
-          width: _density.columnWidth,
+          width: _sizing.columnWidth,
           margin: const EdgeInsets.only(right: 12),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
@@ -852,7 +858,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                 child: Row(
                   children: [
                     CircleAvatar(
-                      radius: _density.headerAvatarRadius,
+                      radius: _sizing.headerAvatarRadius,
                       backgroundColor: color,
                       child: staffId == null
                           ? const Icon(Icons.person_off_outlined, color: Colors.white, size: 16)
@@ -867,7 +873,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            fontSize: _density.headerNameFontSize),
+                            fontSize: _sizing.headerNameFontSize),
                       ),
                     ),
                     Container(
@@ -919,7 +925,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                         ),
                       )
                     : ListView(
-                        padding: EdgeInsets.all(_density.columnListPadding),
+                        padding: EdgeInsets.all(_sizing.columnListPadding),
                         children: staffId == null
                             ? [for (final d in unassigned) _buildUnassignedRow(d)]
                             : [for (final a in dogs) _buildDogRow(a, staffId)],
@@ -979,7 +985,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       ownerBrings: a.effectiveOwnerBrings,
       ownerCollects: a.effectiveOwnerCollects,
       isBoarding: a.isBoarding,
-      density: _density,
+      sizing: _sizing,
       onTap: () => _openQuickInfo(assignment: a),
     );
     return _draggable(_DragItem.assignment(a), row);
@@ -993,7 +999,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       number: null,
       color: kUnassignedColor,
       status: null,
-      density: _density,
+      sizing: _sizing,
       onTap: () => _openQuickInfo(dog: d),
     );
     return _draggable(_DragItem.dog(d), row);
@@ -1009,7 +1015,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       feedback: Material(
         color: Colors.transparent,
         child: Container(
-          width: _density.columnWidth - 24,
+          width: _sizing.columnWidth - 24,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
@@ -1028,7 +1034,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
 
 /// One compact dog card on the board: photo (with run-number badge), name,
 /// transport/boarding hints and a status tick. All sizes scale with
-/// [density] so compact/dense boards fit more on screen.
+/// [sizing] so zoomed-out boards fit more on screen.
 class _DogRow extends StatelessWidget {
   final String name;
   final String? imageUrl;
@@ -1038,7 +1044,7 @@ class _DogRow extends StatelessWidget {
   final bool ownerBrings;
   final bool ownerCollects;
   final bool isBoarding;
-  final _BoardDensity density;
+  final _BoardSizing sizing;
   final VoidCallback onTap;
 
   const _DogRow({
@@ -1051,17 +1057,17 @@ class _DogRow extends StatelessWidget {
     this.ownerBrings = false,
     this.ownerCollects = false,
     this.isBoarding = false,
-    this.density = _BoardDensity.comfortable,
+    this.sizing = const _BoardSizing(_BoardSizing.comfortable),
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final avatar = density.avatarSize;
+    final avatar = sizing.avatarSize;
     final hintStyleTeal =
-        TextStyle(fontSize: density.hintFontSize, color: Colors.teal);
+        TextStyle(fontSize: sizing.hintFontSize, color: Colors.teal);
     return Card(
-      margin: EdgeInsets.only(bottom: density.rowSpacing),
+      margin: EdgeInsets.only(bottom: sizing.rowSpacing),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
@@ -1072,8 +1078,8 @@ class _DogRow extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: EdgeInsets.symmetric(
-              horizontal: density.rowHorizontalPadding,
-              vertical: density.rowVerticalPadding),
+              horizontal: sizing.rowHorizontalPadding,
+              vertical: sizing.rowVerticalPadding),
           child: Row(
             children: [
               Stack(
@@ -1109,8 +1115,8 @@ class _DogRow extends StatelessWidget {
                       left: -5,
                       top: -5,
                       child: Container(
-                        width: density.badgeSize,
-                        height: density.badgeSize,
+                        width: sizing.badgeSize,
+                        height: sizing.badgeSize,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: color,
@@ -1120,13 +1126,13 @@ class _DogRow extends StatelessWidget {
                         child: Text('$number',
                             style: TextStyle(
                                 color: Colors.white,
-                                fontSize: density.hintFontSize,
+                                fontSize: sizing.hintFontSize,
                                 fontWeight: FontWeight.bold)),
                       ),
                     ),
                 ],
               ),
-              SizedBox(width: density.rowSpacing + 4),
+              SizedBox(width: sizing.rowSpacing + 4),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1135,16 +1141,16 @@ class _DogRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            fontSize: density.nameFontSize)),
+                            fontSize: sizing.nameFontSize)),
                     if (ownerBrings || ownerCollects || isBoarding)
                       Row(children: [
                         if (isBoarding) ...[
                           Picon(PiconsDuotone.bed,
-                              size: density.hintFontSize + 2, color: Colors.deepPurple),
+                              size: sizing.hintFontSize + 2, color: Colors.deepPurple),
                           const SizedBox(width: 2),
                           Text('Boarding',
                               style: TextStyle(
-                                  fontSize: density.hintFontSize,
+                                  fontSize: sizing.hintFontSize,
                                   color: Colors.deepPurple)),
                           const SizedBox(width: 6),
                         ],
@@ -1155,7 +1161,7 @@ class _DogRow extends StatelessWidget {
                         else if (ownerCollects)
                           Text('Owner picks up',
                               style: TextStyle(
-                                  fontSize: density.hintFontSize,
+                                  fontSize: sizing.hintFontSize,
                                   color: Colors.indigo)),
                       ]),
                   ],
@@ -1170,7 +1176,7 @@ class _DogRow extends StatelessWidget {
   }
 
   Widget _statusTick(AssignmentStatus status) {
-    final size = density.statusIconSize;
+    final size = sizing.statusIconSize;
     switch (status) {
       case AssignmentStatus.assigned:
         return Picon(PiconsDuotone.clipboardText, size: size, color: Colors.orange);
