@@ -123,25 +123,29 @@ void main() {
     double nameFontSize() =>
         tester.widget<Text>(find.text('Bella')).style!.fontSize!;
 
+    // The board opens fully zoomed out (smallest cards, dense icon).
+    expect(find.byIcon(Icons.density_small), findsOneWidget);
+    final zoomedOut = nameFontSize();
+
+    // Cycling jumps to the comfortable preset first...
+    await tester.tap(find.byIcon(Icons.density_small));
+    await tester.pump();
     expect(find.byIcon(Icons.density_large), findsOneWidget);
     final comfortable = nameFontSize();
+    expect(comfortable, greaterThan(zoomedOut));
 
+    // ...then compact...
     await tester.tap(find.byIcon(Icons.density_large));
     await tester.pump();
     expect(find.byIcon(Icons.density_medium), findsOneWidget);
     final compact = nameFontSize();
     expect(compact, lessThan(comfortable));
 
+    // ...then dense.
     await tester.tap(find.byIcon(Icons.density_medium));
     await tester.pump();
     expect(find.byIcon(Icons.density_small), findsOneWidget);
     expect(nameFontSize(), lessThan(compact));
-
-    // Cycles back around to comfortable.
-    await tester.tap(find.byIcon(Icons.density_small));
-    await tester.pump();
-    expect(find.byIcon(Icons.density_large), findsOneWidget);
-    expect(nameFontSize(), comfortable);
   });
 
   testWidgets('pinching the board rescales the cards continuously',
@@ -165,32 +169,33 @@ void main() {
         tester.widget<Text>(find.text('Bella')).style!.fontSize!;
     final before = nameFontSize();
 
-    // Two-finger pinch-in over the board (clear of the columns): fingers
-    // converge vertically so the horizontal column scroll doesn't claim them.
-    final g1 = await tester.startGesture(const Offset(900, 300));
-    final g2 = await tester.startGesture(const Offset(900, 500));
+    // The board opens fully zoomed out, so pinch out first (fingers diverge
+    // vertically so the horizontal column scroll doesn't claim them): the
+    // cards get larger.
+    final g1 = await tester.startGesture(const Offset(900, 390));
+    final g2 = await tester.startGesture(const Offset(900, 410));
     await tester.pump();
-    await g1.moveBy(const Offset(0, 60));
-    await g2.moveBy(const Offset(0, -60));
+    await g1.moveBy(const Offset(0, -80));
+    await g2.moveBy(const Offset(0, 80));
     await tester.pump();
     await g1.up();
     await g2.up();
     await tester.pump();
 
-    final zoomedOut = nameFontSize();
-    expect(zoomedOut, lessThan(before));
+    final zoomedIn = nameFontSize();
+    expect(zoomedIn, greaterThan(before));
 
-    // Pinching out zooms back in (larger cards).
-    final g3 = await tester.startGesture(const Offset(900, 390));
-    final g4 = await tester.startGesture(const Offset(900, 410));
+    // Pinching in zooms back out (smaller cards).
+    final g3 = await tester.startGesture(const Offset(900, 300));
+    final g4 = await tester.startGesture(const Offset(900, 500));
     await tester.pump();
-    await g3.moveBy(const Offset(0, -80));
-    await g4.moveBy(const Offset(0, 80));
+    await g3.moveBy(const Offset(0, 60));
+    await g4.moveBy(const Offset(0, -60));
     await tester.pump();
     await g3.up();
     await g4.up();
     await tester.pump();
-    expect(nameFontSize(), greaterThan(zoomedOut));
+    expect(nameFontSize(), lessThan(zoomedIn));
   });
 
   testWidgets(

@@ -11,6 +11,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../utils/dog_schedule.dart';
+import '../widgets/dog_address_map.dart';
 import '../widgets/dog_schedule_calendar.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
@@ -1670,6 +1671,13 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               icon: PiconsDuotone.mapPin,
               title: 'Address',
               body: _dog.address!,
+            ),
+          // Map preview of the home address (when the address has been
+          // geocoded server-side). Tap to open in the maps app.
+          if (_dog.latitude != null && _dog.longitude != null)
+            DogAddressMap(
+              latitude: _dog.latitude!,
+              longitude: _dog.longitude!,
             ),
           if (widget.isStaff && _dog.accessInstructions != null && _dog.accessInstructions!.trim().isNotEmpty)
             _infoBlock(

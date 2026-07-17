@@ -17,7 +17,9 @@ import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
 
 /// Continuous card/text sizing for the board, driven by pinch-zoom on the
-/// board itself and by the app-bar presets, and persisted on-device.
+/// board itself and by the app-bar presets. The board always opens fully
+/// zoomed out — the most-on-screen view — and pinching adjusts it for the
+/// current visit only.
 ///
 /// Unlike an image-style zoom (which only scales pixels and leaves blank
 /// space), the scale feeds the actual layout: pinching in makes columns and
@@ -132,10 +134,10 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   final Map<int, bool> _columnOverrides = {};
   bool _showUnassigned = true;
 
-  /// Board zoom: pinched on the board or cycled through the app-bar presets,
-  /// persisted with the column prefs so it sticks across visits.
-  double _boardScale = _BoardSizing.comfortable;
-  double _pinchStartScale = _BoardSizing.comfortable;
+  /// Board zoom: always opens fully zoomed out so the whole day fits on
+  /// screen; pinch or the app-bar presets zoom in for a closer look.
+  double _boardScale = _BoardSizing.min;
+  double _pinchStartScale = _BoardSizing.min;
 
   _BoardSizing get _sizing => _BoardSizing(_boardScale);
 
@@ -210,24 +212,11 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
         if (id != null && value is bool) _columnOverrides[id] = value;
       });
     }
-    final scale = prefs['scale'];
-    if (scale is num) {
-      _boardScale =
-          scale.toDouble().clamp(_BoardSizing.min, _BoardSizing.max);
-    } else {
-      // Pre-pinch versions stored a named density preset.
-      _boardScale = switch (prefs['density']) {
-        'compact' => _BoardSizing.compact,
-        'dense' => _BoardSizing.dense,
-        _ => _BoardSizing.comfortable,
-      };
-    }
   }
 
   void _saveColumnPrefs() {
     _cacheService.cacheDayBoardColumns({
       'show_unassigned': _showUnassigned,
-      'scale': _boardScale,
       'overrides': {
         for (final entry in _columnOverrides.entries) '${entry.key}': entry.value,
       },
@@ -244,11 +233,10 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
               ? _BoardSizing.dense
               : _BoardSizing.comfortable;
     });
-    _saveColumnPrefs();
   }
 
-  // Pinch-zoom on the board: two fingers rescale the layout live; the final
-  // value is persisted on release. One-finger drags stay with the lists.
+  // Pinch-zoom on the board: two fingers rescale the layout live. One-finger
+  // drags stay with the lists.
   void _onPinchStart(ScaleStartDetails details) {
     _pinchStartScale = _boardScale;
   }
@@ -258,10 +246,6 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     final next = (_pinchStartScale * details.scale)
         .clamp(_BoardSizing.min, _BoardSizing.max);
     if (next != _boardScale) setState(() => _boardScale = next);
-  }
-
-  void _onPinchEnd(ScaleEndDetails details) {
-    if (_boardScale != _pinchStartScale) _saveColumnPrefs();
   }
 
   /// Whether a staff member is on the rota for this date. An empty
@@ -551,7 +535,6 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                   : GestureDetector(
                       onScaleStart: _onPinchStart,
                       onScaleUpdate: _onPinchUpdate,
-                      onScaleEnd: _onPinchEnd,
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.all(12),
