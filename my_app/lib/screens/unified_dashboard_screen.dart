@@ -825,8 +825,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       );
       if (mounted) {
         final updated = result['assignment_rows_updated'] ?? 0;
+        final rosterUpdated = result['roster_rows_updated'] ?? 0;
+        // A genuine zero means there was nothing left to move (no dogs, or
+        // they've all been returned home already) — flag it rather than
+        // celebrating "Swapped 0".
+        final nothingSwapped = updated == 0 && rosterUpdated == 0;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Swapped $updated assignment(s).'), backgroundColor: AppColors.success),
+          SnackBar(
+            content: Text(nothingSwapped
+                ? 'Nothing to swap — that staff member has no active dogs in the chosen scope.'
+                : 'Swapped $updated assignment(s).'),
+            backgroundColor: nothingSwapped ? AppColors.warning : AppColors.success,
+          ),
         );
       }
       await _reloadSelectedDay();

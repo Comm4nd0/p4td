@@ -1845,7 +1845,9 @@ class WeekdayRosterTests(TestCase):
             DogWeekdayPickup.objects.filter(staff_member=self.staff_b).count(), 3
         )
 
-    def test_swap_staff_skips_picked_up_rows(self):
+    def test_swap_staff_moves_picked_up_rows_keeping_status(self):
+        # Mid-day swap: the dog is already with the team, so the row moves to
+        # the new driver and stays PICKED_UP.
         DailyDogAssignment.objects.create(
             dog=self.dog, staff_member=self.staff_a, date=self.today, status='PICKED_UP'
         )
@@ -1857,9 +1859,28 @@ class WeekdayRosterTests(TestCase):
             'date': self.today.isoformat(),
         }, format='json')
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['assignment_rows_updated'], 1)
+        self.assertTrue(DailyDogAssignment.objects.filter(
+            staff_member=self.staff_b, date=self.today, status='PICKED_UP'
+        ).exists())
+
+    def test_swap_staff_skips_dropped_off_rows(self):
+        # Dogs already returned home are done for the day — swapping must not
+        # rewrite who ran them.
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today, status='DROPPED_OFF'
+        )
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/swap_staff/', {
+            'from_staff_id': self.staff_a.id,
+            'to_staff_id': self.staff_b.id,
+            'scope': 'just_this_day',
+            'date': self.today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['assignment_rows_updated'], 0)
         self.assertTrue(DailyDogAssignment.objects.filter(
-            staff_member=self.staff_a, date=self.today, status='PICKED_UP'
+            staff_member=self.staff_a, date=self.today, status='DROPPED_OFF'
         ).exists())
 
     def test_swap_staff_requires_permission(self):

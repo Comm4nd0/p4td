@@ -2674,8 +2674,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         Swap moves ALL DailyDogAssignment rows owned by the source staff in
         the target window — including rows that originated from boarding or
-        ADD_DAY requests — not just rows created from the roster. Rows
-        already in PICKED_UP/DROPPED_OFF status are untouched.
+        ADD_DAY requests — not just rows created from the roster. PICKED_UP
+        dogs move too (keeping their status), so a run can be handed to
+        another driver mid-day; only DROPPED_OFF rows (dogs already returned
+        home) are left untouched.
 
         Requires can_assign_dogs permission.
         """
@@ -2731,11 +2733,15 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         roster_updated = 0
         assignments_updated = 0
         with transaction.atomic():
+            # ASSIGNED and PICKED_UP both move: after the morning run every
+            # dog is PICKED_UP, and the whole point of a mid-day swap is to
+            # hand those dogs to another driver. Their status carries over.
+            swappable = ('ASSIGNED', 'PICKED_UP')
             if scope == 'just_this_day':
                 assignments_updated = DailyDogAssignment.objects.filter(
                     staff_member=from_staff,
                     date=target_date,
-                    status='ASSIGNED',
+                    status__in=swappable,
                 ).update(staff_member=to_staff)
             elif scope == 'this_weekday_forever':
                 weekday = target_date.isoweekday()
@@ -2747,7 +2753,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                     staff_member=from_staff,
                     date__gte=target_date,
                     date__iso_week_day=weekday,
-                    status='ASSIGNED',
+                    status__in=swappable,
                 ).update(staff_member=to_staff)
             else:  # all_weekdays_forever
                 roster_updated = DogWeekdayPickup.objects.filter(
@@ -2756,7 +2762,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 assignments_updated = DailyDogAssignment.objects.filter(
                     staff_member=from_staff,
                     date__gte=date_cls.today(),
-                    status='ASSIGNED',
+                    status__in=swappable,
                 ).update(staff_member=to_staff)
 
         return Response({
