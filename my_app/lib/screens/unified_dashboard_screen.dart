@@ -18,12 +18,12 @@ import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dashboard_widgets.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import '../widgets/skeleton_loaders.dart';
+import '../widgets/quick_actions_fab.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
 import 'dashboard/boarding_tonight_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import 'dashboard/dashboard_counts.dart';
-import 'dashboard/quick_actions_section.dart';
 import 'dashboard/unspayed_males_dialog.dart';
 import 'all_dogs_today_screen.dart';
 import 'day_board_screen.dart';
@@ -977,109 +977,110 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final day = _dayData(_selectedDate);
     final assignments = day.assignments;
 
-    return Column(
-      children: [
-        _buildDateSelector(),
-        // Reduced capacity warning
-        if (_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.closureType == ClosureType.reduced)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange.shade200),
-            ),
-            child: Row(children: [
-              Picon(PiconsDuotone.warning, size: 18, color: Colors.orange[700]),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Reduced capacity${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.reason.isNotEmpty == true ? ' – ${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]!.reason}' : ''}',
-                  style: TextStyle(color: Colors.orange[800], fontSize: 13, fontWeight: FontWeight.w500),
-                ),
+    return Scaffold(
+      floatingActionButton: _buildQuickActionsFab(),
+      body: Column(
+        children: [
+          _buildDateSelector(),
+          // Reduced capacity warning
+          if (_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.closureType == ClosureType.reduced)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
               ),
-            ]),
-          ),
-        Expanded(
-          child: RefreshIndicator.adaptive(
-            onRefresh: () async {
-              await _loadDay(_selectedDate, force: true);
-              await _counts.refresh();
-            },
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                // Date-dependent content — swipe left/right to change date
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onHorizontalDragEnd: (details) {
-                    if (details.primaryVelocity == null) return;
-                    if (details.primaryVelocity! < -300) {
-                      _goToNextDate();
-                    } else if (details.primaryVelocity! > 300) {
-                      _goToPreviousDate();
-                    }
-                  },
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    switchInCurve: Curves.easeInOut,
-                    switchOutCurve: Curves.easeInOut,
-                    transitionBuilder: (child, animation) {
-                      final isIncoming = child.key == ValueKey(dateKey);
-                      final beginOffset = Offset(
-                        isIncoming
-                            ? _swipeDirection.toDouble()   // slide in from the direction of travel
-                            : -_swipeDirection.toDouble(), // slide out the opposite way
-                        0.0,
-                      );
-                      return SlideTransition(
-                        position: Tween<Offset>(begin: beginOffset, end: Offset.zero)
-                            .animate(animation),
-                        child: child,
-                      );
-                    },
-                    layoutBuilder: (currentChild, previousChildren) {
-                      return ClipRect(
-                        child: Stack(
-                          alignment: Alignment.topCenter,
-                          children: [
-                            ...previousChildren,
-                            if (currentChild != null) currentChild,
-                          ],
-                        ),
-                      );
-                    },
-                    child: day.loading && !day.loaded
-                        ? ListTileSkeletonList(key: const ValueKey('loading'))
-                        : Column(
-                            key: ValueKey(dateKey),
-                            children: [
-                              _buildSavedDataBanner(day),
-                              _buildUnassignedBanner(_selectedDate),
-                              _buildCompatibilityWarning(_selectedDate),
-                              _buildOverviewMetrics(assignments),
-                              const SizedBox(height: 16),
-                              _buildStaffCards(assignments),
-                            ],
-                          ),
+              child: Row(children: [
+                Picon(PiconsDuotone.warning, size: 18, color: Colors.orange[700]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Reduced capacity${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]?.reason.isNotEmpty == true ? ' – ${_closureDays[DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)]!.reason}' : ''}',
+                    style: TextStyle(color: Colors.orange[800], fontSize: 13, fontWeight: FontWeight.w500),
                   ),
                 ),
-                const SizedBox(height: 16),
-                // Static content — stays in place when swiping between dates
-                _buildActionItems(),
-                const SizedBox(height: 16),
-                _buildBoardingSection(),
-                const SizedBox(height: 16),
-                _buildQuickActions(),
-                const SizedBox(height: 80), // space for FABs
-              ],
+              ]),
+            ),
+          Expanded(
+            child: RefreshIndicator.adaptive(
+              onRefresh: () async {
+                await _loadDay(_selectedDate, force: true);
+                await _counts.refresh();
+              },
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Date-dependent content — swipe left/right to change date
+                  GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onHorizontalDragEnd: (details) {
+                      if (details.primaryVelocity == null) return;
+                      if (details.primaryVelocity! < -300) {
+                        _goToNextDate();
+                      } else if (details.primaryVelocity! > 300) {
+                        _goToPreviousDate();
+                      }
+                    },
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      switchInCurve: Curves.easeInOut,
+                      switchOutCurve: Curves.easeInOut,
+                      transitionBuilder: (child, animation) {
+                        final isIncoming = child.key == ValueKey(dateKey);
+                        final beginOffset = Offset(
+                          isIncoming
+                              ? _swipeDirection.toDouble()   // slide in from the direction of travel
+                              : -_swipeDirection.toDouble(), // slide out the opposite way
+                          0.0,
+                        );
+                        return SlideTransition(
+                          position: Tween<Offset>(begin: beginOffset, end: Offset.zero)
+                              .animate(animation),
+                          child: child,
+                        );
+                      },
+                      layoutBuilder: (currentChild, previousChildren) {
+                        return ClipRect(
+                          child: Stack(
+                            alignment: Alignment.topCenter,
+                            children: [
+                              ...previousChildren,
+                              if (currentChild != null) currentChild,
+                            ],
+                          ),
+                        );
+                      },
+                      child: day.loading && !day.loaded
+                          ? ListTileSkeletonList(key: const ValueKey('loading'))
+                          : Column(
+                              key: ValueKey(dateKey),
+                              children: [
+                                _buildSavedDataBanner(day),
+                                _buildUnassignedBanner(_selectedDate),
+                                _buildCompatibilityWarning(_selectedDate),
+                                _buildOverviewMetrics(assignments),
+                                const SizedBox(height: 16),
+                                _buildStaffCards(assignments),
+                              ],
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Static content — stays in place when swiping between dates
+                  _buildActionItems(),
+                  const SizedBox(height: 16),
+                  _buildBoardingSection(),
+                  const SizedBox(height: 80), // space for the quick-actions FAB
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1760,29 +1761,58 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
-  Widget _buildQuickActions() {
-    return QuickActionsSection(
-      canAssignDogs: widget.canAssignDogs,
-      canManagePayments: widget.canManagePayments,
-      isSuperuser: widget.isSuperuser,
-      onUploadMedia: _uploadMediaFromDashboard,
-      onShareToSocial: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const SocialShareScreen()),
-        );
-      },
-      onAddDogToDay: _showAddDogToDayDialog,
-      onSwapStaff: _showSwapStaffDialog,
-      onManagePermissions: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
-        );
-      },
-      onCustomerPayments: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
-        );
-      },
+  /// The dashboard's quick actions, now a bottom-right speed dial. Same
+  /// actions and permission gating as the old inline "Quick Actions" chip row.
+  Widget _buildQuickActionsFab() {
+    return QuickActionsFab(
+      actions: [
+        QuickFabAction(
+          icon: PiconsDuotone.uploadSimple,
+          label: 'Upload to Feed',
+          onPressed: _uploadMediaFromDashboard,
+        ),
+        QuickFabAction(
+          icon: PiconsDuotone.shareNetwork,
+          label: 'Share to Socials',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SocialShareScreen()),
+            );
+          },
+        ),
+        if (widget.canAssignDogs)
+          QuickFabAction(
+            icon: PiconsDuotone.plusCircle,
+            label: 'Add Dog to Day',
+            onPressed: _showAddDogToDayDialog,
+          ),
+        if (widget.canAssignDogs)
+          QuickFabAction(
+            icon: PiconsDuotone.arrowsLeftRight,
+            label: 'Swap Staff',
+            onPressed: _showSwapStaffDialog,
+          ),
+        if (widget.canManagePayments)
+          QuickFabAction(
+            icon: PiconsDuotone.currencyGbp,
+            label: 'Customer Payments',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+              );
+            },
+          ),
+        if (widget.isSuperuser)
+          QuickFabAction(
+            icon: PiconsDuotone.shieldStar,
+            label: 'Manage Staff Permissions',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StaffPermissionsScreen()),
+              );
+            },
+          ),
+      ],
     );
   }
 }

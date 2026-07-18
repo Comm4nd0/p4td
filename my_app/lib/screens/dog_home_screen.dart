@@ -13,6 +13,7 @@ import '../utils/date_formats.dart';
 import '../utils/dog_schedule.dart';
 import '../widgets/dog_address_map.dart';
 import '../widgets/dog_schedule_calendar.dart';
+import '../widgets/quick_actions_fab.dart';
 import 'gallery_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
@@ -1708,11 +1709,66 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     );
   }
 
+  /// The profile's actions, moved from inline buttons under the schedule
+  /// calendar to a bottom-right speed dial. Same actions and staff/owner
+  /// gating as before.
+  Widget _buildQuickActionsFab() {
+    return QuickActionsFab(
+      actions: [
+        QuickFabAction(
+          icon: PiconsDuotone.plusCircle,
+          label: widget.isStaff ? 'Add Additional Days' : 'Request Additional Days',
+          color: Colors.green[700],
+          onPressed: _showRequestAdditionalDays,
+        ),
+        if (widget.isStaff)
+          QuickFabAction(
+            icon: PiconsDuotone.notepad,
+            label: 'Compatibility & Notes',
+            color: AppColors.primary,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DogNotesScreen(
+                    dogId: int.parse(_dog.id),
+                    dogName: _dog.name,
+                  ),
+                ),
+              );
+            },
+          ),
+        QuickFabAction(
+          icon: PiconsDuotone.bed,
+          label: 'Request Boarding',
+          color: Colors.deepPurple,
+          onPressed: _showRequestBoarding,
+        ),
+        QuickFabAction(
+          icon: PiconsDuotone.syringe,
+          label: 'Vaccinations',
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VaccinationsScreen(
+                  dog: _dog,
+                  isStaff: widget.isStaff,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final upcomingDates = _getUpcomingDaycareDates();
 
     return Scaffold(
+      floatingActionButton: _buildQuickActionsFab(),
       appBar: AppBar(
         title: Text(_dog.name),
         actions: [
@@ -1905,91 +1961,6 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ),
                       ),
                     ],
-                  ),
-                  if (!widget.isStaff) ...[
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _showRequestAdditionalDays,
-                        icon: Picon(PiconsDuotone.plusCircle),
-                        label: const Text('Request Additional Days'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.green[700],
-                          side: BorderSide(color: Colors.green[300]!),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (widget.isStaff) ...[
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _showRequestAdditionalDays,
-                        icon: Picon(PiconsDuotone.plusCircle),
-                        label: const Text('Add Additional Days'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.green[700],
-                          side: BorderSide(color: Colors.green[300]!),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DogNotesScreen(
-                                dogId: int.parse(_dog.id),
-                                dogName: _dog.name,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: Picon(PiconsDuotone.notepad),
-                        label: const Text('Compatibility & Notes'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primaryLight),
-                        ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _showRequestBoarding,
-                      icon: Picon(PiconsDuotone.bed),
-                      label: const Text('Request Boarding'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.deepPurple,
-                        side: BorderSide(color: Colors.deepPurple[200]!),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => VaccinationsScreen(
-                              dog: _dog,
-                              isStaff: widget.isStaff,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: Picon(PiconsDuotone.syringe),
-                      label: const Text('Vaccinations'),
-                    ),
                   ),
                   _buildRequestsSection(),
                   if (widget.isStaff) _buildBoardingRequestsSection(),
