@@ -7,7 +7,7 @@ class QuickFabAction {
   final String label;
   final VoidCallback onPressed;
 
-  /// Accent for the action's mini button icon. Defaults to the theme primary.
+  /// Accent for the action's icon. Defaults to the theme primary.
   final Color? color;
 
   const QuickFabAction({
@@ -21,9 +21,10 @@ class QuickFabAction {
 /// Expandable "Quick Actions" floating button (speed dial).
 ///
 /// Collapsed it sits at the bottom right as a single extended FAB; tapping it
-/// fans out one labelled mini-button per [QuickFabAction] above it. Tapping an
-/// action (label or button) collapses the menu and fires its callback. Place
-/// it in a [Scaffold.floatingActionButton] slot.
+/// opens an opaque menu card directly above the button (right-aligned with
+/// it), one row per [QuickFabAction], so the options stay readable over
+/// whatever the screen shows behind them. Tapping a row collapses the menu
+/// and fires its callback. Place it in a [Scaffold.floatingActionButton] slot.
 class QuickActionsFab extends StatefulWidget {
   final List<QuickFabAction> actions;
 
@@ -75,24 +76,29 @@ class _QuickActionsFabState extends State<QuickActionsFab>
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        // The fan-out menu. SizeTransition keeps the collapsed widget from
-        // occupying (and blocking gestures over) the space above the FAB.
-        IgnorePointer(
-          ignoring: !_open,
-          child: SizeTransition(
-            sizeFactor: _expand,
-            axisAlignment: -1.0,
-            child: FadeTransition(
-              opacity: _expand,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (final action in widget.actions) _buildItem(theme, action),
-                ],
+        // The menu card, anchored to the button's top-right corner so it
+        // scales out of the button. Offstage removes it from layout when
+        // closed — floating snackbars position themselves above this widget,
+        // so the collapsed height must be just the button. (Not
+        // SizeTransition: that expands to full width and pins its child to
+        // the left edge, which un-anchors the menu from the button.)
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) => Offstage(
+            offstage: _controller.isDismissed,
+            child: IgnorePointer(
+              ignoring: !_open,
+              child: FadeTransition(
+                opacity: _expand,
+                child: ScaleTransition(
+                  scale: _expand,
+                  alignment: Alignment.bottomRight,
+                  child: child,
+                ),
               ),
             ),
           ),
+          child: _buildMenuCard(theme),
         ),
         FloatingActionButton.extended(
           heroTag: null,
@@ -108,43 +114,50 @@ class _QuickActionsFabState extends State<QuickActionsFab>
     );
   }
 
+  Widget _buildMenuCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        // Solid surface + shadow keeps the options legible over busy content.
+        color: theme.colorScheme.surface,
+        elevation: 6,
+        shadowColor: Colors.black38,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final action in widget.actions) _buildItem(theme, action),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildItem(ThemeData theme, QuickFabAction action) {
     final accent = action.color ?? theme.colorScheme.primary;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GestureDetector(
-            onTap: () => _run(action),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Text(
-                action.label,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+    return InkWell(
+      onTap: () => _run(action),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Picon(action.icon, size: 20, color: accent),
+            const SizedBox(width: 10),
+            Text(
+              action.label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          FloatingActionButton.small(
-            heroTag: null,
-            onPressed: () => _run(action),
-            backgroundColor: theme.colorScheme.surface,
-            foregroundColor: accent,
-            child: Picon(action.icon, size: 20, color: accent),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
