@@ -197,7 +197,7 @@
     "description": "Dog day care in Berkshire & Buckinghamshire. Daycare, puppy classes, 1-to-1 training, and field hire.",
     "telephone": "{{ business_phone }}",
     "url": "{{ request.build_absolute_uri }}",
-    "image": "{% static 'website/images/hero-bg.jpg' %}",
+    "image": "{{ request.scheme }}://{{ request.get_host }}{% static 'website/images/hero-bg.jpg' %}",
     "address": {
         "@type": "PostalAddress",
         "addressRegion": "Berkshire & Buckinghamshire",

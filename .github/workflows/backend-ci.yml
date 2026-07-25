@@ -69,5 +69,46 @@ jobs:
       - name: Django system check
         run: python manage.py check
 
+      # DJANGO_DEBUG=true above means the `if not DEBUG:` production security
+      # block in settings.py is never exercised by the suite. Deploy-config
+      # mistakes in it would otherwise only surface in production.
+      - name: Django deployment check
+        run: python manage.py check --deploy --fail-level ERROR
+        env:
+          DJANGO_DEBUG: 'false'
+          DJANGO_SECRET_KEY: ci-only-not-a-real-secret-key-for-check-deploy
+          DJANGO_ALLOWED_HOSTS: example.com
+
       - name: Run tests
-        run: python manage.py test
+        # --parallel splits across the runner's cores; the suite is ~600 tests
+        # and takes about 17 minutes serially.
+        run: python manage.py test --parallel auto
+
+  # Dependency vulnerability scan. Advisory (does not block the build) so a new
+  # CVE disclosure doesn't halt deploys, but it makes them visible.
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit dependencies
+        run: pip-audit -r requirements-prod.txt --desc
+
+  # The Dockerfile and compose files are not covered by any other job, so a
+  # break in them currently surfaces for the first time as a failed production
+  # deploy. Building here is the cheapest way to catch that.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build -t p4td:ci .
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config -q
+          RDS_PASSWORD=ci docker compose -f docker-compose.prod.yml config -q

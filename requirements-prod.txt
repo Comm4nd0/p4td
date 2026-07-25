@@ -11,7 +11,9 @@
 gunicorn==23.0.0
 
 # PostgreSQL driver (prod DB; dev uses SQLite so this isn't in the base file)
-psycopg2-binary>=2.9,<3.0
+# Pinned exactly so the database driver cannot change between builds of the
+# same commit.
+psycopg2-binary==2.9.12
 
 # Efficient static file serving
 whitenoise==6.8.2

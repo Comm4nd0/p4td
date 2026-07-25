@@ -1,0 +1,74 @@
+name: Flutter CI
+
+# The Flutter tests previously ran only inside deploy-android-alpha.yml, which
+# triggers on pushes to `main` — i.e. the tests gated the Play Store upload but
+# never a PR or a push to `development`. By then the broken code was already on
+# the release branch. This runs them where they can still stop something.
+on:
+  push:
+    paths:
+      - 'my_app/**'
+      - '.github/workflows/flutter-ci.yml'
+  pull_request:
+    paths:
+      - 'my_app/**'
+      - '.github/workflows/flutter-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: my_app
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the base branch to compare the version bump against.
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # --no-fatal-infos: there is a long-standing baseline of ~477 prefer_const
+      # style infos. Warnings and errors still fail the build.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+  # CLAUDE.md requires every commit touching my_app/ to bump the pubspec build
+  # number, because the Play Store rejects a re-used one. That was only
+  # discovered at upload time, after review and merge; this says so on the PR.
+  version-bump:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the build number increased
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          extract() { sed -n 's/^version: .*+\([0-9]*\)$/\1/p' "$1"; }
+
+          new_build="$(extract my_app/pubspec.yaml)"
+          old_build="$(git show "$base:my_app/pubspec.yaml" | sed -n 's/^version: .*+\([0-9]*\)$/\1/p')"
+
+          echo "base build=$old_build  head build=$new_build"
+          if [ -z "$new_build" ]; then
+            echo "::error::Could not read the build number from my_app/pubspec.yaml"
+            exit 1
+          fi
+          if [ "$new_build" -le "$old_build" ]; then
+            echo "::error::my_app/pubspec.yaml build number must increase (${old_build} -> ${new_build}). The Play Store rejects a re-used build number."
+            exit 1
+          fi
