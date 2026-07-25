@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../utils/snacks.dart';
 import '../models/customer_rate.dart';
 import '../models/invoice.dart';
 import '../services/data_service.dart';
@@ -63,22 +64,12 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        _showError('Failed to load invoices: $e');
+        showError('Failed to load invoices: $e');
       }
     }
   }
 
-  void _showError(Object message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$message'), backgroundColor: AppColors.error),
-    );
-  }
 
-  void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.success),
-    );
-  }
 
   void _changeMonth(int delta) {
     setState(() => _month = DateTime(_month.year, _month.month + delta));
@@ -107,13 +98,13 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     try {
       final result = await _dataService.generateInvoices(_month.year, _month.month);
       if (mounted) {
-        _showSuccess('Created ${result.created} draft invoice(s)'
+        showSuccess('Created ${result.created} draft invoice(s)'
             '${result.skipped > 0 ? ', skipped ${result.skipped} already invoiced' : ''}'
             '${result.manual > 0 ? ', ${result.manual} on manual Xero billing' : ''}');
       }
       await _load();
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -124,7 +115,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     try {
       customers = await _dataService.getCustomerRates();
     } catch (e) {
-      _showError(e);
+      showError(e);
       return;
     }
     if (!mounted) return;
@@ -142,16 +133,16 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         _month.year, _month.month, customerId: chosen.userId);
       if (mounted) {
         if (result.created > 0) {
-          _showSuccess('Draft invoice created for ${chosen.displayName}');
+          showSuccess('Draft invoice created for ${chosen.displayName}');
         } else if (result.skipped > 0) {
-          _showError('${chosen.displayName} already has an invoice for $_monthLabel — void it first to reissue.');
+          showError('${chosen.displayName} already has an invoice for $_monthLabel — void it first to reissue.');
         } else {
-          _showError('${chosen.displayName} has nothing to bill for $_monthLabel.');
+          showError('${chosen.displayName} has nothing to bill for $_monthLabel.');
         }
       }
       await _load();
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -159,7 +150,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
 
   Future<void> _sendAllDrafts() async {
     if (_summary.draft == 0) {
-      _showError('No draft invoices for $_monthLabel');
+      showError('No draft invoices for $_monthLabel');
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -179,10 +170,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     setState(() => _busy = true);
     try {
       final sent = await _dataService.sendAllInvoices(_month.year, _month.month);
-      if (mounted) _showSuccess('Sent $sent invoice(s)');
+      if (mounted) showSuccess('Sent $sent invoice(s)');
       await _load();
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -193,12 +184,12 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     try {
       final counts = await _dataService.syncXeroInvoices();
       if (mounted) {
-        _showSuccess('Checked ${counts['checked'] ?? 0} invoice(s), '
+        showSuccess('Checked ${counts['checked'] ?? 0} invoice(s), '
             'imported ${counts['payments_imported'] ?? 0} payment(s)');
       }
       await _load();
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:table_calendar/table_calendar.dart';
-import '../constants/app_colors.dart';
+import '../utils/snacks.dart';
 import '../models/boarding_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -110,27 +110,15 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
 
   // --- actions -------------------------------------------------------------
 
-  void _showSuccess(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.success),
-    );
-  }
 
-  void _showError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
-  }
 
   Future<void> _updateStatus(BoardingRequest request, String newStatus) async {
     try {
       await _dataService.updateBoardingRequestStatus(request.id, newStatus);
-      _showSuccess('Request ${newStatus.toLowerCase()}');
+      showSuccess('Request ${newStatus.toLowerCase()}');
       await _loadRequests();
     } catch (e) {
-      _showError('Failed to update: $e');
+      showError('Failed to update: $e');
     }
   }
 
@@ -150,10 +138,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
     if (staffId == null) return; // cancelled
     try {
       await _dataService.updateBoardingRequestStatus(request.id, 'APPROVED', assignedStaffId: staffId);
-      _showSuccess('Request approved');
+      showSuccess('Request approved');
       await _loadRequests();
     } catch (e) {
-      _showError('Failed to update: $e');
+      showError('Failed to update: $e');
     }
   }
 
@@ -187,10 +175,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
     if (confirmed != true) return;
     try {
       await _dataService.deleteBoardingRequest(request.id);
-      _showSuccess('Booking deleted');
+      showSuccess('Booking deleted');
       await _loadRequests();
     } catch (e) {
-      _showError('Failed to delete: $e');
+      showError('Failed to delete: $e');
     }
   }
 
@@ -220,10 +208,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
     if (confirmed != true) return;
     try {
       await _dataService.deleteBoardingRequest(request.id);
-      _showSuccess('Request cancelled');
+      showSuccess('Request cancelled');
       await _loadRequests();
     } catch (e) {
-      _showError('Failed to cancel: $e');
+      showError('Failed to cancel: $e');
     }
   }
 

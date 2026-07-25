@@ -47,9 +47,15 @@ void main() async {
       // anonymous call (e.g. while browsing the logged-out landing page).
       // Don't hijack navigation to the login screen for those.
       if (await AuthService().getToken() == null) return;
-      await AuthService().logoutAll();
+      // Only the *active* token was rejected. logoutAll() signed the user out
+      // of every saved account on the device, so one expired session on a
+      // shared phone knocked out the others too. logout() drops the active
+      // account and promotes the next saved one, if there is one.
+      final next = await AuthService().logout();
       navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(
+          builder: (_) => next == null ? const LoginScreen() : const HomeScreen(),
+        ),
         (route) => false,
       );
     } finally {

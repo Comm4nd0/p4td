@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:paws4thoughtdogs/services/cache_service.dart';
@@ -47,7 +48,12 @@ void main() {
     await tempDir.delete(recursive: true);
   });
 
-  setUp(() => CacheService().clearAll());
+  setUp(() {
+    // ApiDataService reads the auth token (and the active account id) from
+    // secure storage on every call, which has no implementation in a unit test.
+    FlutterSecureStorage.setMockInitialValues({'auth_token': 'test-token'});
+    return CacheService().clearAll();
+  });
 
   group('synchronous cache accessors', () {
     test('all return null on a cold cache', () {
@@ -96,21 +102,85 @@ void main() {
     });
   });
 
-  group('network fallbacks (HTTP blocked by the test binding)', () {
-    test('getTodayAssignments falls back to the saved day', () async {
+  group('network fallbacks', () {
+    test('getTodayAssignments falls back to the saved day when offline',
+        () async {
       final date = DateTime.now();
       await CacheService().cacheAssignments(date, [assignmentJson]);
 
-      final assignments =
-          await ApiDataService().getTodayAssignments(date: date);
+      final assignments = await HttpOverrides.runZoned(
+        () => ApiDataService().getTodayAssignments(date: date),
+        createHttpClient: (_) => throw const SocketException('offline'),
+      );
       expect(assignments.single.dogName, 'Buddy');
     });
 
     test('getTodayAssignments rethrows on a cold cache', () async {
       expect(
-        () => ApiDataService().getTodayAssignments(date: DateTime.now()),
+        () => HttpOverrides.runZoned(
+          () => ApiDataService().getTodayAssignments(date: DateTime.now()),
+          createHttpClient: (_) => throw const SocketException('offline'),
+        ),
         throwsA(anything),
       );
+    });
+
+    test('getTodayAssignments does NOT serve cache after a server error',
+        () async {
+      // The dashboard infers staleness from ConnectivityStatus, which a
+      // *completed* request marks online. Falling back here would hide the
+      // "saved data" banner and show a driver an hours-old route as if live.
+      // The test binding answers every request with a 400, i.e. a reachable
+      // server that refused — exactly the case that must not fall back.
+      final date = DateTime.now();
+      await CacheService().cacheAssignments(date, [assignmentJson]);
+
+      expect(
+        () => ApiDataService().getTodayAssignments(date: date),
+        throwsA(anything),
+      );
+    });
+  });
+
+  group('cached profile is not shared across accounts', () {
+    // The Hive cache is global, not keyed by user. If a profile fetch fails
+    // right after adding a second account, serving the cached profile would
+    // show the new session the previous customer's identity — and then
+    // upsertActiveAccount would file the new token under the old user.
+    test('getProfile refuses a cached profile belonging to another account',
+        () async {
+      await CacheService().cacheProfile({
+        'user_id': 1,
+        'username': 'alice',
+        'email': 'alice@example.com',
+        'is_staff': false,
+      });
+      FlutterSecureStorage.setMockInitialValues({'auth_token': 't', 'active_account_id': '2'});
+
+      expect(
+        () => HttpOverrides.runZoned(
+          () => ApiDataService().getProfile(),
+          createHttpClient: (_) => throw const SocketException('offline'),
+        ),
+        throwsA(anything),
+      );
+    });
+
+    test('getProfile serves the cached profile for the matching account',
+        () async {
+      await CacheService().cacheProfile({
+        'user_id': 1,
+        'username': 'alice',
+        'email': 'alice@example.com',
+        'is_staff': false,
+      });
+      FlutterSecureStorage.setMockInitialValues({'auth_token': 't', 'active_account_id': '1'});
+
+      final profile = await HttpOverrides.runZoned(
+        () => ApiDataService().getProfile(),
+        createHttpClient: (_) => throw const SocketException('offline'),
+      );
+      expect(profile.username, 'alice');
     });
   });
 }

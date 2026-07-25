@@ -103,6 +103,17 @@ class ApiDataService implements DataService {
   /// the perceived "hang" before cached data appears is bounded by this.
   static const _readTimeout = Duration(seconds: 10);
 
+  /// Authenticated GET with the read timeout applied.
+  ///
+  /// Use this for every read. `_readTimeout` used to be passed by hand and was
+  /// only reached 5 of 56 call sites, so most screens — the feed and the staff
+  /// route among them — sat on the 30s wrapper default on a flaky rural
+  /// connection before their cache fallback could kick in.
+  Future<http.Response> _get(Uri url, {Duration? timeout}) async {
+    final headers = await _getHeaders();
+    return http.get(url, headers: headers, timeout: timeout ?? _readTimeout);
+  }
+
   Future<Map<String, String>> _getHeaders() async {
     final token = await _authService.getToken();
     // Don't send the literal "Token null" when logged out / cleared mid-flight —
@@ -291,9 +302,26 @@ class ApiDataService implements DataService {
     );
   }
 
+  /// The Hive cache is shared across accounts, not keyed by user, so a cached
+  /// profile may belong to whoever was signed in previously. Only serve it if
+  /// it matches the account we currently believe is active — otherwise a failed
+  /// profile fetch during "add another account" would show the new session the
+  /// previous customer's dogs, addresses and medical notes.
+  Future<bool> _cachedProfileIsForActiveAccount(Map<String, dynamic> cached) async {
+    final activeId = await AuthService().getActiveAccountId();
+    // No recorded active account (fresh install, or an app version that predates
+    // the account switcher) — there is no other user it could belong to.
+    if (activeId == null) return true;
+    final cachedId = cached['user_id'];
+    return cachedId != null && cachedId.toString() == activeId.toString();
+  }
+
   @override
   Future<UserProfile> getProfile() async {
     final cache = CacheService();
+    // 401/403 mean this token is no longer valid — serving a cached profile
+    // would present a session that no longer exists as if it were live.
+    var allowCacheFallback = true;
     try {
       final headers = await _getHeaders();
       final response = await http.get(Uri.parse('${AuthService.baseUrl}/api/profile/'),
@@ -301,15 +329,19 @@ class ApiDataService implements DataService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        cache.cacheProfile(Map<String, dynamic>.from(data));
+        await cache.cacheProfile(Map<String, dynamic>.from(data));
         return UserProfile.fromJson(data);
-      } else {
-        throw Exception('Failed to load profile');
       }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        allowCacheFallback = false;
+      }
+      throw Exception('Failed to load profile');
     } catch (e) {
-      final cached = cache.getCachedProfile();
-      if (cached != null) {
-        return UserProfile.fromJson(cached);
+      if (allowCacheFallback) {
+        final cached = cache.getCachedProfile();
+        if (cached != null && await _cachedProfileIsForActiveAccount(cached)) {
+          return UserProfile.fromJson(cached);
+        }
       }
       rethrow;
     }
@@ -385,11 +417,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<OwnerProfile> getOwnerProfile(int userId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/profile/get_owner/?user_id=$userId'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/profile/get_owner/?user_id=$userId'));
 
     if (response.statusCode == 200) {
       return OwnerProfile.fromJson(json.decode(response.body));
@@ -568,11 +596,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<Photo>> getPhotos(String dogId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/photos/by_dog/?dog_id=$dogId'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/photos/by_dog/?dog_id=$dogId'));
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
@@ -816,11 +840,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<PostcodeAddress>> lookupPostcode(String postcode) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/postcode/lookup/?postcode=${Uri.encodeQueryComponent(postcode)}'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/postcode/lookup/?postcode=${Uri.encodeQueryComponent(postcode)}'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final list = (data['addresses'] as List<dynamic>? ?? const []);
@@ -839,11 +859,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<UnspayedMalesResult> getUnspayedMales() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/dogs/unspayed_males/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dogs/unspayed_males/'));
     if (response.statusCode != 200) {
       throw Exception('Failed to load unspayed males: ${response.body}');
     }
@@ -1025,7 +1041,7 @@ class ApiDataService implements DataService {
     if (from != null) {
       uri = uri.replace(queryParameters: {'from': from.toIso8601String().split('T').first});
     }
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load past attendance: ${response.statusCode}');
     }
@@ -1092,7 +1108,7 @@ class ApiDataService implements DataService {
       if (dogId != null) params['dog_id'] = dogId;
       final url = Uri.parse('${AuthService.baseUrl}/api/feed/')
           .replace(queryParameters: params);
-      final response = await http.get(url, headers: headers);
+      final response = await http.get(url, headers: headers, timeout: _readTimeout);
 
       if (response.statusCode == 200) {
         // Decode + parse off the UI isolate to keep feed loads/refreshes smooth.
@@ -1278,11 +1294,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<Map<String, dynamic>>> getReactionDetails(String mediaId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/reaction_details/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/reaction_details/'));
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
@@ -1295,11 +1307,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<OwnerProfile>> getOwners() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/profile/get_owners/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/profile/get_owners/'));
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
@@ -1543,11 +1551,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<DailyDogAssignment>> getMyAssignments({DateTime? date}) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/my_assignments/${_dateParam(date)}'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/my_assignments/${_dateParam(date)}'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
@@ -1570,17 +1574,23 @@ class ApiDataService implements DataService {
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         // Cache the raw JSON so staff can view their route offline
-        cache.cacheAssignments(effectiveDate, data.cast<Map<String, dynamic>>());
+        await cache.cacheAssignments(effectiveDate, data.cast<Map<String, dynamic>>());
         return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
       } else {
         throw Exception('Failed to load today assignments');
       }
     } catch (e) {
-      // On network error, try to return the saved copy — the dashboard shows a
-      // "saved data" indicator so staleness is visible.
-      final cached = cache.getCachedAssignments(effectiveDate);
-      if (cached != null) {
-        return cached.data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+      // Only substitute the saved copy when we genuinely could not reach the
+      // server. The dashboard infers staleness from ConnectivityStatus, so
+      // falling back after a *completed* request (a 5xx mid-deploy) would mark
+      // the app "online" and hide the saved-data banner — a driver would see a
+      // route that is hours old and read it as live. Better to surface the
+      // error and let the caller decide.
+      if (NoConnectionException.isNetworkError(e)) {
+        final cached = cache.getCachedAssignments(effectiveDate);
+        if (cached != null) {
+          return cached.data.map((j) => DailyDogAssignment.fromJson(j)).toList();
+        }
       }
       rethrow;
     }
@@ -1588,11 +1598,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date}) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/compatibility_conflicts/${_dateParam(date)}'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/compatibility_conflicts/${_dateParam(date)}'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final list = data['conflicts'] as List<dynamic>? ?? [];
@@ -1605,11 +1611,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<Dog>> getUnassignedDogs({DateTime? date}) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/unassigned_dogs/${_dateParam(date)}'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/unassigned_dogs/${_dateParam(date)}'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return _parseDogsList(data);
@@ -1677,11 +1679,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<Map<String, dynamic>>> getStaffMembers() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/staff_members/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/staff_members/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
@@ -1852,6 +1850,7 @@ class ApiDataService implements DataService {
     final response = await http.get(
       Uri.parse('${AuthService.baseUrl}/api/daily-assignments/weekday_roster/$qs'),
       headers: headers,
+      timeout: _readTimeout,
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as List;
@@ -1862,11 +1861,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<Map<String, dynamic>> getSuggestedAssignments({DateTime? date}) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/suggested_assignments/${_dateParam(date)}'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/suggested_assignments/${_dateParam(date)}'));
     if (response.statusCode == 200) {
       return Map<String, dynamic>.from(json.decode(response.body));
     } else {
@@ -1948,11 +1943,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<SupportQuery>> getSupportQueries() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/support-queries/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/support-queries/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((json) => SupportQuery.fromJson(json)).toList();
@@ -1963,11 +1954,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<SupportQuery> getSupportQuery(int queryId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/support-queries/$queryId/'));
     if (response.statusCode == 200) {
       return SupportQuery.fromJson(json.decode(response.body));
     } else {
@@ -2064,11 +2051,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<int> getUnresolvedQueryCount() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/support-queries/unresolved_count/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/support-queries/unresolved_count/'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['count'] ?? 0;
@@ -2081,11 +2064,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<ContactInquiry>> getContactInquiries() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((j) => ContactInquiry.fromJson(j)).toList();
@@ -2150,11 +2129,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<int> getUnreadInquiryCount() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/unread_count/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/unread_count/'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['count'] ?? 0;
@@ -2165,11 +2140,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<Map<String, int>> getFeedTodayStats() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/group-media/today_stats/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/group-media/today_stats/'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return {
@@ -2190,7 +2161,7 @@ class ApiDataService implements DataService {
     if (fromDate != null) params['from_date'] = fromDate.toIso8601String().split('T').first;
     if (toDate != null) params['to_date'] = toDate.toIso8601String().split('T').first;
     final uri = Uri.parse('${AuthService.baseUrl}/api/closure-days/').replace(queryParameters: params.isNotEmpty ? params : null);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => ClosureDay.fromJson(e)).toList();
@@ -2304,7 +2275,7 @@ class ApiDataService implements DataService {
     if (end != null) params['end'] = end.toIso8601String().split('T').first;
     final uri = Uri.parse('${AuthService.baseUrl}/api/dogs/calendar/')
         .replace(queryParameters: params.isNotEmpty ? params : null);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       return OwnerCalendar.fromJson(json.decode(response.body));
     }
@@ -2366,7 +2337,7 @@ class ApiDataService implements DataService {
     if (dogId != null) params['dog_id'] = dogId.toString();
     if (noteType != null) params['note_type'] = noteType;
     final uri = Uri.parse('${AuthService.baseUrl}/api/dog-notes/').replace(queryParameters: params.isNotEmpty ? params : null);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => DogNote.fromJson(e)).toList();
@@ -2427,11 +2398,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<StaffAvailability>> getMyAvailability() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/staff-availability/my_availability/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/staff-availability/my_availability/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => StaffAvailability.fromJson(e)).toList();
@@ -2456,11 +2423,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<StaffAvailability>> getStaffAvailability(int staffId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/staff-availability/?staff_member=$staffId'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/staff-availability/?staff_member=$staffId'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => StaffAvailability.fromJson(e)).toList();
@@ -2485,11 +2448,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<Map<String, dynamic>> getStaffCoverage() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/staff-availability/coverage/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/staff-availability/coverage/'));
     if (response.statusCode == 200) {
       return json.decode(response.body);
     }
@@ -2503,6 +2462,7 @@ class ApiDataService implements DataService {
     final response = await http.get(
       Uri.parse('${AuthService.baseUrl}/api/staff-availability/available_staff/$dateParam/'),
       headers: headers,
+      timeout: _readTimeout,
     );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
@@ -2518,7 +2478,7 @@ class ApiDataService implements DataService {
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     final uri = Uri.parse('${AuthService.baseUrl}/api/staff-availability/team_off/')
         .replace(queryParameters: {'start': fmt(start), 'end': fmt(end)});
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final Map<String, dynamic> data = json.decode(response.body);
       final result = <DateTime, List<String>>{};
@@ -2534,11 +2494,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<DayOffRequest>> getMyDayOffRequests() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/my_requests/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/day-off-requests/my_requests/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => DayOffRequest.fromJson(e)).toList();
@@ -2578,11 +2534,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<DayOffRequest>> getAllDayOffRequests() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/day-off-requests/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/day-off-requests/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => DayOffRequest.fromJson(e)).toList();
@@ -2620,11 +2572,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<IntakeRequest>> getIntakeRequests() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/intake-requests/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/intake-requests/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((j) => IntakeRequest.fromJson(j)).toList();
@@ -2720,7 +2668,7 @@ class ApiDataService implements DataService {
     final headers = await _getHeaders();
     var url = '${AuthService.baseUrl}/api/dog-profile-changes/';
     if (status != null) url += '?status=$status';
-    final response = await http.get(Uri.parse(url), headers: headers);
+    final response = await http.get(Uri.parse(url), headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((j) => DogProfileChangeRequest.fromJson(j)).toList();
@@ -2756,11 +2704,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<int> getPendingDogProfileChangeCount() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/dog-profile-changes/pending_count/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dog-profile-changes/pending_count/'));
     if (response.statusCode == 200) {
       return json.decode(response.body)['count'] ?? 0;
     }
@@ -2769,11 +2713,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<StaffPermission>> listStaffPermissions() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/profile/list_staff_permissions/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/profile/list_staff_permissions/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => StaffPermission.fromJson(e as Map<String, dynamic>)).toList();
@@ -2860,11 +2800,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<Vehicle>> getVehicles() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/vehicles/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/vehicles/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => Vehicle.fromJson(e as Map<String, dynamic>)).toList();
@@ -2874,11 +2810,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<Vehicle> getVehicle(int id) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/vehicles/$id/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/vehicles/$id/'));
     if (response.statusCode == 200) {
       return Vehicle.fromJson(json.decode(response.body));
     }
@@ -2970,11 +2902,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<VehicleMaintenanceRecord>> getVehicleHistory(int vehicleId) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/vehicles/$vehicleId/history/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/vehicles/$vehicleId/history/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data
@@ -2992,7 +2920,7 @@ class ApiDataService implements DataService {
     if (status != null) params['status'] = status;
     final uri = Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/')
         .replace(queryParameters: params.isNotEmpty ? params : null);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => VehicleDefect.fromJson(e as Map<String, dynamic>)).toList();
@@ -3002,11 +2930,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<VehicleDefect> getVehicleDefect(int id) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$id/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$id/'));
     if (response.statusCode == 200) {
       return VehicleDefect.fromJson(json.decode(response.body));
     }
@@ -3096,11 +3020,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<int> getUnresolvedVehicleDefectCount() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/unresolved_count/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/unresolved_count/'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['count'] ?? 0;
@@ -3118,7 +3038,7 @@ class ApiDataService implements DataService {
     if (status != null) params['status'] = status;
     final uri = Uri.parse('${AuthService.baseUrl}/api/facility-defects/')
         .replace(queryParameters: params.isNotEmpty ? params : null);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => FacilityDefect.fromJson(e as Map<String, dynamic>)).toList();
@@ -3128,11 +3048,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<FacilityDefect> getFacilityDefect(int id) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/facility-defects/$id/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/facility-defects/$id/'));
     if (response.statusCode == 200) {
       return FacilityDefect.fromJson(json.decode(response.body));
     }
@@ -3211,11 +3127,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<int> getUnresolvedFacilityDefectCount() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/facility-defects/unresolved_count/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/facility-defects/unresolved_count/'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['count'] ?? 0;
@@ -3249,7 +3161,7 @@ class ApiDataService implements DataService {
     };
     final uri = Uri.parse('${AuthService.baseUrl}/api/invoices/')
         .replace(queryParameters: params.isEmpty ? null : params);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => Invoice.fromJson(e as Map<String, dynamic>)).toList();
@@ -3259,11 +3171,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<Invoice> getInvoice(int id) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/invoices/$id/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/invoices/$id/'));
     if (response.statusCode == 200) {
       return Invoice.fromJson(json.decode(response.body));
     }
@@ -3370,11 +3278,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<String> getInvoicePayUrl(int id) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/invoices/$id/pay_url/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/invoices/$id/pay_url/'));
     if (response.statusCode == 200) {
       return json.decode(response.body)['url'] as String;
     }
@@ -3383,11 +3287,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<BillingSettings> getBillingSettings() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/billing-settings/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/billing-settings/'));
     if (response.statusCode == 200) {
       return BillingSettings.fromJson(json.decode(response.body));
     }
@@ -3414,11 +3314,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<CustomerRate>> getCustomerRates() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/customer-rates/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/customer-rates/'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => CustomerRate.fromJson(e as Map<String, dynamic>)).toList();
@@ -3446,11 +3342,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<XeroContactMatches> getXeroContactMatches() async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/xero/contact-matches/'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/xero/contact-matches/'));
     if (response.statusCode == 200) {
       return XeroContactMatches.fromJson(json.decode(response.body));
     }
@@ -3473,11 +3365,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<XeroContact>> searchXeroContacts(String query) async {
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('${AuthService.baseUrl}/api/xero/contacts/?q=${Uri.encodeQueryComponent(query)}'),
-      headers: headers,
-    );
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/xero/contacts/?q=${Uri.encodeQueryComponent(query)}'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return (data['contacts'] as List<dynamic>)
@@ -3496,7 +3384,7 @@ class ApiDataService implements DataService {
     };
     final uri = Uri.parse('${AuthService.baseUrl}/api/invoices/summary/')
         .replace(queryParameters: params.isEmpty ? null : params);
-    final response = await http.get(uri, headers: headers);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
     if (response.statusCode == 200) {
       return InvoiceSummary.fromJson(json.decode(response.body));
     }

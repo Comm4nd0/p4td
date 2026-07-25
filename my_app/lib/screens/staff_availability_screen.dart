@@ -561,32 +561,50 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     );
 
     if (confirmed == true && mounted) {
+      // One request per date. A failure on any single date (most often "you
+      // already have a request for that day") must not abandon the rest of the
+      // range or skip the refresh — otherwise some days are created server-side
+      // but invisible here, and every retry fails again on the same first day.
+      final reason = reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null;
+      var succeeded = 0;
+      final failedDates = <DateTime>[];
       try {
-        // Create one request per date in the range
-        final reason = reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null;
         var current = start;
         while (!current.isAfter(end)) {
-          await _dataService.requestDayOff(date: current, reason: reason);
+          try {
+            await _dataService.requestDayOff(date: current, reason: reason);
+            succeeded++;
+          } catch (_) {
+            failedDates.add(current);
+          }
           current = current.add(const Duration(days: 1));
         }
-        if (mounted) {
-          final count = end.difference(start).inDays + 1;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(isSingle
-                  ? 'Day off request submitted'
-                  : '$count day off requests submitted'),
-              backgroundColor: AppColors.success,
-            ),
-          );
+      } finally {
+        // Always resync, so whatever *did* get created is visible.
+        if (mounted) _loadDayOffRequests();
+      }
+
+      if (mounted) {
+        final total = end.difference(start).inDays + 1;
+        final String message;
+        Color? background;
+        if (failedDates.isEmpty) {
+          message = isSingle
+              ? 'Day off request submitted'
+              : '$total day off requests submitted';
+          background = AppColors.success;
+        } else if (succeeded == 0) {
+          message = isSingle
+              ? "Couldn't submit that day off request."
+              : "Couldn't submit any of those day off requests.";
+        } else {
+          final skipped = failedDates.map(ukDateWithDay).join(', ');
+          message = 'Requested $succeeded of $total days — skipped $skipped '
+              '(already requested, or not available).';
         }
-        _loadDayOffRequests();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to request day off: $e')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: background),
+        );
       }
     }
   }
@@ -607,6 +625,9 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     if (confirmed == true && mounted) {
       try {
         await _dataService.cancelDayOffRequest(request.id);
+        // The catch branch below re-checks mounted; the success path has to as
+        // well, or navigating away mid-request uses a dead context.
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Request cancelled')),
         );
