@@ -23,6 +23,8 @@ my_app/android/keystore/
 *.jks
 *.keystore
 db.sqlite3
+# Per-worker test databases left behind by `manage.py test --parallel`
+default_*.sqlite3
 
 # Django
 *.log
