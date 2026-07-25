@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0072_alter_invoice_status_and_more'),
+        ('api', '0074_alter_invoice_status_and_more'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

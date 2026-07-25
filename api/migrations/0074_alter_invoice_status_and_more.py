@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0071_rename_can_approve_timeoff_userprofile_can_manage_staff'),
+        ('api', '0073_alter_boardingrequest_status_and_more'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

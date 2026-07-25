@@ -166,7 +166,7 @@ else:
 # DatabaseCache needs no extra infrastructure on the CX22 (no Redis to run,
 # monitor or back up) and the traffic here is nowhere near the point where its
 # overhead matters. The django_cache table is created by migration
-# api/0074_create_cache_table, so `migrate` — which the container already runs
+# api/0076_create_cache_table, so `migrate` — which the container already runs
 # on every start — sets it up everywhere; there is no manual step.
 CACHES = {
     'default': {

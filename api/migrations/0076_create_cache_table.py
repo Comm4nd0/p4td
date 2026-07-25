@@ -30,7 +30,7 @@ def drop_cache_table(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0073_alter_dailydogassignment_staff_member'),
+        ('api', '0075_alter_dailydogassignment_staff_member'),
     ]
 
     operations = [
