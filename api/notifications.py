@@ -11,6 +11,30 @@ logger = logging.getLogger(__name__)
 
 _firebase_app = None
 
+# Push dispatch used to spawn one unbounded daemon thread per recipient. A
+# traffic alert to a 30-dog route, or send_all over a month of invoices, fanned
+# out that many threads *and* that many Postgres connections at once, against a
+# 2-worker/2-thread web tier and a default max_connections of 100. A small fixed
+# pool bounds both; FCM calls are I/O-bound so four is plenty, and work queues
+# rather than being dropped.
+_push_executor = None
+_push_executor_lock = None
+
+
+def _executor():
+    """Lazily-created shared thread pool for FCM dispatch."""
+    global _push_executor, _push_executor_lock
+    import threading
+    if _push_executor_lock is None:
+        _push_executor_lock = threading.Lock()
+    if _push_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        with _push_executor_lock:
+            if _push_executor is None:
+                _push_executor = ThreadPoolExecutor(
+                    max_workers=4, thread_name_prefix='push')
+    return _push_executor
+
 
 def initialize_firebase():
     global _firebase_app
@@ -90,6 +114,17 @@ def send_push_notification(user, title, body, data=None, category=None):
         return
 
     def _dispatch():
+        # Runs on a pool thread, which gets its own DB connection. Django only
+        # closes connections at the end of a *request*, so without the finally
+        # below every notification would leak one until Postgres hits
+        # max_connections.
+        from django.db import connection as _db_connection
+        try:
+            _dispatch_inner()
+        finally:
+            _db_connection.close()
+
+    def _dispatch_inner():
         tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
         if not tokens:
             return
@@ -134,12 +169,11 @@ def send_push_notification(user, title, body, data=None, category=None):
         logger.info(f"Successfully sent {success_count} messages; failed {failure_count} messages.")
 
     # Get the Firebase network I/O off the request/transaction path: run after
-    # the surrounding DB transaction commits AND on a background daemon thread,
-    # so a slow FCM endpoint cannot stall the worker. When there is no active
-    # transaction, on_commit runs the callback immediately, which is fine.
+    # the surrounding DB transaction commits AND on a background worker, so a
+    # slow FCM endpoint cannot stall the gunicorn worker. When there is no
+    # active transaction, on_commit runs the callback immediately, which is fine.
     from django.db import transaction
-    import threading
-    transaction.on_commit(lambda: threading.Thread(target=_dispatch, daemon=True).start())
+    transaction.on_commit(lambda: _executor().submit(_dispatch))
 
 def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
     """

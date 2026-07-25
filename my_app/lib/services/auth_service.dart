@@ -137,6 +137,18 @@ class AuthService {
         final data = json.decode(response.body);
         final token = data['auth_token'];
         await _storage.write(key: _kActiveToken, value: token);
+        // This may be a *different* user (the "add another account" flow), and
+        // the Hive cache is shared rather than per-user. Drop the previous
+        // user's cached profile/dogs and the now-stale active-account id before
+        // anything can read them. upsertActiveAccount re-establishes the id once
+        // the new profile has actually loaded; until then there is nothing
+        // cached to mis-attribute.
+        await _storage.delete(key: _kActiveAccountId);
+        try {
+          await CacheService().clearAll();
+        } catch (e) {
+          debugPrint('AuthService.login: failed to clear cache: $e');
+        }
         return null; // Success
       } else {
         try {

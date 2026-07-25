@@ -9,6 +9,7 @@ import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/auth_service.dart';
+import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../services/theme_service.dart';
 import '../widgets/app_sheets.dart';
@@ -500,7 +501,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : () async {
                       if (passwordController.text.isEmpty) return;
                       setDialogState(() => isDeleting = true);
-                      final error = await _authService.deleteAccount(passwordController.text);
+                      String? error;
+                      try {
+                        error = await _authService.deleteAccount(passwordController.text);
+                      } catch (e) {
+                        // deleteAccount rethrows NoConnectionException on any
+                        // timeout. Without this the dialog stays spinning with
+                        // both buttons disabled behind barrierDismissible:false
+                        // — on iOS the only way out is force-quitting the app.
+                        error = NoConnectionException.isNetworkError(e)
+                            ? "Couldn't reach the server. Check your connection and try again."
+                            : 'Something went wrong. Please try again.';
+                      }
                       if (error != null) {
                         setDialogState(() => isDeleting = false);
                         if (context.mounted) {

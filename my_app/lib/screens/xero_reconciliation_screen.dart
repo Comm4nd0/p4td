@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../utils/snacks.dart';
 import '../models/xero_contact.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -56,11 +57,6 @@ class _XeroReconciliationScreenState extends State<XeroReconciliationScreen> {
     }
   }
 
-  void _showError(Object message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$message'), backgroundColor: AppColors.error),
-    );
-  }
 
   Future<void> _pin(XeroCustomerMatch match, XeroContact contact) async {
     setState(() => _busy = true);
@@ -75,7 +71,7 @@ class _XeroReconciliationScreenState extends State<XeroReconciliationScreen> {
       }
       await _load();
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -87,7 +83,7 @@ class _XeroReconciliationScreenState extends State<XeroReconciliationScreen> {
       await _dataService.pinXeroContact(match.customer.userId, '');
       await _load();
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

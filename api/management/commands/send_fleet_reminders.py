@@ -5,10 +5,11 @@ overdue) notifies staff with can_manage_vehicles exactly once — bookkeeping
 flags on the vehicle make reruns no-ops. Flags are re-armed when the
 corresponding due date is updated (see VehicleViewSet.perform_update).
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from api.models import Vehicle
 from api.notifications import send_push_notification
@@ -32,7 +33,7 @@ class Command(BaseCommand):
                 self.stderr.write(f'Failed to notify {user}: {exc}')
 
     def handle(self, *args, **options):
-        today = date.today()
+        today = timezone.localdate()
         sent = 0
 
         # (label, event key, date field, 30-day flag, 7-day flag, overdue flag)

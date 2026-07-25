@@ -10,13 +10,17 @@ one line per dog, at ``Dog.daily_rate`` falling back to the website's
 Approved boarding stays bill separately at a per-night rate
 (``Dog.boarding_rate`` falling back to ``ServicePricing.boarding_price_per_night``):
 a billable night is a stay date before the checkout day, clamped to the
-billing month. Boarding is deliberately billed IN ADDITION to any daycare
-assignment on the same date (business decision: a boarded dog joining
-daycare is a paid extra).
+billing month. Boarding REPLACES the daycare charge for the days it covers —
+``attendance_for_month`` subtracts ``_boarded_dog_days``, so a boarded dog is
+never charged for both on the same date. (This paragraph previously claimed the
+opposite, which is a dangerous thing to leave lying around next to a billing
+engine: anyone "fixing the code to match the docs" would double-charge every
+boarding customer.)
 
-Xero is strictly best-effort: a failed push never blocks the local billing
-workflow — the error is stored on the invoice and can be retried via the
-``push_to_xero`` endpoint action.
+Xero is best-effort for *retries* — a push failure stores the error on the
+invoice — but ``send_invoice`` will not mark an invoice SENT unless the push
+succeeded, so an invoice is never presented to a customer as sent when Xero
+never received it.
 """
 import calendar as _calendar
 import logging
@@ -38,6 +42,15 @@ PAYMENT_TERMS_DAYS = 14
 
 # Xero caps the length of the IDs= filter; batch open invoices when syncing.
 XERO_FETCH_CHUNK = 40
+
+
+class XeroSendFailed(Exception):
+    """Raised by send_invoice when Xero is connected but rejected the push.
+
+    The invoice is returned to DRAFT before this is raised, so a retry picks it
+    up normally. Callers should report it per-invoice rather than aborting a
+    whole batch.
+    """
 
 
 def _customer_rate(customer, field):
@@ -388,18 +401,62 @@ def remove_adjustment(invoice, line_id):
 
 
 def send_invoice(invoice, user=None):
-    """Send a DRAFT invoice: mark it SENT, push to Xero and ask Xero to email
-    it to the customer (both best-effort) and notify the owner."""
-    if invoice.status != 'DRAFT':
-        raise ValueError('Only draft invoices can be sent.')
+    """Send a DRAFT invoice: push to Xero, ask Xero to email it to the customer,
+    mark it SENT and notify the owner.
+
+    Claiming the invoice is the first thing this does, under a row lock. The
+    Xero round-trip takes seconds and the app times out at 30s, so a staff
+    member who retries a slow "send" would otherwise run this twice against the
+    same still-DRAFT row and raise two real invoices in Xero — two invoice
+    numbers, two emails to the customer, and only the second id recorded here.
+
+    The status flip is deliberately *after* the Xero push. It used to come
+    first, which left any Xero failure (timeout, 429, outage) showing SENT with
+    no xero_invoice_id: never emailed, pay_url 404ing, not picked up by a retry
+    of send_all (which only looks at DRAFT) — yet the customer had already been
+    pushed "your invoice is ready".
+    """
+    from django.db import transaction
+
+    # Claim the row first, under a lock, so a concurrent call sees SENDING
+    # rather than DRAFT and refuses. Only the caller that wins the race does any
+    # Xero I/O.
+    with transaction.atomic():
+        locked = Invoice.objects.select_for_update().get(pk=invoice.pk)
+        if locked.status != 'DRAFT':
+            raise ValueError('Only draft invoices can be sent.')
+        locked.status = 'SENDING'
+        locked.save(update_fields=['status', 'updated_at'])
+    invoice.refresh_from_db()
+
+    def _release_to_draft():
+        invoice.status = 'DRAFT'
+        invoice.save(update_fields=['status', 'updated_at'])
+
+    try:
+        pushed = push_invoice_to_xero(invoice)
+        if pushed:
+            email_invoice_from_xero(invoice)
+    except BaseException:
+        # push_invoice_to_xero is already no-raise, so this is belt-and-braces:
+        # nothing short of the process being killed outright may leave an
+        # invoice stranded in SENDING, where neither send nor send_all (both
+        # DRAFT-only) would ever pick it up again.
+        logger.exception('Unexpected error pushing invoice %s to Xero', invoice.pk)
+        _release_to_draft()
+        raise
+
+    if XeroConnection.load().is_connected and not pushed:
+        # Xero is configured but rejected us. Put the invoice back so a retry
+        # picks it up, rather than leaving a SENT invoice the customer can
+        # neither see nor pay.
+        _release_to_draft()
+        raise XeroSendFailed(invoice.xero_sync_error or 'Could not send the invoice to Xero.')
+
     invoice.status = 'SENT'
     invoice.sent_at = timezone.now()
     invoice.due_date = timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS)
     invoice.save(update_fields=['status', 'sent_at', 'due_date', 'updated_at'])
-
-    # Outside the transaction: Xero I/O must never roll back the send.
-    if push_invoice_to_xero(invoice):
-        email_invoice_from_xero(invoice)
 
     # Dog-name invoices have no app user to notify — they're emailed from Xero.
     if invoice.customer is not None:
@@ -510,8 +567,14 @@ def refresh_payment_state(invoice):
     paid = invoice.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     invoice.amount_paid = paid
     update_fields = ['amount_paid', 'updated_at']
-    if invoice.status not in ('DRAFT', 'VOID'):
-        if paid >= invoice.total and invoice.total > 0:
+    # SENDING is a transient claim held by send_invoice; overwriting it here
+    # would undo the double-send guard mid-push.
+    if invoice.status not in ('DRAFT', 'SENDING', 'VOID'):
+        # `total > 0` used to be an AND here, which pinned a £0.00 invoice at
+        # SENT forever: nothing can ever be "paid", record_manual_payment
+        # rejects amounts <= 0, and send_invoice_reminders chases it every day.
+        # A zero-total invoice is settled by definition.
+        if invoice.total <= 0 or paid >= invoice.total:
             if invoice.status != 'PAID':
                 invoice.paid_at = timezone.now()
                 update_fields.append('paid_at')
@@ -627,37 +690,54 @@ def sync_invoices_from_xero():
 
 
 def _import_remote_payments(invoice, remote):
-    """Import unseen payments from a Xero invoice dict; returns count added."""
+    """Import unseen payments from a Xero invoice dict; returns count added.
+
+    Idempotent, and safe to run concurrently: this is reachable both from the
+    */30 sync cron and from the staff "Sync with Xero" button, so a Python-side
+    dedupe check alone would let two overlapping runs import the same payment
+    twice and flip a part-paid invoice to PAID. get_or_create leans on the
+    uniq_xero_payment_per_invoice constraint to settle the race in the database.
+    """
     imported = 0
-    seen = set(invoice.payments.exclude(xero_payment_id='').values_list('xero_payment_id', flat=True))
     for remote_payment in remote.get('Payments') or []:
         payment_id = remote_payment.get('PaymentID', '')
-        if not payment_id or payment_id in seen:
+        if not payment_id:
             continue
-        PaymentRecord.objects.create(
+        _, created = PaymentRecord.objects.get_or_create(
             invoice=invoice,
-            amount=Decimal(str(remote_payment.get('Amount', 0))),
-            method='XERO_ONLINE',
-            source='XERO',
-            payment_date=_parse_xero_date(remote_payment.get('Date')) or timezone.now().date(),
             xero_payment_id=payment_id,
+            defaults={
+                'amount': Decimal(str(remote_payment.get('Amount', 0))),
+                'method': 'XERO_ONLINE',
+                'source': 'XERO',
+                'payment_date': (_parse_xero_date(remote_payment.get('Date'))
+                                 or timezone.now().date()),
+            },
         )
-        imported += 1
+        if created:
+            imported += 1
 
     # Credits/prepayments/overpayments don't appear in Payments[]; if Xero says
     # more has been settled than our ledger holds, book the difference.
     remote_paid = Decimal(str(remote.get('AmountPaid', 0) or 0)) + Decimal(str(remote.get('AmountCredited', 0) or 0))
     local_paid = invoice.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     if remote_paid > local_paid:
-        PaymentRecord.objects.create(
+        # Give the adjustment a deterministic key too, so a concurrent (or
+        # simply repeated) sync tops the balance up once rather than compounding
+        # the same difference on every run.
+        _, created = PaymentRecord.objects.get_or_create(
             invoice=invoice,
-            amount=remote_paid - local_paid,
-            method='OTHER',
-            source='XERO',
-            payment_date=timezone.now().date(),
-            notes='Xero balance adjustment (credit/prepayment).',
+            xero_payment_id=f'balance:{invoice.xero_invoice_id}:{remote_paid}'[:64],
+            defaults={
+                'amount': remote_paid - local_paid,
+                'method': 'OTHER',
+                'source': 'XERO',
+                'payment_date': timezone.now().date(),
+                'notes': 'Xero balance adjustment (credit/prepayment).',
+            },
         )
-        imported += 1
+        if created:
+            imported += 1
     return imported
 
 

@@ -61,9 +61,21 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 
 ## Deploying
 
+Two entry points, same result — pick by where you are:
+
 ```bash
-cd ~/p4td && ./deploy.sh         # git pull + docker build + migrate + restart
+# On the server:
+cd ~/p4td && ./deploy.sh                 # pull main + build + restart + health gate
+
+# From a laptop (does the above over SSH, and records a rollback point):
+./scripts/deploy-to-hetzner.sh
 ```
+
+Both pull **`main` only**, with `--ff-only`, and both poll `/healthz/` before
+reporting success — a container that crash-loops on a bad migration fails the
+deploy rather than completing silently. `deploy.sh` prints the commit it
+deployed; `deploy-to-hetzner.sh` also appends the previous commit and image id
+to `.deploy-history` so a rollback target is always recorded.
 
 For a **compose-only** change (the command, ports, healthcheck, volumes — no
 Python/Dockerfile change) you don't need a rebuild:

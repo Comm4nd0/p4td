@@ -5,10 +5,11 @@ expired) notifies the dog's owners exactly once — bookkeeping flags on the
 record make reruns no-ops. Staff with can_manage_requests get a digest of
 newly-expired vaccinations so compliance issues are visible.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from api.models import VaccinationRecord
 from api.notifications import send_push_notification
@@ -33,7 +34,7 @@ class Command(BaseCommand):
                 self.stderr.write(f'Failed to notify {user}: {exc}')
 
     def handle(self, *args, **options):
-        today = date.today()
+        today = timezone.localdate()
         sent = 0
 
         base = VaccinationRecord.objects.select_related('dog', 'dog__owner').prefetch_related(

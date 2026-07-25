@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../utils/snacks.dart';
 import '../models/customer_rate.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -45,22 +46,38 @@ class _PricingScreenState extends State<PricingScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        _showError('Failed to load pricing: $e');
+        showError('Failed to load pricing: $e');
       }
     }
   }
 
-  void _showError(Object message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$message'), backgroundColor: AppColors.error),
+
+  Widget _buildLoadFailed() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Couldn't load pricing.",
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Check your connection and try again.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      ),
     );
   }
 
-  void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.success),
-    );
-  }
 
   Future<void> _editDefaults() async {
     final settings = _settings!;
@@ -125,7 +142,7 @@ class _PricingScreenState extends State<PricingScreen> {
     final boarding = double.tryParse(boardingController.text.trim());
     final transport = double.tryParse(transportController.text.trim());
     if (day == null || day < 0 || boarding == null || boarding < 0 || transport == null || transport < 0) {
-      _showError('Enter valid prices');
+      showError('Enter valid prices');
       return;
     }
     setState(() => _busy = true);
@@ -137,10 +154,10 @@ class _PricingScreenState extends State<PricingScreen> {
       );
       if (mounted) {
         setState(() => _settings = updated);
-        _showSuccess('Standard prices updated');
+        showSuccess('Standard prices updated');
       }
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -230,7 +247,7 @@ class _PricingScreenState extends State<PricingScreen> {
     final boarding = parseOrNull(boardingText);
     if ((dayText.isNotEmpty && (day == null || day < 0)) ||
         (boardingText.isNotEmpty && (boarding == null || boarding < 0))) {
-      _showError('Enter valid rates, or leave blank for the standard price');
+      showError('Enter valid rates, or leave blank for the standard price');
       return;
     }
 
@@ -248,10 +265,10 @@ class _PricingScreenState extends State<PricingScreen> {
           customer.boardingRate = updated.boardingRate;
           customer.billingMode = updated.billingMode;
         });
-        _showSuccess('${customer.displayName}\'s billing updated');
+        showSuccess('${customer.displayName}\'s billing updated');
       }
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -272,7 +289,13 @@ class _PricingScreenState extends State<PricingScreen> {
       appBar: AppBar(title: const Text('Pricing')),
       body: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
-          : RefreshIndicator.adaptive(
+          // _buildDefaultsCard dereferences _settings!, which is still null if
+          // the load failed. Throwing from build() replaces the entire Scaffold
+          // — AppBar included — with a red ErrorWidget, leaving no back button
+          // and no way to retry.
+          : _settings == null
+              ? _buildLoadFailed()
+              : RefreshIndicator.adaptive(
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.all(16),

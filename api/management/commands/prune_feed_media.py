@@ -77,19 +77,34 @@ class Command(BaseCommand):
     def _clean_orphans(self, dry_run):
         media_root = str(settings.MEDIA_ROOT)
 
-        # Collect all file paths referenced by GroupMedia records.
+        # Collect all file paths referenced by GroupMedia and Photo records.
         # FileField names use forward slashes regardless of OS; normalize
         # both sides of the comparison so referenced files are recognised
         # on Windows too.
+        #
+        # dog_photos/ is scanned as well as group_media/: PhotoViewSet now
+        # removes files on delete, but this is the backstop for rows deleted
+        # before that (or via a cascade / the admin), which otherwise leave
+        # images on the CX22's disk forever.
+        from api.models import Photo
+
         referenced = set()
         for item in GroupMedia.objects.all().iterator():
             if item.file:
                 referenced.add(item.file.name.replace('\\', '/'))
             if item.thumbnail:
                 referenced.add(item.thumbnail.name.replace('\\', '/'))
+        for photo in Photo.objects.all().iterator():
+            if photo.file:
+                referenced.add(photo.file.name.replace('\\', '/'))
+            if photo.thumbnail:
+                referenced.add(photo.thumbnail.name.replace('\\', '/'))
 
         orphan_count = 0
-        dirs_to_scan = ['group_media', 'group_media/thumbnails']
+        dirs_to_scan = [
+            'group_media', 'group_media/thumbnails',
+            'dog_photos', 'dog_photos/thumbnails',
+        ]
 
         for rel_dir in dirs_to_scan:
             abs_dir = os.path.normpath(os.path.join(media_root, rel_dir))

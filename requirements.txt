@@ -5,7 +5,7 @@
 
 # Django core
 Django==5.2.10
-djangorestframework==3.15.1
+djangorestframework==3.16.1
 djoser==2.2.3
 django-cors-headers==4.3.1
 
@@ -28,4 +28,6 @@ django-recaptcha==4.1.0
 nh3==0.3.5
 
 # Error monitoring (optional; only active when SENTRY_DSN is set — see settings.py)
-sentry-sdk>=2.0,<3.0
+# Pinned exactly: the old >=2.0,<3.0 range allowed 2.0.x, which predates the
+# CVE-2024-40647 fix (env vars leaking to subprocesses, fixed in 2.8.0).
+sentry-sdk==2.66.1

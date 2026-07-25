@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:picons/picons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
+import '../utils/snacks.dart';
 import '../models/invoice.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -53,22 +54,12 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        _showError('Failed to load invoice: $e');
+        showError('Failed to load invoice: $e');
       }
     }
   }
 
-  void _showError(Object message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$message'), backgroundColor: AppColors.error),
-    );
-  }
 
-  void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.success),
-    );
-  }
 
   /// Run a workflow action, replacing the invoice with the response.
   Future<void> _runAction(Future<Invoice> Function() action, String successMessage) async {
@@ -77,10 +68,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       final updated = await action();
       if (mounted) {
         setState(() => _invoice = updated);
-        _showSuccess(successMessage);
+        showSuccess(successMessage);
       }
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -92,10 +83,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       final url = await _dataService.getInvoicePayUrl(widget.invoiceId);
       final uri = Uri.parse(url);
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        if (mounted) _showError('Could not open the payment page');
+        if (mounted) showError('Could not open the payment page');
       }
     } catch (e) {
-      if (mounted) _showError(e);
+      if (mounted) showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -149,7 +140,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
           updated.status == 'VOID' &&
           updated.xeroSyncError.isNotEmpty &&
           mounted) {
-        _showError('Could not void the Xero copy (it may have payments applied) — '
+        showError('Could not void the Xero copy (it may have payments applied) — '
             'handle it in Xero with a credit note.');
       }
     }
@@ -206,7 +197,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
     final amount = double.tryParse(amountController.text.trim());
     if (amount == null || amount <= 0) {
-      _showError('Enter a valid amount');
+      showError('Enter a valid amount');
       return;
     }
     await _runAction(
@@ -291,7 +282,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     if (confirmed == true) {
       final amount = double.tryParse(amountController.text.trim());
       if (amount == null || amount <= 0) {
-        _showError('Enter a valid amount');
+        showError('Enter a valid amount');
         return;
       }
       await _runAction(

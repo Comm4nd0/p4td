@@ -84,7 +84,7 @@
     "@type": "BlogPosting",
     "headline": "{{ post.title|escapejs }}",
     "description": "{{ post.excerpt|striptags|escapejs }}",
-    {% if post.featured_image %}"image": "{{ post.featured_image.url }}",{% endif %}
+    {% if post.featured_image %}"image": "{{ request.scheme }}://{{ request.get_host }}{{ post.featured_image.url }}",{% endif %}
     "datePublished": "{{ post.published_at|date:'c' }}",
     "dateModified": "{{ post.updated_at|date:'c' }}",
     "author": {

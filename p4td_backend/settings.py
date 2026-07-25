@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -148,6 +149,43 @@ else:
     }
 
 # =============================================================================
+# CACHE
+# =============================================================================
+
+# Django's default is LocMemCache, which is PRIVATE TO EACH PROCESS. Production
+# runs gunicorn with 2 workers, which made that default actively wrong:
+#
+#  * ServicePricing/SiteSettings cache themselves with `timeout=None`
+#    (website/models.py), so a price change saved on worker A left worker B
+#    billing the OLD rate until it happened to recycle — and invoice generation
+#    reads those prices.
+#  * Every AnonRateThrottle counter (password reset 5/h, contact form 5/h) was
+#    per-worker, so the real limits were ~2x what is configured here, and reset
+#    on every deploy and every --max-requests recycle.
+#
+# DatabaseCache needs no extra infrastructure on the CX22 (no Redis to run,
+# monitor or back up) and the traffic here is nowhere near the point where its
+# overhead matters. The django_cache table is created by migration
+# api/0076_create_cache_table, so `migrate` — which the container already runs
+# on every start — sets it up everywhere; there is no manual step.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache',
+    }
+}
+
+# Tests use the in-process cache: throttle counters and the cached singletons
+# must not leak between tests, and a DB-backed cache inside TestCase's
+# transaction would roll back mid-test in ways that mask real behaviour.
+if 'test' in sys.argv:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
+
+# =============================================================================
 # PASSWORD VALIDATION
 # =============================================================================
 
@@ -164,8 +202,22 @@ AUTH_PASSWORD_VALIDATORS = [
 # INTERNATIONALIZATION
 # =============================================================================
 
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'en-gb'
+
+# The business runs in the UK, and almost every date in this system is a
+# *business* date: which day's roster, which month to bill, whether a day is in
+# the past, whether a vaccination has expired.
+#
+# With TIME_ZONE = 'UTC' those were all evaluated in UTC, so for the hour after
+# midnight during BST (late March to late October) "today" was still yesterday.
+# In that window the past-date billing guards let a staff member without
+# can_manage_payments un-bill yesterday, and /daily-assignments/today/ returned
+# the wrong day's route. notifications.py had already worked around this by
+# hard-coding ZoneInfo('Europe/London') for its own check.
+#
+# USE_TZ stays True, so datetimes are still stored in UTC — this only changes
+# how they are localised, which is exactly what timezone.localdate() reads.
+TIME_ZONE = 'Europe/London'
 USE_I18N = True
 USE_TZ = True
 
@@ -211,6 +263,25 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1',
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@paws4thoughtdogs.co.uk')
+
+# Where website/app contact enquiries are sent. api/views.py and website/views.py
+# both read this via getattr(settings, 'CONTACT_INQUIRY_EMAIL', ...) — but it
+# was never defined here, so setting it in .env did nothing and every enquiry
+# went to DEFAULT_FROM_EMAIL regardless (while DEPLOYMENT.md and IMPROVEMENTS.md
+# both told you to configure it). Django does not auto-import env vars.
+CONTACT_INQUIRY_EMAIL = os.environ.get('CONTACT_INQUIRY_EMAIL', DEFAULT_FROM_EMAIL)
+
+# Loud warning if a production deploy is silently discarding every email —
+# password-reset OTPs included — because DJANGO_EMAIL_BACKEND wasn't set.
+if not DEBUG and EMAIL_BACKEND.endswith('console.EmailBackend'):
+    import logging as _logging
+    _logging.getLogger('django.security').warning(
+        'EMAIL_BACKEND is the console backend in a non-DEBUG deploy: password '
+        'reset codes and contact enquiries are being written to stdout and '
+        'never delivered. Set DJANGO_EMAIL_BACKEND '
+        '(django.core.mail.backends.smtp.EmailBackend) plus EMAIL_HOST_USER / '
+        'EMAIL_HOST_PASSWORD.'
+    )
 
 
 REST_FRAMEWORK = {

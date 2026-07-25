@@ -11,6 +11,11 @@
 # Local databases
 *.sqlite3
 
+# Database dumps. scripts/backup-db.sh defaults BACKUP_DIR to <repo>/backups, so
+# without this every pg_dump would be copied into the image by the `COPY . .` in
+# the Dockerfile.
+backups/
+
 # Runtime / generated data (mounted as volumes in prod)
 media/
 staticfiles/

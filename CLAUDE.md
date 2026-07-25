@@ -33,7 +33,7 @@ p4td/
 ├── Dockerfile              # Multi-stage production build (Python 3.11)
 ├── Caddyfile               # Reverse proxy (auto HTTPS, media serving)
 ├── app/                    # Legacy Android app (not actively maintained)
-└── .github/workflows/      # CI: Android Play Store deployment
+└── .github/workflows/      # CI: backend tests, Flutter tests, Play Store deployment
 ```
 
 ## Development Setup
@@ -165,7 +165,9 @@ Additional non-router endpoints:
 > only; the live one is `/root/caddy/Caddyfile` on the server.
 
 - **Infrastructure**: Hetzner CX22, Docker Compose, Caddy reverse proxy
-- **Backend deploy**: `scripts/deploy-to-hetzner.sh` (manual SSH-based)
+- **Backend deploy**: `scripts/deploy-to-hetzner.sh` (manual, SSH-based, from a laptop) or
+  `./deploy.sh` (the same steps run from the checkout on the server). Both pull `main` only,
+  with `--ff-only`, and gate on `/healthz/` before reporting success.
 - **Mobile deploy**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
 - **Production server**: Gunicorn (2 workers, 2 threads, 120s timeout)
 
@@ -182,14 +184,23 @@ Additional non-router endpoints:
 
 See `.env.example` for required variables. Key ones:
 - `DJANGO_SECRET_KEY` — required
-- `DOMAIN` — production domain
-- `DB_NAME`, `DB_USER`, `DB_PASSWORD` — PostgreSQL credentials (prod)
+- `DJANGO_ALLOWED_HOSTS` — comma-separated production hostnames
+- `RDS_DB_NAME`, `RDS_USERNAME`, `RDS_PASSWORD`, `RDS_HOSTNAME`, `RDS_PORT` — PostgreSQL
+  credentials (prod). Note the `RDS_` prefix: `settings.py` switches to PostgreSQL only when
+  `RDS_HOSTNAME` (or `DATABASE_URL`) is set, and silently falls back to SQLite otherwise.
+- `DJANGO_EMAIL_BACKEND` — must be set to `django.core.mail.backends.smtp.EmailBackend` in
+  production (with `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD`). The default is the *console*
+  backend, which silently discards password-reset codes and contact enquiries.
+- `CONTACT_INQUIRY_EMAIL` — where website/app enquiries are sent (defaults to `DEFAULT_FROM_EMAIL`)
+- `SENTRY_DSN` — optional; enables error reporting. Also `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_ENVIRONMENT`
+- `P4TD_CRON_HEARTBEAT_URL` — optional dead-man's-switch pinged by the scheduled commands
 - `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` — security origins
 - `POSTCODE_LOOKUP_API_KEY` — getAddress.io API key powering the `/api/postcode/lookup/` endpoint (UK postcode → address). Optional; leave blank to disable the lookup feature. Distinct from the keyless postcodes.io geocoding used by `geocode_dogs`.
 - `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI` — Xero OAuth2 app credentials for monthly invoicing (create a "Web app" at developer.xero.com whose redirect URI exactly matches `XERO_REDIRECT_URI`). Optional; leave blank to disable — invoicing still works locally, just without the online payment link. A superuser completes the one-time consent via `POST /api/xero/connect/`.
 - `XERO_PAYMENT_ACCOUNT_CODE` — Xero account code that staff-recorded manual payments are booked against in Xero. Blank = manual payments stay app-only (Xero will keep showing the invoice unpaid, and if staff then also key the payment into Xero the sync imports it as a duplicate — keep this configured).
 - `XERO_EMAIL_INVOICES` — when true (default), sending an invoice also asks Xero to email it to the customer with the org's branding theme (the same email customers got when invoices were raised by hand in Xero). Set false for app push notifications only.
-- Firebase and AWS S3 credentials for notifications and media storage
+- Firebase credentials for push notifications. Media is stored on local disk
+  (`FileSystemStorage`) and served by Caddy — there is no S3 integration.
 
 ## Management Commands
 
@@ -204,6 +215,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files | Weekly, Sun 3am (with `--include-orphans`) |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
+| `python manage.py prune_auth_tokens` | Delete DRF auth tokens older than N days so an abandoned device's token can't be reused indefinitely (tokens never expire on their own). `--days`, `--dry-run` | — |
 | `python manage.py generate_monthly_invoices` | Generate draft invoices for the previous month from attendance; notifies staff with `can_manage_payments` to review/send. Idempotent; `--year`, `--month` | Monthly, 1st 6:00am |
 | `python manage.py sync_xero_invoices` | Pull payment status for open invoices back from Xero (no-op when Xero not connected) | Every 30 min |
 | `python manage.py send_invoice_reminders` | Push overdue payment reminders to invoice owners (once per invoice) | Daily 9:00am |
@@ -237,4 +249,7 @@ python manage.py prune_feed_media --include-orphans
 - No backend linter is configured — follow standard Django/PEP 8 conventions
 - Media files and `.env` are gitignored
 - Line endings: LF enforced for `.sh` files via `.gitattributes`
-- The backend has no automated CI — only the Flutter/Android build has a GitHub Actions workflow
+- CI: `backend-ci.yml` (Django checks + full suite against PostgreSQL 15, plus a dependency
+  audit and a Docker build), `flutter-ci.yml` (analyze + test + pubspec version-bump check),
+  `deploy-android-alpha.yml` (Play Store alpha upload), `store-screenshots.yml` (manual).
+  There is no backend CD — production deploys are manual.

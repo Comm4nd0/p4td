@@ -124,7 +124,9 @@ if [ -f "$MIGRATION_DIR/db-dump.sql" ]; then
         --no-privileges \
         --if-exists \
         --clean \
-        < "$MIGRATION_DIR/db-dump.sql" || true
+        < "$MIGRATION_DIR/db-dump.sql"
+    # No '|| true': a failed restore during a disaster rebuild must stop the
+    # script, not print "Database imported." and carry on with an empty DB.
     echo "   Database imported."
 else
     echo "   No database dump found at $MIGRATION_DIR/db-dump.sql"
@@ -137,26 +139,21 @@ fi
 echo ""
 echo "6. Copying media files..."
 if [ -d "$MIGRATION_DIR/media" ]; then
-    # Start web temporarily to create the volume, then copy media into it
-    $DOCKER_COMPOSE -f docker-compose.prod.yml up -d web
-    sleep 5
-
-    # Get the media volume mount path. The prod compose file mounts the named
-    # volume 'media_data' into web at /app/media; docker prefixes it with the
-    # compose project name, so it is 'p4td_media_data' (see docker-compose.prod.yml).
-    MEDIA_VOLUME=$($DOCKER volume inspect p4td_media_data --format '{{ .Mountpoint }}' 2>/dev/null || echo "")
-    if [ -n "$MEDIA_VOLUME" ]; then
-        # No '|| true' here: if the copy fails we want setup to abort loudly
-        # (set -e) rather than silently leaving media missing in production.
-        sudo cp -r "$MIGRATION_DIR/media/"* "$MEDIA_VOLUME/"
-        # Fix permissions for the appuser (UID 1000 in the container)
-        sudo chown -R 1000:1000 "$MEDIA_VOLUME/"
-        echo "   Media files copied to volume."
-    else
-        echo "   ERROR: Could not find media volume p4td_media_data." >&2
-        echo "   Ensure the web service started so the volume exists, then re-run." >&2
-        exit 1
-    fi
+    # Prod mounts media as a HOST BIND MOUNT (./media:/app/media), not a named
+    # volume — see the "Do NOT switch this to a named volume" note in
+    # docker-compose.prod.yml, which the shared Caddy container depends on to
+    # serve /media/* directly off disk.
+    #
+    # This step used to `docker volume inspect p4td_media_data` and `exit 1`
+    # when it wasn't found, which it never is any more: rebuilding a server from
+    # this script aborted here, every time, with media unrestored.
+    mkdir -p "$APP_DIR/media"
+    # No '|| true' here: if the copy fails we want setup to abort loudly
+    # (set -e) rather than silently leaving media missing in production.
+    cp -r "$MIGRATION_DIR/media/"* "$APP_DIR/media/"
+    # Fix permissions for the appuser (UID 1000 in the container)
+    sudo chown -R 1000:1000 "$APP_DIR/media"
+    echo "   Media files copied to $APP_DIR/media."
 else
     echo "   No media directory found at $MIGRATION_DIR/media"
 fi

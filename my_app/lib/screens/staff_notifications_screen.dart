@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../utils/snacks.dart';
 import '../utils/date_formats.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
@@ -83,20 +84,20 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   Future<void> _updateDateStatus(DateChangeRequest request, String newStatus) async {
     try {
       await _dataService.updateDateChangeRequestStatus(request.id, newStatus);
-      _showSuccess('Request ${newStatus.toLowerCase()}');
+      showSuccess('Request ${newStatus.toLowerCase()}');
       _loadRequests();
     } catch (e) {
-      _showError('Failed to update: $e');
+      showError('Failed to update: $e');
     }
   }
 
   Future<void> _updateBoardingStatus(BoardingRequest request, String newStatus) async {
     try {
       await _dataService.updateBoardingRequestStatus(request.id, newStatus);
-      _showSuccess('Request ${newStatus.toLowerCase()}');
+      showSuccess('Request ${newStatus.toLowerCase()}');
       _loadRequests();
     } catch (e) {
-      _showError('Failed to update: $e');
+      showError('Failed to update: $e');
     }
   }
 
@@ -130,10 +131,10 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     if (confirmed != true) return;
     try {
       await _dataService.deleteBoardingRequest(request.id);
-      _showSuccess('Booking deleted');
+      showSuccess('Booking deleted');
       _loadRequests();
     } catch (e) {
-      _showError('Failed to delete: $e');
+      showError('Failed to delete: $e');
     }
   }
 
@@ -153,10 +154,10 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     if (staffId == null) return; // cancelled
     try {
       await _dataService.updateBoardingRequestStatus(request.id, 'APPROVED', assignedStaffId: staffId);
-      _showSuccess('Request approved');
+      showSuccess('Request approved');
       _loadRequests();
     } catch (e) {
-      _showError('Failed to update: $e');
+      showError('Failed to update: $e');
     }
   }
 
@@ -169,19 +170,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     if (changed == true) _loadRequests();
   }
 
-  void _showSuccess(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.success),
-    );
-  }
 
-  void _showError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {

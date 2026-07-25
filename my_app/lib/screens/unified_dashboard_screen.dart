@@ -345,12 +345,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       }
     } catch (e) {
       if (mounted) {
+        // Cache-seeded assignments stay on screen so the day is still usable,
+        // but they must be labelled: without a cachedAt the "saved data from
+        // HH:mm" row is hidden and hours-old data reads as live.
+        final seeded = _dayData(date);
         setState(() {
-          _dayCache[key] = _dayData(date).copyWith(loading: false, loaded: true, error: e);
+          _dayCache[key] = seeded.copyWith(
+            loading: false,
+            loaded: true,
+            error: e,
+            cachedAt: seeded.assignments.isEmpty
+                ? null
+                : _dataService.cachedTodayAssignments(date)?.cachedAt,
+          );
         });
         // With cache-seeded data on screen the day is still usable — the
         // offline banner communicates the situation without a snackbar.
-        if (_dayData(date).assignments.isEmpty) {
+        if (seeded.assignments.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load assignments: $e')));
         }
       }
@@ -384,18 +395,32 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     try {
       final conflicts = await _dataService.getCompatibilityConflicts(date: date);
       if (mounted) {
-        setState(() => _dayCache[_dayKey(date)] = _dayData(date).copyWith(conflicts: conflicts));
+        setState(() => _dayCache[_dayKey(date)] = _dayData(date)
+            .copyWith(conflicts: conflicts, conflictsFailed: false));
       }
-    } catch (_) {}
+    } catch (_) {
+      // Swallowing this used to render exactly like "no conflicts today".
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] =
+            _dayData(date).copyWith(conflicts: const [], conflictsFailed: true));
+      }
+    }
   }
 
   Future<void> _loadUnassignedDogs(DateTime date) async {
     try {
       final unassigned = await _dataService.getUnassignedDogs(date: date);
       if (mounted) {
-        setState(() => _dayCache[_dayKey(date)] = _dayData(date).copyWith(unassignedDogs: unassigned));
+        setState(() => _dayCache[_dayKey(date)] = _dayData(date)
+            .copyWith(unassignedDogs: unassigned, unassignedFailed: false));
       }
-    } catch (_) {}
+    } catch (_) {
+      // Swallowing this used to render exactly like "every dog is assigned".
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] = _dayData(date)
+            .copyWith(unassignedDogs: const [], unassignedFailed: true));
+      }
+    }
   }
 
   /// Single invalidation path: drop all cached days and reload the selected one.
@@ -1194,8 +1219,46 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
   }
 
+  /// Amber "we couldn't check" placeholder for a safety banner whose data
+  /// failed to load. An empty list means "all clear"; a failed load must not
+  /// look the same.
+  Widget _buildWarningUnavailable(String label, VoidCallback onRetry) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.orange.shade700,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onRetry,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                const Picon(PiconsDuotone.warning, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "$label — couldn't check. Tap to retry.",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const Picon(PiconsDuotone.arrowClockwise, color: Colors.white, size: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildUnassignedBanner(DateTime date) {
-    final dogs = _dayData(date).unassignedDogs;
+    final day = _dayData(date);
+    if (day.unassignedFailed) {
+      return _buildWarningUnavailable(
+          'Unassigned dogs', () => _loadUnassignedDogs(date));
+    }
+    final dogs = day.unassignedDogs;
     if (dogs.isEmpty) return const SizedBox.shrink();
     final count = dogs.length;
     final label = count == 1 ? '1 dog unassigned' : '$count dogs unassigned';
@@ -1279,7 +1342,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildCompatibilityWarning(DateTime date) {
-    final conflicts = _dayData(date).conflicts;
+    final day = _dayData(date);
+    if (day.conflictsFailed) {
+      return _buildWarningUnavailable(
+          'Grouping conflicts', () => _loadConflicts(date));
+    }
+    final conflicts = day.conflicts;
     if (conflicts.isEmpty) return const SizedBox.shrink();
     final label = conflicts.length == 1
         ? '1 grouping conflict'
@@ -1853,6 +1921,14 @@ class DayData {
   /// came fresh from the network. Drives the "saved data" staleness banner.
   final DateTime? cachedAt;
 
+  /// Set when the unassigned-dogs / compatibility-conflict fetches failed.
+  /// Both banners hide themselves when their list is empty, so without these
+  /// flags a failed load is pixel-identical to "nothing to warn about" — and
+  /// those two warnings are what stop a dog being left behind or two
+  /// incompatible dogs sharing a van.
+  final bool unassignedFailed;
+  final bool conflictsFailed;
+
   const DayData({
     this.assignments = const [],
     this.unassignedDogs = const [],
@@ -1862,6 +1938,8 @@ class DayData {
     this.error,
     this.loaded = false,
     this.cachedAt,
+    this.unassignedFailed = false,
+    this.conflictsFailed = false,
   });
 
   DayData copyWith({
@@ -1876,6 +1954,8 @@ class DayData {
     bool? loaded,
     DateTime? cachedAt,
     bool clearCachedAt = false,
+    bool? unassignedFailed,
+    bool? conflictsFailed,
   }) {
     return DayData(
       assignments: assignments ?? this.assignments,
@@ -1886,6 +1966,8 @@ class DayData {
       error: clearError ? null : (error ?? this.error),
       loaded: loaded ?? this.loaded,
       cachedAt: clearCachedAt ? null : (cachedAt ?? this.cachedAt),
+      unassignedFailed: unassignedFailed ?? this.unassignedFailed,
+      conflictsFailed: conflictsFailed ?? this.conflictsFailed,
     );
   }
 }
