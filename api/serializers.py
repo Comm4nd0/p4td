@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from django.db.models import Q
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
 from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord
 
@@ -189,9 +190,9 @@ class DogSerializer(serializers.ModelSerializer):
         if prefetched is not None:
             rows = prefetched
         else:
-            from datetime import date as date_cls
+            from django.utils import timezone
             rows = obj.daily_assignments.filter(
-                status='REMOVED', date__gte=date_cls.today()
+                status='REMOVED', date__gte=timezone.localdate()
             )
         return sorted({a.date.isoformat() for a in rows})
 
@@ -243,6 +244,18 @@ class PhotoSerializer(serializers.ModelSerializer):
         model = Photo
         fields = ['id', 'dog', 'dog_name', 'media_type', 'file', 'thumbnail', 'taken_at', 'created_at', 'comments']
         read_only_fields = ['created_at']
+
+    def validate(self, attrs):
+        # `file` is a FileField (it has to accept video), so nothing validates
+        # it by default — and /media/ is served unauthenticated straight off
+        # disk, which makes an uploaded .html stored XSS on the main domain.
+        from .validators import validate_media_upload
+        uploaded = attrs.get('file')
+        if uploaded is not None:
+            media_type = attrs.get(
+                'media_type', getattr(self.instance, 'media_type', None) or 'PHOTO')
+            validate_media_upload(uploaded, media_type)
+        return super().validate(attrs)
 
 class DateChangeRequestSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
@@ -305,6 +318,17 @@ class GroupMediaSerializer(serializers.ModelSerializer):
         model = GroupMedia
         fields = ['id', 'uploaded_by', 'uploaded_by_name', 'uploaded_by_profile_photo', 'media_type', 'file', 'thumbnail', 'caption', 'tagged_dogs', 'tagged_dog_ids', 'reactions', 'user_reaction', 'comments', 'created_at']
         read_only_fields = ['uploaded_by', 'created_at']
+
+    def validate(self, attrs):
+        # Same FileField exposure as PhotoSerializer. Staff-only, so lower risk,
+        # but it writes to the same publicly-served media root.
+        from .validators import validate_media_upload
+        uploaded = attrs.get('file')
+        if uploaded is not None:
+            media_type = attrs.get(
+                'media_type', getattr(self.instance, 'media_type', None) or 'PHOTO')
+            validate_media_upload(uploaded, media_type)
+        return super().validate(attrs)
 
     def get_uploaded_by_name(self, obj):
         if obj.uploaded_by.first_name:
@@ -440,8 +464,25 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         request = self.context.get('request')
         if request and not request.user.is_staff:
-             # Limit dog choices to owned dogs for non-staff
-             self.fields['dogs'].queryset = Dog.objects.filter(owner=request.user)
+            # Limit dog choices to dogs this user owns or co-owns.
+            #
+            # Two bugs fixed here at once:
+            #
+            # 1. `dogs` is declared with many=True, so self.fields['dogs'] is a
+            #    ManyRelatedField *wrapper*. Assigning .queryset on the wrapper
+            #    sets an attribute nothing reads — each pk is validated by
+            #    child_relation. The scoping was therefore a no-op, and ANY
+            #    authenticated owner could create a boarding request naming
+            #    another customer's dog (whose name then appears in the
+            #    response and on the staff board).
+            # 2. It scoped on owner only. The app's dog picker lists co-owned
+            #    dogs too (DogViewSet scopes on owner OR additional_owners), so
+            #    once (1) is fixed a partner's valid choice would 400 as
+            #    "Invalid pk" and they could not book boarding at all.
+            owned = Dog.objects.filter(
+                Q(owner=request.user) | Q(additional_owners=request.user)
+            ).distinct()
+            self.fields['dogs'].child_relation.queryset = owned
 
 class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
@@ -482,9 +523,15 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def get_staff_member_name(self, obj):
-        if obj.staff_member.first_name:
-            return obj.staff_member.first_name
-        return obj.staff_member.username
+        # Null once the staff member who drove this day has left and been
+        # deleted — the attendance row survives them (SET_NULL), so the day is
+        # still billed, just no longer attributed.
+        user = obj.staff_member
+        if user is None:
+            return None
+        if user.first_name:
+            return user.first_name
+        return user.username
 
     def get_owner_name(self, obj):
         user = obj.dog.owner
@@ -844,6 +891,17 @@ class UserCreateWithPrivacySerializer(DjoserUserCreateSerializer):
         fields = tuple(DjoserUserCreateSerializer.Meta.fields) + (
             'first_name', 'last_name', 'accept_privacy',
         )
+
+    def validate_email(self, value):
+        # Django's User.email has no unique constraint. Duplicates break the
+        # password-reset flow (two accounts, one mailbox, an ambiguous code), so
+        # reject them at sign-up rather than discovering it when someone can't
+        # get back into their account.
+        from django.contrib.auth.models import User as AuthUser
+        if value and AuthUser.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                'An account with this email address already exists.')
+        return value
 
     def validate(self, attrs):
         # Remove our extra flag before djoser builds the User (User() has no

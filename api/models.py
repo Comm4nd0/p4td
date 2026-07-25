@@ -351,7 +351,14 @@ class DailyDogAssignment(models.Model):
     ]
 
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='daily_assignments')
-    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dog_assignments')
+    # SET_NULL, not CASCADE: these rows ARE the attendance record that
+    # billing.attendance_for_month invoices from. With CASCADE, deleting a
+    # departed staff member in Django admin silently erased every day they ever
+    # drove — including the current, unbilled month. The day still happened
+    # after the driver leaves; only the driver attribution is lost.
+    staff_member = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='dog_assignments')
     date = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ASSIGNED')
     owner_brings = models.BooleanField(null=True, blank=True, help_text='Override for this date. Null = fall back to Dog.owner_brings_default.')
@@ -994,7 +1001,7 @@ class VaccinationRecord(models.Model):
     @property
     def status(self):
         from datetime import date, timedelta
-        today = date.today()
+        today = timezone.localdate()
         if self.expiry_date < today:
             return 'expired'
         if self.expiry_date <= today + timedelta(days=self.EXPIRING_SOON_DAYS):
@@ -1129,7 +1136,7 @@ class Vehicle(models.Model):
         from datetime import date, timedelta
         if due_date is None:
             return None
-        today = date.today()
+        today = timezone.localdate()
         if due_date < today:
             return 'overdue'
         if due_date <= today + timedelta(days=self.DUE_SOON_DAYS):
@@ -1353,13 +1360,21 @@ class Invoice(models.Model):
     """A monthly daycare invoice for one customer, billed in arrears from
     actual attendance (DailyDogAssignment rows, excluding REMOVED days).
 
-    Lifecycle: DRAFT (generated, staff review) -> SENT (owner notified,
-    pushed to Xero when connected) -> PART_PAID/PAID as PaymentRecords
-    accumulate. VOID takes an invoice out of play; the unique constraint
-    ignores VOID rows so a period can be regenerated after voiding.
+    Lifecycle: DRAFT (generated, staff review) -> SENDING (claimed, Xero push in
+    flight) -> SENT (owner notified, pushed to Xero when connected) ->
+    PART_PAID/PAID as PaymentRecords accumulate. VOID takes an invoice out of
+    play; the unique constraint ignores VOID rows so a period can be regenerated
+    after voiding.
+
+    SENDING exists so that a slow Xero round-trip can't be sent twice. The app
+    times out at 30s while the push can take longer, so a staff member who
+    retries would otherwise hit a row still marked DRAFT and raise a second real
+    invoice in Xero. billing.send_invoice claims the row under select_for_update
+    before doing any I/O, and returns it to DRAFT if the push fails.
     """
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
+        ('SENDING', 'Sending'),
         ('SENT', 'Sent'),
         ('PART_PAID', 'Partially paid'),
         ('PAID', 'Paid'),
@@ -1487,6 +1502,19 @@ class PaymentRecord(models.Model):
 
     class Meta:
         ordering = ['payment_date', 'id']
+        constraints = [
+            # The dedupe key promised in the docstring, enforced by the database
+            # rather than by a Python `seen` set. The Xero sync runs both from a
+            # */30 cron and from the staff "sync" button, so two overlapping
+            # runs could otherwise import the same remote payment twice and mark
+            # a part-paid invoice PAID. Blank ids (staff-recorded payments not
+            # mirrored to Xero) are excluded — there can be many of those.
+            models.UniqueConstraint(
+                fields=['invoice', 'xero_payment_id'],
+                condition=~models.Q(xero_payment_id=''),
+                name='uniq_xero_payment_per_invoice',
+            ),
+        ]
 
     def __str__(self):
         return f"£{self.amount} {self.get_method_display()} on invoice #{self.invoice_id}"

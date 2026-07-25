@@ -7,6 +7,13 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
 
+# Singletons are cached with a TTL rather than forever. save() refreshes the
+# entry, so the TTL only matters for changes that bypass save() — a data
+# migration, a `.objects.update()`, or a manual DB edit. Without it, a stale
+# ServicePricing row could be used to bill a whole month at the wrong rate and
+# nothing short of a restart would clear it.
+SINGLETON_CACHE_TTL = 300  # seconds
+
 # Tags/attributes allowed in admin-authored rich text (Summernote output).
 # Built on nh3's safe defaults plus image support, so basic formatting,
 # headings, links, lists and images survive sanitisation while scripts and
@@ -226,14 +233,14 @@ class SiteSettings(models.Model):
             setattr(self, field, sanitize_html(getattr(self, field)))
         super().save(*args, **kwargs)
         # Refresh the cached singleton.
-        cache.set(self.CACHE_KEY, self, None)
+        cache.set(self.CACHE_KEY, self, SINGLETON_CACHE_TTL)
 
     @classmethod
     def load(cls):
         obj = cache.get(cls.CACHE_KEY)
         if obj is None:
             obj, _ = cls.objects.get_or_create(pk=1)
-            cache.set(cls.CACHE_KEY, obj, None)
+            cache.set(cls.CACHE_KEY, obj, SINGLETON_CACHE_TTL)
         return obj
 
 
@@ -322,14 +329,14 @@ class ServicePricing(models.Model):
         self.pk = 1
         super().save(*args, **kwargs)
         # Refresh the cached singleton.
-        cache.set(self.CACHE_KEY, self, None)
+        cache.set(self.CACHE_KEY, self, SINGLETON_CACHE_TTL)
 
     @classmethod
     def load(cls):
         obj = cache.get(cls.CACHE_KEY)
         if obj is None:
             obj, _ = cls.objects.get_or_create(pk=1)
-            cache.set(cls.CACHE_KEY, obj, None)
+            cache.set(cls.CACHE_KEY, obj, SINGLETON_CACHE_TTL)
         return obj
 
 

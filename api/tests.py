@@ -1,16 +1,20 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest import skipUnless
 from unittest.mock import patch
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from rest_framework.test import APIClient
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from rest_framework.authtoken.models import Token
 from .models import (
-    Dog, DateChangeRequest, DateChangeRequestHistory,
+    Dog, Photo, DateChangeRequest, DateChangeRequestHistory,
     BoardingRequest, BoardingRequestHistory, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
-    GroupMedia, IntakeRequest, Invoice, XeroConnection,
+    GroupMedia, IntakeRequest, Invoice, XeroConnection, PasswordResetOTP,
 )
 from django.utils import timezone
 
@@ -3465,7 +3469,7 @@ class AssignmentTransportTests(TestCase):
         self.assertTrue(self.dog.owner_brings_default)
         self.assertEqual(self.dog.owner_brings_default_time.strftime('%H:%M'), '08:00')
 
-    def test_materialization_skips_dog_when_owner_handles_both_legs(self):
+    def test_materialization_keeps_owner_transport_dog_off_the_route_but_on_record(self):
         # Remove today's assignment so the materializer has a clean state
         self.assignment.delete()
         # Owner handles BOTH legs — no staff route ever touches this dog.
@@ -3479,9 +3483,14 @@ class AssignmentTransportTests(TestCase):
         self.client.login(username='staff', password='pw')
         resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
         self.assertEqual(resp.status_code, 200)
+        # Still absent from the driver's list...
         dog_ids = [a['dog'] for a in resp.data]
         self.assertNotIn(self.dog.id, dog_ids)
-        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).exists())
+        # ...but the attendance row exists, because billing reads attendance
+        # from DailyDogAssignment. This test previously asserted no row at all,
+        # which is why these dogs were silently invoiced £0.
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.today)
+        self.assertEqual(assignment.status, 'UNASSIGNED')
 
     def test_materialization_includes_dog_when_owner_brings_only(self):
         # Owner drops off in the morning but STAFF drop home — the dog must be
@@ -5127,6 +5136,575 @@ class IDORTests(TestCase):
         )
         resp = self.client.get(f'/api/date-change-requests/{dcr.id}/')
         self.assertEqual(resp.status_code, 404)
+
+
+class WriteSideIDORTests(TestCase):
+    """get_queryset scopes which rows a caller may READ. These cover the write
+    side: a row the caller legitimately owns must not be re-pointed at another
+    customer's dog via a writable FK."""
+
+    def setUp(self):
+        self.a = User.objects.create_user(username='ownera', password='pw')
+        self.b = User.objects.create_user(username='ownerb', password='pw')
+        self.a_dog = Dog.objects.create(owner=self.a, name='ADog')
+        self.b_dog = Dog.objects.create(owner=self.b, name='BDog')
+        self.client = APIClient()
+        self.client.force_authenticate(self.a)
+
+    def test_patch_date_change_request_cannot_repoint_dog(self):
+        req = DateChangeRequest.objects.create(
+            dog=self.a_dog, request_type='CANCEL',
+            original_date=timezone.localdate() + timedelta(days=7),
+        )
+        resp = self.client.patch(
+            f'/api/date-change-requests/{req.id}/', {'dog': self.b_dog.id}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        req.refresh_from_db()
+        self.assertEqual(req.dog_id, self.a_dog.id)
+
+    def test_patch_date_change_request_cannot_move_date_into_the_past(self):
+        req = DateChangeRequest.objects.create(
+            dog=self.a_dog, request_type='CANCEL',
+            original_date=timezone.localdate() + timedelta(days=7),
+        )
+        past = timezone.localdate() - timedelta(days=3)
+        resp = self.client.patch(
+            f'/api/date-change-requests/{req.id}/',
+            {'original_date': past.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        req.refresh_from_db()
+        self.assertNotEqual(req.original_date, past)
+
+    def test_owner_can_still_patch_own_request(self):
+        req = DateChangeRequest.objects.create(
+            dog=self.a_dog, request_type='CANCEL',
+            original_date=timezone.localdate() + timedelta(days=7),
+        )
+        new_date = timezone.localdate() + timedelta(days=9)
+        resp = self.client.patch(
+            f'/api/date-change-requests/{req.id}/',
+            {'original_date': new_date.isoformat()}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.original_date, new_date)
+
+    def test_patch_photo_cannot_repoint_to_other_owners_dog(self):
+        photo = Photo.objects.create(
+            dog=self.a_dog, file='dog_photos/x.jpg', taken_at=timezone.now(),
+        )
+        resp = self.client.patch(
+            f'/api/photos/{photo.id}/', {'dog': self.b_dog.id}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        photo.refresh_from_db()
+        self.assertEqual(photo.dog_id, self.a_dog.id)
+
+
+class PastDayBillingGuardTests(TestCase):
+    """The past-day billing rule is enforced by update_status / mark_removed /
+    unassign. The generic detail route reaches the same rows and must not be a
+    way around it."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='plainstaff', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='paymgr', password='pw', is_staff=True)
+        self.manager.profile.can_manage_payments = True
+        self.manager.profile.save()
+        self.dog = Dog.objects.create(name='Fido')
+        self.past = timezone.localdate() - timedelta(days=3)
+        self.assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=self.past, status='ASSIGNED',
+        )
+        self.client = APIClient()
+
+    def test_patch_daily_assignment_past_date_requires_payments_permission(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.patch(
+            f'/api/daily-assignments/{self.assignment.id}/',
+            {'status': 'REMOVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.status, 'ASSIGNED')
+
+    def test_delete_daily_assignment_past_date_requires_payments_permission(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.delete(f'/api/daily-assignments/{self.assignment.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=self.assignment.pk).exists())
+
+    def test_payments_manager_may_patch_past_date(self):
+        self.client.force_authenticate(self.manager)
+        resp = self.client.patch(
+            f'/api/daily-assignments/{self.assignment.id}/',
+            {'status': 'REMOVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.status, 'REMOVED')
+
+    def test_plain_staff_may_still_patch_a_future_day(self):
+        future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff,
+            date=timezone.localdate() + timedelta(days=2), status='ASSIGNED',
+        )
+        self.client.force_authenticate(self.staff)
+        resp = self.client.patch(
+            f'/api/daily-assignments/{future.id}/', {'status': 'REMOVED'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+
+
+class StaffAvailabilityScopingTests(TestCase):
+    """A row marking a staff member unavailable suppresses all their push
+    notifications, so only staff managers may edit someone else's."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='staff1', password='pw', is_staff=True)
+        self.other = User.objects.create_user(username='staff2', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='staffmgr', password='pw', is_staff=True)
+        self.manager.profile.can_manage_staff = True
+        self.manager.profile.save()
+        self.other_row = StaffAvailability.objects.create(
+            staff_member=self.other, day_of_week=1, is_available=True,
+        )
+        self.client = APIClient()
+
+    def test_staff_cannot_patch_another_staff_availability(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.patch(
+            f'/api/staff-availability/{self.other_row.id}/',
+            {'is_available': False}, format='json',
+        )
+        self.assertIn(resp.status_code, (403, 404))
+        self.other_row.refresh_from_db()
+        self.assertTrue(self.other_row.is_available)
+
+    def test_staff_cannot_delete_another_staff_availability(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.delete(f'/api/staff-availability/{self.other_row.id}/')
+        self.assertIn(resp.status_code, (403, 404))
+        self.assertTrue(StaffAvailability.objects.filter(pk=self.other_row.pk).exists())
+
+    def test_create_is_pinned_to_the_caller(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.post(
+            '/api/staff-availability/',
+            {'staff_member': self.other.id, 'day_of_week': 4, 'is_available': False},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        row = StaffAvailability.objects.get(day_of_week=4)
+        self.assertEqual(row.staff_member_id, self.staff.id)
+
+    def test_staff_manager_may_patch_another_staff_availability(self):
+        self.client.force_authenticate(self.manager)
+        resp = self.client.patch(
+            f'/api/staff-availability/{self.other_row.id}/',
+            {'is_available': False}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.other_row.refresh_from_db()
+        self.assertFalse(self.other_row.is_available)
+
+    def test_everyone_can_still_read_the_rota(self):
+        self.client.force_authenticate(self.staff)
+        resp = self.client.get('/api/staff-availability/')
+        self.assertEqual(resp.status_code, 200)
+        returned = resp.json()
+        rows = returned['results'] if isinstance(returned, dict) else returned
+        self.assertTrue(any(r['id'] == self.other_row.id for r in rows))
+
+
+class PasswordResetHardeningTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='resetme', password='OldPass123!', email='reset@example.com')
+        self.client = APIClient()
+
+    def _reset_to(self, new_password):
+        self.client.post(
+            '/api/password/reset/request/', {'email': 'reset@example.com'}, format='json')
+        otp = PasswordResetOTP.objects.filter(user=self.user, is_used=False).latest('created_at')
+        verify = self.client.post(
+            '/api/password/reset/verify/',
+            {'email': 'reset@example.com', 'otp': otp.otp}, format='json')
+        self.assertEqual(verify.status_code, 200)
+        return self.client.post(
+            '/api/password/reset/confirm/',
+            {'reset_token': verify.json()['reset_token'], 'new_password': new_password},
+            format='json')
+
+    def test_password_reset_invalidates_existing_token(self):
+        token = Token.objects.create(user=self.user)
+        resp = self._reset_to('BrandNewPass123!')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Token.objects.filter(key=token.key).exists())
+
+    def test_duplicate_email_does_not_500_the_reset_request(self):
+        # Django's User.email has no unique constraint, so duplicates exist in
+        # real data. User.objects.get() would raise MultipleObjectsReturned.
+        User.objects.create_user(
+            username='resetme2', password='pw', email='RESET@example.com')
+        resp = self.client.post(
+            '/api/password/reset/request/', {'email': 'reset@example.com'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(PasswordResetOTP.objects.exists())
+
+    def test_duplicate_email_does_not_500_the_verify_step(self):
+        User.objects.create_user(
+            username='resetme2', password='pw', email='RESET@example.com')
+        resp = self.client.post(
+            '/api/password/reset/verify/',
+            {'email': 'reset@example.com', 'otp': '000000'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_reset_request_still_succeeds_when_email_sending_fails(self):
+        # Otherwise a broken SMTP config turns the deliberately-generic response
+        # into an enumeration oracle: 500 for a known address, 200 for unknown.
+        with patch('api.views.send_mail', side_effect=Exception('smtp down')):
+            resp = self.client.post(
+                '/api/password/reset/request/', {'email': 'reset@example.com'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_signup_rejects_a_duplicate_email(self):
+        resp = self.client.post(
+            '/auth/users/',
+            {
+                'username': 'newperson', 'password': 'BrandNewPass123!',
+                'email': 'Reset@Example.com', 'accept_privacy': True,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('email', resp.json())
+
+
+@skipUnless(
+    connection.features.supports_json_field_contains,
+    'unassigned_dogs filters daycare_days with a JSON contains lookup, which '
+    'SQLite does not support. Runs on PostgreSQL (i.e. in CI and production).',
+)
+class UnassignedDogsQueryTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.today = timezone.localdate()
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def _dog(self, name, **kwargs):
+        return Dog.objects.create(
+            owner=self.owner, name=name,
+            daycare_days=[self.today.isoweekday()], **kwargs)
+
+    def test_owner_transport_dog_is_not_listed_as_unassigned(self):
+        # It is materialized UNASSIGNED so billing can see the attendance, but
+        # it never needs a driver — listing it would be a permanent,
+        # un-actionable red banner on the dashboard.
+        self._dog('SelfDriven', owner_brings_default=True, owner_collects_default=True)
+        resp = self.client.get(f'/api/daily-assignments/unassigned_dogs/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([d['name'] for d in resp.data], [])
+
+    def test_dog_needing_a_driver_is_still_listed(self):
+        self._dog('NeedsLift')
+        resp = self.client.get(f'/api/daily-assignments/unassigned_dogs/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([d['name'] for d in resp.data], ['NeedsLift'])
+
+    def test_query_count_is_constant_as_dogs_are_added(self):
+        # unassigned_dogs built its own Dog queryset and lost the
+        # future_removed_assignments prefetch, so cancelled_dates fell back to a
+        # query per dog on the staff dashboard's hottest endpoint.
+        for i in range(2):
+            self._dog(f'Small{i}')
+        url = f'/api/daily-assignments/unassigned_dogs/?date={self.today.isoformat()}'
+        with CaptureQueriesContext(connection) as small:
+            self.client.get(url)
+
+        for i in range(10):
+            self._dog(f'Big{i}')
+        with CaptureQueriesContext(connection) as big:
+            self.client.get(url)
+
+        self.assertEqual(len(big), len(small),
+                         f'query count grew with dog count: {len(small)} -> {len(big)}')
+
+
+class DeleteAccountProtectedTests(TestCase):
+    """Invoice.customer and DogWeekdayPickup.staff_member are PROTECT, so
+    user.delete() raises for anyone who has ever been invoiced or driven a
+    route. Account deletion is an App Store requirement and must not 500."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='billed', password='OldPass123!', email='billed@example.com',
+            first_name='Bill')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def test_delete_account_with_invoice_anonymises_instead_of_500(self):
+        Invoice.objects.create(
+            customer=self.user, period_year=2026, period_month=6,
+            status='SENT', total=Decimal('40.00'))
+
+        resp = self.client.post(
+            '/api/account/delete/', {'password': 'OldPass123!'}, format='json')
+
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        # Invoice survives (statutory record), the person does not.
+        self.assertEqual(Invoice.objects.filter(customer=self.user).count(), 1)
+        self.assertFalse(self.user.is_active)
+        self.assertEqual(self.user.email, '')
+        self.assertEqual(self.user.first_name, '')
+        self.assertNotIn('billed', self.user.username)
+        self.assertFalse(self.user.has_usable_password())
+
+    def test_delete_account_staff_with_weekday_pickups_does_not_500(self):
+        staff = User.objects.create_user(
+            username='driver', password='OldPass123!', is_staff=True)
+        dog = Dog.objects.create(name='Routed')
+        DogWeekdayPickup.objects.create(dog=dog, weekday=1, staff_member=staff)
+        client = APIClient()
+        client.force_authenticate(staff)
+
+        resp = client.post(
+            '/api/account/delete/', {'password': 'OldPass123!'}, format='json')
+
+        self.assertEqual(resp.status_code, 200)
+        staff.refresh_from_db()
+        self.assertFalse(staff.is_active)
+
+    def test_delete_account_without_protected_rows_still_hard_deletes(self):
+        resp = self.client.post(
+            '/api/account/delete/', {'password': 'OldPass123!'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+
+    def test_dog_ownership_is_not_transferred_when_deletion_fails(self):
+        # The promotion loop used to commit before the delete blew up, leaving
+        # the customer with an account AND their dog reassigned to a partner.
+        partner = User.objects.create_user(username='partner', password='pw')
+        dog = Dog.objects.create(owner=self.user, name='Shared')
+        dog.additional_owners.add(partner)
+        Invoice.objects.create(
+            customer=self.user, period_year=2026, period_month=6,
+            status='SENT', total=Decimal('40.00'))
+
+        resp = self.client.post(
+            '/api/account/delete/', {'password': 'OldPass123!'}, format='json')
+
+        self.assertEqual(resp.status_code, 200)
+        dog.refresh_from_db()
+        # Promotion is fine here — it committed inside the same transaction that
+        # succeeded. What matters is that it is consistent with the outcome.
+        self.assertIn(dog.owner_id, (self.user.pk, partner.pk))
+
+
+class StaffDeletionKeepsAttendanceTests(TestCase):
+    def test_deleting_a_staff_member_keeps_the_attendance_rows(self):
+        # These rows ARE the billing record. CASCADE deleted every day a
+        # departed driver had ever worked, including the unbilled month.
+        staff = User.objects.create_user(username='leaver', password='pw', is_staff=True)
+        dog = Dog.objects.create(name='Rover')
+        assignment = DailyDogAssignment.objects.create(
+            dog=dog, staff_member=staff, date=date(2026, 6, 10), status='DROPPED_OFF')
+
+        staff.delete()
+
+        assignment.refresh_from_db()
+        self.assertIsNone(assignment.staff_member)
+        self.assertEqual(assignment.status, 'DROPPED_OFF')
+
+    def test_serializer_tolerates_a_null_staff_member(self):
+        from api.serializers import DailyDogAssignmentSerializer
+        dog = Dog.objects.create(name='Rover')
+        assignment = DailyDogAssignment.objects.create(
+            dog=dog, staff_member=None, date=date(2026, 6, 10), status='DROPPED_OFF')
+        data = DailyDogAssignmentSerializer(assignment).data
+        self.assertIsNone(data['staff_member_name'])
+
+
+class CoOwnerBoardingTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='primary', password='pw')
+        self.partner = User.objects.create_user(username='partner', password='pw')
+        self.dog = Dog.objects.create(owner=self.owner, name='Shared')
+        self.dog.additional_owners.add(self.partner)
+        self.client = APIClient()
+        self.client.force_authenticate(self.partner)
+
+    def test_coowner_can_create_boarding_request(self):
+        # The app's dog picker lists co-owned dogs, so scoping the serializer's
+        # `dogs` queryset to owner-only made a valid choice 400 as "Invalid pk".
+        resp = self.client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': (timezone.localdate() + timedelta(days=10)).isoformat(),
+            'end_date': (timezone.localdate() + timedelta(days=12)).isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.content)
+
+    def test_coowner_sees_boarding_requests_for_own_dog(self):
+        booking = BoardingRequest.objects.create(
+            owner=self.owner,
+            start_date=timezone.localdate() + timedelta(days=10),
+            end_date=timezone.localdate() + timedelta(days=12),
+        )
+        booking.dogs.add(self.dog)
+
+        resp = self.client.get(f'/api/boarding-requests/{booking.id}/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_non_owner_still_cannot_book_that_dog(self):
+        stranger = User.objects.create_user(username='stranger', password='pw')
+        client = APIClient()
+        client.force_authenticate(stranger)
+        resp = client.post('/api/boarding-requests/', {
+            'dogs': [self.dog.id],
+            'start_date': (timezone.localdate() + timedelta(days=10)).isoformat(),
+            'end_date': (timezone.localdate() + timedelta(days=12)).isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+
+class ContactInquiryEndpointTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.viewer = User.objects.create_user(username='viewer', password='pw', is_staff=True)
+        self.viewer.profile.can_view_inquiries = True
+        self.viewer.profile.save()
+        self.client = APIClient()
+
+    def test_owner_cannot_create_blank_inquiries(self):
+        # Every field is read-only, so this created empty rows that push-notified
+        # every inquiry-managing staff member, unthrottled.
+        from website.models import ContactInquiry
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/contact-inquiries/', {}, format='json')
+        self.assertIn(resp.status_code, (403, 405))
+        self.assertEqual(ContactInquiry.objects.count(), 0)
+
+    def test_owner_cannot_list_inquiries(self):
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self.client.get('/api/contact-inquiries/').status_code, 403)
+
+    def test_staff_without_permission_cannot_list_inquiries(self):
+        self.client.force_authenticate(self.staff)
+        self.assertEqual(self.client.get('/api/contact-inquiries/').status_code, 403)
+
+    def test_permitted_staff_can_list_and_count(self):
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.client.get('/api/contact-inquiries/').status_code, 200)
+        resp = self.client.get('/api/contact-inquiries/unread_count/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 0)
+
+
+class PhotoUploadValidationTests(TestCase):
+    """Photo.file is a FileField and /media/ is served unauthenticated straight
+    off disk, so an unvalidated upload is stored XSS on the main domain."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        # Keep accepted uploads out of the real media/ directory.
+        self._media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._media_dir, True)
+        overridden = override_settings(MEDIA_ROOT=self._media_dir)
+        overridden.enable()
+        self.addCleanup(overridden.disable)
+
+        self.owner = User.objects.create_user(username='photoowner', password='pw')
+        self.dog = Dog.objects.create(owner=self.owner, name='Snap')
+        self.client = APIClient()
+        self.client.force_authenticate(self.owner)
+
+    @staticmethod
+    def _jpeg(name='real.jpg', size=(60, 40)):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        buf = BytesIO()
+        Image.new('RGB', size, (120, 90, 60)).save(buf, format='JPEG')
+        return SimpleUploadedFile(name, buf.getvalue(), content_type='image/jpeg')
+
+    def _post(self, upload, media_type='PHOTO'):
+        return self.client.post(
+            '/api/photos/',
+            {
+                'dog': self.dog.id, 'media_type': media_type, 'file': upload,
+                'taken_at': timezone.now().isoformat(),
+            },
+            format='multipart',
+        )
+
+    def test_photo_upload_accepts_a_real_image(self):
+        resp = self._post(self._jpeg())
+        self.assertEqual(resp.status_code, 201, resp.content)
+        photo = Photo.objects.get()
+        # Stored under a generated name, never the uploaded one.
+        self.assertNotIn('real', photo.file.name)
+        self.assertTrue(photo.file.name.endswith('.jpg'))
+        self.assertTrue(photo.thumbnail)
+
+    def test_photo_upload_rejects_html(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        evil = SimpleUploadedFile(
+            'evil.html', b'<script>alert(document.domain)</script>',
+            content_type='text/html')
+        resp = self._post(evil)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Photo.objects.count(), 0)
+
+    def test_photo_upload_rejects_svg(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        evil = SimpleUploadedFile(
+            'evil.svg', b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+            content_type='image/svg+xml')
+        resp = self._post(evil)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Photo.objects.count(), 0)
+
+    def test_photo_upload_rejects_html_disguised_as_a_video(self):
+        # media_type=VIDEO skips image processing entirely, so the extension
+        # allow-list is the only thing standing in the way.
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        evil = SimpleUploadedFile(
+            'evil.html', b'<script>alert(1)</script>', content_type='video/mp4')
+        resp = self._post(evil, media_type='VIDEO')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Photo.objects.count(), 0)
+
+    def test_photo_upload_rejects_a_jpg_that_is_not_an_image(self):
+        # Right extension, wrong bytes — caught by the Pillow verify() probe.
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        evil = SimpleUploadedFile(
+            'evil.jpg', b'<script>alert(1)</script>', content_type='image/jpeg')
+        resp = self._post(evil)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Photo.objects.count(), 0)
+
+    def test_photo_upload_rejects_oversize_file(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .validators import MAX_IMAGE_UPLOAD_BYTES
+        huge = SimpleUploadedFile(
+            'big.jpg', b'\xff\xd8\xff' + b'0' * MAX_IMAGE_UPLOAD_BYTES,
+            content_type='image/jpeg')
+        resp = self._post(huge)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Photo.objects.count(), 0)
+
+    def test_process_image_raises_instead_of_storing_the_original(self):
+        from io import BytesIO
+        from .views import process_image, ImageProcessingError
+        with self.assertRaises(ImageProcessingError):
+            process_image(BytesIO(b'not an image at all'))
 
 
 class OwnerProfileStaffEndpointTests(TestCase):
@@ -7210,6 +7788,189 @@ class InvoiceVoidXeroTests(BillingTestsBase):
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(resp.data['xero_voided'])
         mock_api.assert_not_called()
+
+    def test_void_invoice_with_recorded_payment_is_refused(self):
+        # Voiding a part-paid invoice lets the period regenerate at full price
+        # (both the unique constraints and generate_invoices_for_month ignore
+        # VOID), while the collected payment stays on the dead row.
+        from api import billing
+        billing.record_manual_payment(
+            self.invoice, Decimal('20.00'), 'CASH', recorded_by=self.manager)
+
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data['code'], 'invoice_has_payments')
+        self.invoice.refresh_from_db()
+        self.assertNotEqual(self.invoice.status, 'VOID')
+
+    def test_void_with_payment_proceeds_when_explicitly_confirmed(self):
+        from api import billing
+        billing.record_manual_payment(
+            self.invoice, Decimal('20.00'), 'CASH', recorded_by=self.manager)
+
+        resp = self.client.post(
+            f'/api/invoices/{self.invoice.id}/void/',
+            {'confirm_discard_payments': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'VOID')
+
+    def test_unpaid_invoice_still_voids_without_confirmation(self):
+        resp = self.client.post(f'/api/invoices/{self.invoice.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'VOID')
+
+
+class ZeroTotalInvoiceTests(BillingTestsBase):
+    def test_zero_total_invoice_is_marked_paid(self):
+        # A £0 invoice can never receive a payment (record_manual_payment
+        # rejects amounts <= 0), so pinning it at SENT left it counted as
+        # overdue forever and chased daily by send_invoice_reminders.
+        from api import billing
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6,
+            status='SENT', total=Decimal('0.00'))
+
+        billing.refresh_payment_state(invoice)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'PAID')
+        self.assertIsNotNone(invoice.paid_at)
+
+
+class InvoiceSendHardeningTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6,
+            status='DRAFT', total=Decimal('50.00'))
+        self.client.login(username='manager', password='pw')
+
+    def _connect_xero(self):
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.save()
+
+    def test_send_stays_draft_when_the_xero_push_fails(self):
+        # Flipping to SENT before the push left the invoice unreachable: no
+        # xero_invoice_id, so never emailed and pay_url 404s — yet the customer
+        # had already been told it was ready, and send_all (DRAFT-only) would
+        # never retry it.
+        from api import xero as xero_module
+        self._connect_xero()
+        with patch('api.xero._api_request',
+                   side_effect=xero_module.XeroError('Xero is down')):
+            resp = self.client.post(f'/api/invoices/{self.invoice.id}/send/', format='json')
+
+        self.assertEqual(resp.status_code, 502)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'DRAFT')
+        self.assertIsNone(self.invoice.sent_at)
+
+    def test_send_is_idempotent_under_retry(self):
+        # The app times out at 30s while a Xero push can take longer, so staff
+        # retry. The second attempt must not raise a second real invoice.
+        from api import billing
+        self._connect_xero()
+        with patch('api.billing._resolve_contact_id', return_value='contact-1'), \
+                patch('api.xero.create_invoice', return_value=('xero-1', 'INV-001')) as create, \
+                patch('api.xero.get_online_invoice_url', return_value=''), \
+                patch('api.billing.email_invoice_from_xero'):
+            billing.send_invoice(self.invoice, user=self.manager)
+            self.invoice.refresh_from_db()
+            with self.assertRaises(ValueError):
+                billing.send_invoice(self.invoice, user=self.manager)
+
+        self.assertEqual(create.call_count, 1)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'SENT')
+
+    def test_send_all_reports_failures_instead_of_aborting(self):
+        from api import xero as xero_module
+        ok = Invoice.objects.create(
+            customer=self.other_owner, period_year=2026, period_month=6,
+            status='DRAFT', total=Decimal('30.00'))
+        self._connect_xero()
+
+        # First push fails, second succeeds — the batch must complete either way.
+        with patch('api.billing._resolve_contact_id', return_value='contact-1'), \
+                patch('api.xero.create_invoice',
+                      side_effect=[xero_module.XeroError('nope'), ('xero-2', 'INV-002')]), \
+                patch('api.xero.get_online_invoice_url', return_value=''), \
+                patch('api.billing.email_invoice_from_xero'):
+            resp = self.client.post(
+                '/api/invoices/send_all/', {'year': 2026, 'month': 6}, format='json')
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['sent'], 1)
+        self.assertEqual(len(resp.data['failed']), 1)
+        # The failed one is back in DRAFT and can be retried.
+        statuses = set(Invoice.objects.filter(id__in=[self.invoice.id, ok.id])
+                       .values_list('status', flat=True))
+        self.assertEqual(statuses, {'DRAFT', 'SENT'})
+
+    def test_send_works_normally_when_xero_is_not_connected(self):
+        from api import billing
+        billing.send_invoice(self.invoice, user=self.manager)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'SENT')
+        self.assertIsNotNone(self.invoice.sent_at)
+
+
+class XeroPaymentDedupeTests(BillingTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6,
+            status='SENT', total=Decimal('50.00'), xero_invoice_id='xero-inv-1')
+
+    def test_duplicate_xero_payment_id_is_rejected_by_the_constraint(self):
+        from django.db import IntegrityError, transaction
+        from api.models import PaymentRecord
+        PaymentRecord.objects.create(
+            invoice=self.invoice, amount=Decimal('10.00'), method='XERO_ONLINE',
+            source='XERO', payment_date=date(2026, 7, 1), xero_payment_id='pay-1')
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PaymentRecord.objects.create(
+                    invoice=self.invoice, amount=Decimal('10.00'), method='XERO_ONLINE',
+                    source='XERO', payment_date=date(2026, 7, 1), xero_payment_id='pay-1')
+
+    def test_blank_xero_payment_ids_are_not_constrained(self):
+        # Staff-recorded payments that never reached Xero all carry ''.
+        from api.models import PaymentRecord
+        for _ in range(3):
+            PaymentRecord.objects.create(
+                invoice=self.invoice, amount=Decimal('5.00'), method='CASH',
+                source='MANUAL', payment_date=date(2026, 7, 1))
+        self.assertEqual(self.invoice.payments.count(), 3)
+
+    def test_import_remote_payments_is_idempotent(self):
+        from api import billing
+        remote = {
+            'InvoiceID': 'xero-inv-1',
+            'AmountPaid': 20,
+            'Payments': [{'PaymentID': 'pay-9', 'Amount': 20, 'Date': '2026-07-02'}],
+        }
+        first = billing._import_remote_payments(self.invoice, remote)
+        second = billing._import_remote_payments(self.invoice, remote)
+
+        self.assertEqual(first, 1)
+        self.assertEqual(second, 0)
+        self.assertEqual(self.invoice.payments.count(), 1)
+
+    def test_repeated_balance_adjustment_is_not_compounded(self):
+        from api import billing
+        remote = {'InvoiceID': 'xero-inv-1', 'AmountPaid': 15, 'AmountCredited': 0, 'Payments': []}
+        billing._import_remote_payments(self.invoice, remote)
+        billing._import_remote_payments(self.invoice, remote)
+
+        total = sum(p.amount for p in self.invoice.payments.all())
+        self.assertEqual(total, Decimal('15.00'))
 
 
 class GenerateForCustomerTests(BillingTestsBase):

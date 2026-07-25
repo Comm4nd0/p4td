@@ -4,7 +4,6 @@ from django.contrib.auth.models import User
 from django.db.models import Count, Q
 from django.utils.html import format_html
 from django.utils import timezone
-from datetime import date
 from .models import (
     Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
@@ -38,7 +37,7 @@ class DogAssignmentInline(admin.TabularInline):
 
     def get_queryset(self, request):
         from datetime import timedelta
-        cutoff = date.today() - timedelta(days=14)
+        cutoff = timezone.localdate() - timedelta(days=14)
         return super().get_queryset(request).select_related('staff_member').filter(date__gte=cutoff).order_by('-date')
 
     def has_add_permission(self, request, obj=None):
@@ -145,7 +144,7 @@ class DailyDogAssignmentInline(admin.TabularInline):
     verbose_name_plural = 'Dog Assignments'
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('dog').filter(date=date.today())
+        return super().get_queryset(request).select_related('dog').filter(date=timezone.localdate())
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -161,7 +160,7 @@ class StaffUserAdmin(BaseUserAdmin):
         return ('username', 'first_name', 'last_name', 'todays_dogs')
 
     def todays_dogs(self, obj):
-        assignments = list(obj.dog_assignments.filter(date=date.today()).select_related('dog'))
+        assignments = list(obj.dog_assignments.filter(date=timezone.localdate()).select_related('dog'))
         if not assignments:
             return format_html('<span style="color: #999;">None</span>')
         dogs = []

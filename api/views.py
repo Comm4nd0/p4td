@@ -6,16 +6,70 @@ from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth.models import User
 from django.core.mail import send_mail, EmailMessage
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Sum
+from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
 from website.models import ContactInquiry
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Dog fields an owner may propose to change via a profile-change request. Used
 # both when building the request and when applying it on approval, so the
 # approval step can re-enforce the whitelist (defense in depth — B19).
 OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
+
+
+def dog_listing_queryset():
+    """Dog queryset with everything DogSerializer renders already loaded.
+
+    Shared so that every endpoint returning dogs gets the same constant query
+    count. In particular `future_removed_assignments` must be prefetched:
+    without it, DogSerializer.get_cancelled_dates falls through to a per-dog
+    query, which is ~30 extra round-trips on the staff dashboard's hottest
+    endpoint (unassigned_dogs) — it built its own queryset and missed this.
+    """
+    removed_assignments = Prefetch(
+        'daily_assignments',
+        queryset=DailyDogAssignment.objects.filter(
+            status='REMOVED', date__gte=timezone.localdate()
+        ).only('id', 'dog_id', 'date', 'status'),
+        to_attr='future_removed_assignments',
+    )
+    return Dog.objects.select_related('owner__profile').prefetch_related(
+        'vaccinations', 'additional_owners__profile', removed_assignments
+    )
+
+
+def _truthy(value):
+    """Interpret a JSON/form flag from a client that may send a bool or a string."""
+    return str(value).lower() in ('1', 'true', 'yes')
+
+
+def _user_owns_dog(user, dog):
+    """True when ``user`` may act on ``dog`` — primary owner, co-owner, or staff.
+
+    Mirrors the ``Q(owner=user) | Q(additional_owners=user)`` scoping used by
+    every owner-facing ``get_queryset``. ``get_queryset`` only limits which rows
+    a caller may *read*; this is the check for what they may write.
+    """
+    if user.is_staff:
+        return True
+    if dog is None:
+        return False
+    if dog.owner_id == user.id:
+        return True
+    return dog.additional_owners.filter(id=user.id).exists()
+
+
+def _require_dog_access(user, dog, message):
+    """Raise PermissionDenied unless ``user`` may act on ``dog``."""
+    if not _user_owns_dog(user, dog):
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied(message)
 
 
 def _compute_date_change_is_charged(request_type, original_date):
@@ -91,70 +145,79 @@ import tempfile
 import subprocess
 import uuid
 
-def process_image(image_file, max_size=(1280, 1280), quality=85):
-    """Resizes and compresses an image while maintaining aspect ratio."""
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
+
+class ImageProcessingError(DRFValidationError):
+    """Raised when an upload cannot be decoded or re-encoded as an image.
+
+    These helpers used to swallow the failure and return the *original* file
+    unchanged, which stored the raw upload under its attacker-chosen filename in
+    a publicly-served media directory. Subclassing DRF's ValidationError makes
+    every one of the ~12 call sites return 400 instead, with no per-site
+    handling.
+    """
+
+    def __init__(self, reason=''):
+        logger.warning('Rejected an unprocessable image upload: %s', reason)
+        super().__init__({'file': ["That file couldn't be read as an image."]})
+
+
+def _decode_upload(image_file):
+    """Open an upload as a Pillow image, oriented per its EXIF data."""
+    from PIL import ImageOps
     try:
         image_file.seek(0)
         img = Image.open(image_file)
-
-        # Apply EXIF orientation so photos from phones are not rotated
-        from PIL import ImageOps
         img = ImageOps.exif_transpose(img)
+        # JPEG can only encode RGB/L/CMYK, so normalise everything else —
+        # palette, transparency, 16-bit greyscale — rather than letting save()
+        # fail later and fall back to storing the raw upload.
+        if img.mode not in ('RGB', 'L', 'CMYK'):
+            img = img.convert('RGB')
+        return img
+    except Exception as exc:
+        raise ImageProcessingError(str(exc)) from exc
 
-        # Convert to RGB if necessary (e.g., for PNGs with transparency)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
 
-        # Resize while maintaining aspect ratio if it's larger than max_size
-        if img.width > max_size[0] or img.height > max_size[1]:
-            img.thumbnail(max_size, Image.Resampling.LANCZOS)
-        
-        # Save to a BytesIO object with compression
-        output = io.BytesIO()
-        img.save(output, format='JPEG', quality=quality, optimize=True)
-        output.seek(0)
-        
-        # Random filename so stored media URLs aren't guessable from the
-        # original name (partial mitigation for I3 — full auth-gating is a
-        # separate coordinated change).
-        new_name = f'{uuid.uuid4().hex}.jpg'
-        return ContentFile(output.read(), name=new_name)
-    except Exception as e:
-        print(f"Error processing image: {e}")
-        image_file.seek(0)
-        return image_file
+def _encode_jpeg(img, size, quality, name):
+    im = img.copy()
+    if im.width > size[0] or im.height > size[1]:
+        im.thumbnail(size, Image.Resampling.LANCZOS)
+    out = io.BytesIO()
+    try:
+        im.save(out, format='JPEG', quality=quality, optimize=True)
+    except Exception as exc:
+        raise ImageProcessingError(str(exc)) from exc
+    out.seek(0)
+    return ContentFile(out.read(), name=name)
+
+
+def process_image(image_file, max_size=(1280, 1280), quality=85):
+    """Resize and compress an image, returning a JPEG ContentFile.
+
+    Raises ImageProcessingError if the upload isn't a decodable image.
+    """
+    img = _decode_upload(image_file)
+    # Random filename so stored media URLs aren't guessable from the original
+    # name (partial mitigation for I3 — full auth-gating is a separate
+    # coordinated change). Applied on every path, so a file can never reach
+    # disk under its uploaded name.
+    return _encode_jpeg(img, max_size, quality, f'{uuid.uuid4().hex}.jpg')
+
 
 def process_image_pair(image_file, main_size=(1280, 1280), thumb_size=(400, 400), main_quality=85, thumb_quality=70):
     """Decode an image once and return (main, thumbnail) ContentFiles.
 
     Avoids decoding the original a second time just to build the thumbnail (B31).
-    Falls back to (process_image(...), None) on any failure.
+    Raises ImageProcessingError if the upload isn't a decodable image.
     """
-    try:
-        image_file.seek(0)
-        img = Image.open(image_file)
-        from PIL import ImageOps
-        img = ImageOps.exif_transpose(img)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-
-        # Random filename so stored media URLs aren't guessable (I3 partial).
-        base_name = uuid.uuid4().hex
-
-        def _encode(size, quality, suffix):
-            im = img.copy()
-            if im.width > size[0] or im.height > size[1]:
-                im.thumbnail(size, Image.Resampling.LANCZOS)
-            out = io.BytesIO()
-            im.save(out, format='JPEG', quality=quality, optimize=True)
-            out.seek(0)
-            return ContentFile(out.read(), name=f"{base_name}{suffix}.jpg")
-
-        return _encode(main_size, main_quality, ''), _encode(thumb_size, thumb_quality, '_thumb')
-    except Exception as e:
-        print(f"Error processing image pair: {e}")
-        image_file.seek(0)
-        return process_image(image_file, max_size=main_size, quality=main_quality), None
+    img = _decode_upload(image_file)
+    base_name = uuid.uuid4().hex
+    return (
+        _encode_jpeg(img, main_size, main_quality, f'{base_name}.jpg'),
+        _encode_jpeg(img, thumb_size, thumb_quality, f'{base_name}_thumb.jpg'),
+    )
 
 
 def generate_video_thumbnail(file_obj):
@@ -369,20 +432,7 @@ class DogViewSet(viewsets.ModelViewSet):
         # Deterministic order (name, then id as a tie-breaker) so opt-in
         # pagination can't drop or duplicate rows across pages — Dog has no
         # Meta.ordering of its own (B6).
-        # Prefetch the dog's upcoming staff-removed days so the serializer's
-        # cancelled_dates field stays at a constant query count across a listing,
-        # and so the dog profile can drop those days from its upcoming bookings.
-        from datetime import date as date_cls
-        removed_assignments = Prefetch(
-            'daily_assignments',
-            queryset=DailyDogAssignment.objects.filter(
-                status='REMOVED', date__gte=date_cls.today()
-            ).only('id', 'dog_id', 'date', 'status'),
-            to_attr='future_removed_assignments',
-        )
-        base = Dog.objects.select_related('owner__profile').prefetch_related(
-            'vaccinations', 'additional_owners__profile', removed_assignments
-        ).order_by('name', 'id')
+        base = dog_listing_queryset().order_by('name', 'id')
         if self.request.user.is_staff:
             return base.all()
         from django.db.models import Q
@@ -407,7 +457,7 @@ class DogViewSet(viewsets.ModelViewSet):
         from .models import WaitlistEntry
         from .scheduling import ScheduleIndex, daterange
 
-        today = date_cls.today()
+        today = timezone.localdate()
         try:
             start = (
                 date_cls.fromisoformat(request.query_params['start'])
@@ -499,7 +549,7 @@ class DogViewSet(viewsets.ModelViewSet):
         from datetime import date as date_cls, timedelta
 
         dog = self.get_object()
-        today = date_cls.today()
+        today = timezone.localdate()
         since = today - timedelta(days=366)
         if 'from' in request.query_params:
             try:
@@ -986,11 +1036,12 @@ class PhotoViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         # Validate that user owns the dog or is staff
-        dog = serializer.validated_data['dog']
-        if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("You can only upload photos for your own dogs")
-        
+        _require_dog_access(
+            self.request.user,
+            serializer.validated_data['dog'],
+            "You can only upload photos for your own dogs",
+        )
+
         # Generate thumbnail and resize for photos
         media_type = serializer.validated_data.get('media_type', 'PHOTO')
         if media_type == 'VIDEO':
@@ -1008,6 +1059,29 @@ class PhotoViewSet(viewsets.ModelViewSet):
 
         instance = serializer.save()
         self._notify_owners_of_new_photo(instance)
+
+    def perform_update(self, serializer):
+        # get_queryset only decides which photos a caller may *fetch*. `dog` is
+        # writable, so without this an owner could PATCH one of their own photos
+        # onto someone else's dog: the image lands in a stranger's gallery and
+        # leaves the uploader's queryset, so they can no longer see or delete it.
+        _require_dog_access(
+            self.request.user,
+            serializer.validated_data.get('dog', serializer.instance.dog),
+            "You can only move photos between your own dogs",
+        )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Remove the files too. DogViewSet.destroy already does this; deleting a
+        # single photo did not, so its image and thumbnail stayed on disk
+        # forever — and prune_feed_media --include-orphans only ever scans
+        # group_media/, never dog_photos/.
+        if instance.file:
+            instance.file.delete(save=False)
+        if instance.thumbnail:
+            instance.thumbnail.delete(save=False)
+        instance.delete()
 
     def _notify_owners_of_new_photo(self, instance):
         """Notify the dog's owner(s) when a new photo/video is added to their
@@ -1126,7 +1200,7 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         from datetime import date as date_cls
         from .scheduling import process_waitlist_for_date
 
-        today = date_cls.today()
+        today = timezone.localdate()
 
         if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
             DailyDogAssignment.objects.filter(
@@ -1164,26 +1238,49 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 assignment.staff_member = past_added_by
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
 
-    def perform_create(self, serializer):
-        # Verify user owns the dog
-        dog = serializer.validated_data['dog']
-        if dog.owner != self.request.user and not self.request.user.is_staff and not dog.additional_owners.filter(id=self.request.user.id).exists():
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("You can only create requests for your own dogs")
+    def _check_dog_and_dates(self, dog, original_date, new_date):
+        """Ownership + past-date guards shared by create and update.
+
+        These must run on *both* paths. `dog` is writable on the serializer and
+        get_queryset only scopes reads, so without the update path an owner
+        could PATCH their own pending request onto another customer's dog — and
+        on approval `_apply_approved_schedule_change` would delete that
+        customer's assignment — or move a date into the past to dodge the
+        payments-manager gate.
+        """
+        _require_dog_access(
+            self.request.user, dog, "You can only create requests for your own dogs")
 
         # Past dates are attendance history that feeds invoicing, so only staff
         # who can manage payments may touch them. Owners (and other staff) are
         # limited to today onwards.
-        from datetime import date as date_cls
-        today = date_cls.today()
-        original_date = serializer.validated_data.get('original_date')
-        new_date = serializer.validated_data.get('new_date')
+        from django.utils import timezone
+        today = timezone.localdate()
         if any(d and d < today for d in (original_date, new_date)):
             from rest_framework.exceptions import PermissionDenied
             if not self.request.user.is_staff:
                 raise PermissionDenied("Dates in the past can't be changed. Contact the daycare if a past day looks wrong.")
             if not _user_can_manage_payments(self.request.user):
                 raise PermissionDenied("Only staff who can manage payments can edit past dates.")
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        data = serializer.validated_data
+        self._check_dog_and_dates(
+            data.get('dog', instance.dog),
+            data.get('original_date', instance.original_date),
+            data.get('new_date', instance.new_date),
+        )
+        serializer.save()
+
+    def perform_create(self, serializer):
+        dog = serializer.validated_data['dog']
+        original_date = serializer.validated_data.get('original_date')
+        new_date = serializer.validated_data.get('new_date')
+        self._check_dog_and_dates(dog, original_date, new_date)
+
+        from django.utils import timezone
+        today = timezone.localdate()
 
         # Auto-approve any date change request created by staff — owner-created
         # requests stay PENDING and go through the normal approval workflow.
@@ -1198,10 +1295,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         # Staff auto-approval puts the dog straight onto new_date. The capacity
         # check, approval, history row and original-date unassignment all run in
         # one transaction so a mid-way failure can't leave the request approved
-        # without history or with a stale assignment, and the capacity re-check
-        # sits inside the lock to narrow the overbooking race (B11/B12).
+        # without history or with a stale assignment (B11/B12). The transaction
+        # is not a lock — see the note in change_status; capacity is a soft
+        # limit and override_capacity is the supported way past it.
         request_type = serializer.validated_data.get('request_type')
-        override = str(self.request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
+        override = _truthy(self.request.data.get('override_capacity'))
 
         from django.db import transaction
         with transaction.atomic():
@@ -1287,19 +1385,27 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if old_status == new_status:
             return Response({'detail': 'Status unchanged'}, status=200)
 
-        override = str(request.data.get('override_capacity', '')).lower() in ('1', 'true', 'yes')
+        override = _truthy(request.data.get('override_capacity'))
         from django.db import transaction
         from django.utils import timezone
         from .models import DateChangeRequestHistory
 
         # Status change, original-date unassignment and the history row run in
-        # one transaction; the capacity re-check sits inside it immediately
-        # before approving so concurrent approvals can't both overbook (B11/B12).
+        # one transaction, so a mid-way failure can't leave the request APPROVED
+        # without history or with a stale assignment (B11/B12).
+        #
+        # NOTE: atomic() alone is NOT mutual exclusion. capacity_check is plain
+        # SELECTs under READ COMMITTED and there is no constraint on
+        # dogs-per-date, so two managers approving in the same second can both
+        # read 19 < 20 and both pass. Capacity is a soft limit here by design
+        # (override_capacity exists precisely to exceed it), so this is accepted
+        # rather than fixed with an advisory lock — but do not read the
+        # transaction as a guard against it.
         with transaction.atomic():
             # No capacity check for dates that have already passed — approving a
             # stale request can't overbook a day that already happened.
             from datetime import date as date_cls
-            if new_status == 'APPROVED' and instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date and instance.new_date >= date_cls.today():
+            if new_status == 'APPROVED' and instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date and instance.new_date >= timezone.localdate():
                 from .scheduling import capacity_check
                 fits, info = capacity_check(instance.new_date, dog_id=instance.dog_id)
                 if not fits and not override:
@@ -1529,7 +1635,13 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         )
         if self.request.user.is_staff:
             return base.all()
-        return base.filter(owner=self.request.user)
+        # Co-owners see (and can amend) bookings for the dogs they co-own, not
+        # only ones they personally created — otherwise a partner gets a 404 on
+        # a booking for their own dog.
+        from django.db.models import Q
+        return base.filter(
+            Q(owner=self.request.user) | Q(dogs__additional_owners=self.request.user)
+        ).distinct()
 
     def perform_destroy(self, instance):
         # Boarding managers can delete any booking (e.g. removing duplicates);
@@ -1758,6 +1870,37 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(staff_member_id=staff_id)
         return queryset
 
+    def perform_update(self, serializer):
+        # update_status, mark_removed and unassign all gate past-day billing
+        # edits on can_manage_payments. The generic PATCH route reaches the same
+        # rows, so it has to enforce the same rule — otherwise any staff member
+        # could quietly un-bill a past day with
+        # `PATCH /daily-assignments/<id>/ {"status": "REMOVED"}`.
+        instance = serializer.instance
+        new_status = serializer.validated_data.get('status', instance.status)
+        self._require_payments_permission_for_past_billing_change(
+            instance.date, instance.status, new_status)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Deleting a past row removes the day from the invoice just as surely as
+        # marking it REMOVED does, so it needs the same permission.
+        self._require_payments_permission_for_past_billing_change(
+            instance.date, instance.status, 'REMOVED')
+        instance.delete()
+
+    def _require_payments_permission_for_past_billing_change(self, when, old_status, new_status):
+        from django.utils import timezone
+        if when >= timezone.localdate():
+            return
+        if 'REMOVED' not in (old_status, new_status) or old_status == new_status:
+            return
+        if _user_can_manage_payments(self.request.user):
+            return
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied(
+            'Only staff who can manage payments can change whether a past day is billed.')
+
     def _boarding_context(self, target_date):
         # Compute the sets of dogs boarding on target_date and its neighbours
         # once, so the serializer answers is_boarding / boarding_first_day /
@@ -1797,7 +1940,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return None, Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
             return target, None
-        return date.today(), None
+        return timezone.localdate(), None
 
     @staticmethod
     def _cancelled_dog_ids_for_date(target_date, dog_ids=None):
@@ -1849,7 +1992,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # back on the dashboard to review earlier days, and those should show
         # the assignments that actually existed — not new ones materialized
         # retroactively from the current weekday roster.
-        if target_date < date_cls.today():
+        if target_date < timezone.localdate():
             return 0
 
         if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
@@ -1886,16 +2029,20 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 continue
             if dog.id in existing_dog_ids or dog.id in cancelled_dog_ids:
                 continue
-            # Skip only when the owner handles BOTH legs — then no staff route
-            # ever touches this dog. Owner-brings-only or owner-collects-only
-            # dogs still need staff for the other leg, so they are materialized.
-            if dog.owner_brings_default and dog.owner_collects_default:
-                continue
+            # When the owner handles BOTH legs no staff route touches this dog —
+            # but the dog still *attends*, and attendance is what billing reads
+            # (billing.attendance_for_month counts DailyDogAssignment rows).
+            # Skipping the row entirely meant these dogs were invoiced £0 every
+            # month and had to be added to the roster by hand every week.
+            # Materialise them as UNASSIGNED instead: every roster/van view
+            # already excludes REMOVED and UNASSIGNED, so they stay off the
+            # driver's list while billing and capacity can still see them.
+            owner_does_both = dog.owner_brings_default and dog.owner_collects_default
             to_create.append(DailyDogAssignment(
                 dog=dog,
                 staff_member=entry.staff_member,
                 date=target_date,
-                status='ASSIGNED',
+                status='UNASSIGNED' if owner_does_both else 'ASSIGNED',
                 sort_order=entry.sort_order,
             ))
 
@@ -2003,7 +2150,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # managers (same rule as the dog calendar and mark_removed).
         from datetime import date as date_cls
         if (
-            assignment.date < date_cls.today()
+            assignment.date < timezone.localdate()
             and 'REMOVED' in (new_status, assignment.status)
             and new_status != assignment.status
             and not _user_can_manage_payments(request.user)
@@ -2109,6 +2256,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             id__in=cancelled_dog_ids
         ).distinct()
 
+        # This list means "attending but still needs a driver". A dog whose
+        # owner handles both legs by default never does — it is materialized
+        # UNASSIGNED purely so billing can see the attendance (see
+        # _materialize_roster_for_date), and surfacing it here would leave a
+        # permanent, un-actionable warning on the dashboard.
+        scheduled_dogs = scheduled_dogs.exclude(
+            owner_brings_default=True, owner_collects_default=True)
+
         # Exclude dogs that already have an assignment for this date,
         # including REMOVED (staff explicitly cancelled the dog for this
         # day) — but NOT UNASSIGNED, which means "attending, no staff member
@@ -2117,9 +2272,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             date=target_date
         ).exclude(status='UNASSIGNED').values_list('dog_id', flat=True)
 
-        unassigned = scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids).select_related(
-            'owner__profile'
-        ).prefetch_related('additional_owners__profile', 'vaccinations')
+        # Reuse the shared prefetch set — building a bespoke queryset here is
+        # what made cancelled_dates fall back to a query per dog.
+        unassigned = dog_listing_queryset().filter(
+            id__in=scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids)
+            .values_list('id', flat=True)
+        )
         serializer = DogSerializer(unassigned, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -2142,7 +2300,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
         else:
-            target_date = date.today()
+            target_date = timezone.localdate()
 
         dog_ids = request.data.get('dog_ids', [])
         if not dog_ids:
@@ -2155,7 +2313,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
         weekday = target_date.isoweekday()
-        is_past = target_date < date.today()
+        is_past = target_date < timezone.localdate()
         created = []
         skipped = []
         for dog_id in dog_ids:
@@ -2237,7 +2395,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
         else:
-            target_date = date.today()
+            target_date = timezone.localdate()
 
         dog_ids = request.data.get('dog_ids', [])
         staff_member_id = request.data.get('staff_member_id')
@@ -2260,7 +2418,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
         weekday = target_date.isoweekday()
-        is_past = target_date < date.today()
+        is_past = target_date < timezone.localdate()
         created = []
         skipped = []
         for dog_id in dog_ids:
@@ -2348,7 +2506,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         # Removing a past day takes it off the invoice — a billing-history
         # edit reserved for payment managers (same rule as the dog calendar).
-        if target_date < date_cls.today() and not _user_can_manage_payments(request.user):
+        if target_date < timezone.localdate() and not _user_can_manage_payments(request.user):
             return Response({'detail': 'Only staff who can manage payments can remove past days.'}, status=403)
 
         try:
@@ -2367,7 +2525,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         # Removing a dog frees a spot — let the waitlist know. Not for past
         # days: nobody can be offered a spot on a day that already happened.
-        if target_date >= date_cls.today():
+        if target_date >= timezone.localdate():
             try:
                 from .scheduling import process_waitlist_for_date
                 process_waitlist_for_date(target_date)
@@ -2466,7 +2624,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # only flips to UNASSIGNED (still attended, still billed) — fine for
         # any assigner.
         from datetime import date as date_cls
-        if scope == 'from_now_on' and assignment_date < date_cls.today() and not _user_can_manage_payments(request.user):
+        if scope == 'from_now_on' and assignment_date < timezone.localdate() and not _user_can_manage_payments(request.user):
             return Response({'detail': 'Only staff who can manage payments can delete past attendance.'}, status=403)
 
         if scope == 'from_now_on':
@@ -2573,7 +2731,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
         else:
-            target_date = date.today()
+            target_date = timezone.localdate()
 
         # Materialize the persistent weekday roster first so auto_assign only
         # needs to fill in dogs that don't already have a default staff member.
@@ -2761,7 +2919,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 ).update(staff_member=to_staff)
                 assignments_updated = DailyDogAssignment.objects.filter(
                     staff_member=from_staff,
-                    date__gte=date_cls.today(),
+                    date__gte=timezone.localdate(),
                     status__in=swappable,
                 ).update(staff_member=to_staff)
 
@@ -3127,7 +3285,7 @@ class WaitlistEntryViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
             target_date = date_cls.fromisoformat(str(date_str))
         except ValueError:
             return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        if target_date <= date_cls.today():
+        if target_date <= timezone.localdate():
             return Response({'detail': 'You can only join the waitlist for future dates.'}, status=400)
 
         try:
@@ -3188,12 +3346,27 @@ class DogNoteViewSet(viewsets.ModelViewSet):
 class StaffAvailabilityViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
 
+    def _can_manage_others(self):
+        """Only staff managers may edit someone else's availability — the same
+        rule the set_staff_availability action below enforces."""
+        profile = getattr(self.request.user, 'profile', None)
+        return bool(self.request.user.is_superuser or (profile and profile.can_manage_staff))
+
     def get_queryset(self):
         from .models import StaffAvailability
         queryset = StaffAvailability.objects.select_related('staff_member')
         staff_id = self.request.query_params.get('staff_member')
         if staff_id:
             queryset = queryset.filter(staff_member_id=staff_id)
+        # Everyone may *read* the rota — the day board and roster screens need
+        # it. Writes are restricted below.
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return queryset
+        # A row saying a staff member is unavailable suppresses all their push
+        # notifications (notifications._is_staff_working_today), so letting any
+        # staff account PATCH a colleague's row is a real insider vector.
+        if not self._can_manage_others():
+            queryset = queryset.filter(staff_member=self.request.user)
         return queryset
 
     def get_serializer_class(self):
@@ -3201,6 +3374,19 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
         return StaffAvailabilitySerializer
 
     def perform_create(self, serializer):
+        # staff_member is writable on the serializer, so pin it to the caller
+        # unless they are allowed to manage other people's availability.
+        target = serializer.validated_data.get('staff_member')
+        if target is None or (target != self.request.user and not self._can_manage_others()):
+            serializer.save(staff_member=self.request.user)
+            return
+        serializer.save()
+
+    def perform_update(self, serializer):
+        target = serializer.validated_data.get('staff_member', serializer.instance.staff_member)
+        if target != self.request.user and not self._can_manage_others():
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff managers can change someone else's availability.")
         serializer.save()
 
     @staticmethod
@@ -3594,6 +3780,35 @@ class PasswordResetConfirmThrottle(AnonRateThrottle):
     scope = 'password_reset_confirm'
 
 
+def _user_for_reset_email(email):
+    """Resolve the account a password-reset email belongs to, or None.
+
+    Django's User.email carries no unique constraint, so duplicates and
+    case-variants exist in the wild (and did in production when this was
+    written). `User.objects.get()` would raise MultipleObjectsReturned — not
+    caught by the DoesNotExist handlers — 500ing the request and locking *both*
+    accounts out of password recovery permanently.
+
+    When several accounts share an address the same person owns the mailbox, so
+    picking one is safe; we pick the most recently used, falling back to the
+    oldest, and log it so the duplicate can be cleaned up.
+    """
+    from django.db.models import F
+    matches = list(
+        User.objects.filter(email__iexact=email)
+        .order_by(F('last_login').desc(nulls_last=True), 'id')[:2]
+    )
+    if not matches:
+        return None
+    if len(matches) > 1:
+        logger.warning(
+            'Password reset requested for %s, which matches multiple accounts; '
+            'using the most recently active one. Merge or correct these accounts.',
+            email,
+        )
+    return matches[0]
+
+
 @api_view(['POST'])
 @throttle_classes([PasswordResetRequestThrottle])
 @perm_classes([AllowAny])
@@ -3604,24 +3819,28 @@ def request_password_reset(request):
     email = serializer.validated_data['email']
 
     # Always return success to prevent email enumeration
-    try:
-        user = User.objects.get(email__iexact=email)
+    user = _user_for_reset_email(email)
+    if user is not None:
         otp_obj = PasswordResetOTP.create_for_user(user)
-        send_mail(
-            subject='Paws4Thought - Password Reset Code',
-            message=(
-                f'Hi {user.first_name or user.username},\n\n'
-                f'Your password reset code is: {otp_obj.otp}\n\n'
-                f'This code expires in 15 minutes.\n\n'
-                f'If you did not request this, please ignore this email.\n\n'
-                f'Paws4Thought Dogs'
-            ),
-            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@paws4thoughtdogs.co.uk'),
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
-    except User.DoesNotExist:
-        pass  # Don't reveal whether the email exists
+        try:
+            send_mail(
+                subject='Paws4Thought - Password Reset Code',
+                message=(
+                    f'Hi {user.first_name or user.username},\n\n'
+                    f'Your password reset code is: {otp_obj.otp}\n\n'
+                    f'This code expires in 15 minutes.\n\n'
+                    f'If you did not request this, please ignore this email.\n\n'
+                    f'Paws4Thought Dogs'
+                ),
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@paws4thoughtdogs.co.uk'),
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception:
+            # A send failure must not turn the deliberately-generic response
+            # into a 500 — that would make this endpoint an email-enumeration
+            # oracle (registered address 500s, unknown one 200s).
+            logger.exception('Failed to send password reset email')
 
     return Response(
         {'detail': 'If an account with that email exists, a reset code has been sent.'},
@@ -3639,8 +3858,8 @@ def verify_otp(request):
     email = serializer.validated_data['email']
     otp = serializer.validated_data['otp']
 
-    try:
-        user = User.objects.get(email__iexact=email)
+    user = _user_for_reset_email(email)
+    if user is not None:
         otp_obj = PasswordResetOTP.objects.filter(
             user=user, otp=otp, is_used=False,
         ).order_by('-created_at').first()
@@ -3648,8 +3867,6 @@ def verify_otp(request):
         if otp_obj and otp_obj.is_valid():
             reset_token = otp_obj.generate_reset_token()
             return Response({'reset_token': reset_token}, status=drf_status.HTTP_200_OK)
-    except User.DoesNotExist:
-        pass
 
     return Response(
         {'detail': 'Invalid or expired code.'},
@@ -3685,9 +3902,18 @@ def reset_password(request):
     user.set_password(new_password)
     user.save()
 
-    # Mark OTP as used
+    # Mark OTP as used. Other outstanding codes need no handling here —
+    # PasswordResetOTP.create_for_user already invalidates and prunes a user's
+    # previous codes, so at most one unused row exists at any time.
     otp_obj.is_used = True
     otp_obj.save()
+
+    # Invalidate existing sessions — same rule as change_password (B3). DRF
+    # tokens never expire and there is no session list, so without this someone
+    # recovering a compromised account would leave the attacker's token valid
+    # indefinitely. The user re-authenticates with their new password.
+    from rest_framework.authtoken.models import Token
+    Token.objects.filter(user=user).delete()
 
     return Response(
         {'detail': 'Password has been reset successfully.'},
@@ -3750,27 +3976,79 @@ def delete_account(request):
             status=drf_status.HTTP_400_BAD_REQUEST,
         )
 
-    # Promote a remaining co-owner to primary owner so the dog doesn't become an
-    # invisible, un-ownable orphan when its only owner deletes their account (B20).
-    for dog in Dog.objects.filter(owner=user):
-        next_owner = dog.additional_owners.exclude(id=user.id).first()
-        if next_owner is not None:
-            dog.owner = next_owner
-            dog.additional_owners.remove(next_owner)
-            dog.save(update_fields=['owner'])
+    # All-or-nothing. Without the transaction, the co-owner promotion below
+    # commits and *then* user.delete() can fail — leaving the customer with an
+    # account they can still log into but whose dog now belongs to someone else.
+    from django.db import transaction
+    from django.db.models import ProtectedError
 
-    # Remove user from additional_owners on any dogs (M2M cleanup)
-    for dog in Dog.objects.filter(additional_owners=user):
-        dog.additional_owners.remove(user)
+    with transaction.atomic():
+        # Promote a remaining co-owner to primary owner so the dog doesn't become an
+        # invisible, un-ownable orphan when its only owner deletes their account (B20).
+        for dog in Dog.objects.filter(owner=user):
+            next_owner = dog.additional_owners.exclude(id=user.id).first()
+            if next_owner is not None:
+                dog.owner = next_owner
+                dog.additional_owners.remove(next_owner)
+                dog.save(update_fields=['owner'])
 
-    # Delete the user — cascades to profile, tokens, reactions, comments, etc.
-    # Any dog still owned only by this user keeps owner=NULL (SET_NULL).
-    user.delete()
+        # Remove user from additional_owners on any dogs (M2M cleanup)
+        for dog in Dog.objects.filter(additional_owners=user):
+            dog.additional_owners.remove(user)
+
+        # Delete the user — cascades to profile, tokens, reactions, comments, etc.
+        # Any dog still owned only by this user keeps owner=NULL (SET_NULL).
+        try:
+            user.delete()
+        except ProtectedError:
+            # Invoice.customer and DogWeekdayPickup.staff_member are PROTECT, so
+            # anyone who has ever been invoiced (or driven a weekday route)
+            # cannot be hard-deleted — invoices are statutory records. Anonymise
+            # instead: the account becomes unusable and carries no personal data,
+            # which satisfies an erasure request without destroying the ledger.
+            _anonymise_user(user)
+            return Response(
+                {'detail': 'Account deleted successfully.'},
+                status=drf_status.HTTP_200_OK,
+            )
 
     return Response(
         {'detail': 'Account deleted successfully.'},
         status=drf_status.HTTP_200_OK,
     )
+
+
+def _anonymise_user(user):
+    """Strip personal data from an account that cannot be hard-deleted.
+
+    Used when a user is referenced by records that must survive (invoices are
+    kept for accounting). The account is deactivated, credentials are made
+    unusable, and every identifying field is cleared, so nothing personal
+    remains and the user can never sign in again.
+    """
+    from rest_framework.authtoken.models import Token
+
+    Token.objects.filter(user=user).delete()
+    user.username = f'deleted-user-{user.pk}'
+    user.first_name = ''
+    user.last_name = ''
+    user.email = ''
+    user.is_active = False
+    user.set_unusable_password()
+    user.save(update_fields=[
+        'username', 'first_name', 'last_name', 'email', 'is_active', 'password',
+    ])
+
+    profile = getattr(user, 'profile', None)
+    if profile is not None:
+        profile.address = ''
+        profile.phone_number = ''
+        profile.pickup_instructions = ''
+        if profile.profile_photo:
+            profile.profile_photo.delete(save=False)
+        profile.save(update_fields=[
+            'address', 'phone_number', 'pickup_instructions', 'profile_photo',
+        ])
 
 
 # =============================================================================
@@ -3835,16 +4113,32 @@ def postcode_lookup(request):
     return Response({'postcode': postcode.upper(), 'addresses': addresses})
 
 
+class InquiryViewerPermission(BasePermission):
+    """Staff with can_view_inquiries. Enforced at has_permission so it also
+    covers the @action routes, not just the ones that go through get_queryset."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.is_staff):
+            return False
+        return bool(getattr(getattr(user, 'profile', None), 'can_view_inquiries', False))
+
+
 class ContactInquiryViewSet(viewsets.ModelViewSet):
     """Staff-only access to website contact inquiries."""
     serializer_class = ContactInquirySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [InquiryViewerPermission]
+    # 'post' is here only for the @action routes below (mark_read etc.), never
+    # to create inquiries — the public form posts to submit_contact_inquiry.
+    # While the viewset was IsAuthenticated, CreateModelMixin was live and never
+    # consulted get_queryset, so any owner could POST blank rows that
+    # push-notified every inquiry-managing staff member.
     http_method_names = ['get', 'delete', 'post']
 
+    def create(self, request, *args, **kwargs):
+        return Response(status=drf_status.HTTP_405_METHOD_NOT_ALLOWED)
+
     def get_queryset(self):
-        user = self.request.user
-        if not user.is_staff or not user.profile.can_view_inquiries:
-            return ContactInquiry.objects.none()
         return ContactInquiry.objects.all().order_by('-created_at')
 
     @action(detail=True, methods=['post'])
@@ -3871,11 +4165,10 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unread_count(self, request):
-        user = request.user
-        if not user.is_staff or not user.profile.can_view_inquiries:
-            return Response({'count': 0})
-        count = ContactInquiry.objects.filter(is_read=False).count()
-        return Response({'count': count})
+        # Permission is handled by InquiryViewerPermission; this used to
+        # dereference user.profile unguarded, which is an AttributeError 500 for
+        # any user without one.
+        return Response({'count': ContactInquiry.objects.filter(is_read=False).count()})
 
 
 class ContactInquiryCreateThrottle(AnonRateThrottle):
@@ -4440,7 +4733,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(customer_id=params['customer'])
             return qs
         # Owners: own invoices only, and never unreviewed drafts.
-        return qs.filter(customer=self.request.user).exclude(status='DRAFT')
+        # SENDING is a draft that is mid-push to Xero — not yet the customer's.
+        return qs.filter(customer=self.request.user).exclude(status__in=('DRAFT', 'SENDING'))
 
     def _require_manager(self):
         if not _user_can_manage_payments(self.request.user):
@@ -4492,12 +4786,24 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         invoice = self.get_object()
         if invoice.status != 'DRAFT':
             return Response({'detail': 'Only draft invoices can be sent.'}, status=400)
-        billing.send_invoice(invoice, user=request.user)
+        try:
+            billing.send_invoice(invoice, user=request.user)
+        except billing.XeroSendFailed as exc:
+            # The invoice is back in DRAFT — say so rather than reporting success
+            # for something the customer will never receive.
+            return Response({'detail': str(exc), 'code': 'xero_send_failed'}, status=502)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        invoice.refresh_from_db()
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=False, methods=['post'])
     def send_all(self, request):
-        """Send every draft invoice for a period."""
+        """Send every draft invoice for a period.
+
+        Reports per-invoice outcomes. One customer's Xero failure must not abort
+        the batch and leave the rest unsent with no record of how far it got.
+        """
         from . import billing
         from .models import Invoice
 
@@ -4507,10 +4813,18 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Provide a valid year and month.'}, status=400)
         drafts = Invoice.objects.filter(status='DRAFT', period_year=year, period_month=month)
         sent = 0
+        failed = []
         for invoice in drafts:
-            billing.send_invoice(invoice, user=request.user)
-            sent += 1
-        return Response({'sent': sent})
+            try:
+                billing.send_invoice(invoice, user=request.user)
+                sent += 1
+            except (billing.XeroSendFailed, ValueError) as exc:
+                failed.append({
+                    'invoice': invoice.id,
+                    'customer': invoice.billed_name,
+                    'detail': str(exc),
+                })
+        return Response({'sent': sent, 'failed': failed})
 
     @action(detail=True, methods=['post'])
     def regenerate(self, request, pk=None):
@@ -4579,6 +4893,27 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         invoice = self.get_object()
         if invoice.status == 'PAID':
             return Response({'detail': 'A paid invoice cannot be voided.'}, status=400)
+        # A PART_PAID invoice used to void freely. Because the period's unique
+        # constraints and generate_invoices_for_month both ignore VOID rows, the
+        # month could then be regenerated at full price while the payments that
+        # had already been collected stayed attached to the dead invoice —
+        # money vanishes from the totals and the customer is chased for the lot.
+        # Require an explicit acknowledgement, and say how much is at stake.
+        collected = invoice.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        if collected > 0 and not _truthy(request.data.get('confirm_discard_payments')):
+            return Response(
+                {
+                    'detail': (
+                        f'£{collected} has already been recorded against this invoice. '
+                        'Voiding it will leave that payment attached to a void invoice — '
+                        'raise a credit note or move the payment first. '
+                        'Send confirm_discard_payments=true to void anyway.'
+                    ),
+                    'code': 'invoice_has_payments',
+                    'amount_paid': str(collected),
+                },
+                status=400,
+            )
         invoice.status = 'VOID'
         invoice.save(update_fields=['status', 'updated_at'])
 
