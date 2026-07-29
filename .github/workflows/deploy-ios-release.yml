@@ -24,6 +24,8 @@ name: Release iOS to App Store
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   - App Store Connect API key. Needs
 #     the App Manager role to submit for review; Developer is not enough. Paste
 #     the .p8 whole, including its BEGIN/END lines.
+#   DEMO_EMAIL, DEMO_PASSWORD               - App Review's demo login, injected at
+#     upload time because this repo is public and the password can't be committed
 #
 # Still done by hand in App Store Connect: App Privacy answers, the age-rating
 # questionnaire, and releasing the version once Apple approves it.
@@ -108,6 +110,10 @@ jobs:
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          # App Review's demo login. Not committed — this repo is public — so the
+          # lane writes the two files deliver reads it from at upload time.
+          DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
         run: |
           export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
           cd fastlane && fastlane ios upload_metadata

@@ -11,6 +11,8 @@ name: App Store Listing
 #
 # Required repository secrets (same key the Store Screenshots workflow uses):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   - App Store Connect API key
+#   DEMO_EMAIL, DEMO_PASSWORD               - App Review's demo login, injected at
+#     upload time because this repo is public and the password can't be committed
 #
 # See my_app/STORE_METADATA.md.
 
@@ -56,6 +58,10 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           INCLUDE_SCREENSHOTS: ${{ inputs.include_screenshots && '1' || '0' }}
+          # App Review's demo login. Not committed — this repo is public — so the
+          # upload lane writes the two files deliver reads it from at upload time.
+          DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
         run: |
           export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
           cd fastlane

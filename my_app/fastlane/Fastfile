@@ -56,6 +56,33 @@ def marketing_version
   match[1]
 end
 
+# The App Review demo login. App Review signs in with this, so `deliver` has to
+# send it — but this repo is public, so the password can't be committed. The two
+# files deliver reads it from are gitignored and written here instead, from the
+# same DEMO_EMAIL / DEMO_PASSWORD secrets the screenshots workflow uses.
+#
+# Missing credentials are fatal rather than skipped: uploading with an empty demo
+# account leaves App Review unable to sign in, which costs a rejection and a
+# review cycle.
+def write_review_credentials!
+  require "fileutils"
+
+  user = ENV["DEMO_EMAIL"].to_s
+  pass = ENV["DEMO_PASSWORD"].to_s
+  if user.empty? || pass.empty?
+    UI.user_error!(
+      "DEMO_EMAIL and DEMO_PASSWORD must be set — App Review signs in with them, " \
+      "and they are deliberately not committed. See my_app/STORE_METADATA.md.",
+    )
+  end
+
+  dir = File.join(METADATA_PATH, "review_information")
+  FileUtils.mkdir_p(dir)
+  File.write(File.join(dir, "demo_user.txt"), user)
+  File.write(File.join(dir, "demo_password.txt"), pass)
+  UI.message("Wrote the App Review demo login for #{user}")
+end
+
 default_platform(:ios)
 
 platform :ios do
@@ -113,6 +140,8 @@ platform :ios do
     unless Dir.exist?(listing)
       UI.user_error!("No listing at fastlane/metadata/#{LOCALE}/ — run `fastlane download_metadata` first.")
     end
+
+    write_review_credentials!
 
     with_screenshots = ENV["INCLUDE_SCREENSHOTS"] == "1"
     UI.message("Uploading listing for #{version} (screenshots: #{with_screenshots})")
