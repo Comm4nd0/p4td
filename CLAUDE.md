@@ -186,13 +186,18 @@ Additional non-router endpoints:
 
 ### Releasing iOS
 
-`pubspec.yaml` is the **only** source of the iOS version and build number: the
-Xcode project sets `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` from
-`$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)`, which `flutter pub get` writes
-into `ios/Flutter/Generated.xcconfig`. Don't hardcode versions in the Xcode
-project, and **don't number iOS builds from `CI_BUILD_NUMBER`** — Xcode Cloud
-counts it per workflow, so a second workflow restarts at 1 and collides with
-builds App Store Connect has already accepted.
+`pubspec.yaml` is the source of the iOS **marketing version** (the Xcode project
+takes `MARKETING_VERSION` from `$(FLUTTER_BUILD_NAME)` via
+`ios/Flutter/Generated.xcconfig`, written by `flutter pub get`). It is *not* the
+source of the iOS build number: Xcode Cloud stamps its own counter into
+`CFBundleVersion` when it distributes, so pubspec's `+<buildNumber>` governs
+Android only. That counter is shared across the product's Xcode Cloud workflows,
+so it stays unique — don't try to "fix" it to match pubspec.
+
+The release workflow therefore resolves the build by **version train**, which is
+keyed on the marketing version. That makes the required version bump
+load-bearing: skip it and a release shares a train with the previous one and can
+attach the wrong binary.
 
 To ship, tag a commit that is already on `main` and whose pubspec carries the
 version being released:
@@ -202,8 +207,8 @@ git tag v1.9.26 && git push origin v1.9.26
 ```
 
 The workflow verifies the tag matches pubspec and is an ancestor of `main`,
-pushes the listing from `my_app/fastlane/metadata/`, waits for the Xcode Cloud
-build with the matching build number, attaches it, and submits for review. It
+pushes the listing from `my_app/fastlane/metadata/`, waits for a build of that
+version to finish processing, attaches the newest one, and submits for review. It
 never builds or uploads a binary itself. Full detail — including the dry-run mode
 and what still needs the web UI — is in `my_app/STORE_METADATA.md`.
 
