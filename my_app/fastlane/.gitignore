@@ -1,7 +1,11 @@
-# Captured + framed screenshots and uploaded metadata (regenerated each run)
+# Captured screenshots + the generated Play listing tree (regenerated each run).
+# NOTE: metadata/<locale>/ (the App Store listing text) IS committed — that's the
+# source of truth deliver uploads from. Only the Android tree is generated.
 screenshots/
-metadata/
+metadata/android/
 fonts/
+# App Store Connect API key material written by CI / local runs
+keys/
 *_framed.png
 # fastlane run artifacts
 report.xml
