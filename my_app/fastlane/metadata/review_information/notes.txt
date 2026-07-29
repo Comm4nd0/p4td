@@ -1,38 +1,26 @@
-Billing & Payments
+About this app
 
-Customer payments in the app: owners can view and pay their invoices via a secure pay link; staff can generate, send, and record payments.
-New Pricing screen to manage standard daycare and boarding prices, plus per-customer rate overrides and discounts.
-Invoice amendments: add charge or discount lines, void invoices, and generate an invoice for a single customer.
-Owner-transport discount now available on the Pricing screen.
-Improved invoicing for dogs without a registered owner.
-Billing-mode toggle and customer contact matching to keep accounts in sync.
-Boarding stays are now included in billing.
-Staff Day Board & Scheduling
+Paws 4 Thought Dogs is the app for a UK dog daycare and boarding business operating in Berkshire and Buckinghamshire. Dog owners use it to follow their dog's day, manage schedules and request boarding. The same app also serves the business's own staff, who use it to run the daily pickup route and assignments.
 
-New staff Day Board with per-staff colours and pickup-order badges.
-Off-rota staff hidden by default, with column choices that are remembered.
-Simpler drag-and-drop with hover-to-place and quick reassignment.
-Tap a boarding dog on the dashboard to open its profile.
-Boarding Management
+The demo account
 
-New Manage Boarding section with a traffic alert on the driver run list.
-Boarding pickups now happen only on the first day and drop-offs only on the last day.
-Duplicate boarding bookings for the same dog are now flagged.
-Dog Intake & Profiles
+The account supplied with this submission is a customer (dog owner) account. It has one dog with a complete profile, a populated photo feed and an upcoming schedule, so every owner-facing screen can be reviewed end to end.
+Staff features are permission-gated and are NOT visible to this account. Daily assignments, the staff Day Board, request approvals, traffic alerts, team availability and dog notes are each controlled by a per-user staff permission granted by the business, so they do not appear for a customer account even though the App Store description lists them.
+If you would like a staff-level account in order to review those screens, please ask via Resolution Center and we will provide one promptly.
 
-New booking form for dog intake: owners submit details and staff approve to create the dog.
-Schedule calendar added to the dog profile.
-Clearer neutered-status wording with links to dog profiles.
-Permissions
+Accounts and deletion
 
-New Manage Staff permission for setting working days and approving leave.
-Payment managers can now edit past calendar days.
-Public / Logged-Out Experience
+Anyone can create an account from the app's landing screen or the sign-in screen, via Register, which includes accepting the privacy policy.
+A newly created account has no dog and no feed content until the business approves the dog's details, so a fresh registration will look empty. That is why the demo account above is supplied for review rather than asking you to register.
+Accounts can be deleted from inside the app, under Profile.
 
-New contact area and enquiry form for logged-out users.
-Fixed the login screen appearing over the landing page at startup.
-Reliability Fixes
+What is new in this version
 
-More reliable multi-image uploads on slow phones and connections.
-Fixed duplicate notifications and broken notification links.
-Fixed calendar paging issues when selecting dates.
+This release is mostly staff-side, so most of it is not reachable from the customer demo account. Listed here so it is clear what changed rather than as a request to test it: the staff app now works offline with a cached route and dog details and an automatic refresh when signal returns; the Day Board gained pinch-to-zoom and a card-size toggle; dog profiles show a map of the pickup address; a boarding stay can be cancelled from a dog's profile; and staff can share several feed photos at once.
+The customer-visible changes are the floating quick-actions menu, and a fix to how cached data is separated between accounts when more than one account is used on the same device.
+
+Other things worth knowing
+
+Push notifications are used for feed updates, booking confirmations, and traffic alerts affecting a pickup or drop-off.
+Camera and photo access is requested only when a user chooses to upload a picture of their dog.
+The app talks only to the operator's own backend. There are no advertising or third-party analytics SDKs and no use of the advertising identifier.
