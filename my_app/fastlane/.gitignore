@@ -4,6 +4,11 @@
 screenshots/
 metadata/android/
 fonts/
+# The App Review demo login. This repo is public, so the password must not be
+# committed: the Fastfile writes both files from DEMO_EMAIL / DEMO_PASSWORD at
+# upload time, the same secrets the screenshots workflow uses.
+metadata/review_information/demo_user.txt
+metadata/review_information/demo_password.txt
 # App Store Connect API key material written by CI / local runs
 keys/
 *_framed.png

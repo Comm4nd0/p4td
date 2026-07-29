@@ -1,0 +1,38 @@
+Billing & Payments
+
+Customer payments in the app: owners can view and pay their invoices via a secure pay link; staff can generate, send, and record payments.
+New Pricing screen to manage standard daycare and boarding prices, plus per-customer rate overrides and discounts.
+Invoice amendments: add charge or discount lines, void invoices, and generate an invoice for a single customer.
+Owner-transport discount now available on the Pricing screen.
+Improved invoicing for dogs without a registered owner.
+Billing-mode toggle and customer contact matching to keep accounts in sync.
+Boarding stays are now included in billing.
+Staff Day Board & Scheduling
+
+New staff Day Board with per-staff colours and pickup-order badges.
+Off-rota staff hidden by default, with column choices that are remembered.
+Simpler drag-and-drop with hover-to-place and quick reassignment.
+Tap a boarding dog on the dashboard to open its profile.
+Boarding Management
+
+New Manage Boarding section with a traffic alert on the driver run list.
+Boarding pickups now happen only on the first day and drop-offs only on the last day.
+Duplicate boarding bookings for the same dog are now flagged.
+Dog Intake & Profiles
+
+New booking form for dog intake: owners submit details and staff approve to create the dog.
+Schedule calendar added to the dog profile.
+Clearer neutered-status wording with links to dog profiles.
+Permissions
+
+New Manage Staff permission for setting working days and approving leave.
+Payment managers can now edit past calendar days.
+Public / Logged-Out Experience
+
+New contact area and enquiry form for logged-out users.
+Fixed the login screen appearing over the landing page at startup.
+Reliability Fixes
+
+More reliable multi-image uploads on slow phones and connections.
+Fixed duplicate notifications and broken notification links.
+Fixed calendar paging issues when selecting dates.

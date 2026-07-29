@@ -1,3 +1,7 @@
 * text=auto
 *.sh text eol=lf
+# App Store listing text is uploaded verbatim by `deliver`. Keep it LF in the
+# working tree too, so a local run from Windows can't push literal CRs into the
+# description or release notes.
+my_app/fastlane/metadata/** text eol=lf
 *.py linguist-language=Python

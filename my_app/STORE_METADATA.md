@@ -55,6 +55,13 @@ metadata/
 The App Review demo account is the same seeded owner the screenshots use
 (`python manage.py seed_demo_data` — see [SCREENSHOTS.md](SCREENSHOTS.md)).
 
+> **`demo_user.txt` and `demo_password.txt` are gitignored.** This repo is
+> public, and App Review's password has no business in it. The upload lane writes
+> both files from the `DEMO_EMAIL` / `DEMO_PASSWORD` secrets — the same ones the
+> screenshots workflow uses — and fails loudly if they're unset, because
+> uploading an empty demo account costs a review rejection. Everything else under
+> `metadata/` is committed as normal. Set them in your shell for a local run.
+
 ## Every release
 
 1. Bump `version:` in `my_app/pubspec.yaml` (already required for every
