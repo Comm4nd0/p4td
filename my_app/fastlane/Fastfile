@@ -56,20 +56,6 @@ def marketing_version
   match[1]
 end
 
-# Build number from pubspec.yaml ("1.9.25+400" -> "400"). This is the number
-# Xcode Cloud stamps into CFBundleVersion (pubspec -> FLUTTER_BUILD_NUMBER in
-# Generated.xcconfig -> CURRENT_PROJECT_VERSION), so it's also how we recognise
-# which uploaded build belongs to this commit. Override with APP_BUILD to target
-# a build that was uploaded from a different commit.
-def build_number
-  return ENV["APP_BUILD"] unless ENV["APP_BUILD"].to_s.empty?
-
-  pubspec = File.read(File.expand_path("../pubspec.yaml", __dir__))
-  match = pubspec.match(/^version:\s*\d+\.\d+\.\d+\+(\d+)/)
-  UI.user_error!("Could not read the build number from my_app/pubspec.yaml") unless match
-  match[1]
-end
-
 default_platform(:ios)
 
 platform :ios do
@@ -154,18 +140,25 @@ platform :ios do
   # ---------------------------------------------------------------------------
 
   # This lane never builds or uploads a binary — Xcode Cloud archives and
-  # uploads on push to main, taking the build number from pubspec.yaml. Here we
-  # find that build by its number, attach it to the version, and submit.
+  # uploads. Here we find the build for this release, attach it, and submit.
   #
   # Run `upload_metadata` first: the version has to exist and carry the right
   # listing text before a build can be attached to it.
   #
+  # Which build? NOT pubspec's build number — Xcode Cloud stamps its own counter
+  # into CFBundleVersion when it distributes (verified: run #525 arrived as build
+  # 525 while pubspec said 401). That counter is shared across the product's
+  # workflows, so it stays unique, but it has nothing to do with pubspec, which
+  # only governs Android. So select by *version train* instead: the train for
+  # this marketing version only ever holds builds of this release, because every
+  # `my_app/` commit bumps the version. The highest one is the newest archive of
+  # it.
+  #
   #   SUBMIT=0        attach the build and stop (dry run — nothing sent to Apple)
-  #   WAIT_MINUTES=n  how long to wait for the build to finish processing (30)
-  #   APP_BUILD=n     target a build uploaded from a different commit
+  #   WAIT_MINUTES=n  how long to wait for a build to finish processing (30)
+  #   APP_BUILD=n     attach this exact build instead of resolving one
   lane :submit_for_review do
     version = marketing_version
-    build   = build_number
     submit  = ENV["SUBMIT"] != "0"
 
     api_key = app_store_connect_api_key(
@@ -174,30 +167,36 @@ platform :ios do
       key_filepath: ENV.fetch("ASC_KEY_PATH"),
     )
 
-    # The Xcode Cloud build for this commit normally exists well before anyone
-    # tags it, but it can still be processing. Wait for it rather than failing
-    # immediately — and fail with something readable rather than hanging.
-    wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
-    deadline = Time.now + (wait_minutes * 60)
-    loop do
-      latest = latest_testflight_build_number(
-        api_key:              api_key,
-        app_identifier:       IOS_BUNDLE_ID,
-        version:              version,
-        initial_build_number: 0,
-      ).to_i
+    build = ENV["APP_BUILD"].to_s
+    if build.empty?
+      # The archive for this commit normally exists well before anyone tags it,
+      # but it can still be processing. Wait rather than fail immediately — and
+      # fail readably rather than hanging.
+      wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
+      deadline = Time.now + (wait_minutes * 60)
+      loop do
+        latest = latest_testflight_build_number(
+          api_key:              api_key,
+          app_identifier:       IOS_BUNDLE_ID,
+          version:              version,
+          initial_build_number: 0,
+        ).to_i
 
-      break if latest >= build.to_i
+        if latest.positive?
+          build = latest.to_s
+          break
+        end
 
-      if Time.now > deadline
-        UI.user_error!(
-          "Build #{build} for #{version} did not appear in TestFlight within " \
-          "#{wait_minutes} min (latest seen: #{latest.zero? ? 'none' : latest}). " \
-          "Check that the Xcode Cloud build for this commit finished and uploaded."
-        )
+        if Time.now > deadline
+          UI.user_error!(
+            "No build of #{version} appeared in TestFlight within #{wait_minutes} min. " \
+            "Check that the Xcode Cloud archive for this commit finished and uploaded — " \
+            "and that pubspec's version was bumped, since the train is keyed on it."
+          )
+        end
+        UI.message("Waiting for a build of #{version} to finish processing…")
+        sleep(60)
       end
-      UI.message("Waiting for build #{build} of #{version} (latest: #{latest})…")
-      sleep(60)
     end
 
     UI.message("Attaching build #{build} to #{version} (submit for review: #{submit})")

@@ -89,21 +89,31 @@ for review.
 
 ### Where the binary comes from
 
-Xcode Cloud archives and uploads on push to `main`, bootstrapped by
-`my_app/ios/ci_scripts/ci_post_clone.sh`. The build number comes from
-`pubspec.yaml` — `flutter pub get` writes it into `ios/Flutter/Generated.xcconfig`
-as `FLUTTER_BUILD_NUMBER`, which reaches `CFBundleVersion` through
-`CURRENT_PROJECT_VERSION`.
+Xcode Cloud archives and uploads, bootstrapped by
+`my_app/ios/ci_scripts/ci_post_clone.sh`. Two workflows exist on the
+`Paws 4 Thought Dogs` product:
 
-That matters: **App Store Connect rejects a build number it has already seen**,
-so the number has to be globally unique. pubspec's is, because `CLAUDE.md`
-requires a bump on every `my_app/` commit and `flutter-ci.yml` enforces it on
-PRs. Two things would break it, and neither should be added:
+| Workflow | Starts on |
+|---|---|
+| `Development` | branch `development` |
+| `Production Workflow` | branch `main` **and** tags `v*` |
 
-- starting an Xcode Cloud build from the tag *as well as* from `main` — the same
-  commit gets archived twice with one build number, and the second upload fails;
-- numbering builds from `CI_BUILD_NUMBER`, which Xcode Cloud counts **per
-  workflow**, so a second workflow restarts at 1 and collides.
+**The build number is not pubspec's.** Xcode Cloud stamps its own counter into
+`CFBundleVersion` when it distributes — run #525 arrived in TestFlight as build
+525 while `pubspec.yaml` said `+401`. That counter is shared across both
+workflows above (their run numbers interleave), so it stays unique on its own.
+pubspec's `+<buildNumber>` governs the Play Store only.
+
+So the release lane resolves the build by **version train** — the group of builds
+sharing a `CFBundleShortVersionString` — and takes the newest in it. The train is
+keyed on the marketing version, which is why the version bump `CLAUDE.md` already
+requires matters here: skip it and the release shares a train with the previous
+one, and the wrong binary can be attached.
+
+Don't try to force `CFBundleVersion` to match pubspec, and in particular don't
+pass `--build-number="$CI_BUILD_NUMBER"` in `ci_post_clone.sh` — Xcode Cloud
+counts that **per workflow** in some configurations, and a second workflow
+restarting at 1 would collide with builds App Store Connect has already accepted.
 
 ### Dry run
 
@@ -131,7 +141,7 @@ fastlane ios upload_metadata                        # listing only
 INCLUDE_SCREENSHOTS=1 fastlane ios upload_metadata  # listing + screenshots
 SUBMIT=0 fastlane ios submit_for_review             # attach the build, submit nothing
 fastlane ios submit_for_review                      # attach the build and submit
-APP_BUILD=401 fastlane ios submit_for_review        # target a specific build
+APP_BUILD=525 fastlane ios submit_for_review        # attach this exact build
 APP_VERSION=1.9.14 fastlane ios upload_metadata     # target a specific version
 ```
 

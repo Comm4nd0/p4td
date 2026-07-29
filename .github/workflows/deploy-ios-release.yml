@@ -4,19 +4,21 @@ name: Release iOS to App Store
 #
 #   git tag v1.9.26 && git push origin v1.9.26
 #
-# This pushes the committed listing text, finds the build Xcode Cloud already
-# uploaded for that commit, attaches it to the version, and submits it for App
-# Review.
+# This pushes the committed listing text, finds the build Xcode Cloud uploaded
+# for this release, attaches it to the version, and submits it for App Review.
 #
-# It never builds or uploads a binary. Xcode Cloud archives and uploads on push
-# to `main` (my_app/ios/ci_scripts/ci_post_clone.sh), taking the build number
-# from my_app/pubspec.yaml.
+# It never builds or uploads a binary. Xcode Cloud archives and uploads
+# (bootstrapped by my_app/ios/ci_scripts/ci_post_clone.sh) — the `Production
+# Workflow` on `main` and `v*` tags, and `Development` on `development`.
 #
-# IMPORTANT: keep it that way. The build number must be globally unique, and
-# pubspec's is (CLAUDE.md requires a bump per `my_app/` commit; flutter-ci.yml
-# enforces it on PRs). Do NOT also start an Xcode Cloud build from the tag, and
-# do NOT introduce CI_BUILD_NUMBER: either would re-archive the same commit and
-# App Store Connect rejects a build number it has already seen.
+# The build is resolved by *version train*, not by build number: Xcode Cloud
+# stamps its own counter into CFBundleVersion when it distributes (run #525
+# arrived as build 525 while pubspec said 401), so pubspec's build number
+# governs Android only. The train is keyed on the marketing version, and every
+# `my_app/` commit bumps that, so the train holds only this release's builds.
+#
+# This is why the version bump CLAUDE.md already requires is load-bearing here:
+# forget it and the tagged release shares a train with the previous one.
 #
 # Required repository secrets (the same key the other two store workflows use):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   - App Store Connect API key. Needs
@@ -61,12 +63,11 @@ jobs:
           set -euo pipefail
 
           version="$(sed -n 's/^version: \([0-9]*\.[0-9]*\.[0-9]*\)+[0-9]*$/\1/p' pubspec.yaml)"
-          build="$(sed -n 's/^version: [0-9.]*+\([0-9]*\)$/\1/p' pubspec.yaml)"
-          if [ -z "$version" ] || [ -z "$build" ]; then
+          if [ -z "$version" ]; then
             echo "::error::Could not parse 'version:' from my_app/pubspec.yaml"
             exit 1
           fi
-          echo "pubspec ships $version+$build"
+          echo "pubspec marketing version: $version"
 
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             tag_version="${GITHUB_REF_NAME#v}"
@@ -84,7 +85,7 @@ jobs:
             exit 1
           fi
 
-          echo "Shipping $version (build $build)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shipping $version — build resolved from its TestFlight train" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: ruby/setup-ruby@v1
         with:
