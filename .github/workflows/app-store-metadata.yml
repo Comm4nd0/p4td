@@ -1,0 +1,74 @@
+name: App Store Listing
+
+# Fill in the App Store Connect version form from files in git instead of by
+# hand. `download` pulls the live listing into my_app/fastlane/metadata/ (commit
+# the artifact); `upload` pushes the committed listing to the version in
+# my_app/pubspec.yaml, creating that version if it doesn't exist yet.
+#
+# Nothing is ever submitted for review here — you still press Submit in App
+# Store Connect after checking the build and answering anything Apple only asks
+# in the web UI (App Privacy, age-rating questionnaire).
+#
+# Required repository secrets (same key the Store Screenshots workflow uses):
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   - App Store Connect API key
+#
+# See my_app/STORE_METADATA.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "download = fetch the live listing; upload = push the committed one"
+        type: choice
+        options: ["upload", "download"]
+        default: upload
+      include_screenshots:
+        description: "Also upload my_app/fastlane/screenshots/ (upload mode only)"
+        type: boolean
+        default: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: my_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Tooling (fastlane)
+        run: gem install fastlane --no-document
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p fastlane/keys
+          printf '%s' "$ASC_KEY_P8" > fastlane/keys/asc.p8
+
+      - name: Run lane
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          INCLUDE_SCREENSHOTS: ${{ inputs.include_screenshots && '1' || '0' }}
+        run: |
+          export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
+          cd fastlane
+          if [ "${{ inputs.mode }}" = "download" ]; then
+            fastlane ios download_metadata
+          else
+            fastlane ios upload_metadata
+          fi
+
+      - name: Upload listing as an artifact (commit this after a download)
+        if: ${{ always() && inputs.mode == 'download' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-store-metadata
+          path: my_app/fastlane/metadata/
+          if-no-files-found: warn

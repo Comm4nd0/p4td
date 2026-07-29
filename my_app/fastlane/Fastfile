@@ -1,9 +1,14 @@
-# Fastlane lanes for store screenshots.
+# Fastlane lanes for store screenshots and the App Store listing text.
 #
 # Pipeline:
 #   1. ../tool/screenshots.sh         # capture raw PNGs into the layout below
 #   2. fastlane upload_ios            # push the shots to App Store Connect
 #   3. fastlane upload_android        # push the shots to Play Console
+#
+# Listing text (the App Store Connect version form) lives in git under
+# fastlane/metadata/<locale>/*.txt:
+#   fastlane download_metadata        # pull the live listing down into those files (once)
+#   fastlane upload_metadata          # push the committed files back up (every release)
 #
 # Screenshots are uploaded plain (no device frames / no burned-in captions):
 # frameit has no bezels for the captured emulator/simulator resolutions, so
@@ -17,6 +22,39 @@
 IOS_BUNDLE_ID     = "uk.co.paws4thoughtdogs.paws4thoughtdogs"
 ANDROID_PACKAGE   = "uk.co.paws4thoughtdogs.app"
 LOCALE            = "en-GB"
+
+METADATA_PATH     = File.expand_path("metadata", __dir__)
+SCREENSHOTS_PATH  = File.expand_path("screenshots", __dir__)
+
+# The `deliver` CLI (used by download_metadata) runs in its own process, so an
+# in-process `app_store_connect_api_key` token wouldn't reach it. Write the JSON
+# key file both the CLI and the action understand instead. Lives under keys/,
+# which is gitignored.
+def asc_api_key_file
+  require "json"
+  require "fileutils"
+  path = File.expand_path("keys/asc_api_key.json", __dir__)
+  FileUtils.mkdir_p(File.dirname(path))
+  File.write(path, JSON.pretty_generate(
+    "key_id"    => ENV.fetch("ASC_KEY_ID"),
+    "issuer_id" => ENV.fetch("ASC_ISSUER_ID"),
+    "key"       => File.read(ENV.fetch("ASC_KEY_PATH")),
+    "in_house"  => false,
+  ))
+  path
+end
+
+# Marketing version from pubspec.yaml ("1.9.25+400" -> "1.9.25") so the listing
+# is written against the version this commit actually ships. Override with
+# APP_VERSION when you need to target a different one.
+def marketing_version
+  return ENV["APP_VERSION"] unless ENV["APP_VERSION"].to_s.empty?
+
+  pubspec = File.read(File.expand_path("../pubspec.yaml", __dir__))
+  match = pubspec.match(/^version:\s*(\d+\.\d+\.\d+)/)
+  UI.user_error!("Could not read `version:` from my_app/pubspec.yaml") unless match
+  match[1]
+end
 
 default_platform(:ios)
 
@@ -39,6 +77,60 @@ platform :ios do
       overwrite_screenshots: true,
       run_precheck_before_submit: false,
       force:                 true, # no interactive HTML preview
+    )
+  end
+
+  # ---------------------------------------------------------------------------
+  # Listing text ("the form"): description, promo text, keywords, what's new,
+  # URLs, review contact/demo account. Kept in git, pushed to App Store Connect.
+  # ---------------------------------------------------------------------------
+
+  # One-time (or whenever the live listing was edited by hand): pull the current
+  # App Store listing down into fastlane/metadata/<locale>/*.txt, then commit it.
+  lane :download_metadata do
+    # Default to the *live* listing: there's usually no editable version sitting
+    # in App Store Connect between releases. Set DOWNLOAD_EDIT_VERSION=1 to pull
+    # from an in-progress version instead.
+    live = ENV["DOWNLOAD_EDIT_VERSION"] == "1" ? "false" : "true"
+    sh(
+      "fastlane", "deliver", "download_metadata",
+      "--app_identifier",    IOS_BUNDLE_ID,
+      "--api_key_path",      asc_api_key_file,
+      "--metadata_path",     METADATA_PATH,
+      "--use_live_version",  live,
+    )
+    UI.success("Listing written to fastlane/metadata/ — review and commit it.")
+  end
+
+  # Every release: push the committed listing text to the version in pubspec.yaml,
+  # creating that version in App Store Connect if it doesn't exist yet.
+  # Nothing is submitted for review — you still press Submit in the web UI.
+  #
+  #   INCLUDE_SCREENSHOTS=1   also re-upload fastlane/screenshots/
+  lane :upload_metadata do
+    version = marketing_version
+    listing = File.join(METADATA_PATH, LOCALE)
+    unless Dir.exist?(listing)
+      UI.user_error!("No listing at fastlane/metadata/#{LOCALE}/ — run `fastlane download_metadata` first.")
+    end
+
+    with_screenshots = ENV["INCLUDE_SCREENSHOTS"] == "1"
+    UI.message("Uploading listing for #{version} (screenshots: #{with_screenshots})")
+
+    deliver(
+      api_key_path:            asc_api_key_file,
+      app_identifier:          IOS_BUNDLE_ID,
+      app_version:             version,
+      metadata_path:           METADATA_PATH,
+      screenshots_path:        SCREENSHOTS_PATH,
+      skip_binary_upload:      true,
+      skip_metadata:           false,
+      skip_app_version_update: false,
+      skip_screenshots:        !with_screenshots,
+      overwrite_screenshots:   with_screenshots,
+      submit_for_review:       false,
+      run_precheck_before_submit: false,
+      force:                   true, # no interactive HTML preview
     )
   end
 end

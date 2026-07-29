@@ -12,6 +12,9 @@ seed demo data ──► capture (per device) ──► upload
  (Django cmd)        tool/screenshots.sh      fastlane upload_*
 ```
 
+> The listing **text** (description, promo text, what's new, review contact) is
+> automated separately — see [STORE_METADATA.md](STORE_METADATA.md).
+
 > **Plain screenshots, no framing.** The shots are uploaded as captured — no
 > device bezels and no captions burned onto the image. `frameit` has no frames
 > for the emulator/simulator resolutions we capture at, so framing was removed.

@@ -251,5 +251,7 @@ python manage.py prune_feed_media --include-orphans
 - Line endings: LF enforced for `.sh` files via `.gitattributes`
 - CI: `backend-ci.yml` (Django checks + full suite against PostgreSQL 15, plus a dependency
   audit and a Docker build), `flutter-ci.yml` (analyze + test + pubspec version-bump check),
-  `deploy-android-alpha.yml` (Play Store alpha upload), `store-screenshots.yml` (manual).
+  `deploy-android-alpha.yml` (Play Store alpha upload), `store-screenshots.yml` (manual),
+  `app-store-metadata.yml` (manual — pushes the App Store listing text from
+  `my_app/fastlane/metadata/`; see `my_app/STORE_METADATA.md`).
   There is no backend CD — production deploys are manual.
