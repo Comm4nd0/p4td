@@ -1,38 +1,28 @@
-Billing & Payments
+Works Offline
 
-Customer payments in the app: owners can view and pay their invoices via a secure pay link; staff can generate, send, and record payments.
-New Pricing screen to manage standard daycare and boarding prices, plus per-customer rate overrides and discounts.
-Invoice amendments: add charge or discount lines, void invoices, and generate an invoice for a single customer.
-Owner-transport discount now available on the Pricing screen.
-Improved invoicing for dogs without a registered owner.
-Billing-mode toggle and customer contact matching to keep accounts in sync.
-Boarding stays are now included in billing.
-Staff Day Board & Scheduling
+The staff dashboard and dog details now load instantly from saved data and refresh in the background, so the app keeps working when signal drops mid-route.
+Your route and today's dog photos are prefetched when you log in, so everything is ready before you set off.
+An amber banner tells you when you're looking at saved data, and what time it was saved.
+The app now watches for signal returning and refreshes on its own.
+Staff Day Board
 
-New staff Day Board with per-staff colours and pickup-order badges.
-Off-rota staff hidden by default, with column choices that are remembered.
-Simpler drag-and-drop with hover-to-place and quick reassignment.
-Tap a boarding dog on the dashboard to open its profile.
-Boarding Management
+Pinch to zoom the day board, plus a new card-size toggle for denser or larger cards.
+The board now always opens fully zoomed out, fitting the most staff and dogs on screen.
+Swapping staff now moves dogs that have already been picked up, instead of reporting nothing swapped.
+Fixed “Remove from this day” leaving the dog in the unassigned list.
+Fixed re-added days not showing after a dog had been removed from a day.
+Dog Profiles & Boarding
 
-New Manage Boarding section with a traffic alert on the driver run list.
-Boarding pickups now happen only on the first day and drop-offs only on the last day.
-Duplicate boarding bookings for the same dog are now flagged.
-Dog Intake & Profiles
+Dog profiles now show a map of the pickup address; tap it to open the location in your maps app.
+Staff can cancel a boarding stay directly from a dog's profile.
+Sharing
 
-New booking form for dog intake: owners submit details and staff approve to create the dog.
-Schedule calendar added to the dog profile.
-Clearer neutered-status wording with links to dog profiles.
-Permissions
+New Share to Socials quick action: choose several feed photos and post them together to Facebook, Instagram or any other installed app. The order you pick them becomes the photo order.
+Getting Around
 
-New Manage Staff permission for setting working days and approving leave.
-Payment managers can now edit past calendar days.
-Public / Logged-Out Experience
+Dashboard quick actions and dog profile buttons are now a floating speed dial, anchored to the button it opens from.
+Reliability & Privacy
 
-New contact area and enquiry form for logged-out users.
-Fixed the login screen appearing over the landing page at startup.
-Reliability Fixes
-
-More reliable multi-image uploads on slow phones and connections.
-Fixed duplicate notifications and broken notification links.
-Fixed calendar paging issues when selecting dates.
+Fixed a caching problem that could show a previous account's dogs after adding a second account.
+A failed check no longer looks like a clean day: if unassigned dogs or compatibility conflicts can't be loaded, you now get a retryable warning instead of silence.
+Drivers are no longer shown an hours-old route as though it were live.
