@@ -1,0 +1,123 @@
+name: Release iOS to App Store
+
+# Ship an iOS release by tagging the commit that carries it:
+#
+#   git tag v1.9.26 && git push origin v1.9.26
+#
+# This pushes the committed listing text, finds the build Xcode Cloud already
+# uploaded for that commit, attaches it to the version, and submits it for App
+# Review.
+#
+# It never builds or uploads a binary. Xcode Cloud archives and uploads on push
+# to `main` (my_app/ios/ci_scripts/ci_post_clone.sh), taking the build number
+# from my_app/pubspec.yaml.
+#
+# IMPORTANT: keep it that way. The build number must be globally unique, and
+# pubspec's is (CLAUDE.md requires a bump per `my_app/` commit; flutter-ci.yml
+# enforces it on PRs). Do NOT also start an Xcode Cloud build from the tag, and
+# do NOT introduce CI_BUILD_NUMBER: either would re-archive the same commit and
+# App Store Connect rejects a build number it has already seen.
+#
+# Required repository secrets (the same key the other two store workflows use):
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   - App Store Connect API key. Needs
+#     the App Manager role to submit for review; Developer is not enough. Paste
+#     the .p8 whole, including its BEGIN/END lines.
+#
+# Still done by hand in App Store Connect: App Privacy answers, the age-rating
+# questionnaire, and releasing the version once Apple approves it.
+#
+# See my_app/STORE_METADATA.md.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: "Submit for App Review (off = attach the build and stop)"
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # The lane waits up to 30 min for a build that is still processing.
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: my_app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need main's history to check the tagged commit is actually on it.
+          fetch-depth: 0
+
+      # The tag says which release to ship; pubspec says which binary that is.
+      # If they disagree we'd attach the wrong build to the wrong listing, so
+      # stop here — this is much cheaper than noticing in App Store Connect.
+      - name: Check the tag matches pubspec and the commit is on main
+        run: |
+          set -euo pipefail
+
+          version="$(sed -n 's/^version: \([0-9]*\.[0-9]*\.[0-9]*\)+[0-9]*$/\1/p' pubspec.yaml)"
+          build="$(sed -n 's/^version: [0-9.]*+\([0-9]*\)$/\1/p' pubspec.yaml)"
+          if [ -z "$version" ] || [ -z "$build" ]; then
+            echo "::error::Could not parse 'version:' from my_app/pubspec.yaml"
+            exit 1
+          fi
+          echo "pubspec ships $version+$build"
+
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match my_app/pubspec.yaml ($version). Tag the commit that actually ships this version."
+              exit 1
+            fi
+          fi
+
+          # Compare against FETCH_HEAD rather than origin/main: on a tag-triggered
+          # checkout there is no guarantee a remote-tracking branch ref exists.
+          git fetch --no-tags --quiet origin main
+          if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
+            echo "::error::$GITHUB_SHA is not on main. Xcode Cloud only builds main, so no build exists for this commit."
+            exit 1
+          fi
+
+          echo "Shipping $version (build $build)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Tooling (fastlane)
+        run: gem install fastlane --no-document
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p fastlane/keys
+          printf '%s' "$ASC_KEY_P8" > fastlane/keys/asc.p8
+
+      # Creates the version in App Store Connect if it isn't there yet and fills
+      # the form from my_app/fastlane/metadata/ — the build can only be attached
+      # to a version that already exists.
+      - name: Push the listing text
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
+          cd fastlane && fastlane ios upload_metadata
+
+      - name: Attach the build and submit for review
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          # Tag pushes submit. A manual run defaults to a dry run, so you can
+          # attach the build and look at it before sending it to Apple.
+          SUBMIT: ${{ (github.event_name == 'push' || inputs.submit) && '1' || '0' }}
+        run: |
+          export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
+          cd fastlane && fastlane ios submit_for_review

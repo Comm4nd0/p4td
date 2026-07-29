@@ -168,17 +168,44 @@ Additional non-router endpoints:
 - **Backend deploy**: `scripts/deploy-to-hetzner.sh` (manual, SSH-based, from a laptop) or
   `./deploy.sh` (the same steps run from the checkout on the server). Both pull `main` only,
   with `--ff-only`, and gate on `/healthz/` before reporting success.
-- **Mobile deploy**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
+- **Mobile deploy (Android)**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
+- **Mobile deploy (iOS)**: Xcode Cloud archives and uploads to TestFlight on push
+  to `main` (bootstrapped by `my_app/ios/ci_scripts/ci_post_clone.sh`). Shipping to
+  the App Store is a `v*` tag, which runs `.github/workflows/deploy-ios-release.yml`
+  — see [Releasing iOS](#releasing-ios) below.
 - **Production server**: Gunicorn (2 workers, 2 threads, 120s timeout)
 
 ### Mobile version bumps (required)
 
-**Every commit that changes anything under `my_app/` must bump the version in `my_app/pubspec.yaml`.** The Play Store build fails if the build code (the number after the `+`) is not greater than the previously uploaded one.
+**Every commit that changes anything under `my_app/` must bump the version in `my_app/pubspec.yaml`.** The Play Store build fails if the build code (the number after the `+`) is not greater than the previously uploaded one, and so does App Store Connect.
 
 - Format: `version: <major>.<minor>.<patch>+<buildNumber>`
 - Default: bump patch and build number by 1 (e.g. `1.7.8+271` → `1.7.9+272`).
 - Bump major/minor only when the change warrants it.
 - Make the bump part of the same commit as the feature change (or as an immediate follow-up commit before pushing).
+
+### Releasing iOS
+
+`pubspec.yaml` is the **only** source of the iOS version and build number: the
+Xcode project sets `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` from
+`$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)`, which `flutter pub get` writes
+into `ios/Flutter/Generated.xcconfig`. Don't hardcode versions in the Xcode
+project, and **don't number iOS builds from `CI_BUILD_NUMBER`** — Xcode Cloud
+counts it per workflow, so a second workflow restarts at 1 and collides with
+builds App Store Connect has already accepted.
+
+To ship, tag a commit that is already on `main` and whose pubspec carries the
+version being released:
+
+```bash
+git tag v1.9.26 && git push origin v1.9.26
+```
+
+The workflow verifies the tag matches pubspec and is an ancestor of `main`,
+pushes the listing from `my_app/fastlane/metadata/`, waits for the Xcode Cloud
+build with the matching build number, attaches it, and submits for review. It
+never builds or uploads a binary itself. Full detail — including the dry-run mode
+and what still needs the web UI — is in `my_app/STORE_METADATA.md`.
 
 ## Environment Variables
 
@@ -253,5 +280,7 @@ python manage.py prune_feed_media --include-orphans
   audit and a Docker build), `flutter-ci.yml` (analyze + test + pubspec version-bump check),
   `deploy-android-alpha.yml` (Play Store alpha upload), `store-screenshots.yml` (manual),
   `app-store-metadata.yml` (manual — pushes the App Store listing text from
-  `my_app/fastlane/metadata/`; see `my_app/STORE_METADATA.md`).
+  `my_app/fastlane/metadata/`; see `my_app/STORE_METADATA.md`),
+  `deploy-ios-release.yml` (on a `v*` tag — pushes the listing, attaches the
+  Xcode Cloud build for that commit, and submits it for App Review).
   There is no backend CD — production deploys are manual.

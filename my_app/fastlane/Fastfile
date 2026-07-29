@@ -56,6 +56,20 @@ def marketing_version
   match[1]
 end
 
+# Build number from pubspec.yaml ("1.9.25+400" -> "400"). This is the number
+# Xcode Cloud stamps into CFBundleVersion (pubspec -> FLUTTER_BUILD_NUMBER in
+# Generated.xcconfig -> CURRENT_PROJECT_VERSION), so it's also how we recognise
+# which uploaded build belongs to this commit. Override with APP_BUILD to target
+# a build that was uploaded from a different commit.
+def build_number
+  return ENV["APP_BUILD"] unless ENV["APP_BUILD"].to_s.empty?
+
+  pubspec = File.read(File.expand_path("../pubspec.yaml", __dir__))
+  match = pubspec.match(/^version:\s*\d+\.\d+\.\d+\+(\d+)/)
+  UI.user_error!("Could not read the build number from my_app/pubspec.yaml") unless match
+  match[1]
+end
+
 default_platform(:ios)
 
 platform :ios do
@@ -131,6 +145,86 @@ platform :ios do
       submit_for_review:       false,
       run_precheck_before_submit: false,
       force:                   true, # no interactive HTML preview
+    )
+  end
+
+  # ---------------------------------------------------------------------------
+  # Shipping: attach the already-uploaded build to the version and send it to
+  # App Review. Driven by the `Release iOS to App Store` workflow on a `v*` tag.
+  # ---------------------------------------------------------------------------
+
+  # This lane never builds or uploads a binary — Xcode Cloud archives and
+  # uploads on push to main, taking the build number from pubspec.yaml. Here we
+  # find that build by its number, attach it to the version, and submit.
+  #
+  # Run `upload_metadata` first: the version has to exist and carry the right
+  # listing text before a build can be attached to it.
+  #
+  #   SUBMIT=0        attach the build and stop (dry run — nothing sent to Apple)
+  #   WAIT_MINUTES=n  how long to wait for the build to finish processing (30)
+  #   APP_BUILD=n     target a build uploaded from a different commit
+  lane :submit_for_review do
+    version = marketing_version
+    build   = build_number
+    submit  = ENV["SUBMIT"] != "0"
+
+    api_key = app_store_connect_api_key(
+      key_id:       ENV.fetch("ASC_KEY_ID"),
+      issuer_id:    ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_PATH"),
+    )
+
+    # The Xcode Cloud build for this commit normally exists well before anyone
+    # tags it, but it can still be processing. Wait for it rather than failing
+    # immediately — and fail with something readable rather than hanging.
+    wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
+    deadline = Time.now + (wait_minutes * 60)
+    loop do
+      latest = latest_testflight_build_number(
+        api_key:              api_key,
+        app_identifier:       IOS_BUNDLE_ID,
+        version:              version,
+        initial_build_number: 0,
+      ).to_i
+
+      break if latest >= build.to_i
+
+      if Time.now > deadline
+        UI.user_error!(
+          "Build #{build} for #{version} did not appear in TestFlight within " \
+          "#{wait_minutes} min (latest seen: #{latest.zero? ? 'none' : latest}). " \
+          "Check that the Xcode Cloud build for this commit finished and uploaded."
+        )
+      end
+      UI.message("Waiting for build #{build} of #{version} (latest: #{latest})…")
+      sleep(60)
+    end
+
+    UI.message("Attaching build #{build} to #{version} (submit for review: #{submit})")
+
+    deliver(
+      api_key_path:            asc_api_key_file,
+      app_identifier:          IOS_BUNDLE_ID,
+      app_version:             version,
+      build_number:            build,
+      # The listing was pushed by `upload_metadata`; don't re-send it here.
+      skip_metadata:           true,
+      skip_screenshots:        true,
+      skip_binary_upload:      true,
+      skip_app_version_update: false,
+      submit_for_review:       submit,
+      # Apple's approval doesn't put it in front of customers — releasing stays a
+      # deliberate press in App Store Connect.
+      automatic_release:       false,
+      run_precheck_before_submit: false,
+      force:                   true, # no interactive HTML preview
+      submission_information: {
+        # Info.plist already declares ITSAppUsesNonExemptEncryption=false, and
+        # the app ships no ad or attribution SDK. Answering both here keeps the
+        # submission from stopping on a prompt no one is there to answer.
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa:             false,
+      },
     )
   end
 end
