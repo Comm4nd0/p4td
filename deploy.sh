@@ -13,6 +13,19 @@ echo "=================================================="
 echo "  Deploying Paws 4 Thought Dogs"
 echo "=================================================="
 
+# 0. Record a rollback point BEFORE anything changes.
+#
+# scripts/deploy-to-hetzner.sh has always done this; deploy.sh did not, which
+# meant an automated deploy (see .github/workflows/deploy-backend.yml) had no
+# recorded target to roll back to when it failed. Written before the pull so the
+# commit captured is the one currently serving traffic.
+PREV_COMMIT="$(git rev-parse HEAD)"
+PREV_IMAGE="$(docker compose -f "$COMPOSE_FILE" images -q web 2>/dev/null || echo '')"
+printf '%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PREV_COMMIT" "$PREV_IMAGE" >> .deploy-history
+echo ""
+echo ">>> Rollback point: $PREV_COMMIT (web image ${PREV_IMAGE:-none})"
+
 # 1. Pull latest code.
 #
 # main only. This used to pull `development` first and then `main`, which
@@ -74,7 +87,7 @@ if [ "$ready" -ne 1 ]; then
     docker compose -f "$COMPOSE_FILE" logs --tail=50 web
     echo ""
     echo "!!! Deployment FAILED at commit $DEPLOYING_COMMIT."
-    echo "!!! To roll back: git checkout <previous-commit> && ./deploy.sh --skip-pull"
+    echo "!!! To roll back: git checkout $PREV_COMMIT && ./deploy.sh --skip-pull"
     exit 1
 fi
 
