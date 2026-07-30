@@ -177,9 +177,13 @@ Additional non-router endpoints:
 > only; the live one is `/root/caddy/Caddyfile` on the server.
 
 - **Infrastructure**: Hetzner CX22, Docker Compose, Caddy reverse proxy
-- **Backend deploy**: `scripts/deploy-to-hetzner.sh` (manual, SSH-based, from a laptop) or
-  `./deploy.sh` (the same steps run from the checkout on the server). Both pull `main` only,
-  with `--ff-only`, and gate on `/healthz/` before reporting success.
+- **Backend deploy**: automatic — a successful `Backend CI` run on `main` triggers
+  `.github/workflows/deploy-backend.yml`, which SSHes to the server, runs `./deploy.sh`,
+  and verifies `/healthz/` through Caddy. Manual entry points remain:
+  `scripts/deploy-to-hetzner.sh` (from a laptop) or `./deploy.sh` (on the server). All
+  pull `main` only, with `--ff-only`, and gate on `/healthz/` before reporting success.
+  Because the deploy is gated on `Backend CI`, anything that changes production
+  behaviour must appear in that workflow's path filters or it will never ship.
 - **Mobile deploy (Android)**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
 - **Mobile deploy (iOS)**: Xcode Cloud archives and uploads to TestFlight on push
   to `main` (bootstrapped by `my_app/ios/ci_scripts/ci_post_clone.sh`). Shipping to
@@ -308,5 +312,5 @@ python manage.py prune_feed_media --include-orphans
   `app-store-metadata.yml` (manual — pushes the App Store listing text from
   `my_app/fastlane/metadata/`; see `my_app/STORE_METADATA.md`),
   `deploy-ios-release.yml` (on a `v*` tag — pushes the listing, attaches the
-  Xcode Cloud build for that commit, and submits it for App Review).
-  There is no backend CD — production deploys are manual.
+  Xcode Cloud build for that commit, and submits it for App Review),
+  `deploy-backend.yml` (production deploy, triggered by a green `Backend CI` on `main`).

@@ -1,0 +1,123 @@
+name: Deploy Backend
+
+# Automatic production deploy for the Django backend.
+#
+# Deliberately triggered by a *successful Backend CI run on main*, not directly
+# by the push. Deploying straight from `push` would ship to production while the
+# test suite was still running — and would ship even if it failed. The tradeoff
+# is that a change which doesn't trigger Backend CI never deploys, so that
+# workflow's path filters must cover everything that can change what runs in
+# production (Dockerfile, compose file, deploy.sh included).
+#
+# The container runs `migrate --noinput` on start, so a deploy applies
+# migrations unattended. Add required reviewers to the `production`
+# environment in the repo settings to gate that behind a human.
+#
+# Known narrow race: deploy.sh pulls whatever `main` points at when it runs, not
+# the exact commit CI passed on. If a second push lands between CI finishing and
+# this job starting, the deploy ships the newer commit. It self-corrects (that
+# commit runs its own CI and deploy, and `concurrency` keeps them ordered), so
+# it is accepted rather than pinned — pinning would mean deploying a detached
+# HEAD on the server and losing `git pull --ff-only` as a safety check.
+
+on:
+  workflow_run:
+    workflows: ['Backend CI']
+    types: [completed]
+  # Manual re-run, e.g. to redeploy the current main after a rollback.
+  workflow_dispatch:
+
+# Never run two deploys at once, and never cancel one midway: an interrupted
+# deploy can leave the stack half-built with migrations already applied.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # workflow_run fires for every branch and every conclusion; only a green
+    # run on main is deployable.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+
+    environment:
+      name: production
+      url: https://paws4thoughtdogs.com
+
+    steps:
+      - name: Check required secrets are configured
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          USER_NAME: ${{ secrets.HETZNER_USER }}
+          KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          [ -n "$HOST" ] || missing="$missing HETZNER_HOST"
+          [ -n "$USER_NAME" ] || missing="$missing HETZNER_USER"
+          [ -n "$KEY" ] || missing="$missing HETZNER_SSH_KEY"
+          [ -n "$KNOWN_HOSTS" ] || missing="$missing HETZNER_KNOWN_HOSTS"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
+            echo "See DEPLOYMENT.md > Automatic deploys for how to create them."
+            exit 1
+          fi
+
+      - name: Configure SSH
+        env:
+          KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned host key rather than ssh-keyscan: keyscan trusts whatever
+          # answers on the day, which is exactly the thing being defended
+          # against. StrictHostKeyChecking stays on.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          USER_NAME: ${{ secrets.HETZNER_USER }}
+          APP_DIR: ${{ vars.HETZNER_APP_DIR || '/root/p4td' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "$USER_NAME@$HOST" \
+            "cd '$APP_DIR' && ./deploy.sh"
+
+      - name: Verify the public site is serving
+        run: |
+          # deploy.sh health-gates the container from inside; this checks the
+          # whole path a user takes, including the shared Caddy in front.
+          for attempt in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              https://paws4thoughtdogs.com/healthz/ || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "healthz OK"
+              exit 0
+            fi
+            echo "attempt $attempt: /healthz/ returned $code"
+            sleep 6
+          done
+          echo "::error::Site did not return 200 from /healthz/ after deploy."
+          exit 1
+
+      - name: Report rollback target on failure
+        if: failure()
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          USER_NAME: ${{ secrets.HETZNER_USER }}
+          APP_DIR: ${{ vars.HETZNER_APP_DIR || '/root/p4td' }}
+        run: |
+          # deploy.sh appends the pre-deploy commit to .deploy-history before
+          # touching anything, so the rollback target survives a failed deploy.
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "$USER_NAME@$HOST" \
+            "tail -n 3 '$APP_DIR/.deploy-history' 2>/dev/null || echo 'no deploy history'" \
+            || true
+          echo "::warning::Roll back with: cd $APP_DIR && git checkout <PREV_COMMIT> && ./deploy.sh --skip-pull"

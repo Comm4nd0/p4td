@@ -10,6 +10,12 @@ on:
       - 'website/**'
       - 'requirements*.txt'
       - '.github/workflows/backend-ci.yml'
+      # A green run here is what triggers Deploy Backend, so anything that can
+      # change what runs in production has to be covered — otherwise an
+      # infra-only change would silently never deploy.
+      - 'Dockerfile'
+      - 'docker-compose.prod.yml'
+      - 'deploy.sh'
   pull_request:
     paths:
       - 'api/**'
@@ -17,6 +23,12 @@ on:
       - 'website/**'
       - 'requirements*.txt'
       - '.github/workflows/backend-ci.yml'
+      # A green run here is what triggers Deploy Backend, so anything that can
+      # change what runs in production has to be covered — otherwise an
+      # infra-only change would silently never deploy.
+      - 'Dockerfile'
+      - 'docker-compose.prod.yml'
+      - 'deploy.sh'
 
 jobs:
   test:

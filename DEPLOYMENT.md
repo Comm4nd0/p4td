@@ -61,7 +61,48 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 
 ## Deploying
 
-Two entry points, same result — pick by where you are:
+### Automatic (default)
+
+**A successful `Backend CI` run on `main` deploys production automatically** via
+`.github/workflows/deploy-backend.yml`. It SSHes to the server and runs
+`./deploy.sh`, then checks `https://paws4thoughtdogs.com/healthz/` through Caddy
+— so both the container and the public path are verified before the run is
+green.
+
+It is triggered by *CI completing*, not by the push, so nothing reaches
+production until the suite is green. The consequence: a change that doesn't
+trigger `Backend CI` never deploys, which is why that workflow's path filters
+include `Dockerfile`, `docker-compose.prod.yml` and `deploy.sh`. Add any new
+file that changes production behaviour to those filters too.
+
+Required repository secrets (Settings > Secrets and variables > Actions):
+
+| Secret | What |
+|---|---|
+| `HETZNER_HOST` | Hostname or IP of the box (no `user@`) |
+| `HETZNER_USER` | SSH user — `root` |
+| `HETZNER_SSH_KEY` | Private half of a **dedicated deploy keypair**, whole file including header/footer |
+| `HETZNER_KNOWN_HOSTS` | `<host> ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC8+WpGRLNF0kJsdZ3wa9PHlyiIPsVK7+JheD8N47nY5` |
+
+Optional repo *variable* `HETZNER_APP_DIR` overrides the `/root/p4td` default.
+
+Generate the keypair and authorise it (do **not** reuse a personal key):
+
+```bash
+ssh-keygen -t ed25519 -f p4td-deploy -C 'github-actions-deploy' -N ''
+ssh-copy-id -i p4td-deploy.pub root@<host>   # then paste p4td-deploy into HETZNER_SSH_KEY
+```
+
+> **Migrations run unattended.** The container's `command` runs
+> `migrate --noinput` on start, so an automatic deploy applies migrations with
+> nobody watching. To require a human first, add required reviewers to the
+> `production` environment in the repo settings — the workflow already targets
+> it, so that is the only change needed.
+
+### Manual
+
+Still available, and the right choice for a large catch-up deploy or after a
+rollback:
 
 ```bash
 # On the server:
@@ -115,4 +156,4 @@ docker logs p4td-web-1 --tail 20
 See **`IMPROVEMENTS.md` → Manual deploy steps**: nightly `pg_dump` backups
 shipped off-box, the `P4TD_CRON_HEARTBEAT_URL` for cron alerting,
 `CONTACT_INQUIRY_EMAIL`, and a note that the B15/B16 constraint migrations need
-clean data first. Backend deploys are manual (no auto-CD).
+clean data first.

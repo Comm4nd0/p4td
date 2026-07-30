@@ -5,7 +5,10 @@
 set -euo pipefail
 
 HETZNER_HOST="${HETZNER_HOST:-root@9hj3.your-vhost.de}"
-APP_DIR="/opt/p4td"
+# The checkout on the server is /root/p4td (see DEPLOYMENT.md). This said
+# /opt/p4td, which does not exist on the box — the script would have failed at
+# its first `cd`.
+APP_DIR="/root/p4td"
 SSH_KEY="${SSH_KEY:-}"
 
 # Build SSH command
