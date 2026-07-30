@@ -81,6 +81,7 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy
+        id: deploy
         env:
           HOST: ${{ secrets.HETZNER_HOST }}
           USER_NAME: ${{ secrets.HETZNER_USER }}
@@ -108,7 +109,10 @@ jobs:
           exit 1
 
       - name: Report rollback target on failure
-        if: failure()
+        # Only when the deploy itself was actually attempted. Failing the
+        # secrets check printed rollback instructions for a deploy that never
+        # ran, which is misleading advice on what is really a config error.
+        if: failure() && steps.deploy.outcome != 'skipped'
         env:
           HOST: ${{ secrets.HETZNER_HOST }}
           USER_NAME: ${{ secrets.HETZNER_USER }}
