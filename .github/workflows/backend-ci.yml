@@ -122,5 +122,12 @@ jobs:
         run: docker build -t p4td:ci .
       - name: Validate compose files
         run: |
+          # docker-compose.prod.yml declares `env_file: .env`, which is
+          # gitignored and so absent on a fresh checkout. Compose treats a
+          # missing env_file as a hard error, so validation failed here
+          # regardless of whether the compose file was actually valid. An empty
+          # placeholder is enough for `config` to parse; the inline
+          # RDS_PASSWORD below already supplies the one value it interpolates.
+          touch .env
           docker compose -f docker-compose.yml config -q
           RDS_PASSWORD=ci docker compose -f docker-compose.prod.yml config -q

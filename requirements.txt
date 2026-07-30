@@ -30,7 +30,13 @@ nh3==0.3.5
 # AWS SNS signature verification for the DfT Street Manager roadworks webhook
 # (api/sns.py). Already present transitively via firebase-admin, but pinned
 # explicitly because security-critical code now depends on it directly.
-cryptography==42.0.7
+#
+# Must stay >= 46.0.5: earlier releases carry a statically linked vulnerable
+# OpenSSL (PYSEC-2026-1284) and skip prime-order subgroup validation on public
+# key load (PYSEC-2026-2141). Pinning the version that happened to be installed
+# locally (42.0.7) put a known-vulnerable build under the signature check this
+# dependency exists to perform, and the pip-audit job caught it.
+cryptography==49.0.0
 
 # Error monitoring (optional; only active when SENTRY_DSN is set — see settings.py)
 # Pinned exactly: the old >=2.0,<3.0 range allowed 2.0.x, which predates the
