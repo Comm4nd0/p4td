@@ -1,6 +1,7 @@
 import 'package:get_it/get_it.dart';
 
 import 'auth_service.dart';
+import 'biometric_service.dart';
 import 'cache_service.dart';
 import 'data_service.dart';
 import 'notification_service.dart';
@@ -24,6 +25,7 @@ void setupLocator() {
   getIt.registerLazySingleton<AuthService>(() => AuthService());
   getIt.registerLazySingleton<DataService>(() => ApiDataService());
   getIt.registerLazySingleton<ThemeService>(() => ThemeService());
+  getIt.registerLazySingleton<BiometricService>(() => BiometricService());
   getIt.registerLazySingleton<NotificationService>(() => NotificationService());
   getIt.registerLazySingleton<OfflinePrefetchService>(() => OfflinePrefetchService());
 }

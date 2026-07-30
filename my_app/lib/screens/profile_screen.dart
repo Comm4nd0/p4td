@@ -9,6 +9,7 @@ import '../models/user_profile.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../services/theme_service.dart';
@@ -53,10 +54,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _staffColor = '';
   bool _savingStaffColor = false;
 
+  // App lock (biometrics). Availability is device-level, so it's resolved
+  // separately from the profile; the row is hidden entirely on a device with
+  // no screen lock set up, where there'd be nothing to authenticate against.
+  final BiometricService _biometrics = getIt<BiometricService>();
+  bool _appLockAvailable = false;
+  bool _appLockBusy = false;
+  String _appLockLabel = 'App Lock';
+
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadAppLockState();
+  }
+
+  Future<void> _loadAppLockState() async {
+    final available = await _biometrics.isAvailable();
+    if (!available) return; // Leave the row hidden.
+
+    // Name the strongest enrolled biometric so the row reads the way the OS
+    // does ("Face ID" on an iPhone, "Fingerprint" on most Androids).
+    final kinds = await _biometrics.availableBiometrics();
+    final label = kinds.contains(BiometricType.face)
+        ? 'Face ID'
+        : kinds.contains(BiometricType.fingerprint) ||
+                kinds.contains(BiometricType.strong)
+            ? 'Fingerprint'
+            : 'App Lock';
+
+    if (!mounted) return;
+    setState(() {
+      _appLockAvailable = true;
+      _appLockLabel = label;
+    });
+  }
+
+  Future<void> _setAppLock(bool value) async {
+    if (_appLockBusy) return;
+    setState(() => _appLockBusy = true);
+
+    final ok = await _biometrics.setEnabled(value);
+
+    if (!mounted) return;
+    setState(() => _appLockBusy = false);
+    if (!ok) {
+      // The prompt was cancelled or failed — the switch stays where it was.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Couldn\'t verify it\'s you.')),
+      );
+    }
   }
 
   @override
@@ -374,6 +421,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         (route) => false,
       );
     } else {
+      // Fully signed out — the login screen must not sit behind a lock screen.
+      _biometrics.resetForSignOut();
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
@@ -792,6 +841,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       GroupedSection(
                         header: 'My Colour',
                         children: [_buildStaffColorPicker()],
+                      ),
+                    if (_appLockAvailable)
+                      GroupedSection(
+                        header: 'Security',
+                        children: [
+                          ListenableBuilder(
+                            listenable: _biometrics,
+                            builder: (context, _) => SwitchListTile.adaptive(
+                              title: Text('Unlock with $_appLockLabel'),
+                              subtitle: const Text(
+                                'Require it to open the app, and after a minute in the background',
+                              ),
+                              secondary: Picon(PiconsDuotone.fingerprint),
+                              value: _biometrics.isEnabled,
+                              onChanged:
+                                  _appLockBusy ? null : (val) => _setAppLock(val),
+                            ),
+                          ),
+                        ],
                       ),
                     GroupedSection(
                       children: [
