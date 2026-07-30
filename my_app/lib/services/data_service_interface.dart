@@ -265,6 +265,10 @@ abstract class DataService {
   Future<List<CustomerRate>> getCustomerRates();
   Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate, String? billingMode});
 
+  /// Roadworks disrupting the day's routes, already matched by the server to
+  /// the staff and dogs they affect. Staff-only; owners get a 403.
+  Future<List<RoadworkIssue>> getRoadworks({DateTime? date});
+
   // Xero contact reconciliation (invoicing transition): match app customers
   // to their existing Xero contacts and pin the right one.
   Future<XeroContactMatches> getXeroContactMatches();

@@ -13,6 +13,7 @@ from .views import (
     xero_status, xero_connect, xero_callback, xero_disconnect,
     billing_settings, customer_rates,
     xero_contact_matches, xero_pin_contact, xero_contact_search,
+    roadworks_for_date, street_manager_webhook,
 )
 
 router = DefaultRouter()
@@ -58,6 +59,10 @@ urlpatterns = [
     path('password/change/', change_password, name='password-change'),
     path('account/delete/', delete_account, name='account-delete'),
     path('postcode/lookup/', postcode_lookup, name='postcode-lookup'),
+    path('roadworks/', roadworks_for_date, name='roadworks'),
+    # Public by necessity: AWS SNS posts here. Trust comes from the message
+    # signature, not from authentication — see api/sns.py.
+    path('roadworks/street-manager-webhook/', street_manager_webhook, name='street-manager-webhook'),
     # Outside the contact-inquiries/ router prefix so the DefaultRouter detail
     # route can't shadow it.
     path('public/contact-inquiry/', submit_contact_inquiry, name='public-contact-inquiry'),

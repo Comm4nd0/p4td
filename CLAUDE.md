@@ -127,6 +127,14 @@ Additional non-router endpoints:
 - `api/password/change/` — change password while logged in
 - `api/account/delete/` — account deletion
 - `api/postcode/lookup/` — UK postcode address lookup (getAddress.io)
+- `api/roadworks/` — roadworks in force on a date, each already matched to the staff
+  routes and dogs it disrupts (staff-only; owners get 403). One call feeds all three
+  surfaces: the dashboard's red ring, the banner on a staff member's dog list, and the
+  pickup map's cone pins.
+- `api/roadworks/street-manager-webhook/` — **public** endpoint receiving DfT Street
+  Manager open data pushed over AWS SNS. Unauthenticated by necessity (AWS holds no
+  credential of ours); trust comes entirely from the SNS signature check in `api/sns.py`.
+  Returns 503 until `STREET_MANAGER_TOPIC_ARNS` is set, so it is inert by default.
 - `api/xero/status/`, `api/xero/connect/`, `api/xero/callback/`, `api/xero/disconnect/` — Xero OAuth2 connection management (superuser-only; the callback is a browser redirect authenticated by its one-shot state token)
 - `api/xero/contact-matches/`, `api/xero/pin-contact/`, `api/xero/contacts/` — Xero contact reconciliation (payment managers): match app customers to their existing Xero contacts, pin the right ContactID, and search contacts. Pinned/matched ids are stored on the profile (and on ownerless dogs) so invoice pushes reuse the existing contact instead of creating duplicates.
 
@@ -143,7 +151,11 @@ Additional non-router endpoints:
 
 ### Mobile (Flutter)
 
-- **Services-based architecture**: `DataService`, `AuthService`, `NotificationService`, `CacheService`
+- **Services-based architecture**: `DataService`, `AuthService`, `NotificationService`, `CacheService`, `BiometricService`
+- **App lock**: opt-in biometric gate (`BiometricService` + `AppLockScreen`) over the
+  already-persisted session. Rendered as an overlay in `MaterialApp.builder` so it covers
+  every route and leaves the Navigator mounted underneath. Android needs
+  `FlutterFragmentActivity` for `local_auth`'s BiometricPrompt.
 - **StatefulWidget** patterns with service-layer data management
 - **Hive** for local offline caching
 - **Firebase Messaging** + local notifications
@@ -231,6 +243,15 @@ See `.env.example` for required variables. Key ones:
 - `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI` — Xero OAuth2 app credentials for monthly invoicing (create a "Web app" at developer.xero.com whose redirect URI exactly matches `XERO_REDIRECT_URI`). Optional; leave blank to disable — invoicing still works locally, just without the online payment link. A superuser completes the one-time consent via `POST /api/xero/connect/`.
 - `XERO_PAYMENT_ACCOUNT_CODE` — Xero account code that staff-recorded manual payments are booked against in Xero. Blank = manual payments stay app-only (Xero will keep showing the invoice unpaid, and if staff then also key the payment into Xero the sync imports it as a duplicate — keep this configured).
 - `XERO_EMAIL_INVOICES` — when true (default), sending an invoice also asks Xero to email it to the customer with the org's branding theme (the same email customers got when invoices were raised by hand in Xero). Set false for app push notifications only.
+- `STREET_MANAGER_TOPIC_ARNS` — comma-separated AWS SNS topic ARNs for the DfT Street
+  Manager roadworks feed. Blank = the feature is dormant (webhook 503s, nothing is ever
+  flagged). Going live needs the organisation registered at
+  https://www.manage-roadworks.service.gov.uk/open-data-onboarding with this server's
+  webhook URL — Street Manager has no polling API for open-data consumers, it pushes.
+  Apply an SNS subscription filter policy on `highway_authority`: the topic carries the
+  whole country's street works.
+- `ROADWORK_MATCH_RADIUS_M` — metres from a dog's cached pickup coordinates within which
+  a roadwork flags that staff member's route (default 400).
 - Firebase credentials for push notifications. Media is stored on local disk
   (`FileSystemStorage`) and served by Caddy — there is no S3 integration.
 

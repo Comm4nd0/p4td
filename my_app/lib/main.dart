@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'constants/app_colors.dart';
+import 'screens/app_lock_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/landing_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/biometric_service.dart';
 import 'services/connectivity_status.dart';
 import 'services/http_client.dart' as http;
 import 'services/theme_service.dart';
@@ -14,6 +16,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/notification_service.dart';
 import 'widgets/offline_banner.dart';
+import 'widgets/privacy_cover.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -52,6 +55,9 @@ void main() async {
       // shared phone knocked out the others too. logout() drops the active
       // account and promotes the next saved one, if there is one.
       final next = await AuthService().logout();
+      // Fully signed out: drop the lock so the login screen isn't sitting
+      // behind an unlock prompt for a session that no longer exists.
+      if (next == null) getIt<BiometricService>().resetForSignOut();
       navigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(
           builder: (_) => next == null ? const LoginScreen() : const HomeScreen(),
@@ -78,6 +84,10 @@ void main() async {
   // Load persisted theme preference
   await getIt<ThemeService>().init();
 
+  // Load the app-lock preference before the first frame — if the lock is on,
+  // the app must come up already locked rather than flashing the dashboard.
+  await getIt<BiometricService>().init();
+
   // Try initializing Firebase, but catch errors if config files are missing
   try {
     await Firebase.initializeApp();
@@ -97,15 +107,47 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   final _authService = getIt<AuthService>();
   final _themeService = getIt<ThemeService>();
+  final _biometrics = getIt<BiometricService>();
   Future<String?>? _tokenFuture;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tokenFuture = _authService.getToken();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Two separate concerns share this callback:
+    //
+    // 1. The privacy cover goes up at the *first* sign of leaving the
+    //    foreground (`inactive`), because that fires before the OS takes its
+    //    task-switcher snapshot. The service ignores it while its own auth
+    //    prompt is on screen, which also drives the app inactive.
+    // 2. The re-lock clock only starts on a genuine `paused`, so pulling down
+    //    the notification shade doesn't count as backgrounding.
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+        _biometrics.obscure();
+      case AppLifecycleState.paused:
+        _biometrics.obscure();
+        _biometrics.noteBackgrounded();
+      case AppLifecycleState.resumed:
+        _biometrics.lockIfExpired();
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 
   @override
@@ -120,11 +162,25 @@ class _MyAppState extends State<MyApp> {
         darkTheme: AppColors.darkTheme(),
         themeMode: _themeService.themeMode,
         navigatorObservers: [routeObserver],
-        builder: (context, child) => Column(
-          children: [
-            const OfflineBanner(),
-            Expanded(child: child ?? const SizedBox.shrink()),
-          ],
+        // The lock is an overlay rather than a replacement for `child` so the
+        // app's Navigator stays mounted underneath — unlocking returns the user
+        // to exactly the screen they left, with no route or state rebuilt.
+        builder: (context, child) => ListenableBuilder(
+          listenable: _biometrics,
+          builder: (context, _) => Stack(
+            children: [
+              Column(
+                children: [
+                  const OfflineBanner(),
+                  Expanded(child: child ?? const SizedBox.shrink()),
+                ],
+              ),
+              if (_biometrics.isLocked)
+                const Positioned.fill(child: AppLockScreen())
+              else if (_biometrics.isObscured)
+                const Positioned.fill(child: PrivacyCover()),
+            ],
+          ),
         ),
         home: FutureBuilder<String?>(
           future: _tokenFuture,

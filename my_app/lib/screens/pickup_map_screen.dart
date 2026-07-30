@@ -7,9 +7,12 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../widgets/roadwork_banner.dart' show roadworkSeverityColor;
 import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/roadwork_issue.dart';
 import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -73,6 +76,10 @@ class PickupMapScreen extends StatefulWidget {
   final Set<int> availableStaffIds;
   final bool canAssignDogs;
 
+  /// Roadworks in force on [date]. Drawn as their own always-visible layer so
+  /// they never get swallowed into a cluster count.
+  final List<RoadworkIssue> roadworks;
+
   const PickupMapScreen({
     super.key,
     required this.date,
@@ -81,6 +88,7 @@ class PickupMapScreen extends StatefulWidget {
     this.staffMembers = const [],
     this.availableStaffIds = const {},
     this.canAssignDogs = false,
+    this.roadworks = const [],
   });
 
   @override
@@ -637,6 +645,10 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
                       ),
                     ),
                   ),
+                // Roadworks — own layer, above the clustered pins, so a
+                // closure never disappears into a cluster count.
+                if (_roadworkMarkers().isNotEmpty)
+                  MarkerLayer(markers: _roadworkMarkers()),
                 // Daycare/base landmark — its own layer so it's always visible
                 // and never absorbed into a cluster count.
                 MarkerLayer(markers: [_daycareMarker()]),
@@ -861,6 +873,82 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   }
 
   /// The fixed daycare/base landmark — a larger teal house badge.
+  /// One cone per located roadwork on the day's routes.
+  List<Marker> _roadworkMarkers() {
+    return widget.roadworks
+        .where((issue) => issue.hasLocation)
+        .map((issue) => Marker(
+              point: LatLng(issue.latitude!, issue.longitude!),
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              child: GestureDetector(
+                onTap: () => _showRoadworkSheet(issue),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: roadworkSeverityColor(issue.severity),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
+                    ],
+                  ),
+                  child: Center(
+                    child: Picon(PiconsDuotone.trafficCone, color: Colors.white, size: 20),
+                  ),
+                ),
+              ),
+            ))
+        .toList();
+  }
+
+  void _showRoadworkSheet(RoadworkIssue issue) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Picon(PiconsDuotone.trafficCone,
+                      color: roadworkSeverityColor(issue.severity), size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      issue.locationLabel,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              if (issue.severityLabel.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  issue.severityLabel,
+                  style: TextStyle(
+                      color: roadworkSeverityColor(issue.severity),
+                      fontWeight: FontWeight.w600),
+                ),
+              ],
+              if (issue.description.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(issue.description),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Marker _daycareMarker() {
     return Marker(
       point: const LatLng(kBaseLatitude, kBaseLongitude),

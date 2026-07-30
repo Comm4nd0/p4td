@@ -27,6 +27,11 @@ django-recaptcha==4.1.0
 # HTML sanitisation (website user-generated content)
 nh3==0.3.5
 
+# AWS SNS signature verification for the DfT Street Manager roadworks webhook
+# (api/sns.py). Already present transitively via firebase-admin, but pinned
+# explicitly because security-critical code now depends on it directly.
+cryptography==42.0.7
+
 # Error monitoring (optional; only active when SENTRY_DSN is set — see settings.py)
 # Pinned exactly: the old >=2.0,<3.0 range allowed 2.0.x, which predates the
 # CVE-2024-40647 fix (env vars leaking to subprocesses, fixed in 2.8.0).

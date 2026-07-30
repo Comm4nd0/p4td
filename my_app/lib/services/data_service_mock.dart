@@ -458,6 +458,8 @@ class MockDataService implements DataService {
   @override
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate}) async => [];
   @override
+  Future<List<RoadworkIssue>> getRoadworks({DateTime? date}) async => [];
+  @override
   Future<ClosureDay> createClosureDay({required DateTime date, required ClosureType closureType, String reason = '', int? capacityOverride}) async => throw UnimplementedError();
   @override
   Future<void> deleteClosureDay(int id) async {}

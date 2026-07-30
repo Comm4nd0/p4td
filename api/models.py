@@ -1556,3 +1556,87 @@ class XeroConnection(models.Model):
 
     def __str__(self):
         return f"Xero: {self.tenant_name or 'not connected'}"
+
+
+class RoadworkIssue(models.Model):
+    """A street works or road closure that may disrupt a pickup/drop-off route.
+
+    Rows are mirrored from an external feed (currently DfT Street Manager, whose
+    open data arrives as AWS SNS push notifications — see
+    `api/roadworks.py`), but the model is deliberately source-agnostic: anything
+    that can supply a location, a date range and a reference can write here.
+
+    Coordinates are stored as WGS84 lat/lng to match the cached `Dog.latitude` /
+    `Dog.longitude` the pickup map already uses. Street Manager publishes
+    British National Grid, so the ingester projects on the way in.
+    """
+
+    SOURCE_CHOICES = [
+        ('STREET_MANAGER', 'DfT Street Manager'),
+        ('MANUAL', 'Reported by staff'),
+    ]
+
+    # Ordered worst-first; the UI shows the highest severity on a route.
+    SEVERITY_HIGH = 'HIGH'
+    SEVERITY_MEDIUM = 'MEDIUM'
+    SEVERITY_LOW = 'LOW'
+    SEVERITY_CHOICES = [
+        (SEVERITY_HIGH, 'Road closed'),
+        (SEVERITY_MEDIUM, 'Delays likely'),
+        (SEVERITY_LOW, 'Minor works'),
+    ]
+
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='STREET_MANAGER')
+    external_ref = models.CharField(
+        max_length=100, blank=True, db_index=True,
+        help_text='Permit reference from the source feed. Used to de-duplicate updates.')
+
+    description = models.TextField(blank=True, default='')
+    street = models.CharField(max_length=255, blank=True, default='')
+    town = models.CharField(max_length=255, blank=True, default='')
+    highway_authority = models.CharField(max_length=255, blank=True, default='')
+
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
+    start_date = models.DateField()
+    end_date = models.DateField()
+
+    traffic_management = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Raw traffic management type from the feed, e.g. 'road_closure'.")
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default=SEVERITY_LOW)
+
+    # Permits get cancelled and works get closed early; a soft flag keeps the
+    # row (and its external_ref) so a later update for the same permit still
+    # matches, rather than being re-created as a duplicate.
+    is_cancelled = models.BooleanField(default=False)
+
+    raw_payload = models.JSONField(
+        null=True, blank=True,
+        help_text='Last message received for this permit, kept for debugging feed changes.')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['start_date', 'street']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['source', 'external_ref'],
+                condition=models.Q(external_ref__gt=''),
+                name='unique_roadwork_per_source_ref',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['start_date', 'end_date']),
+            models.Index(fields=['is_cancelled', 'start_date', 'end_date']),
+        ]
+
+    def __str__(self):
+        where = self.street or f'{self.latitude},{self.longitude}'
+        return f'{self.get_severity_display()} at {where} ({self.start_date} to {self.end_date})'
+
+    @property
+    def has_location(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
