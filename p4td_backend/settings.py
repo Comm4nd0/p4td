@@ -303,6 +303,9 @@ REST_FRAMEWORK = {
         'password_reset_confirm': '10/hour',
         # Same rate as the website contact form (website/views.py).
         'contact_inquiry': '5/hour',
+        # DfT Street Manager pushes the roadworks feed here; see
+        # SnsWebhookThrottle in api/views.py for why this is deliberately high.
+        'sns_webhook': '600/min',
     },
     # One reverse proxy (Caddy) in front of gunicorn — throttle the real
     # client IP from X-Forwarded-For, not the proxy's.
@@ -410,6 +413,23 @@ RECAPTCHA_REQUIRED_SCORE = float(os.environ.get('RECAPTCHA_REQUIRED_SCORE', '0.5
 # Default provider is getAddress.io (https://getaddress.io). Sign up, create an
 # API key, then set POSTCODE_LOOKUP_API_KEY in the environment / .env file.
 POSTCODE_LOOKUP_API_KEY = os.environ.get('POSTCODE_LOOKUP_API_KEY', '')
+
+# ── Roadworks feed (DfT Street Manager open data) ───────────────────────────
+# Street Manager pushes permit events over AWS SNS to a public endpoint on this
+# server (api/roadworks/street-manager-webhook/). Register the organisation and
+# this endpoint's URL at
+# https://www.manage-roadworks.service.gov.uk/open-data-onboarding
+#
+# STREET_MANAGER_TOPIC_ARNS is a comma-separated allowlist of SNS topic ARNs.
+# The webhook refuses every request while it is blank — without it, any validly
+# signed AWS SNS message from any topic would be accepted. The production topics
+# are listed in the Street Manager open data documentation.
+STREET_MANAGER_TOPIC_ARNS = os.environ.get('STREET_MANAGER_TOPIC_ARNS', '')
+
+# How close (metres) a dog's pickup address must be to a roadwork before that
+# staff member's route is flagged as affected on the dashboard.
+ROADWORK_MATCH_RADIUS_M = float(os.environ.get('ROADWORK_MATCH_RADIUS_M', '400'))
+
 POSTCODE_LOOKUP_PROVIDER = os.environ.get('POSTCODE_LOOKUP_PROVIDER', 'getaddress')
 
 # =============================================================================

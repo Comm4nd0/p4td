@@ -31,6 +31,7 @@ import '../models/vehicle_maintenance_record.dart';
 import '../models/invoice.dart';
 import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
+import '../models/roadwork_issue.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 import 'no_connection_exception.dart';
@@ -2155,6 +2156,28 @@ class ApiDataService implements DataService {
   // ---- Closure Days ----
 
   @override
+  @override
+  Future<List<RoadworkIssue>> getRoadworks({DateTime? date}) async {
+    final headers = await _getHeaders();
+    final params = <String, String>{};
+    if (date != null) {
+      params['date'] = date.toIso8601String().split('T').first;
+    }
+    final uri = Uri.parse('${AuthService.baseUrl}/api/roadworks/')
+        .replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: headers, timeout: _readTimeout);
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final list = (data is Map ? data['results'] : data) as List? ?? const [];
+      return list
+          .map((e) => RoadworkIssue.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    // Throws like its siblings; every caller swallows it and shows no banner,
+    // because a roadworks outage must not take the dashboard down with it.
+    throw Exception('Failed to load roadworks: ${response.statusCode}');
+  }
+
   Future<List<ClosureDay>> getClosureDays({DateTime? fromDate, DateTime? toDate}) async {
     final headers = await _getHeaders();
     final params = <String, String>{};

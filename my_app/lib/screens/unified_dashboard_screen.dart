@@ -7,6 +7,8 @@ import '../constants/pickup_map.dart';
 import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/roadwork_issue.dart';
+import '../widgets/roadwork_banner.dart';
 import '../models/dog.dart';
 import '../services/connectivity_status.dart';
 import '../services/data_service.dart';
@@ -371,6 +373,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     // the loading flag (the day view renders once assignments arrive).
     _loadUnassignedDogs(date);
     _loadConflicts(date);
+    _loadRoadworks(date);
 
     // Pre-cache adjacent dates so swiping is instant.
     if (prefetchAdjacent) _prefetchAdjacentDates(date);
@@ -388,6 +391,21 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (currentIndex < _dateOptions.length - 1) {
       _loadDay(_dateOptions[currentIndex + 1], prefetchAdjacent: false);
       _loadAvailableStaff(_dateOptions[currentIndex + 1]);
+    }
+  }
+
+  /// Roadworks for the day. Deliberately silent on failure: the feed is an
+  /// external dependency, and a driver seeing no banner is exactly what they
+  /// saw before this existed.
+  Future<void> _loadRoadworks(DateTime date) async {
+    try {
+      final roadworks = await _dataService.getRoadworks(date: date);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] =
+            _dayData(date).copyWith(roadworks: roadworks));
+      }
+    } catch (e) {
+      debugPrint('Failed to load roadworks: $e');
     }
   }
 
@@ -548,6 +566,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           staffMembers: _staffMembers,
           availableStaffIds: _availableStaffIds,
           canAssignDogs: widget.canAssignDogs,
+          roadworks: _dayData(_selectedDate).roadworks,
         ),
       ),
     );
@@ -565,6 +584,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           staffMemberName: staffName,
           date: _selectedDate,
           assignments: assignments,
+          roadworks: _dayData(_selectedDate).roadworks.forStaff(staffId),
           canAssignDogs: widget.canAssignDogs,
           staffMembers: _staffMembers,
         ),
@@ -1089,7 +1109,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                                 _buildCompatibilityWarning(_selectedDate),
                                 _buildOverviewMetrics(assignments),
                                 const SizedBox(height: 16),
-                                _buildStaffCards(assignments),
+                                _buildStaffCards(assignments, day.roadworks),
                               ],
                             ),
                     ),
@@ -1647,7 +1667,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   /// matches their pins (honours the colour they picked on their profile).
   StaffColorResolver get _staffColors => StaffColorResolver(_staffMembers);
 
-  Widget _buildStaffCards(List<DailyDogAssignment> assignments) {
+  Widget _buildStaffCards(
+      List<DailyDogAssignment> assignments, List<RoadworkIssue> roadworks) {
     // Group by staff member
     final Map<int, _StaffSummary> staffMap = {};
     for (final a in assignments) {
@@ -1692,7 +1713,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           final allCollected = pickupLeg.isNotEmpty && collectedCount == pickupLeg.length;
           final allDropped = dropoffLeg.isNotEmpty && droppedCount == dropoffLeg.length;
           final staffColor = _staffColors.of(staff.id);
+          // A ring in the severity colour, so a driver with a closed road on
+          // their route stands out at a glance without reading any text.
+          final worstRoadwork = roadworks.worstForStaff(staff.id);
+          final roadworkCount = roadworks.forStaff(staff.id).length;
           return Card(
+            shape: worstRoadwork == null
+                ? null
+                : RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                        color: roadworkSeverityColor(worstRoadwork), width: 2),
+                  ),
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: staffColor,
@@ -1722,6 +1754,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     Text('returned $droppedCount of ${dropoffLeg.length}',
                         style: TextStyle(fontSize: 11, color: allDropped ? AppColors.success : AppColors.grey600)),
                   ]),
+                  if (worstRoadwork != null) ...[
+                    const SizedBox(height: 2),
+                    Row(children: [
+                      Picon(PiconsDuotone.trafficCone,
+                          size: 13, color: roadworkSeverityColor(worstRoadwork)),
+                      const SizedBox(width: 3),
+                      Text(
+                        roadworkCount == 1
+                            ? '1 roadwork on route'
+                            : '$roadworkCount roadworks on route',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: roadworkSeverityColor(worstRoadwork)),
+                      ),
+                    ]),
+                  ],
                   if (hasOwnerTransport) ...[
                     const SizedBox(height: 2),
                     Row(children: [
@@ -1908,6 +1957,12 @@ class DayData {
   final List<DailyDogAssignment> assignments;
   final List<Dog> unassignedDogs;
   final List<CompatibilityConflict> conflicts;
+
+  /// Roadworks in force on this date, already matched by the server to the
+  /// staff routes they disrupt. Failures leave this empty and show nothing —
+  /// unlike the conflict banners, a missing roadwork warning is a degradation
+  /// of a nice-to-have, not a dog left behind.
+  final List<RoadworkIssue> roadworks;
   final ClosureDay? closure;
   final bool loading;
   final Object? error;
@@ -1933,6 +1988,7 @@ class DayData {
     this.assignments = const [],
     this.unassignedDogs = const [],
     this.conflicts = const [],
+    this.roadworks = const [],
     this.closure,
     this.loading = false,
     this.error,
@@ -1946,6 +2002,7 @@ class DayData {
     List<DailyDogAssignment>? assignments,
     List<Dog>? unassignedDogs,
     List<CompatibilityConflict>? conflicts,
+    List<RoadworkIssue>? roadworks,
     ClosureDay? closure,
     bool clearClosure = false,
     bool? loading,
@@ -1961,6 +2018,7 @@ class DayData {
       assignments: assignments ?? this.assignments,
       unassignedDogs: unassignedDogs ?? this.unassignedDogs,
       conflicts: conflicts ?? this.conflicts,
+      roadworks: roadworks ?? this.roadworks,
       closure: clearClosure ? null : (closure ?? this.closure),
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),

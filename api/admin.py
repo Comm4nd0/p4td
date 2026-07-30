@@ -12,7 +12,7 @@ from .models import (
     VaccinationRecord, WaitlistEntry, DaycareSettings,
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
     FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog,
-    Invoice, InvoiceLine, PaymentRecord, XeroConnection,
+    Invoice, InvoiceLine, PaymentRecord, XeroConnection, RoadworkIssue,
 )
 
 
@@ -1150,3 +1150,13 @@ class XeroConnectionAdmin(admin.ModelAdmin):
         return obj.is_connected
     is_connected_display.boolean = True
     is_connected_display.short_description = 'Connected'
+
+
+@admin.register(RoadworkIssue)
+class RoadworkIssueAdmin(admin.ModelAdmin):
+    list_display = ('street', 'town', 'severity', 'start_date', 'end_date', 'source', 'is_cancelled')
+    list_filter = ('severity', 'source', 'is_cancelled', 'highway_authority')
+    search_fields = ('street', 'town', 'description', 'external_ref', 'highway_authority')
+    date_hierarchy = 'start_date'
+    readonly_fields = ('created_at', 'updated_at', 'raw_payload')
+    list_per_page = 50

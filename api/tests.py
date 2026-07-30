@@ -8742,3 +8742,426 @@ class PublicContactInquiryTests(TestCase):
         notified = [call.args[0] for call in mock_push.call_args_list]
         self.assertIn(flagged, notified)
         self.assertNotIn(unflagged, notified)
+
+
+class RoadworkGeometryTests(TestCase):
+    """BNG→WGS84 projection and WKT parsing.
+
+    The reference pairs are real postcode centroids from postcodes.io, which
+    publishes both the British National Grid easting/northing and the WGS84
+    lat/lng for the same point — the same source `geocode_dogs` already trusts.
+    They span the country (Cornwall to Edinburgh) so a projection error that
+    only shows up far from the grid origin can't hide.
+    """
+
+    # (name, easting, northing, latitude, longitude)
+    REFERENCES = [
+        ('SL7 2HE Marlow', 480107, 184695, 51.555465, -0.845921),
+        ('HP11 2BZ High Wycombe', 486173, 193127, 51.630370, -0.756378),
+        ('EH1 1YZ Edinburgh', 325597, 673676, 55.950328, -3.193018),
+        ('TR19 7AA Penzance', 134340, 25043, 50.066019, -5.713697),
+    ]
+
+    def test_projection_matches_reference_points(self):
+        from .roadworks import bng_to_wgs84, haversine_m
+
+        for name, easting, northing, lat, lon in self.REFERENCES:
+            with self.subTest(name):
+                got_lat, got_lon = bng_to_wgs84(easting, northing)
+                error = haversine_m(lat, lon, got_lat, got_lon)
+                # Helmert is a ~5m approximation of the full OSTN15 grid shift;
+                # irrelevant against a 400m match radius, but tight enough that
+                # a real formula error would fail this.
+                self.assertLess(error, 10, f'{name} off by {error:.1f}m')
+
+    def test_parses_point_wkt(self):
+        from .roadworks import parse_wkt_centroid
+
+        self.assertEqual(parse_wkt_centroid('POINT(480107 184695)'), (480107.0, 184695.0))
+
+    def test_linestring_collapses_to_mean_vertex(self):
+        from .roadworks import parse_wkt_centroid
+
+        got = parse_wkt_centroid('LINESTRING(480000 184000, 480200 184400)')
+        self.assertEqual(got, (480100.0, 184200.0))
+
+    def test_unparseable_geometry_returns_none(self):
+        from .roadworks import parse_wkt_centroid
+
+        self.assertIsNone(parse_wkt_centroid(''))
+        self.assertIsNone(parse_wkt_centroid('not wkt at all'))
+
+    def test_severity_buckets(self):
+        from .models import RoadworkIssue
+        from .roadworks import severity_for
+
+        self.assertEqual(severity_for('road_closure'), RoadworkIssue.SEVERITY_HIGH)
+        self.assertEqual(severity_for('two-way signals'), RoadworkIssue.SEVERITY_MEDIUM)
+        self.assertEqual(severity_for('no carriageway incursion'), RoadworkIssue.SEVERITY_LOW)
+        # Unknown values must not cry wolf on the dashboard.
+        self.assertEqual(severity_for('something new the feed invented'), RoadworkIssue.SEVERITY_LOW)
+        self.assertEqual(severity_for(''), RoadworkIssue.SEVERITY_LOW)
+
+    def test_severity_tolerates_the_feed_s_mixed_formatting(self):
+        from .models import RoadworkIssue
+        from .roadworks import severity_for
+
+        # The feed's own enum mixes underscores, hyphens, slashes and spaces,
+        # and nothing pins the case. All of these are the same closure.
+        for variant in ['road_closure', 'Road Closure', 'ROAD-CLOSURE', 'road closure']:
+            with self.subTest(variant):
+                self.assertEqual(severity_for(variant), RoadworkIssue.SEVERITY_HIGH)
+        for variant in ['multi-way signals', 'Multi Way Signals', 'stop/go boards']:
+            with self.subTest(variant):
+                self.assertEqual(severity_for(variant), RoadworkIssue.SEVERITY_MEDIUM)
+
+
+class RoadworkMatchingTests(TestCase):
+    """Which staff routes a roadwork is judged to disrupt."""
+
+    def setUp(self):
+        from .models import RoadworkIssue
+
+        self.today = timezone.localdate()
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        self.other_driver = User.objects.create_user(username='driver2', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(username='owner', password='pw')
+
+        # Two pickups ~1.4km apart in Marlow.
+        self.near_dog = Dog.objects.create(
+            name='Near', owner=self.owner, latitude=51.5555, longitude=-0.8459)
+        self.far_dog = Dog.objects.create(
+            name='Far', owner=self.owner, latitude=51.5680, longitude=-0.8459)
+
+        DailyDogAssignment.objects.create(
+            dog=self.near_dog, staff_member=self.driver, date=self.today)
+        DailyDogAssignment.objects.create(
+            dog=self.far_dog, staff_member=self.other_driver, date=self.today)
+
+        self.issue = RoadworkIssue.objects.create(
+            external_ref='PERMIT-1', description='Gas main replacement',
+            street='Station Road', town='Marlow',
+            latitude=51.5556, longitude=-0.8460,
+            start_date=self.today, end_date=self.today,
+            traffic_management='road_closure', severity=RoadworkIssue.SEVERITY_HIGH,
+        )
+
+    def test_matches_only_the_route_within_radius(self):
+        from .roadworks import match_issues_to_routes
+
+        matches = match_issues_to_routes(self.today)
+        self.assertIn(self.issue.id, matches)
+        self.assertEqual(matches[self.issue.id]['staff_ids'], {self.driver.id})
+        self.assertEqual(matches[self.issue.id]['dog_ids'], {self.near_dog.id})
+
+    def test_ignores_issues_not_in_force_on_the_date(self):
+        from .roadworks import match_issues_to_routes
+
+        self.issue.start_date = self.today + timedelta(days=3)
+        self.issue.end_date = self.today + timedelta(days=4)
+        self.issue.save()
+        self.assertEqual(match_issues_to_routes(self.today), {})
+
+    def test_ignores_cancelled_issues(self):
+        from .roadworks import match_issues_to_routes
+
+        self.issue.is_cancelled = True
+        self.issue.save()
+        self.assertEqual(match_issues_to_routes(self.today), {})
+
+    def test_ignores_ungeocoded_dogs(self):
+        from .roadworks import match_issues_to_routes
+
+        self.near_dog.latitude = None
+        self.near_dog.longitude = None
+        self.near_dog.save()
+        self.assertEqual(match_issues_to_routes(self.today), {})
+
+    def test_removed_dogs_do_not_flag_a_route(self):
+        from .roadworks import match_issues_to_routes
+
+        DailyDogAssignment.objects.filter(dog=self.near_dog, date=self.today).update(status='REMOVED')
+        self.assertEqual(match_issues_to_routes(self.today), {})
+
+    def test_reassigning_the_dog_moves_the_flag(self):
+        # The whole reason matching is recomputed rather than stored: the day
+        # board reassigns dogs between drivers constantly.
+        from .roadworks import match_issues_to_routes
+
+        DailyDogAssignment.objects.filter(dog=self.near_dog, date=self.today).update(
+            staff_member=self.other_driver)
+        matches = match_issues_to_routes(self.today)
+        self.assertEqual(matches[self.issue.id]['staff_ids'], {self.other_driver.id})
+
+    @override_settings(ROADWORK_MATCH_RADIUS_M=50)
+    def test_radius_is_configurable(self):
+        from .roadworks import match_issues_to_routes
+
+        # The near dog is ~15m from the works, so it still matches at 50m.
+        self.assertIn(self.issue.id, match_issues_to_routes(self.today))
+
+    @override_settings(ROADWORK_MATCH_RADIUS_M=5)
+    def test_tight_radius_excludes_everything(self):
+        from .roadworks import match_issues_to_routes
+
+        self.assertEqual(match_issues_to_routes(self.today), {})
+
+
+class RoadworkApiTests(TestCase):
+    def setUp(self):
+        from .models import RoadworkIssue
+
+        self.today = timezone.localdate()
+        self.client = APIClient()
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.dog = Dog.objects.create(
+            name='Rex', owner=self.owner, latitude=51.5555, longitude=-0.8459)
+        DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.driver, date=self.today)
+        RoadworkIssue.objects.create(
+            external_ref='PERMIT-1', description='Gas main', street='Station Road',
+            latitude=51.5556, longitude=-0.8460,
+            start_date=self.today, end_date=self.today,
+            traffic_management='road_closure', severity=RoadworkIssue.SEVERITY_HIGH,
+        )
+
+    def test_staff_see_matched_issues(self):
+        self.client.force_authenticate(user=self.driver)
+        response = self.client.get('/api/roadworks/', {'date': self.today.isoformat()})
+        self.assertEqual(response.status_code, 200)
+        results = response.data['results']
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['street'], 'Station Road')
+        self.assertEqual(results[0]['severity'], 'HIGH')
+        self.assertEqual(results[0]['affected_staff_ids'], [self.driver.id])
+        self.assertEqual(results[0]['affected_dog_ids'], [self.dog.id])
+
+    def test_owners_are_refused(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get('/api/roadworks/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_is_refused(self):
+        self.assertEqual(self.client.get('/api/roadworks/').status_code, 401)
+
+    def test_bad_date_is_rejected(self):
+        self.client.force_authenticate(user=self.driver)
+        response = self.client.get('/api/roadworks/', {'date': 'yesterday'})
+        self.assertEqual(response.status_code, 400)
+
+    def test_date_defaults_to_today(self):
+        self.client.force_authenticate(user=self.driver)
+        response = self.client.get('/api/roadworks/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 1)
+
+
+class StreetManagerIngestTests(TestCase):
+    """Mapping Street Manager records onto RoadworkIssue rows."""
+
+    def _payload(self, **overrides):
+        data = {
+            'permit_reference_number': 'BC1234-ABC-001',
+            'description_of_work': 'Excavate to repair gas main',
+            'street_name': 'Station Road',
+            'town': 'Marlow',
+            'highway_authority': 'Buckinghamshire Council',
+            'work_area_wkt': 'POINT(480107 184695)',
+            'proposed_start_date': '2026-08-01T00:00:00Z',
+            'proposed_end_date': '2026-08-05T00:00:00Z',
+            'traffic_management_type': 'road_closure',
+            'permit_status': 'granted',
+        }
+        data.update(overrides)
+        return {'event_reference': 1, 'event_type': 'PERMIT_GRANTED', 'object_data': data}
+
+    def test_creates_an_issue_from_a_permit(self):
+        from .models import RoadworkIssue
+        from .roadwork_ingest import ingest_event
+
+        self.assertEqual(ingest_event(self._payload()), 'created')
+        issue = RoadworkIssue.objects.get(external_ref='BC1234-ABC-001')
+        self.assertEqual(issue.street, 'Station Road')
+        self.assertEqual(issue.severity, RoadworkIssue.SEVERITY_HIGH)
+        self.assertEqual(issue.start_date, date(2026, 8, 1))
+        self.assertEqual(issue.end_date, date(2026, 8, 5))
+        self.assertAlmostEqual(issue.latitude, 51.5555, places=2)
+        self.assertAlmostEqual(issue.longitude, -0.8459, places=2)
+        self.assertFalse(issue.is_cancelled)
+
+    def test_replaying_the_same_permit_updates_rather_than_duplicates(self):
+        from .models import RoadworkIssue
+        from .roadwork_ingest import ingest_event
+
+        # SNS guarantees at-least-once delivery, so replays are normal traffic.
+        ingest_event(self._payload())
+        self.assertEqual(ingest_event(self._payload(description_of_work='Revised scope')), 'updated')
+        self.assertEqual(RoadworkIssue.objects.filter(external_ref='BC1234-ABC-001').count(), 1)
+        self.assertEqual(
+            RoadworkIssue.objects.get(external_ref='BC1234-ABC-001').description, 'Revised scope')
+
+    def test_cancelled_permit_is_flagged_not_deleted(self):
+        from .models import RoadworkIssue
+        from .roadwork_ingest import ingest_event
+
+        ingest_event(self._payload())
+        ingest_event(self._payload(permit_status='cancelled'))
+        issue = RoadworkIssue.objects.get(external_ref='BC1234-ABC-001')
+        self.assertTrue(issue.is_cancelled)
+
+    def test_records_without_a_location_are_skipped(self):
+        from .models import RoadworkIssue
+        from .roadwork_ingest import ingest_event
+
+        self.assertEqual(ingest_event(self._payload(work_area_wkt='')), 'ignored:unusable')
+        self.assertEqual(RoadworkIssue.objects.count(), 0)
+
+    def test_records_without_dates_are_skipped(self):
+        from .roadwork_ingest import ingest_event
+
+        payload = self._payload()
+        del payload['object_data']['proposed_start_date']
+        del payload['object_data']['proposed_end_date']
+        self.assertEqual(ingest_event(payload), 'ignored:unusable')
+
+    def test_reversed_dates_are_corrected(self):
+        from .models import RoadworkIssue
+        from .roadwork_ingest import ingest_event
+
+        ingest_event(self._payload(
+            proposed_start_date='2026-08-05T00:00:00Z',
+            proposed_end_date='2026-08-01T00:00:00Z'))
+        issue = RoadworkIssue.objects.get(external_ref='BC1234-ABC-001')
+        self.assertLessEqual(issue.start_date, issue.end_date)
+
+    def test_event_without_object_data_is_ignored(self):
+        from .roadwork_ingest import ingest_event
+
+        self.assertEqual(ingest_event({'event_type': 'PERMIT_GRANTED'}), 'ignored:no-object-data')
+
+
+class StreetManagerWebhookTests(TestCase):
+    """The public SNS endpoint. Everything here is about refusing bad input."""
+
+    URL = '/api/roadworks/street-manager-webhook/'
+    TOPIC = 'arn:aws:sns:eu-west-2:287813576808:prod-permit-topic'
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_refuses_when_no_topic_is_configured(self):
+        # Wide open by default would accept any validly signed AWS message.
+        with override_settings(STREET_MANAGER_TOPIC_ARNS=''):
+            response = self.client.post(self.URL, data='{}', content_type='application/json')
+        self.assertEqual(response.status_code, 503)
+
+    @override_settings(STREET_MANAGER_TOPIC_ARNS=TOPIC)
+    def test_rejects_a_message_with_no_signature(self):
+        import json as _json
+
+        body = _json.dumps({'Type': 'Notification', 'TopicArn': self.TOPIC, 'Message': '{}'})
+        response = self.client.post(self.URL, data=body, content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(STREET_MANAGER_TOPIC_ARNS=TOPIC)
+    def test_rejects_junk_body(self):
+        response = self.client.post(self.URL, data='not json', content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(STREET_MANAGER_TOPIC_ARNS=TOPIC)
+    @patch('api.sns.verify_message')
+    def test_ingests_a_verified_notification(self, _mock_verify):
+        from .models import RoadworkIssue
+        import json as _json
+
+        inner = _json.dumps({'object_data': {
+            'permit_reference_number': 'BC1234-ABC-002',
+            'street_name': 'High Street',
+            'work_area_wkt': 'POINT(480107 184695)',
+            'proposed_start_date': '2026-08-01T00:00:00Z',
+            'proposed_end_date': '2026-08-02T00:00:00Z',
+            'traffic_management_type': 'two-way signals',
+            'permit_status': 'granted',
+        }})
+        body = _json.dumps({'Type': 'Notification', 'TopicArn': self.TOPIC, 'Message': inner})
+
+        response = self.client.post(self.URL, data=body, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        issue = RoadworkIssue.objects.get(external_ref='BC1234-ABC-002')
+        self.assertEqual(issue.severity, RoadworkIssue.SEVERITY_MEDIUM)
+
+    @override_settings(STREET_MANAGER_TOPIC_ARNS=TOPIC)
+    @patch('api.sns.verify_message')
+    @patch('api.sns.confirm_subscription', return_value=True)
+    def test_completes_a_subscription_handshake(self, mock_confirm, _mock_verify):
+        import json as _json
+
+        body = _json.dumps({
+            'Type': 'SubscriptionConfirmation', 'TopicArn': self.TOPIC,
+            'Message': 'hi', 'SubscribeURL': 'https://sns.eu-west-2.amazonaws.com/?Action=Confirm',
+        })
+        response = self.client.post(self.URL, data=body, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['confirmed'])
+        mock_confirm.assert_called_once()
+
+    @override_settings(STREET_MANAGER_TOPIC_ARNS=TOPIC)
+    @patch('api.sns.verify_message')
+    def test_a_broken_record_does_not_trigger_sns_retries(self, _mock_verify):
+        # Any non-2xx makes SNS redeliver; a record we simply can't use must not
+        # spin forever.
+        import json as _json
+
+        body = _json.dumps({
+            'Type': 'Notification', 'TopicArn': self.TOPIC, 'Message': 'not json at all'})
+        response = self.client.post(self.URL, data=body, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+
+
+class SnsVerificationTests(TestCase):
+    """The signature check itself — the only thing standing between the public
+    internet and the roadworks table."""
+
+    def test_refuses_certificate_urls_off_the_aws_domain(self):
+        from .sns import SnsVerificationError, verify_message
+
+        message = {
+            'Type': 'Notification', 'TopicArn': 'arn:test', 'Message': '{}',
+            'MessageId': '1', 'Timestamp': 'now', 'Signature': 'AAAA',
+            'SigningCertURL': 'https://evil.example.com/cert.pem',
+        }
+        with self.assertRaises(SnsVerificationError):
+            verify_message(message)
+
+    def test_refuses_a_topic_we_did_not_subscribe_to(self):
+        from .sns import SnsVerificationError, verify_message
+
+        message = {'Type': 'Notification', 'TopicArn': 'arn:aws:sns:eu-west-2:1:other-topic'}
+        with self.assertRaises(SnsVerificationError):
+            verify_message(message, allowed_topic_arns=['arn:aws:sns:eu-west-2:1:ours'])
+
+    def test_refuses_an_unknown_signature_version(self):
+        from .sns import SnsVerificationError, verify_message
+
+        message = {'Type': 'Notification', 'TopicArn': 'arn:ours', 'SignatureVersion': '99'}
+        with self.assertRaises(SnsVerificationError):
+            verify_message(message, allowed_topic_arns=['arn:ours'])
+
+    def test_canonical_string_uses_the_fixed_field_list(self):
+        from .sns import _canonical_string
+
+        message = {
+            'Type': 'Notification', 'MessageId': 'm1', 'TopicArn': 't',
+            'Message': 'body', 'Timestamp': 'ts', 'AttackerControlled': 'ignored',
+        }
+        canonical = _canonical_string(message).decode()
+        self.assertIn('Message\nbody\n', canonical)
+        self.assertNotIn('AttackerControlled', canonical)
+
+    def test_subscription_confirmation_is_not_followed_off_domain(self):
+        from .sns import confirm_subscription
+
+        self.assertFalse(confirm_subscription(
+            {'SubscribeURL': 'https://evil.example.com/confirm'}))

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/roadwork_issue.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/cache_service.dart';
@@ -11,6 +12,7 @@ import '../utils/date_formats.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/assignment_card.dart';
 import '../widgets/dog_quick_info_sheet.dart';
+import '../widgets/roadwork_banner.dart';
 import 'dog_home_screen.dart';
 import 'pickup_map_screen.dart';
 import 'traffic_alert_screen.dart';
@@ -34,6 +36,11 @@ class StaffDogDetailScreen extends StatefulWidget {
   final List<DailyDogAssignment> assignments;
   final bool canAssignDogs;
 
+  /// Roadworks on this staff member's route today, already filtered and sorted
+  /// worst-first by the caller. Empty means either a clear route or a feed the
+  /// dashboard couldn't reach — both show no banner.
+  final List<RoadworkIssue> roadworks;
+
   /// Full staff list (from /staff_members/) so this member's identity colour
   /// resolves the same way as on the dashboard and map. Optional — falls back
   /// to the automatic palette when empty.
@@ -46,6 +53,7 @@ class StaffDogDetailScreen extends StatefulWidget {
     required this.date,
     required this.assignments,
     required this.canAssignDogs,
+    this.roadworks = const [],
     this.staffMembers = const [],
   });
 
@@ -397,6 +405,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             assignments: assignments,
             staffMembers: staff,
             canAssignDogs: widget.canAssignDogs,
+            roadworks: widget.roadworks,
           ),
         ),
       );
@@ -459,18 +468,26 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             _buildSortButton(),
           ],
         ),
-        body: _assignments.isEmpty
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Picon(PiconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
-                    const SizedBox(height: 16),
-                    Text('No dogs assigned', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-                  ],
-                ),
-              )
-            : _buildSectionedList(),
+        body: Column(
+          children: [
+            RoadworkBanner(issues: widget.roadworks),
+            Expanded(
+              child: _assignments.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Picon(PiconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text('No dogs assigned',
+                              style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                        ],
+                      ),
+                    )
+                  : _buildSectionedList(),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -5375,3 +5375,138 @@ def xero_contact_search(request):
     except xero.XeroError as exc:
         return Response({'detail': f'Xero contact search failed: {exc}'}, status=502)
     return Response({'contacts': [_contact_summary(c) for c in contacts[:25]]})
+
+
+# ─── Roadworks ──────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def roadworks_for_date(request):
+    """Roadworks disrupting the day's routes, with the staff they affect.
+
+    One call serves all three surfaces that show this: the dashboard ring, the
+    banner on a staff member's dog list, and the pickup map. Each item carries
+    the staff and dog ids it was matched to, so the client filters locally
+    rather than re-querying per staff member.
+
+    Only staff see this — an owner has no route to be disrupted.
+
+    Query param: ``date`` (YYYY-MM-DD, defaults to today).
+    """
+    from datetime import date as date_cls
+    from django.utils import timezone
+    from .roadworks import match_issues_to_routes
+
+    if not request.user.is_staff:
+        return Response({'detail': 'Staff only.'}, status=drf_status.HTTP_403_FORBIDDEN)
+
+    raw_date = request.query_params.get('date')
+    if raw_date:
+        try:
+            on_date = date_cls.fromisoformat(raw_date)
+        except ValueError:
+            return Response({'detail': 'date must be YYYY-MM-DD.'},
+                            status=drf_status.HTTP_400_BAD_REQUEST)
+    else:
+        on_date = timezone.localdate()
+
+    matches = match_issues_to_routes(on_date)
+
+    # Worst first, so a client taking the top item shows the most severe.
+    severity_rank = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}
+    items = sorted(
+        matches.values(),
+        key=lambda m: (severity_rank.get(m['issue'].severity, 3), m['issue'].street),
+    )
+
+    results = [{
+        'id': m['issue'].id,
+        'description': m['issue'].description,
+        'street': m['issue'].street,
+        'town': m['issue'].town,
+        'latitude': m['issue'].latitude,
+        'longitude': m['issue'].longitude,
+        'start_date': m['issue'].start_date,
+        'end_date': m['issue'].end_date,
+        'severity': m['issue'].severity,
+        'severity_label': m['issue'].get_severity_display(),
+        'traffic_management': m['issue'].traffic_management,
+        'affected_staff_ids': sorted(m['staff_ids']),
+        'affected_dog_ids': sorted(m['dog_ids']),
+    } for m in items]
+
+    return Response({'date': on_date, 'results': results})
+
+
+class SnsWebhookThrottle(AnonRateThrottle):
+    """Generous throttle for the SNS webhook.
+
+    The default 60/min anon rate is far too tight for a national roadworks
+    feed, and throttling is actively harmful here: a 429 tells SNS the delivery
+    failed, so it redelivers, which drives the rate higher still. This keeps a
+    ceiling against outright flooding while leaving normal feed bursts alone.
+    """
+    scope = 'sns_webhook'
+
+
+@api_view(['POST'])
+@perm_classes([AllowAny])
+@throttle_classes([SnsWebhookThrottle])
+def street_manager_webhook(request):
+    """Receive DfT Street Manager open-data events pushed over AWS SNS.
+
+    Public by necessity — AWS posts here with no credential of ours. Trust comes
+    entirely from the SNS signature check, so nothing in the body is read until
+    `verify_message` has passed.
+
+    Returns 200 for anything genuinely from our topic, including messages we
+    choose to ignore: a non-2xx tells SNS to retry, and retrying an event we
+    understood but didn't want is pointless.
+    """
+    from .sns import (
+        SnsVerificationError, confirm_subscription, parse_message_body, verify_message,
+    )
+    from .roadwork_ingest import ingest_event, topic_arns
+
+    allowed = topic_arns()
+    if not allowed:
+        # Refuse to run wide open: with no configured topic, any valid AWS SNS
+        # message from any topic would be accepted.
+        logger.warning('Street Manager webhook called but STREET_MANAGER_TOPIC_ARNS is unset')
+        return Response({'detail': 'Not configured.'}, status=drf_status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    try:
+        message = parse_message_body(request.body)
+        verify_message(message, allowed_topic_arns=allowed)
+    except SnsVerificationError as exc:
+        logger.warning('Rejected SNS message: %s', exc)
+        return Response({'detail': 'Invalid message.'}, status=drf_status.HTTP_403_FORBIDDEN)
+
+    msg_type = message.get('Type')
+
+    if msg_type == 'SubscriptionConfirmation':
+        confirmed = confirm_subscription(message)
+        logger.info('SNS subscription confirmation for %s: %s', message.get('TopicArn'), confirmed)
+        return Response({'confirmed': confirmed})
+
+    if msg_type != 'Notification':
+        return Response({'ignored': msg_type})
+
+    import json as _json
+    try:
+        event = _json.loads(message.get('Message') or '{}')
+    except ValueError:
+        logger.warning('SNS notification carried a non-JSON Message')
+        return Response({'ignored': 'unparseable'})
+
+    if not isinstance(event, dict):
+        return Response({'ignored': 'unparseable'})
+
+    try:
+        outcome = ingest_event(event)
+    except Exception:
+        # A malformed record must not wedge the subscription in a retry loop.
+        logger.exception('Failed to ingest Street Manager event')
+        return Response({'ignored': 'error'})
+
+    return Response({'result': outcome})
