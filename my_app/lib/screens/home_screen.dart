@@ -31,6 +31,7 @@ import 'my_calendar_screen.dart';
 import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'fleet_screen.dart';
+import 'facility_defects_screen.dart';
 import 'traffic_alert_screen.dart';
 import 'my_payments_screen.dart';
 import 'customer_payments_screen.dart';
@@ -713,6 +714,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       context,
                       MaterialPageRoute(
                         builder: (_) => FleetScreen(canManageVehicles: _canManageVehicles),
+                      ),
+                    );
+                  },
+                ),
+              if (_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.wrench),
+                  title: const Text('Site Defects'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const FacilityDefectsScreen(),
                       ),
                     );
                   },

@@ -57,6 +57,18 @@ class _FailingWarningsDataService extends MockDataService {
   }
 }
 
+/// Today when it's a weekday, else the coming Monday. Neither warning exists on
+/// a Saturday or Sunday — daycare is Mon–Fri, and weekend days are on the date
+/// strip for boarding only — so these tests have to open on a daycare day
+/// whatever day the suite happens to run.
+DateTime _daycareDay() {
+  var d = DateTime.now();
+  while (d.weekday > DateTime.friday) {
+    d = d.add(const Duration(days: 1));
+  }
+  return d;
+}
+
 Future<void> _pumpDashboard(WidgetTester tester, MockDataService fake) async {
   if (getIt.isRegistered<DataService>()) {
     getIt.unregister<DataService>();
@@ -64,8 +76,9 @@ Future<void> _pumpDashboard(WidgetTester tester, MockDataService fake) async {
   getIt.registerSingleton<DataService>(fake);
   addTearDown(() => getIt.unregister<DataService>());
 
-  await tester.pumpWidget(const MaterialApp(
-    home: Scaffold(body: UnifiedDashboardScreen(isStaff: true)),
+  await tester.pumpWidget(MaterialApp(
+    home: Scaffold(
+        body: UnifiedDashboardScreen(isStaff: true, initialDate: _daycareDay())),
   ));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));

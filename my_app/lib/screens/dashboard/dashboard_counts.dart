@@ -50,7 +50,23 @@ class DashboardCounts extends ChangeNotifier {
   int unresolvedVehicleDefectCount = 0;
   int unspayedMalesCount = 0;
   List<UnspayedMaleSummary> unspayedMales = [];
-  List<BoardingRequest> boardingTonight = [];
+
+  /// Every approved boarding stay, so the dashboard can answer "who is
+  /// boarding?" for any day on the date strip rather than only tonight —
+  /// weekends included, where boarding is all there is (daycare is Mon–Fri).
+  List<BoardingRequest> _approvedBoardings = [];
+
+  /// Approved stays covering the night of [date] — i.e. the dogs sleeping here
+  /// that night. A stay's end date is the day the dog goes home, so it isn't a
+  /// night here (the same rule the "boarding tonight" list has always used).
+  List<BoardingRequest> boardingOn(DateTime date) {
+    final night = DateTime(date.year, date.month, date.day);
+    return _approvedBoardings
+        .where((r) => !r.startDate.isAfter(night) && r.endDate.isAfter(night))
+        .toList();
+  }
+
+  List<BoardingRequest> get boardingTonight => boardingOn(DateTime.now());
 
   @override
   void dispose() {
@@ -70,7 +86,7 @@ class DashboardCounts extends ChangeNotifier {
       reloadPendingRequestCount(),
       reloadUnresolvedQueryCount(),
       if (canViewInquiries) reloadUnreadInquiryCount(),
-      reloadBoardingTonight(),
+      reloadBoarding(),
       if (canManageRequests) reloadPendingProfileChangeCount(),
       reloadUnresolvedDefectCount(),
       reloadUnresolvedVehicleDefectCount(),
@@ -146,16 +162,11 @@ class DashboardCounts extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> reloadBoardingTonight() async {
+  Future<void> reloadBoarding() async {
     try {
       final requests = await _dataService.getBoardingRequests();
-      final today = DateTime.now();
-      final tonight = DateTime(today.year, today.month, today.day);
-      boardingTonight = requests
-          .where((r) =>
-              r.status == BoardingRequestStatus.approved &&
-              !r.startDate.isAfter(tonight) &&
-              r.endDate.isAfter(tonight))
+      _approvedBoardings = requests
+          .where((r) => r.status == BoardingRequestStatus.approved)
           .toList();
       _safeNotify();
     } catch (_) {}
