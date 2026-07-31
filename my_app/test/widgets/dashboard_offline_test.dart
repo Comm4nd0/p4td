@@ -26,10 +26,23 @@ class _OfflineFakeDataService extends MockDataService {
       Completer<List<DailyDogAssignment>>().future;
 }
 
+/// Today when it's a weekday, else the coming Monday. The dashboard shows no
+/// roster at all on a Saturday or Sunday (daycare is Mon–Fri; weekend days are
+/// on the strip for boarding only), so a test about the roster has to open on
+/// a daycare day whatever day the suite happens to run.
+DateTime _daycareDay() {
+  var d = DateTime.now();
+  while (d.weekday > DateTime.friday) {
+    d = d.add(const Duration(days: 1));
+  }
+  return d;
+}
+
 void main() {
   testWidgets(
       'dashboard renders the saved day instantly while the network hangs',
       (tester) async {
+    final day = _daycareDay();
     final assignment = DailyDogAssignment(
       id: 1,
       dogId: 7,
@@ -37,7 +50,7 @@ void main() {
       staffMemberId: 5,
       staffMemberName: 'Sam',
       ownerName: 'Alex',
-      date: DateTime.now(),
+      date: day,
       status: AssignmentStatus.assigned,
     );
     final fake = _OfflineFakeDataService(
@@ -52,8 +65,9 @@ void main() {
       getIt.unregister<DataService>();
     });
 
-    await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(body: UnifiedDashboardScreen(isStaff: true)),
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+          body: UnifiedDashboardScreen(isStaff: true, initialDate: day)),
     ));
     // A frame or two, NOT pumpAndSettle: the hung network request never
     // completes and the skeleton shimmer (if wrongly shown) never settles.

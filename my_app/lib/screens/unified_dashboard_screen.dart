@@ -23,7 +23,7 @@ import '../widgets/skeleton_loaders.dart';
 import '../widgets/quick_actions_fab.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
-import 'dashboard/boarding_tonight_section.dart';
+import 'dashboard/boarding_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import 'dashboard/dashboard_counts.dart';
 import 'dashboard/unspayed_males_dialog.dart';
@@ -56,6 +56,12 @@ class UnifiedDashboardScreen extends StatefulWidget {
   final bool isSuperuser;
   final int? myUserId;
   final int? initialStaffId;
+
+  /// Day the dashboard opens on. Defaults to today; set by tests that need a
+  /// day whose content doesn't depend on when the suite happens to run
+  /// (weekends carry boarding only — see [UnifiedDashboardScreenState]).
+  final DateTime? initialDate;
+
   /// Callback to switch to feed tab (index 1)
   final VoidCallback? onSwitchToFeed;
 
@@ -73,6 +79,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.isSuperuser = false,
     this.myUserId,
     this.initialStaffId,
+    this.initialDate,
     this.onSwitchToFeed,
   });
 
@@ -122,11 +129,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       canManageRequests: widget.canManageRequests,
       canManageBoarding: widget.canManageBoarding,
     )..addListener(_onCountsChanged);
-    _dateOptions = _generateWeekdays(DateTime.now());
-    // Open on today when it's a working day; otherwise the next working day in
-    // the strip — i.e. the following Monday on a weekend (and the next open day
-    // after that once bank-holiday closures load).
-    _selectedDate = _defaultDate(_dateOptions, DateTime.now());
+    final anchor = widget.initialDate ?? DateTime.now();
+    _dateOptions = _generateDates(anchor);
+    // Open on today — including at the weekend, where the day carries boarding
+    // only. Falls through to the next day in the strip when today is pruned as
+    // a closure.
+    _selectedDate = _defaultDate(_dateOptions, anchor);
     _loadStaffMembers();
     _loadDay(_selectedDate);
     _loadClosureDays();
@@ -166,48 +174,33 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   // ─── Date generation ──────────────────────────────────────────────
 
-  List<DateTime> _generateWeekdays(DateTime centerDate) {
-    // Build the strip with a handful of past weekdays (so staff can scroll back
-    // to review earlier days) through to a couple of weeks ahead. Weekends are
-    // skipped — daycare runs Mon–Fri.
-    const pastWeekdays = 5;   // ~1 working week back
-    const totalWeekdays = 20; // overall strip length
+  /// Every day on the strip: a week back (so staff can scroll back to review
+  /// earlier days) through to three weeks ahead.
+  ///
+  /// Weekends are included even though daycare is strictly Mon–Fri, because the
+  /// dashboard is also the boarding view and dogs stay over the weekend — those
+  /// days simply carry no daycare content (see [_isDaycareDay]).
+  List<DateTime> _generateDates(DateTime centerDate) {
+    const pastDays = 7;   // 1 week back
+    const totalDays = 28; // overall strip length
 
-    var anchor = DateTime(centerDate.year, centerDate.month, centerDate.day);
-    // Snap a weekend anchor forward to Monday so "today" lands on a weekday.
-    if (anchor.weekday == DateTime.saturday) {
-      anchor = anchor.add(const Duration(days: 2));
-    } else if (anchor.weekday == DateTime.sunday) {
-      anchor = anchor.add(const Duration(days: 1));
-    }
+    final anchor = DateTime(centerDate.year, centerDate.month, centerDate.day);
+    final start = anchor.subtract(const Duration(days: pastDays));
 
-    // Walk back from the anchor to find the start, counting weekdays only.
-    var start = anchor;
-    var stepped = 0;
-    while (stepped < pastWeekdays) {
-      start = start.subtract(const Duration(days: 1));
-      if (start.weekday >= DateTime.monday && start.weekday <= DateTime.friday) {
-        stepped++;
-      }
-    }
-
-    final List<DateTime> weekdays = [];
-    var current = start;
-    while (weekdays.length < totalWeekdays) {
-      if (current.weekday >= DateTime.monday && current.weekday <= DateTime.friday) {
-        weekdays.add(current);
-      }
-      current = current.add(const Duration(days: 1));
-    }
-    return weekdays;
+    return List.generate(totalDays, (i) => start.add(Duration(days: i)));
   }
 
+  /// Whether [date] is a daycare day. Daycare runs Monday–Friday; weekend days
+  /// exist on the strip for boarding only, and have no roster, routes or
+  /// unassigned dogs to show.
+  bool _isDaycareDay(DateTime date) =>
+      date.weekday >= DateTime.monday && date.weekday <= DateTime.friday;
+
   /// The day the dashboard should open on: the first option on or after today.
-  /// Because [_dateOptions] only contains working days (weekends excluded, and
-  /// closed bank holidays pruned once closures load), this resolves to today
-  /// when it's a working day, the following Monday over a weekend, or the next
-  /// open day if that Monday is itself closed. Falls back to the last option
-  /// (then today) if everything is in the past.
+  /// That's today itself in the normal case; closed bank holidays are pruned
+  /// from [_dateOptions] once closures load, so it falls through to the next
+  /// open day when today is closed. Falls back to the last option (then today)
+  /// if everything is in the past.
   DateTime _defaultDate(List<DateTime> options, DateTime now) {
     final today = DateTime(now.year, now.month, now.day);
     for (final d in options) {
@@ -279,8 +272,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               .where((e) => e.value.closureType == ClosureType.closed)
               .map((e) => e.key)
               .toSet();
+          // A closure closes daycare; boarding carries on regardless, so a
+          // weekend day stays on the strip either way — dropping it would take
+          // the day's boarding list with it.
           _dateOptions = _dateOptions
-              .where((d) => !closedDates.contains(DateTime(d.year, d.month, d.day)))
+              .where((d) => !_isDaycareDay(d) || !closedDates.contains(_dayKey(d)))
               .toList();
           if (!_dateOptions.any((d) => _isSameDay(d, _selectedDate)) && _dateOptions.isNotEmpty) {
             // The selected day was a closure that's now pruned — fall to the
@@ -308,6 +304,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     if (!force && existing != null && existing.loaded) return;
 
     final closure = _closureDays[key];
+
+    // Weekends are boarding-only: no roster is ever materialised for them, so
+    // the four daycare fetches below can only come back empty. Mark the day
+    // loaded and skip them rather than spending four requests to say nothing.
+    if (!_isDaycareDay(date)) {
+      setState(() => _dayCache[key] = DayData(loaded: true, closure: closure));
+      // Still warm the days either side, so swiping Sunday → Monday lands on a
+      // loaded roster.
+      if (prefetchAdjacent) _prefetchAdjacentDates(date);
+      return;
+    }
 
     // Seed from the offline cache so the day renders in one frame instead of
     // showing a skeleton while a (possibly doomed) network request runs. The
@@ -471,8 +478,6 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       // daycare calendar years into the future.
       firstDate: DateTime(DateTime.now().year - 1, DateTime.now().month, DateTime.now().day),
       lastDate: DateTime(DateTime.now().year + 5, DateTime.now().month, DateTime.now().day),
-      selectableDayPredicate: (date) =>
-          date.weekday >= DateTime.monday && date.weekday <= DateTime.friday,
     );
     if (picked == null) return;
 
@@ -491,7 +496,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       // Regenerate date options centered on picked date
       setState(() {
         _swipeDirection = picked.isAfter(_selectedDate) ? 1 : -1;
-        _dateOptions = _generateWeekdays(picked);
+        _dateOptions = _generateDates(picked);
         _selectedDate = picked;
       });
       final newIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
@@ -1103,14 +1108,16 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                           ? ListTileSkeletonList(key: const ValueKey('loading'))
                           : Column(
                               key: ValueKey(dateKey),
-                              children: [
-                                _buildSavedDataBanner(day),
-                                _buildUnassignedBanner(_selectedDate),
-                                _buildCompatibilityWarning(_selectedDate),
-                                _buildOverviewMetrics(assignments),
-                                const SizedBox(height: 16),
-                                _buildStaffCards(assignments, day.roadworks),
-                              ],
+                              children: _isDaycareDay(_selectedDate)
+                                  ? [
+                                      _buildSavedDataBanner(day),
+                                      _buildUnassignedBanner(_selectedDate),
+                                      _buildCompatibilityWarning(_selectedDate),
+                                      _buildOverviewMetrics(assignments),
+                                      const SizedBox(height: 16),
+                                      _buildStaffCards(assignments, day.roadworks),
+                                    ]
+                                  : [_buildWeekendNotice()],
                             ),
                     ),
                   ),
@@ -1125,6 +1132,25 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Stands in for the roster on a Saturday or Sunday. Daycare is strictly
+  /// Mon–Fri, so there is nothing to assign, group or drive on those days —
+  /// the boarding section below carries the whole weekend.
+  Widget _buildWeekendNotice() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(children: [
+          Picon(PiconsDuotone.bed, size: 18, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Boarding only — no daycare at the weekend',
+                style: TextStyle(color: Colors.grey[600])),
+          ),
+        ]),
       ),
     );
   }
@@ -1808,8 +1834,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildBoardingSection() {
-    return BoardingTonightSection(
-      boardingTonight: _counts.boardingTonight,
+    return BoardingSection(
+      date: _selectedDate,
+      boarding: _counts.boardingOn(_selectedDate),
       onTap: _showBoardingDogInfo,
     );
   }
@@ -1881,6 +1908,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   /// The dashboard's quick actions, now a bottom-right speed dial. Same
   /// actions and permission gating as the old inline "Quick Actions" chip row.
   Widget _buildQuickActionsFab() {
+    // "Add Dog to Day" and "Swap Staff" both act on the selected date's roster,
+    // which doesn't exist at the weekend.
+    final daycareDay = _isDaycareDay(_selectedDate);
     return QuickActionsFab(
       actions: [
         QuickFabAction(
@@ -1897,13 +1927,13 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             );
           },
         ),
-        if (widget.canAssignDogs)
+        if (widget.canAssignDogs && daycareDay)
           QuickFabAction(
             icon: PiconsDuotone.plusCircle,
             label: 'Add Dog to Day',
             onPressed: _showAddDogToDayDialog,
           ),
-        if (widget.canAssignDogs)
+        if (widget.canAssignDogs && daycareDay)
           QuickFabAction(
             icon: PiconsDuotone.arrowsLeftRight,
             label: 'Swap Staff',
