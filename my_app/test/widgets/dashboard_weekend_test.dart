@@ -98,6 +98,11 @@ void main() {
       home: Scaffold(
         body: BoardingSection(
           date: DateTime(2026, 8, 1),
+          // Pin the clock: the assertion below is about a day that *isn't*
+          // today being named, so it must not depend on when the suite runs.
+          // (Unpinned, this failed for real on 1 Aug 2026 and blocked the
+          // Android release.)
+          now: DateTime(2026, 7, 20),
           boarding: [
             BoardingRequest(
               id: 1,
