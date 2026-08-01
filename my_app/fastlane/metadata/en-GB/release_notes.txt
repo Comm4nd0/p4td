@@ -1,28 +1,14 @@
-Works Offline
+App Lock
 
-The staff dashboard and dog details now load instantly from saved data and refresh in the background, so the app keeps working when signal drops mid-route.
-Your route and today's dog photos are prefetched when you log in, so everything is ready before you set off.
-An amber banner tells you when you're looking at saved data, and what time it was saved.
-The app now watches for signal returning and refreshes on its own.
-Staff Day Board
+You can now lock the app behind Face ID, Touch ID or your device passcode. Turn it on in your profile.
+Once it's on, the app asks to unlock when you open it, and again if it has been in the background for more than a minute — so switching out to your camera or maps doesn't get in your way.
+Your login is remembered exactly as before; the lock sits over it.
+Roadworks on Your Route
 
-Pinch to zoom the day board, plus a new card-size toggle for denser or larger cards.
-The board now always opens fully zoomed out, fitting the most staff and dogs on screen.
-Swapping staff now moves dogs that have already been picked up, instead of reporting nothing swapped.
-Fixed “Remove from this day” leaving the dog in the unassigned list.
-Fixed re-added days not showing after a dog had been removed from a day.
-Dog Profiles & Boarding
+The staff dashboard now flags roadworks in force on the day, already matched to the routes and dogs they disrupt.
+A staff member's card is ringed when their route is affected, their dog list carries a banner naming the roadworks, and the pickup map marks each one with a cone pin.
+Weekend Boarding
 
-Dog profiles now show a map of the pickup address; tap it to open the location in your maps app.
-Staff can cancel a boarding stay directly from a dog's profile.
-Sharing
-
-New Share to Socials quick action: choose several feed photos and post them together to Facebook, Instagram or any other installed app. The order you pick them becomes the photo order.
-Getting Around
-
-Dashboard quick actions and dog profile buttons are now a floating speed dial, anchored to the button it opens from.
-Reliability & Privacy
-
-Fixed a caching problem that could show a previous account's dogs after adding a second account.
-A failed check no longer looks like a clean day: if unassigned dogs or compatibility conflicts can't be loaded, you now get a retryable warning instead of silence.
-Drivers are no longer shown an hours-old route as though it were live.
+The staff dashboard now covers Saturdays and Sundays, so you can see which dogs are staying on any night of the weekend. Daycare is Monday to Friday, so weekend days show boarding only.
+Every boarding entry now shows the dates the stay runs from and to, so a dog going home in the morning reads differently from one staying another week.
+Site Defects is now reachable from the menu.
