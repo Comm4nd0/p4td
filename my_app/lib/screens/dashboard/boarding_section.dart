@@ -19,16 +19,24 @@ class BoardingSection extends StatelessWidget {
   /// the dog's quick-info popup (which carries its own reassign shortcut).
   final void Function(BoardingRequest request)? onTap;
 
+  /// The clock, for tests only — production leaves it null and reads the real
+  /// one. Without this seam a test naming a fixed date passes every day except
+  /// the one day that date *is* today, and then fails the release pipeline.
+  final DateTime? now;
+
   const BoardingSection({
     super.key,
     required this.date,
     required this.boarding,
     this.onTap,
+    this.now,
   });
 
   bool get _isTonight {
-    final now = DateTime.now();
-    return date.year == now.year && date.month == now.month && date.day == now.day;
+    final today = now ?? DateTime.now();
+    return date.year == today.year &&
+        date.month == today.month &&
+        date.day == today.day;
   }
 
   @override

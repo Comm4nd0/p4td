@@ -196,12 +196,13 @@ platform :ios do
       key_filepath: ENV.fetch("ASC_KEY_PATH"),
     )
 
+    wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
+
     build = ENV["APP_BUILD"].to_s
     if build.empty?
       # The archive for this commit normally exists well before anyone tags it,
       # but it can still be processing. Wait rather than fail immediately — and
       # fail readably rather than hanging.
-      wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
       deadline = Time.now + (wait_minutes * 60)
       loop do
         latest = latest_testflight_build_number(
@@ -227,6 +228,23 @@ platform :ios do
         sleep(60)
       end
     end
+
+    # Having a build *number* only means the upload landed — App Store Connect
+    # still has to process it, and attaching one mid-processing fails with
+    # "The specified pre-release build could not be added" (v1.10.1 died here,
+    # one second after resolving its build). Wait for the build itself, not just
+    # its number. Same watcher pilot uses when it waits after an upload.
+    app = Spaceship::ConnectAPI::App.find(IOS_BUNDLE_ID)
+    UI.message("Waiting for build #{build} of #{version} to finish processing…")
+    FastlaneCore::BuildWatcher.wait_for_build_processing_to_be_complete(
+      app_id:            app.id,
+      platform:          Spaceship::ConnectAPI::Platform::IOS,
+      train_version:     version,
+      build_version:     build,
+      poll_interval:     30,
+      timeout_duration:  wait_minutes * 60,
+      return_spaceship_testflight_build: false,
+    )
 
     UI.message("Attaching build #{build} to #{version} (submit for review: #{submit})")
 
