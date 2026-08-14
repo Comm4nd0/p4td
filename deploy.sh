@@ -68,12 +68,19 @@ docker compose -f "$COMPOSE_FILE" up -d
 # Poll the dependency-free liveness endpoint rather than sleeping blindly, so a
 # container that crash-loops on a bad migration fails the deploy instead of
 # reporting success. Mirrors scripts/deploy-to-hetzner.sh.
+#
+# X-Forwarded-Proto is required, not decorative: production runs DEBUG=False,
+# which turns on SECURE_SSL_REDIRECT, so a plain loopback request is 301'd to
+# https://localhost:8000/ — where nothing speaks TLS. urlopen follows the
+# redirect, the handshake fails, and every attempt looks like a dead app while
+# the container is serving perfectly well. The compose healthcheck already
+# sends this header; these scripts did not.
 echo ""
 echo ">>> Waiting for the app to become healthy..."
 ready=0
 for _ in $(seq 1 30); do
     if docker compose -f "$COMPOSE_FILE" exec -T web \
-        python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://localhost:8000/healthz/", timeout=3).status==200 else 1)' 2>/dev/null; then
+        python -c 'import urllib.request,sys; r=urllib.request.Request("http://localhost:8000/healthz/", headers={"X-Forwarded-Proto": "https"}); sys.exit(0 if urllib.request.urlopen(r, timeout=3).status==200 else 1)' 2>/dev/null; then
         ready=1
         echo "    App is responding."
         break

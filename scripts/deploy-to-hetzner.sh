@@ -48,7 +48,7 @@ $SSH_CMD "$HETZNER_HOST" "
     ready=0
     for i in \$(seq 1 30); do
         if docker compose -f docker-compose.prod.yml exec -T web \
-            python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/healthz/\", timeout=3).status==200 else 1)' 2>/dev/null; then
+            python -c 'import urllib.request,sys; r=urllib.request.Request(\"http://localhost:8000/healthz/\", headers={\"X-Forwarded-Proto\": \"https\"}); sys.exit(0 if urllib.request.urlopen(r, timeout=3).status==200 else 1)' 2>/dev/null; then
             ready=1
             echo '    App is responding.'
             break
@@ -67,7 +67,7 @@ $SSH_CMD "$HETZNER_HOST" "
     echo '>>> Post-deploy health check...'
     # Fail loudly on a non-200 so a broken deploy does not look successful.
     if ! docker compose -f docker-compose.prod.yml exec -T web \
-        python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/healthz/\", timeout=5).status==200 else 1)'; then
+        python -c 'import urllib.request,sys; r=urllib.request.Request(\"http://localhost:8000/healthz/\", headers={\"X-Forwarded-Proto\": \"https\"}); sys.exit(0 if urllib.request.urlopen(r, timeout=5).status==200 else 1)'; then
         echo '    ERROR: /healthz/ did not return 200 after migrate.' >&2
         echo \"    Roll back with: git checkout \$PREV_COMMIT && docker compose -f docker-compose.prod.yml up -d --build\" >&2
         exit 1
