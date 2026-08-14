@@ -118,6 +118,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/facility-defects/` | Facility defect reports |
 | `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs) |
 | `api/invoices/` | Monthly customer invoices (owners view/pay their own; staff with `can_manage_payments` generate/send/record payments/sync Xero) |
+| `api/incidents/` | **Staff-only** incident log — scuffles, bites, injuries, escapes. Tied to the dogs involved (per-dog role/injuries/owner-told), with photos *and* video, follow-up comments and a status. Owners get 403 on every route, including `?dog=<id>` for their own dog. |
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
@@ -146,6 +147,14 @@ Additional non-router endpoints:
 - **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_manage_staff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`
 - **Token + Session auth** via djoser
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
+- **Boarding dogs attend daycare**: approving a stay books its dogs into daycare
+  for every weekday it covers — arrival and departure days included — under the
+  business's own `P4TD` pseudo-staff account (`api/scheduling.py`:
+  `sync_boarding_daycare_assignments`). Cancelling/denying/moving the stay
+  releases those rows again; only rows flagged `DailyDogAssignment.from_boarding`
+  are ever touched. Billing-neutral by construction —
+  `billing.attendance_for_month` already skips days inside an approved stay, so
+  the boarding nights are the only charge.
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
 - **Push notifications** via Firebase Admin SDK
 

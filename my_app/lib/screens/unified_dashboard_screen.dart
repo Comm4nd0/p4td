@@ -12,7 +12,6 @@ import '../widgets/roadwork_banner.dart';
 import '../models/dog.dart';
 import '../services/connectivity_status.dart';
 import '../services/data_service.dart';
-import '../services/media_upload_flow.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../utils/staff_rota.dart';
@@ -38,6 +37,8 @@ import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'dog_profile_changes_screen.dart';
 import 'facility_defects_screen.dart';
+import 'incidents_screen.dart';
+import 'log_incident_screen.dart';
 import 'fleet_screen.dart';
 import 'staff_permissions_screen.dart';
 import 'customer_payments_screen.dart';
@@ -961,16 +962,13 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
-  // ─── Upload media from dashboard ──────────────────────────────────
+  // ─── Log an incident ──────────────────────────────────────────────
 
-  Future<void> _uploadMediaFromDashboard() async {
-    await MediaUploadFlow(
-      context: context,
-      dataService: _dataService,
-      // After a feed upload the dashboard reloads assignments — tagged dogs may
-      // now reflect on the day's data.
-      onComplete: _reloadSelectedDay,
-    ).start();
+  Future<void> _logIncident() async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const LogIncidentScreen()),
+    );
+    if (created == true) await _counts.reloadOpenIncidentCount();
   }
 
   // ─── Helper: scroll date chip into view ───────────────────────────
@@ -1639,6 +1637,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       pendingBoardingCount: _counts.pendingBoardingCount,
       unresolvedDefectCount: _counts.unresolvedDefectCount,
       unresolvedVehicleDefectCount: _counts.unresolvedVehicleDefectCount,
+      openIncidentCount: _counts.openIncidentCount,
       unspayedMalesCount: _counts.unspayedMalesCount,
       canViewInquiries: widget.canViewInquiries,
       canManageRequests: widget.canManageRequests,
@@ -1684,6 +1683,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           builder: (_) => FleetScreen(canManageVehicles: widget.canManageVehicles),
         ));
         _counts.reloadUnresolvedVehicleDefectCount();
+      },
+      onOpenIncidents: () async {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const IncidentsScreen()));
+        _counts.reloadOpenIncidentCount();
       },
       onOpenUnspayedMales: () => showUnspayedMalesDialog(context, _counts.unspayedMales),
     );
@@ -1905,8 +1908,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     }
   }
 
-  /// The dashboard's quick actions, now a bottom-right speed dial. Same
-  /// actions and permission gating as the old inline "Quick Actions" chip row.
+  /// The dashboard's quick actions, a bottom-right speed dial.
+  ///
+  /// Feed uploads deliberately aren't here — that action lives on the feed
+  /// screen itself, where the post lands and where the permission that gates
+  /// it (`can_add_feed_media`) is already applied.
   Widget _buildQuickActionsFab() {
     // "Add Dog to Day" and "Swap Staff" both act on the selected date's roster,
     // which doesn't exist at the weekend.
@@ -1914,9 +1920,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     return QuickActionsFab(
       actions: [
         QuickFabAction(
-          icon: PiconsDuotone.uploadSimple,
-          label: 'Upload to Feed',
-          onPressed: _uploadMediaFromDashboard,
+          icon: PiconsDuotone.firstAidKit,
+          label: 'Log Incident',
+          onPressed: _logIncident,
         ),
         QuickFabAction(
           icon: PiconsDuotone.shareNetwork,

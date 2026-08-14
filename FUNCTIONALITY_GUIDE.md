@@ -193,6 +193,26 @@ Dogs are automatically excluded from the roster on closure days.
 
 Only owners whose dogs are assigned to the alerting staff member (and in the relevant status) receive the notification.
 
+### Incident Log (All Staff — never visible to owners)
+
+| Feature | Description |
+|---------|-------------|
+| Log an Incident | Record a scuffle, bite, injury, illness, escape, property damage or transport incident, with the time and place it happened |
+| Name the Dogs Involved | Attach any number of dogs, each with its own role (involved / instigator / injured / present) and its own injuries |
+| Account & Actions | Write up what happened, injuries overall, and what staff did about it |
+| Vet Flag | Mark that a vet was involved or is needed, with the practice and treatment |
+| Photos & Video | Attach photos or video at the time, or add more later |
+| Staff Present | Record which staff witnessed or dealt with it, separately from who wrote it up |
+| Owner Told | Tick off each dog's owner as they are told — tracked for staff, never shown to the owner |
+| Follow-up Comments | Add follow-ups as things develop ("stitches out Friday") |
+| Status | Open -> Monitoring -> Resolved, with optional resolution notes |
+| From a Dog's Profile | Every dog's profile links to the incidents it has been involved in |
+| Delete | Only an administrator can delete an incident record |
+
+Incidents are **staff only**. The API refuses owners on every route, including
+a request for their own dog's incidents, and nothing about an incident appears
+in any owner-facing screen or notification.
+
 ### Staff Push Notifications
 
 All staff receive notifications for:
@@ -205,6 +225,7 @@ All staff receive notifications for:
 | Support Query Reply | An owner has replied to an existing support query |
 | Care Instruction Update | Food or medical notes have been changed for a dog |
 | Dog Pickup/Drop-off | A dog's status has changed (picked up or dropped off) |
+| Incident Logged | Another staff member has logged an incident (staff only) |
 
 ---
 
@@ -236,3 +257,4 @@ All staff receive notifications for:
 | Approve/deny day off | - | - | - | - | - | - | Yes |
 | Manage closure days | - | Yes | Yes | Yes | Yes | Yes | Yes |
 | Send traffic alerts | - | Yes | Yes | Yes | Yes | Yes | Yes |
+| Log/view incidents | - | Yes | Yes | Yes | Yes | Yes | Yes |

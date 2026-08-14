@@ -228,6 +228,12 @@ class NotificationService {
         _navigateToHome(initialRoute: 'dogs');
         break;
 
+      // Incidents — staff only (the incident log is never shown to owners);
+      // HomeScreen drops the route for anyone who isn't staff.
+      case 'incident':
+        _navigateToHome(initialRoute: 'incident', routePayload: data['id'] as String?);
+        break;
+
       // Contact form inquiries — open inquiries screen
       case 'contact_inquiry':
         _navigateToHome(initialRoute: 'inquiries');

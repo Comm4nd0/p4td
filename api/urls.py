@@ -7,7 +7,7 @@ from .views import (
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     DogProfileChangeRequestViewSet, VaccinationRecordViewSet, WaitlistEntryViewSet,
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
-    InvoiceViewSet,
+    InvoiceViewSet, IncidentViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
     delete_account, postcode_lookup, daycare_settings, submit_contact_inquiry,
     xero_status, xero_connect, xero_callback, xero_disconnect,
@@ -40,6 +40,7 @@ router.register(r'vehicle-defects', VehicleDefectViewSet, basename='vehicle-defe
 router.register(r'facility-defects', FacilityDefectViewSet, basename='facility-defects')
 router.register(r'intake-requests', IntakeRequestViewSet, basename='intake-requests')
 router.register(r'invoices', InvoiceViewSet, basename='invoices')
+router.register(r'incidents', IncidentViewSet, basename='incidents')
 
 urlpatterns = [
     path('', include(router.urls)),

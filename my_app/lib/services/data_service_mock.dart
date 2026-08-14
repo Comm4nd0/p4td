@@ -612,6 +612,42 @@ class MockDataService implements DataService {
   @override
   Future<int> getUnresolvedFacilityDefectCount() async => 0;
   @override
+  Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false}) async => [];
+  @override
+  Future<Incident> getIncident(int id) async =>
+      Incident(id: id, title: 'Test', occurredAt: DateTime.now());
+  @override
+  Future<Incident> createIncident({
+    required String title,
+    required String incidentType,
+    required String severity,
+    required DateTime occurredAt,
+    required List<IncidentDogEntry> dogs,
+    String? location,
+    String? description,
+    String? injuries,
+    String? actionTaken,
+    bool vetRequired = false,
+    String? vetDetails,
+    List<int> staffPresentIds = const [],
+    List<(Uint8List, String)> media = const [],
+  }) async =>
+      Incident(id: 1, title: title, occurredAt: occurredAt);
+  @override
+  Future<Incident> addIncidentMedia(int incidentId, List<(Uint8List, String)> media) async =>
+      Incident(id: incidentId, title: 'Test', occurredAt: DateTime.now());
+  @override
+  Future<Incident> changeIncidentStatus(int incidentId, String status, {String? resolutionNotes}) async =>
+      Incident(id: incidentId, title: 'Test', status: status, occurredAt: DateTime.now());
+  @override
+  Future<Incident> addIncidentComment(int incidentId, String text) async =>
+      Incident(id: incidentId, title: 'Test', occurredAt: DateTime.now());
+  @override
+  Future<Incident> setIncidentOwnerNotified(int incidentId, String dogId, bool notified) async =>
+      Incident(id: incidentId, title: 'Test', occurredAt: DateTime.now());
+  @override
+  Future<int> getOpenIncidentCount() async => 0;
+  @override
   Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId}) async => [];
   @override
   Future<Invoice> getInvoice(int id) async => _mockInvoice(id);
