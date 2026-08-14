@@ -19,6 +19,7 @@ class ActionItemsSection extends StatelessWidget {
   final int pendingBoardingCount;
   final int unresolvedDefectCount;
   final int unresolvedVehicleDefectCount;
+  final int openIncidentCount;
   final int unspayedMalesCount;
 
   final bool canViewInquiries;
@@ -32,6 +33,7 @@ class ActionItemsSection extends StatelessWidget {
   final VoidCallback onOpenBoardingRequests;
   final VoidCallback onOpenSiteDefects;
   final VoidCallback onOpenVehicleDefects;
+  final VoidCallback onOpenIncidents;
   final VoidCallback onOpenUnspayedMales;
 
   const ActionItemsSection({
@@ -43,6 +45,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.pendingBoardingCount,
     required this.unresolvedDefectCount,
     required this.unresolvedVehicleDefectCount,
+    required this.openIncidentCount,
     required this.unspayedMalesCount,
     required this.canViewInquiries,
     required this.canManageRequests,
@@ -54,6 +57,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.onOpenBoardingRequests,
     required this.onOpenSiteDefects,
     required this.onOpenVehicleDefects,
+    required this.onOpenIncidents,
     required this.onOpenUnspayedMales,
   });
 
@@ -128,6 +132,15 @@ class ActionItemsSection extends StatelessWidget {
           count: unresolvedVehicleDefectCount,
           countColor: unresolvedVehicleDefectCount > 0 ? Colors.red : null,
           onTap: onOpenVehicleDefects,
+        ),
+        const SizedBox(height: 4),
+        // Staff-only: incidents are never surfaced to owners anywhere.
+        ActionItemTile(
+          icon: PiconsDuotone.firstAidKit,
+          label: 'Open Incidents',
+          count: openIncidentCount,
+          countColor: openIncidentCount > 0 ? Colors.red : null,
+          onTap: onOpenIncidents,
         ),
         if (unspayedMalesCount > 0) ...[
           const SizedBox(height: 4),

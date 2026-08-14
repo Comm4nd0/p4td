@@ -366,6 +366,11 @@ class DailyDogAssignment(models.Model):
     owner_brings_time = models.TimeField(null=True, blank=True, help_text='Expected drop-off time when owner brings the dog on this date.')
     owner_collects_time = models.TimeField(null=True, blank=True, help_text='Expected pick-up time when owner collects the dog on this date.')
     sort_order = models.IntegerField(default=0, help_text='Custom sort order for staff pickup list. Lower numbers appear first.')
+    # Set on rows created (or re-pointed) because the dog is boarding that day
+    # — see api.scheduling.sync_boarding_daycare_assignments. It is what lets a
+    # cancelled stay take its own bookings back out again without touching the
+    # rows staff created by hand.
+    from_boarding = models.BooleanField(default=False, help_text='This attendance was booked automatically from an approved boarding stay.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1640,3 +1645,178 @@ class RoadworkIssue(models.Model):
     @property
     def has_location(self) -> bool:
         return self.latitude is not None and self.longitude is not None
+
+
+# =============================================================================
+# INCIDENTS
+# =============================================================================
+
+class Incident(models.Model):
+    """A staff-only record of something that went wrong: a scuffle, a bite, an
+    injury, a dog getting loose.
+
+    Deliberately never exposed to owners. The API viewset is staff-gated and
+    nothing in the owner-facing serializers references it: these records exist
+    so the team can spot patterns (which dogs keep clashing, which part of the
+    site keeps causing trouble) and so there is a contemporaneous account if an
+    owner, a vet or an insurer asks later. What an owner is told is a
+    conversation, tracked here as ``owner_notified`` per dog rather than as
+    something they can read.
+
+    Dogs are attached through :class:`IncidentDog` so each dog carries its own
+    role and injuries — in a scuffle the two dogs rarely come out of it the
+    same way.
+    """
+
+    INCIDENT_TYPE_CHOICES = [
+        ('SCUFFLE', 'Scuffle / fight'),
+        ('BITE', 'Bite'),
+        ('INJURY', 'Injury'),
+        ('ILLNESS', 'Illness'),
+        ('ESCAPE', 'Escape / loose dog'),
+        ('PROPERTY', 'Property damage'),
+        ('TRANSPORT', 'Transport / vehicle'),
+        ('OTHER', 'Other'),
+    ]
+
+    # Ordered least-worst first; the app colours the badge from this.
+    SEVERITY_CHOICES = [
+        ('LOW', 'Minor'),
+        ('MEDIUM', 'Moderate'),
+        ('HIGH', 'Serious'),
+        ('CRITICAL', 'Critical'),
+    ]
+
+    STATUS_CHOICES = [
+        ('OPEN', 'Open'),
+        # Handled, but the dogs are being watched (a wound healing, two dogs
+        # kept apart for a fortnight). Still counts as open on the dashboard.
+        ('MONITORING', 'Monitoring'),
+        ('RESOLVED', 'Resolved'),
+    ]
+
+    title = models.CharField(max_length=200, help_text='Short summary, e.g. "Scuffle in the back paddock".')
+    incident_type = models.CharField(max_length=20, choices=INCIDENT_TYPE_CHOICES, default='OTHER')
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='LOW')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
+
+    # When it happened, which is not always when it was written up — staff
+    # log the afternoon's scuffle on the drive home.
+    occurred_at = models.DateTimeField(default=timezone.now)
+    location = models.CharField(max_length=200, blank=True, default='', help_text='Where it happened — paddock, van, on a walk.')
+
+    description = models.TextField(help_text='What happened, in the reporter\'s own words.')
+    injuries = models.TextField(blank=True, default='', help_text='Injuries overall. Per-dog detail lives on IncidentDog.')
+    action_taken = models.TextField(blank=True, default='', help_text='What staff did at the time — separated, first aid, sent home.')
+
+    vet_required = models.BooleanField(default=False, help_text='A vet was involved or needs to be.')
+    vet_details = models.TextField(blank=True, default='', help_text='Practice seen, treatment given, follow-up needed.')
+
+    # Staff who were there. Kept separate from reported_by: whoever writes it
+    # up is often not the only person who saw it.
+    staff_present = models.ManyToManyField(
+        User, blank=True, related_name='incidents_present_at',
+        help_text='Staff who witnessed or dealt with the incident.')
+
+    reported_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reported_incidents')
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_incidents')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_notes = models.TextField(blank=True, default='', help_text='How it was closed out.')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    dogs = models.ManyToManyField(Dog, through='IncidentDog', related_name='incidents', blank=True)
+
+    class Meta:
+        ordering = ['-occurred_at', '-id']
+        indexes = [
+            models.Index(fields=['-occurred_at']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.get_severity_display()}, {self.occurred_at:%Y-%m-%d})"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status != 'RESOLVED'
+
+
+class IncidentDog(models.Model):
+    """One dog's involvement in an incident.
+
+    SET_NULL is not an option here — the row means nothing without the dog —
+    so a deleted dog takes its involvements with it. The incident itself
+    survives, with the remaining dogs and the written account intact.
+    """
+
+    ROLE_CHOICES = [
+        ('INVOLVED', 'Involved'),
+        ('INSTIGATOR', 'Instigator'),
+        ('INJURED', 'Injured'),
+        ('PRESENT', 'Present / witness'),
+    ]
+
+    incident = models.ForeignKey(Incident, on_delete=models.CASCADE, related_name='dog_entries')
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='incident_entries')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='INVOLVED')
+    injuries = models.TextField(blank=True, default='', help_text='Injuries to this dog specifically.')
+
+    # Told separately per dog: in a scuffle one owner may need a call the same
+    # afternoon while the other's dog walked away from it.
+    owner_notified = models.BooleanField(default=False)
+    owner_notified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('incident', 'dog')
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.dog.name} in incident #{self.incident_id} ({self.get_role_display()})"
+
+
+class IncidentMedia(models.Model):
+    """A photo or video attached to an incident (a wound, the damaged gate).
+
+    Photos and video both land here — unlike the defect reports, which are
+    photo-only — because an incident is often easier to show than to describe.
+    """
+
+    MEDIA_TYPE_CHOICES = [
+        ('PHOTO', 'Photo'),
+        ('VIDEO', 'Video'),
+    ]
+
+    incident = models.ForeignKey(Incident, on_delete=models.CASCADE, related_name='media')
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES, default='PHOTO')
+    file = models.FileField(upload_to='incidents/', max_length=150)
+    thumbnail = models.ImageField(upload_to='incidents/thumbnails/', max_length=150, null=True, blank=True)
+    caption = models.CharField(max_length=200, blank=True, default='')
+    uploaded_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='incident_media')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        verbose_name_plural = 'Incident media'
+
+    def __str__(self):
+        return f"{self.media_type} for incident #{self.incident_id}"
+
+
+class IncidentComment(models.Model):
+    """A staff follow-up on an incident ("stitches out Friday", "kept apart
+    all week, no repeat")."""
+
+    incident = models.ForeignKey(Incident, on_delete=models.CASCADE, related_name='comments')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='incident_comments')
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment on incident #{self.incident_id} by {self.user_id}"

@@ -244,6 +244,30 @@ abstract class DataService {
   Future<FacilityDefect> addFacilityDefectComment(int defectId, String text);
   Future<int> getUnresolvedFacilityDefectCount();
 
+  // Incidents (staff only — the API refuses owners outright)
+  Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false});
+  Future<Incident> getIncident(int id);
+  Future<Incident> createIncident({
+    required String title,
+    required String incidentType,
+    required String severity,
+    required DateTime occurredAt,
+    required List<IncidentDogEntry> dogs,
+    String? location,
+    String? description,
+    String? injuries,
+    String? actionTaken,
+    bool vetRequired = false,
+    String? vetDetails,
+    List<int> staffPresentIds = const [],
+    List<(Uint8List, String)> media = const [],
+  });
+  Future<Incident> addIncidentMedia(int incidentId, List<(Uint8List, String)> media);
+  Future<Incident> changeIncidentStatus(int incidentId, String status, {String? resolutionNotes});
+  Future<Incident> addIncidentComment(int incidentId, String text);
+  Future<Incident> setIncidentOwnerNotified(int incidentId, String dogId, bool notified);
+  Future<int> getOpenIncidentCount();
+
   // Customer payments (owners see their own invoices; workflow actions
   // require can_manage_payments)
   Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId});

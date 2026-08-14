@@ -27,6 +27,7 @@ import '../models/owner_calendar.dart';
 import '../models/vehicle.dart';
 import '../models/vehicle_defect.dart';
 import '../models/facility_defect.dart';
+import '../models/incident.dart';
 import '../models/vehicle_maintenance_record.dart';
 import '../models/invoice.dart';
 import '../models/customer_rate.dart';
@@ -3157,6 +3158,167 @@ class ApiDataService implements DataService {
     } else {
       return 0;
     }
+  }
+
+  // ---- Incidents (staff only) ----
+
+  /// Attaches picked files to an incident request. Photos and video both go in
+  /// the same `media` field — the server sorts out which is which from the
+  /// filename and stores video as-is with a first-frame thumbnail.
+  void _addIncidentMediaFiles(http.MultipartRequest request, List<(Uint8List, String)> media) {
+    for (final (bytes, name) in media) {
+      final isVideo = _isVideoFileName(name);
+      request.files.add(http.MultipartFile.fromBytes(
+        'media',
+        bytes,
+        filename: name,
+        contentType: isVideo
+            ? http_parser.MediaType('video', name.toLowerCase().endsWith('.mov') ? 'quicktime' : 'mp4')
+            : http_parser.MediaType('image', name.toLowerCase().endsWith('.png') ? 'png' : 'jpeg'),
+      ));
+    }
+  }
+
+  @override
+  Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false}) async {
+    final params = <String, String>{};
+    if (dogId != null) params['dog'] = dogId;
+    if (status != null) params['status'] = status;
+    if (openOnly) params['open'] = 'true';
+    final uri = Uri.parse('${AuthService.baseUrl}/api/incidents/')
+        .replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await _get(uri);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => Incident.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception('Failed to load incidents: ${response.statusCode}');
+  }
+
+  @override
+  Future<Incident> getIncident(int id) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/incidents/$id/'));
+    if (response.statusCode == 200) {
+      return Incident.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load incident: ${response.statusCode}');
+  }
+
+  @override
+  Future<Incident> createIncident({
+    required String title,
+    required String incidentType,
+    required String severity,
+    required DateTime occurredAt,
+    required List<IncidentDogEntry> dogs,
+    String? location,
+    String? description,
+    String? injuries,
+    String? actionTaken,
+    bool vetRequired = false,
+    String? vetDetails,
+    List<int> staffPresentIds = const [],
+    List<(Uint8List, String)> media = const [],
+  }) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/incidents/'),
+    );
+    request.headers['Authorization'] = 'Token $token';
+    request.fields['title'] = title;
+    request.fields['incident_type'] = incidentType;
+    request.fields['severity'] = severity;
+    request.fields['occurred_at'] = occurredAt.toUtc().toIso8601String();
+    // Multipart can't nest, so the per-dog role/injuries ride along as JSON in
+    // a single field — the server accepts that or plain ids.
+    request.fields['dog_entries'] = json.encode(dogs.map((d) => d.toJson()).toList());
+    if (location != null) request.fields['location'] = location;
+    if (description != null) request.fields['description'] = description;
+    if (injuries != null) request.fields['injuries'] = injuries;
+    if (actionTaken != null) request.fields['action_taken'] = actionTaken;
+    request.fields['vet_required'] = vetRequired.toString();
+    if (vetDetails != null) request.fields['vet_details'] = vetDetails;
+    if (staffPresentIds.isNotEmpty) {
+      request.fields['staff_present'] = json.encode(staffPresentIds);
+    }
+    _addIncidentMediaFiles(request, media);
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 201) {
+      return Incident.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to log incident: ${response.body}');
+  }
+
+  @override
+  Future<Incident> addIncidentMedia(int incidentId, List<(Uint8List, String)> media) async {
+    final token = await _authService.getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/incidents/$incidentId/add_media/'),
+    );
+    request.headers['Authorization'] = 'Token $token';
+    _addIncidentMediaFiles(request, media);
+    final response = await http.Response.fromStream(await request.send());
+    if (response.statusCode == 200) {
+      return Incident.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add media: ${response.body}');
+  }
+
+  @override
+  Future<Incident> changeIncidentStatus(int incidentId, String status, {String? resolutionNotes}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/incidents/$incidentId/change_status/'),
+      headers: headers,
+      body: json.encode({
+        'status': status,
+        if (resolutionNotes != null) 'resolution_notes': resolutionNotes,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return Incident.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to update incident: ${response.body}');
+  }
+
+  @override
+  Future<Incident> addIncidentComment(int incidentId, String text) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/incidents/$incidentId/comment/'),
+      headers: headers,
+      body: json.encode({'text': text}),
+    );
+    if (response.statusCode == 200) {
+      return Incident.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to add comment: ${response.body}');
+  }
+
+  @override
+  Future<Incident> setIncidentOwnerNotified(int incidentId, String dogId, bool notified) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/incidents/$incidentId/owner_notified/'),
+      headers: headers,
+      body: json.encode({'dog': int.tryParse(dogId) ?? dogId, 'notified': notified}),
+    );
+    if (response.statusCode == 200) {
+      return Incident.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to update owner contact: ${response.body}');
+  }
+
+  @override
+  Future<int> getOpenIncidentCount() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/incidents/open_count/'));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['count'] ?? 0;
+    }
+    return 0;
   }
   // ---------------------------------------------------------------------
   // Customer payments

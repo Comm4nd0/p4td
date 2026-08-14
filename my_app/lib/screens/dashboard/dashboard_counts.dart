@@ -48,6 +48,7 @@ class DashboardCounts extends ChangeNotifier {
   int pendingProfileChangeCount = 0;
   int unresolvedDefectCount = 0;
   int unresolvedVehicleDefectCount = 0;
+  int openIncidentCount = 0;
   int unspayedMalesCount = 0;
   List<UnspayedMaleSummary> unspayedMales = [];
 
@@ -90,6 +91,7 @@ class DashboardCounts extends ChangeNotifier {
       if (canManageRequests) reloadPendingProfileChangeCount(),
       reloadUnresolvedDefectCount(),
       reloadUnresolvedVehicleDefectCount(),
+      reloadOpenIncidentCount(),
       reloadUnspayedMales(),
     ]);
   }
@@ -150,6 +152,14 @@ class DashboardCounts extends ChangeNotifier {
     try {
       final count = await _dataService.getUnresolvedVehicleDefectCount();
       unresolvedVehicleDefectCount = count;
+      _safeNotify();
+    } catch (_) {}
+  }
+
+  Future<void> reloadOpenIncidentCount() async {
+    try {
+      final count = await _dataService.getOpenIncidentCount();
+      openIncidentCount = count;
       _safeNotify();
     } catch (_) {}
   }

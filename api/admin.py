@@ -13,6 +13,7 @@ from .models import (
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
     FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog,
     Invoice, InvoiceLine, PaymentRecord, XeroConnection, RoadworkIssue,
+    Incident, IncidentDog, IncidentMedia, IncidentComment,
 )
 
 
@@ -1160,3 +1161,78 @@ class RoadworkIssueAdmin(admin.ModelAdmin):
     date_hierarchy = 'start_date'
     readonly_fields = ('created_at', 'updated_at', 'raw_payload')
     list_per_page = 50
+
+
+class IncidentDogInline(admin.TabularInline):
+    model = IncidentDog
+    extra = 0
+    raw_id_fields = ('dog',)
+    fields = ('dog', 'role', 'injuries', 'owner_notified', 'owner_notified_at')
+    readonly_fields = ('owner_notified_at',)
+
+
+class IncidentMediaInline(admin.TabularInline):
+    model = IncidentMedia
+    extra = 0
+    fields = ('media_type', 'file', 'preview', 'caption', 'created_at')
+    readonly_fields = ('preview', 'created_at')
+
+    def preview(self, obj):
+        if obj.thumbnail:
+            return format_html(
+                '<img src="{}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;" />',
+                obj.thumbnail.url)
+        return '-'
+    preview.short_description = 'Preview'
+
+
+class IncidentCommentInline(admin.TabularInline):
+    model = IncidentComment
+    extra = 0
+    raw_id_fields = ('user',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(Incident)
+class IncidentAdmin(admin.ModelAdmin):
+    list_display = ('title', 'incident_type', 'severity_display', 'status_display',
+                    'dogs_involved', 'occurred_at', 'reported_by_name')
+    list_filter = ('status', 'severity', 'incident_type', 'vet_required')
+    search_fields = ('title', 'description', 'injuries', 'location', 'dog_entries__dog__name')
+    raw_id_fields = ('reported_by', 'resolved_by')
+    filter_horizontal = ('staff_present',)
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'occurred_at'
+    list_per_page = 30
+    inlines = [IncidentDogInline, IncidentMediaInline, IncidentCommentInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related('dog_entries__dog')
+
+    def dogs_involved(self, obj):
+        return ', '.join(entry.dog.name for entry in obj.dog_entries.all()) or '-'
+    dogs_involved.short_description = 'Dogs'
+
+    def reported_by_name(self, obj):
+        if obj.reported_by:
+            return obj.reported_by.first_name or obj.reported_by.username
+        return '-'
+    reported_by_name.short_description = 'Reported By'
+
+    def severity_display(self, obj):
+        colors = {'LOW': '#198754', 'MEDIUM': '#ffc107', 'HIGH': '#fd7e14', 'CRITICAL': '#dc3545'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.severity, '#6c757d'),
+            obj.get_severity_display(),
+        )
+    severity_display.short_description = 'Severity'
+
+    def status_display(self, obj):
+        colors = {'OPEN': '#dc3545', 'MONITORING': '#ffc107', 'RESOLVED': '#198754'}
+        return format_html(
+            '<span style="background-color: {}; padding: 3px 8px; border-radius: 3px; color: white;">{}</span>',
+            colors.get(obj.status, '#6c757d'),
+            obj.get_status_display(),
+        )
+    status_display.short_description = 'Status'
