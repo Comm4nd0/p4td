@@ -13,7 +13,7 @@ django-cors-headers==4.3.1
 python-dotenv==1.2.2
 
 # Image processing (thumbnails, EXIF rotation)
-Pillow==10.3.0
+Pillow==12.3.0
 
 # Push notifications
 firebase-admin==7.3.0
@@ -36,7 +36,7 @@ nh3==0.3.5
 # key load (PYSEC-2026-2141). Pinning the version that happened to be installed
 # locally (42.0.7) put a known-vulnerable build under the signature check this
 # dependency exists to perform, and the pip-audit job caught it.
-cryptography==49.0.0
+cryptography==50.0.0
 
 # Error monitoring (optional; only active when SENTRY_DSN is set — see settings.py)
 # Pinned exactly: the old >=2.0,<3.0 range allowed 2.0.x, which predates the
