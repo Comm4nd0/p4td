@@ -1,14 +1,14 @@
-App Lock
+Incident Log
 
-You can now lock the app behind Face ID, Touch ID or your device passcode. Turn it on in your profile.
-Once it's on, the app asks to unlock when you open it, and again if it has been in the background for more than a minute — so switching out to your camera or maps doesn't get in your way.
-Your login is remembered exactly as before; the lock sits over it.
-Roadworks on Your Route
+Staff can now write up an incident — a scuffle, an injury, a dog getting loose — naming every dog involved, what happened, any injuries, and what was done about it, with photos or video attached at the time or added later.
+Each dog on an incident carries its own account, because two dogs in the same scuffle rarely come out of it the same way, and every dog's profile links through to the incidents it has been involved in.
+Incidents are staff only. They are never shown to owners in the app — what an owner is told is a conversation, and staff tick it off per dog as they make it.
 
-The staff dashboard now flags roadworks in force on the day, already matched to the routes and dogs they disrupt.
-A staff member's card is ringed when their route is affected, their dog list carries a banner naming the roadworks, and the pickup map marks each one with a cone pin.
-Weekend Boarding
+Boarding Dogs on the Daycare Roster
 
-The staff dashboard now covers Saturdays and Sundays, so you can see which dogs are staying on any night of the weekend. Daycare is Monday to Friday, so weekend days show boarding only.
-Every boarding entry now shows the dates the stay runs from and to, so a dog going home in the morning reads differently from one staying another week.
-Site Defects is now reachable from the menu.
+A dog that is boarding is now booked into daycare for every weekday of its stay, arrival and going-home day included, so it turns up on the day's roster and headcount rather than only in the boarding list.
+Nothing changes about what a stay costs: the nights are still the only charge.
+
+Elsewhere
+
+Uploading to the feed has moved off the dashboard and onto the feed page, where the post actually lands.
