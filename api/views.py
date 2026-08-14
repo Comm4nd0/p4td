@@ -1655,6 +1655,15 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         elif instance.status != 'PENDING':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can delete a booking that has been approved or denied.')
+        # Release the daycare attendance this stay booked before the stay (and
+        # its dog list) is gone — afterwards there is nothing left to derive it
+        # from, and the rows would sit on the roster forever.
+        if instance.status == 'APPROVED':
+            from .scheduling import clear_boarding_daycare_assignments
+            try:
+                clear_boarding_daycare_assignments(instance)
+            except Exception as e:
+                print(f"Failed to release boarding daycare attendance: {e}")
         instance.delete()
 
     def perform_update(self, serializer):
@@ -1672,7 +1681,43 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
 
         old_start = serializer.instance.start_date
         old_end = serializer.instance.end_date
+        old_dog_ids = set(serializer.instance.dogs.values_list('id', flat=True))
         instance = serializer.save()
+
+        # Moving the dates (or the dogs) of an approved stay moves its daycare
+        # attendance with it: days the stay no longer covers are released,
+        # days it still covers keep whatever progress they already have.
+        if (
+            instance.status == 'APPROVED'
+            and (instance.start_date != old_start or instance.end_date != old_end
+                 or set(instance.dogs.values_list('id', flat=True)) != old_dog_ids)
+        ):
+            from .scheduling import (
+                boarding_daycare_dates, clear_boarding_daycare_assignments,
+                sync_boarding_daycare_assignments,
+            )
+            try:
+                dropped = (
+                    set(boarding_daycare_dates(old_start, old_end))
+                    - set(boarding_daycare_dates(instance.start_date, instance.end_date))
+                )
+                # Dogs taken off the booking are cleared over the whole old
+                # range; the remaining dogs only lose the days that went away.
+                # (A dog dropped from one stay but still covered by another is
+                # re-booked by materialize_boarding_for_date on the next load.)
+                removed_dogs = old_dog_ids - set(instance.dogs.values_list('id', flat=True))
+                if removed_dogs:
+                    from .models import DailyDogAssignment
+                    DailyDogAssignment.objects.filter(
+                        dog_id__in=removed_dogs,
+                        date__in=boarding_daycare_dates(old_start, old_end),
+                        from_boarding=True,
+                    ).delete()
+                if dropped:
+                    clear_boarding_daycare_assignments(instance, dates=sorted(dropped))
+                sync_boarding_daycare_assignments(instance)
+            except Exception as e:
+                print(f"Failed to move boarding daycare attendance: {e}")
 
         # Let the owner know when staff move the dates of their booking.
         if (
@@ -1760,7 +1805,24 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             from_status='PENDING',
             to_status='APPROVED',
         )
+        self._sync_boarding_attendance(instance)
         self._notify_owner_boarding_status(instance, 'APPROVED')
+
+    def _sync_boarding_attendance(self, instance):
+        """Book (or un-book) the stay's dogs into daycare for its weekdays.
+
+        Best-effort: attendance is a convenience on top of the booking, so a
+        failure here must never fail the approval the user actually asked for.
+        """
+        from .scheduling import clear_boarding_daycare_assignments, sync_boarding_daycare_assignments
+
+        try:
+            if instance.status == 'APPROVED':
+                sync_boarding_daycare_assignments(instance)
+            else:
+                clear_boarding_daycare_assignments(instance)
+        except Exception as e:
+            print(f"Failed to sync boarding daycare attendance: {e}")
 
     @action(detail=True, methods=['post'])
     def change_status(self, request, pk=None):
@@ -1816,6 +1878,10 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                 instance.assigned_staff = assigned_staff
         instance.status = new_status
         instance.save()
+
+        # Approving books the stay into daycare; anything else (denied,
+        # cancelled, re-opened to pending) takes those bookings back out.
+        self._sync_boarding_attendance(instance)
 
         self._notify_owner_boarding_status(instance, new_status)
 
@@ -1972,7 +2038,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
     def _materialize_roster_for_date(self, target_date):
         """Create any missing DailyDogAssignment rows for ``target_date`` from
-        the persistent DogWeekdayPickup roster.
+        the persistent DogWeekdayPickup roster, plus any dog boarding that day.
 
         Returns the number of newly created rows. Skips:
           * CLOSED closure days
@@ -1998,6 +2064,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
             return 0
 
+        # Dogs boarding today are in daycare today, booked under the house
+        # "P4TD" account (see api.scheduling). Done here as well as at approval
+        # time so stays approved before this existed — and dogs added to a stay
+        # afterwards — still turn up on the day's roster.
+        from .scheduling import materialize_boarding_for_date
+        boarding_created = materialize_boarding_for_date(target_date)
+
         weekday = target_date.isoweekday()
 
         roster_entries = list(
@@ -2006,7 +2079,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             .select_related('dog', 'staff_member')
         )
         if not roster_entries:
-            return 0
+            return boarding_created
 
         existing_dog_ids = set(
             DailyDogAssignment.objects
@@ -2047,10 +2120,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             ))
 
         if not to_create:
-            return 0
+            return boarding_created
 
         DailyDogAssignment.objects.bulk_create(to_create, ignore_conflicts=True)
-        return len(to_create)
+        return boarding_created + len(to_create)
 
     @action(detail=False, methods=['get'])
     def today(self, request):
@@ -4536,6 +4609,239 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
         from .models import FacilityDefect
         count = FacilityDefect.objects.exclude(status='RESOLVED').count()
         return Response({'count': count})
+
+
+class IncidentViewSet(viewsets.ModelViewSet):
+    """Staff-only incident log — scuffles, bites, injuries, escapes.
+
+    ``permission_classes = [IsAdminUser]`` is the whole confidentiality story:
+    owners get 403 on every route here, including the per-dog listing their own
+    dog appears in. Nothing about an incident is surfaced through the
+    owner-facing dog/feed serializers either, so an owner learns what happened
+    from a conversation, not from the app.
+
+    Filters: ``?dog=<id>`` (what the dog profile's "Incidents" link uses),
+    ``?status=``, ``?severity=``, ``?type=``, ``?open=true``.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        from .serializers import IncidentSerializer, IncidentSummarySerializer
+        # Listing is a scan-and-tap-through view: the compact shape keeps a
+        # year of incidents from dragging every photo and comment with it.
+        if self.action == 'list':
+            return IncidentSummarySerializer
+        return IncidentSerializer
+
+    def get_queryset(self):
+        from .models import Incident
+
+        qs = Incident.objects.select_related('reported_by', 'resolved_by')
+        if self.action == 'list':
+            qs = qs.prefetch_related('dog_entries__dog')
+        else:
+            qs = qs.prefetch_related(
+                'media', 'comments__user', 'staff_present',
+                'dog_entries__dog__owner',
+            )
+        params = self.request.query_params
+        dog_id = params.get('dog')
+        if dog_id:
+            qs = qs.filter(dog_entries__dog_id=dog_id)
+        if params.get('status'):
+            qs = qs.filter(status=params['status'])
+        if params.get('severity'):
+            qs = qs.filter(severity=params['severity'])
+        if params.get('type'):
+            qs = qs.filter(incident_type=params['type'])
+        if params.get('open') == 'true':
+            qs = qs.exclude(status='RESOLVED')
+        # distinct() only matters for the dog filter's join, but it is cheap
+        # and keeps every branch returning one row per incident.
+        return qs.distinct()
+
+    # ---- media ----
+
+    def _media_type_for(self, upload, declared=None):
+        """PHOTO unless the file looks like a video (or the client says so)."""
+        import os as _os
+        from .validators import ALLOWED_VIDEO_EXTENSIONS
+
+        if declared in ('PHOTO', 'VIDEO'):
+            return declared
+        ext = _os.path.splitext(getattr(upload, 'name', '') or '')[1].lower()
+        return 'VIDEO' if ext in ALLOWED_VIDEO_EXTENSIONS else 'PHOTO'
+
+    def _attach_media(self, incident):
+        """Store every uploaded file against the incident.
+
+        Photos are resized and thumbnailed like the rest of the app; videos are
+        stored as-is with a first-frame thumbnail (best-effort — a missing
+        thumbnail must never lose the evidence). Uploads are validated first,
+        so a rejected file 400s instead of landing on disk.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        from .models import IncidentMedia
+        from .validators import validate_media_upload
+
+        files = self.request.FILES.getlist('media') or self.request.FILES.getlist('images')
+        declared = self.request.data.get('media_type') if hasattr(self.request.data, 'get') else None
+        created = []
+        for upload in files:
+            media_type = self._media_type_for(upload, declared)
+            try:
+                validate_media_upload(upload, media_type)
+            except DjangoValidationError as exc:
+                raise DRFValidationError({'media': exc.messages})
+
+            if media_type == 'VIDEO':
+                thumbnail = generate_video_thumbnail(upload)
+                stored = upload
+            else:
+                stored, thumbnail = process_image_pair(upload, main_size=(1600, 1600))
+
+            created.append(IncidentMedia.objects.create(
+                incident=incident,
+                media_type=media_type,
+                file=stored,
+                thumbnail=thumbnail,
+                uploaded_by=self.request.user,
+            ))
+        return created
+
+    def perform_create(self, serializer):
+        incident = serializer.save(reported_by=self.request.user)
+        self._attach_media(incident)
+        self._notify_new_incident(incident)
+
+    def perform_destroy(self, instance):
+        """Only a superuser can delete an incident.
+
+        An incident is the contemporaneous account of something that went
+        wrong — the thing an owner, a vet or an insurer may ask about months
+        later. Any staff member can correct one (edit the write-up, add
+        photos) or close it out; taking it off the books entirely is a
+        deliberate, admin-level act.
+        """
+        if not self.request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only an administrator can delete an incident record.')
+        instance.delete()
+
+    def _notify_new_incident(self, incident):
+        """Tell the rest of the team. Staff-wide on purpose: whoever has the
+        dogs next needs to know, not just the managers."""
+        try:
+            from .notifications import send_staff_notification
+            reporter = self.request.user.first_name or self.request.user.username
+            dogs = ', '.join(entry.dog.name for entry in incident.dog_entries.select_related('dog'))
+            body = f"{reporter} logged '{incident.title}'"
+            if dogs:
+                body += f" — {dogs}"
+            body += f" ({incident.get_severity_display().lower()})"
+            send_staff_notification(
+                'Incident logged',
+                body,
+                {'type': 'incident', 'id': str(incident.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                exclude_user=self.request.user,
+            )
+        except Exception as e:
+            print(f"Failed to send incident notification: {e}")
+
+    @action(detail=True, methods=['post'])
+    def add_media(self, request, pk=None):
+        incident = self.get_object()
+        self._attach_media(incident)
+        incident = self.get_queryset().get(pk=incident.pk)
+        return Response(self.get_serializer(incident).data)
+
+    @action(detail=True, methods=['delete'], url_path='media/(?P<media_id>[0-9]+)')
+    def delete_media(self, request, pk=None, media_id=None):
+        incident = self.get_object()
+        deleted, _ = incident.media.filter(id=media_id).delete()
+        if not deleted:
+            return Response({'detail': 'Not found'}, status=404)
+        incident = self.get_queryset().get(pk=incident.pk)
+        return Response(self.get_serializer(incident).data)
+
+    # ---- status / follow-up ----
+
+    @action(detail=True, methods=['post'])
+    def change_status(self, request, pk=None):
+        from .models import Incident
+
+        incident = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(Incident.STATUS_CHOICES):
+            return Response({'detail': 'Invalid status'}, status=400)
+
+        notes = (request.data.get('resolution_notes') or '').strip()
+        if incident.status == new_status and not notes:
+            return Response(self.get_serializer(incident).data)
+
+        incident.status = new_status
+        if notes:
+            incident.resolution_notes = notes
+        if new_status == 'RESOLVED':
+            incident.resolved_by = request.user
+            incident.resolved_at = timezone.now()
+        else:
+            incident.resolved_by = None
+            incident.resolved_at = None
+        incident.save()
+
+        if incident.reported_by and incident.reported_by != request.user:
+            try:
+                from .notifications import send_push_notification
+                send_push_notification(
+                    incident.reported_by,
+                    'Incident update',
+                    f"'{incident.title}' is now {incident.get_status_display()}.",
+                    {'type': 'incident', 'id': str(incident.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                )
+            except Exception as e:
+                print(f"Failed to send incident status notification: {e}")
+
+        incident = self.get_queryset().get(pk=incident.pk)
+        return Response(self.get_serializer(incident).data)
+
+    @action(detail=True, methods=['post'])
+    def comment(self, request, pk=None):
+        from .models import IncidentComment
+
+        incident = self.get_object()
+        text = (request.data.get('text') or '').strip()
+        if not text:
+            return Response({'detail': 'Text is required'}, status=400)
+        IncidentComment.objects.create(incident=incident, user=request.user, text=text)
+        incident = self.get_queryset().get(pk=incident.pk)
+        return Response(self.get_serializer(incident).data)
+
+    @action(detail=True, methods=['post'])
+    def owner_notified(self, request, pk=None):
+        """Record that a dog's owner has been told (or un-record it).
+
+        Body: ``{"dog": <dog id>, "notified": true}``. This only tracks the
+        conversation staff had — no notification is sent to the owner from
+        here, and nothing about the incident is exposed to them.
+        """
+        incident = self.get_object()
+        dog_id = request.data.get('dog')
+        entry = incident.dog_entries.filter(dog_id=dog_id).first()
+        if entry is None:
+            return Response({'detail': 'That dog is not on this incident.'}, status=404)
+        notified = _truthy(request.data.get('notified', True))
+        entry.owner_notified = notified
+        entry.owner_notified_at = timezone.now() if notified else None
+        entry.save(update_fields=['owner_notified', 'owner_notified_at'])
+        incident = self.get_queryset().get(pk=incident.pk)
+        return Response(self.get_serializer(incident).data)
+
+    @action(detail=False, methods=['get'])
+    def open_count(self, request):
+        from .models import Incident
+        return Response({'count': Incident.objects.exclude(status='RESOLVED').count()})
 
 
 class IntakeRequestViewSet(viewsets.ModelViewSet):

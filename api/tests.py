@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest import skipUnless
@@ -9165,3 +9166,413 @@ class SnsVerificationTests(TestCase):
 
         self.assertFalse(confirm_subscription(
             {'SubscribeURL': 'https://evil.example.com/confirm'}))
+
+
+# =============================================================================
+# INCIDENTS
+# =============================================================================
+
+class IncidentApiTests(TestCase):
+    """The incident log: staff-only, tied to the dogs involved."""
+
+    def setUp(self):
+        from .models import Incident  # noqa: F401 (model import sanity)
+        self.owner = User.objects.create_user(username='incowner', password='pw')
+        self.other_owner = User.objects.create_user(username='incowner2', password='pw')
+        self.staff = User.objects.create_user(username='incstaff', password='pw', is_staff=True)
+        self.staff2 = User.objects.create_user(username='incstaff2', password='pw', is_staff=True)
+        self.dog_a = Dog.objects.create(owner=self.owner, name='Rocky')
+        self.dog_b = Dog.objects.create(owner=self.other_owner, name='Milo')
+        self.client = APIClient()
+
+    def _create(self, **overrides):
+        payload = {
+            'title': 'Scuffle in the paddock',
+            'incident_type': 'SCUFFLE',
+            'severity': 'MEDIUM',
+            'description': 'Rocky and Milo went at each other over a ball.',
+            'dog_entries': json.dumps([
+                {'dog': self.dog_a.id, 'role': 'INSTIGATOR'},
+                {'dog': self.dog_b.id, 'role': 'INJURED', 'injuries': 'Nicked ear'},
+            ]),
+        }
+        payload.update(overrides)
+        return self.client.post('/api/incidents/', payload, format='multipart')
+
+    def test_staff_can_log_incident_with_dogs(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            resp = self._create()
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(len(resp.data['dogs_involved']), 2)
+        roles = {d['dog_name']: d['role'] for d in resp.data['dogs_involved']}
+        self.assertEqual(roles, {'Rocky': 'INSTIGATOR', 'Milo': 'INJURED'})
+        self.assertEqual(resp.data['reported_by_name'], 'incstaff')
+        self.assertEqual(resp.data['status'], 'OPEN')
+
+    def test_dog_entries_accepts_plain_ids(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            resp = self._create(dog_entries=json.dumps([self.dog_a.id]))
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['dogs_involved'][0]['role'], 'INVOLVED')
+
+    def test_unknown_dog_rejected(self):
+        self.client.login(username='incstaff', password='pw')
+        resp = self._create(dog_entries=json.dumps([999999]))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_owners_cannot_see_or_create_incidents(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        incident_id = created.data['id']
+
+        self.client.logout()
+        self.client.login(username='incowner', password='pw')
+        # ...not even for their own dog.
+        self.assertEqual(self.client.get('/api/incidents/').status_code, 403)
+        self.assertEqual(
+            self.client.get(f'/api/incidents/{incident_id}/').status_code, 403)
+        self.assertEqual(
+            self.client.get(f'/api/incidents/?dog={self.dog_a.id}').status_code, 403)
+        self.assertEqual(self._create().status_code, 403)
+
+    def test_filter_by_dog(self):
+        from .models import Incident, IncidentDog
+
+        self.client.login(username='incstaff', password='pw')
+        both = Incident.objects.create(title='Both', description='x', reported_by=self.staff)
+        IncidentDog.objects.create(incident=both, dog=self.dog_a)
+        IncidentDog.objects.create(incident=both, dog=self.dog_b)
+        only_b = Incident.objects.create(title='Only Milo', description='x')
+        IncidentDog.objects.create(incident=only_b, dog=self.dog_b)
+
+        resp = self.client.get(f'/api/incidents/?dog={self.dog_a.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([i['title'] for i in resp.data], ['Both'])
+
+        resp = self.client.get(f'/api/incidents/?dog={self.dog_b.id}')
+        self.assertEqual({i['title'] for i in resp.data}, {'Both', 'Only Milo'})
+
+    def test_change_status_stamps_resolver_and_open_count(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        incident_id = created.data['id']
+
+        self.assertEqual(self.client.get('/api/incidents/open_count/').data['count'], 1)
+
+        self.client.logout()
+        self.client.login(username='incstaff2', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.post(
+                f'/api/incidents/{incident_id}/change_status/',
+                {'status': 'RESOLVED', 'resolution_notes': 'Ear healed, kept apart since.'},
+                format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'RESOLVED')
+        self.assertEqual(resp.data['resolved_by_name'], 'incstaff2')
+        self.assertIsNotNone(resp.data['resolved_at'])
+        self.assertEqual(resp.data['resolution_notes'], 'Ear healed, kept apart since.')
+        # The person who wrote it up hears when it's closed out.
+        mock_push.assert_called_once()
+        self.assertEqual(self.client.get('/api/incidents/open_count/').data['count'], 0)
+
+    def test_monitoring_still_counts_as_open(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        self.client.post(f"/api/incidents/{created.data['id']}/change_status/",
+                         {'status': 'MONITORING'}, format='json')
+        self.assertEqual(self.client.get('/api/incidents/open_count/').data['count'], 1)
+
+    def test_comment_and_owner_notified(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        incident_id = created.data['id']
+
+        resp = self.client.post(f'/api/incidents/{incident_id}/comment/',
+                                {'text': 'Stitches out Friday'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['comments']), 1)
+        self.assertEqual(resp.data['comments'][0]['text'], 'Stitches out Friday')
+
+        resp = self.client.post(f'/api/incidents/{incident_id}/owner_notified/',
+                                {'dog': self.dog_b.id, 'notified': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        entry = next(d for d in resp.data['dogs_involved'] if d['dog'] == self.dog_b.id)
+        self.assertTrue(entry['owner_notified'])
+        self.assertIsNotNone(entry['owner_notified_at'])
+
+        # ...and can be taken back off if it was ticked by mistake.
+        resp = self.client.post(f'/api/incidents/{incident_id}/owner_notified/',
+                                {'dog': self.dog_b.id, 'notified': False}, format='json')
+        entry = next(d for d in resp.data['dogs_involved'] if d['dog'] == self.dog_b.id)
+        self.assertFalse(entry['owner_notified'])
+        self.assertIsNone(entry['owner_notified_at'])
+
+    def test_owner_notified_rejects_dog_not_on_incident(self):
+        from .models import Incident
+
+        self.client.login(username='incstaff', password='pw')
+        incident = Incident.objects.create(title='Solo', description='x')
+        resp = self.client.post(f'/api/incidents/{incident.id}/owner_notified/',
+                                {'dog': self.dog_a.id}, format='json')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_media_upload_and_removal(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            resp = self._create(media=_test_image_file('wound.jpg'))
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(len(resp.data['media']), 1)
+        self.assertEqual(resp.data['media'][0]['media_type'], 'PHOTO')
+        self.assertTrue(resp.data['media'][0]['file'])
+        self.assertTrue(resp.data['media'][0]['thumbnail'])
+
+        incident_id = resp.data['id']
+        media_id = resp.data['media'][0]['id']
+        resp = self.client.post(f'/api/incidents/{incident_id}/add_media/',
+                                {'media': _test_image_file('second.jpg')}, format='multipart')
+        self.assertEqual(len(resp.data['media']), 2)
+
+        resp = self.client.delete(f'/api/incidents/{incident_id}/media/{media_id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['media']), 1)
+
+    def test_media_upload_rejects_disallowed_file_type(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.login(username='incstaff', password='pw')
+        evil = SimpleUploadedFile('payload.html', b'<script>alert(1)</script>',
+                                  content_type='text/html')
+        resp = self._create(media=evil)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_staff_present_accepts_json_list_and_rejects_owners(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            resp = self._create(staff_present=json.dumps([self.staff2.id]))
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['staff_present_names'], ['incstaff2'])
+
+        resp = self._create(staff_present=json.dumps([self.owner.id]))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_editing_keeps_owner_notified_stamp_for_dogs_that_stay(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        incident_id = created.data['id']
+        self.client.post(f'/api/incidents/{incident_id}/owner_notified/',
+                         {'dog': self.dog_a.id, 'notified': True}, format='json')
+
+        # Drop dog B from the write-up; dog A stays and keeps its stamp.
+        resp = self.client.patch(
+            f'/api/incidents/{incident_id}/',
+            {'dog_entries': json.dumps([{'dog': self.dog_a.id, 'role': 'INVOLVED'}])},
+            format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(len(resp.data['dogs_involved']), 1)
+        entry = resp.data['dogs_involved'][0]
+        self.assertEqual(entry['dog'], self.dog_a.id)
+        self.assertTrue(entry['owner_notified'])
+        self.assertIsNotNone(entry['owner_notified_at'])
+
+    def test_only_a_superuser_can_delete_an_incident(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        incident_id = created.data['id']
+        self.assertEqual(
+            self.client.delete(f'/api/incidents/{incident_id}/').status_code, 403)
+
+        admin = User.objects.create_user(
+            username='incadmin', password='pw', is_staff=True, is_superuser=True)
+        self.client.force_authenticate(user=admin)
+        self.assertEqual(
+            self.client.delete(f'/api/incidents/{incident_id}/').status_code, 204)
+
+    def test_deleting_a_dog_leaves_the_incident_standing(self):
+        self.client.login(username='incstaff', password='pw')
+        with patch('api.notifications.send_staff_notification'):
+            created = self._create()
+        incident_id = created.data['id']
+        self.dog_b.delete()
+        resp = self.client.get(f'/api/incidents/{incident_id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([d['dog_name'] for d in resp.data['dogs_involved']], ['Rocky'])
+
+
+# =============================================================================
+# BOARDING → DAYCARE ATTENDANCE
+# =============================================================================
+
+class BoardingDaycareAttendanceTests(TestCase):
+    """A boarding dog is here all week, so it is booked into daycare on every
+    weekday of its stay — arrival and departure days included — under the
+    business's own P4TD account."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='bdowner', password='pw')
+        self.manager = User.objects.create_user(username='bdmanager', password='pw', is_staff=True)
+        self.manager.profile.can_manage_boarding = True
+        self.manager.profile.save()
+        self.driver = User.objects.create_user(username='bddriver', password='pw', is_staff=True)
+        self.house = User.objects.create_user(username='P4TD', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Nala', daycare_days=[3])
+        self.client = APIClient()
+        # Mon 6 Apr 2026 → Sun 12 Apr 2026.
+        self.monday = date(2026, 4, 6)
+        self.sunday = date(2026, 4, 12)
+
+    def _stay(self, start=None, end=None, status='PENDING'):
+        stay = BoardingRequest.objects.create(
+            owner=self.owner,
+            start_date=start or self.monday,
+            end_date=end or self.sunday,
+            status=status,
+        )
+        stay.dogs.add(self.dog)
+        return stay
+
+    def _approve(self, stay):
+        self.client.login(username='bdmanager', password='pw')
+        with patch('api.notifications.send_push_notification'):
+            return self.client.post(f'/api/boarding-requests/{stay.id}/change_status/',
+                                    {'status': 'APPROVED'}, format='json')
+
+    def _dates(self):
+        return sorted(
+            DailyDogAssignment.objects
+            .filter(dog=self.dog, staff_member=self.house)
+            .values_list('date', flat=True)
+        )
+
+    def test_approval_books_every_weekday_including_the_last(self):
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))  # Mon–Fri
+        self.assertEqual(self._approve(stay).status_code, 200)
+        self.assertEqual(
+            self._dates(),
+            [date(2026, 4, d) for d in range(6, 11)],
+        )
+        for assignment in DailyDogAssignment.objects.filter(dog=self.dog):
+            self.assertEqual(assignment.status, 'ASSIGNED')
+            self.assertTrue(assignment.from_boarding)
+
+    def test_weekend_days_are_skipped(self):
+        stay = self._stay()  # Mon–Sun
+        self._approve(stay)
+        self.assertNotIn(date(2026, 4, 11), self._dates())  # Saturday
+        self.assertNotIn(date(2026, 4, 12), self._dates())  # Sunday
+        self.assertIn(date(2026, 4, 10), self._dates())     # Friday
+
+    def test_closed_days_are_skipped(self):
+        ClosureDay.objects.create(date=date(2026, 4, 8), closure_type='CLOSED')
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.assertNotIn(date(2026, 4, 8), self._dates())
+
+    def test_existing_daycare_day_is_repointed_to_the_house_account(self):
+        # Wednesday is the dog's normal daycare day with its normal driver.
+        existing = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=date(2026, 4, 8))
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        existing.refresh_from_db()
+        self.assertEqual(existing.staff_member, self.house)
+        self.assertTrue(existing.from_boarding)
+
+    def test_days_staff_removed_the_dog_from_are_left_alone(self):
+        removed = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=date(2026, 4, 8), status='REMOVED')
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        removed.refresh_from_db()
+        self.assertEqual(removed.status, 'REMOVED')
+        self.assertEqual(removed.staff_member, self.driver)
+
+    def test_cancelling_releases_the_bookings_it_made(self):
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.assertEqual(len(self._dates()), 5)
+
+        with patch('api.notifications.send_push_notification'):
+            resp = self.client.post(f'/api/boarding-requests/{stay.id}/change_status/',
+                                    {'status': 'CANCELLED'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._dates(), [])
+
+    def test_cancelling_leaves_manual_attendance_alone(self):
+        manual = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=date(2026, 4, 9))
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        with patch('api.notifications.send_push_notification'):
+            self.client.post(f'/api/boarding-requests/{stay.id}/change_status/',
+                             {'status': 'CANCELLED'}, format='json')
+        # The row staff created by hand survives — but it was re-pointed at the
+        # house account while the stay stood, so it is cleared like the rest.
+        self.assertFalse(DailyDogAssignment.objects.filter(id=manual.id).exists())
+
+    def test_cancelling_one_stay_leaves_a_consecutive_stay_alone(self):
+        first = self._stay(start=self.monday, end=date(2026, 4, 7))
+        self._approve(first)
+        second = self._stay(start=date(2026, 4, 8), end=date(2026, 4, 9))
+        self.assertEqual(self._approve(second).status_code, 200)
+        with patch('api.notifications.send_push_notification'):
+            self.client.post(f'/api/boarding-requests/{first.id}/change_status/',
+                             {'status': 'CANCELLED'}, format='json')
+        # Only the cancelled stay's days go; the next booking keeps its own.
+        self.assertEqual(self._dates(), [date(2026, 4, 8), date(2026, 4, 9)])
+
+    def test_moving_the_dates_moves_the_attendance(self):
+        stay = self._stay(start=self.monday, end=date(2026, 4, 8))
+        self._approve(stay)
+        self.assertEqual(self._dates(), [date(2026, 4, 6), date(2026, 4, 7), date(2026, 4, 8)])
+
+        with patch('api.notifications.send_push_notification'):
+            resp = self.client.patch(
+                f'/api/boarding-requests/{stay.id}/',
+                {'start_date': '2026-04-08', 'end_date': '2026-04-10',
+                 'dogs': [self.dog.id]},
+                format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(self._dates(), [date(2026, 4, 8), date(2026, 4, 9), date(2026, 4, 10)])
+
+    def test_no_house_account_means_no_change(self):
+        self.house.delete()
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog).exists())
+
+    def test_boarding_days_are_not_billed_as_daycare(self):
+        """The whole point of it being safe: attendance for a boarded day is
+        already excluded from the daycare charge."""
+        from .billing import attendance_for_month
+
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.assertEqual(len(self._dates()), 5)
+        self.assertEqual(attendance_for_month(2026, 4), {})
+
+    def test_loading_a_day_books_a_stay_approved_earlier(self):
+        """Stays approved before this existed (or dogs added afterwards) are
+        picked up when the day is loaded."""
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10), status='APPROVED')
+        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog).exists())
+
+        target = self.monday
+        with patch('api.views.timezone.localdate', return_value=target):
+            self.client.login(username='bdmanager', password='pw')
+            resp = self.client.get(f'/api/daily-assignments/today/?date={target.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            list(DailyDogAssignment.objects
+                 .filter(dog=self.dog, date=target)
+                 .values_list('staff_member', flat=True)),
+            [self.house.id],
+        )
+        self.assertEqual(stay.status, 'APPROVED')

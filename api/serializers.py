@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -1220,3 +1220,322 @@ class InvoiceSerializer(serializers.ModelSerializer):
             data.pop('xero_sync_error', None)
             data.pop('xero_emailed_at', None)
         return data
+
+
+# =============================================================================
+# INCIDENTS (staff-only)
+# =============================================================================
+
+class IncidentMediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IncidentMedia
+        fields = ['id', 'media_type', 'file', 'thumbnail', 'caption', 'created_at']
+        read_only_fields = fields
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request:
+            if instance.file:
+                data['file'] = request.build_absolute_uri(instance.file.url)
+            if instance.thumbnail:
+                data['thumbnail'] = request.build_absolute_uri(instance.thumbnail.url)
+        return data
+
+
+class IncidentCommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IncidentComment
+        fields = ['id', 'user', 'user_name', 'text', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
+
+    def get_user_name(self, obj):
+        return obj.user.first_name or obj.user.username
+
+
+class IncidentDogSerializer(serializers.ModelSerializer):
+    """One dog's involvement, read side. Writes go through
+    :class:`IncidentSerializer`'s ``dog_entries``."""
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+    owner_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IncidentDog
+        fields = ['id', 'dog', 'dog_name', 'owner_name', 'role', 'role_display',
+                  'injuries', 'owner_notified', 'owner_notified_at']
+        read_only_fields = ['id', 'dog_name', 'role_display', 'owner_name', 'owner_notified_at']
+
+    def get_owner_name(self, obj):
+        owner = obj.dog.owner
+        if owner is None:
+            return None
+        return owner.first_name or owner.username
+
+
+class IncidentDogEntriesField(serializers.Field):
+    """Write-side field for the dogs involved.
+
+    Accepts either shape, because the app posts an incident as multipart (it
+    carries photos) and multipart cannot nest:
+
+      * a list of dog ids — ``[3, 7]`` or the repeated form fields
+        ``dog_entries=3&dog_entries=7``
+      * a list of dicts — ``[{"dog": 3, "role": "INJURED", "injuries": "..."}]``
+      * a JSON *string* of either of the above, which is how multipart sends it
+
+    Order is preserved and duplicates collapse to the last entry, so a form
+    that lists a dog twice doesn't trip the (incident, dog) uniqueness.
+    """
+
+    default_error_messages = {
+        'invalid': 'Expected a list of dog ids or dog entry objects.',
+        'invalid_dog': 'Dog {dog_id} does not exist.',
+        'invalid_role': '"{role}" is not a valid role.',
+    }
+
+    def get_value(self, dictionary):
+        # QueryDict (multipart/form-encoded): take every repeat of the key.
+        if hasattr(dictionary, 'getlist'):
+            values = dictionary.getlist(self.field_name)
+            if not values:
+                return serializers.empty
+            # A single value may itself be a JSON blob; unwrap in to_internal_value.
+            return values[0] if len(values) == 1 else values
+        return dictionary.get(self.field_name, serializers.empty)
+
+    def to_internal_value(self, data):
+        import json as _json
+
+        if isinstance(data, str):
+            try:
+                data = _json.loads(data)
+            except ValueError:
+                # A bare "3" or a "3,7" list from a form field.
+                data = [part.strip() for part in data.split(',') if part.strip()]
+        if isinstance(data, (dict, int)):
+            # A single entry, or a single bare id from a form field.
+            data = [data]
+        if not isinstance(data, (list, tuple)):
+            self.fail('invalid')
+
+        valid_roles = dict(IncidentDog.ROLE_CHOICES)
+        entries = {}
+        for item in data:
+            if isinstance(item, str):
+                try:
+                    item = _json.loads(item)
+                except ValueError:
+                    pass
+            if isinstance(item, dict):
+                raw_id = item.get('dog', item.get('dog_id'))
+                role = item.get('role') or 'INVOLVED'
+                injuries = item.get('injuries') or ''
+                # None (rather than False) when the key is absent: an edit that
+                # doesn't mention it must not un-tell an owner who was told.
+                owner_notified = (
+                    bool(item['owner_notified']) if 'owner_notified' in item else None
+                )
+            else:
+                raw_id, role, injuries, owner_notified = item, 'INVOLVED', '', None
+            try:
+                dog_id = int(raw_id)
+            except (TypeError, ValueError):
+                self.fail('invalid')
+            if role not in valid_roles:
+                self.fail('invalid_role', role=role)
+            entries[dog_id] = {
+                'dog_id': dog_id,
+                'role': role,
+                'injuries': injuries,
+                'owner_notified': owner_notified,
+            }
+
+        if entries:
+            existing = set(Dog.objects.filter(id__in=entries).values_list('id', flat=True))
+            missing = [dog_id for dog_id in entries if dog_id not in existing]
+            if missing:
+                self.fail('invalid_dog', dog_id=missing[0])
+        return list(entries.values())
+
+    def to_representation(self, value):  # pragma: no cover - write-only in practice
+        return value
+
+
+class StaffPresentField(serializers.Field):
+    """The staff who were there.
+
+    Same multipart problem as ``dog_entries``: a form post can't nest, and
+    ``http.MultipartRequest.fields`` is a plain map so it can't repeat a key
+    either. Accepts repeated form keys, a JSON list, a comma-separated string,
+    or a single id. Only staff accounts are accepted — an owner has no business
+    appearing in the staff column of a record they can't see.
+    """
+
+    default_error_messages = {
+        'invalid': 'Expected a list of staff user ids.',
+        'not_staff': 'User {user_id} is not a staff member.',
+    }
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, 'getlist'):
+            values = dictionary.getlist(self.field_name)
+            if not values:
+                return serializers.empty
+            return values[0] if len(values) == 1 else values
+        return dictionary.get(self.field_name, serializers.empty)
+
+    def to_internal_value(self, data):
+        import json as _json
+        from django.contrib.auth.models import User as AuthUser
+
+        if isinstance(data, str):
+            try:
+                data = _json.loads(data)
+            except ValueError:
+                data = [part.strip() for part in data.split(',') if part.strip()]
+        if isinstance(data, int):
+            data = [data]
+        if not isinstance(data, (list, tuple)):
+            self.fail('invalid')
+
+        ids = []
+        for item in data:
+            try:
+                ids.append(int(item))
+            except (TypeError, ValueError):
+                self.fail('invalid')
+        if ids:
+            staff = set(AuthUser.objects.filter(id__in=ids, is_staff=True).values_list('id', flat=True))
+            for user_id in ids:
+                if user_id not in staff:
+                    self.fail('not_staff', user_id=user_id)
+        return ids
+
+    def to_representation(self, value):  # pragma: no cover - write-only in practice
+        return [user.id for user in value.all()]
+
+
+class IncidentSerializer(serializers.ModelSerializer):
+    dog_entries = IncidentDogEntriesField(required=False, write_only=True)
+    staff_present = StaffPresentField(required=False, write_only=True)
+    staff_present_ids = serializers.PrimaryKeyRelatedField(
+        source='staff_present', many=True, read_only=True)
+    dogs_involved = IncidentDogSerializer(source='dog_entries', many=True, read_only=True)
+    media = IncidentMediaSerializer(many=True, read_only=True)
+    comments = IncidentCommentSerializer(many=True, read_only=True)
+    reported_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    staff_present_names = serializers.SerializerMethodField()
+    type_display = serializers.CharField(source='get_incident_type_display', read_only=True)
+    severity_display = serializers.CharField(source='get_severity_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Incident
+        fields = [
+            'id', 'title', 'incident_type', 'type_display', 'severity', 'severity_display',
+            'status', 'status_display', 'occurred_at', 'location', 'description',
+            'injuries', 'action_taken', 'vet_required', 'vet_details',
+            'staff_present', 'staff_present_ids', 'staff_present_names',
+            'reported_by', 'reported_by_name', 'resolved_by_name', 'resolved_at',
+            'resolution_notes', 'dog_entries', 'dogs_involved', 'media', 'comments',
+            'created_at', 'updated_at',
+        ]
+        # Status moves through the change_status action so it always stamps
+        # resolved_by/resolved_at — same contract as the defect reports.
+        read_only_fields = ['id', 'status', 'reported_by', 'resolved_at', 'created_at', 'updated_at']
+
+    def get_reported_by_name(self, obj):
+        if obj.reported_by:
+            return obj.reported_by.first_name or obj.reported_by.username
+        return None
+
+    def get_resolved_by_name(self, obj):
+        if obj.resolved_by:
+            return obj.resolved_by.first_name or obj.resolved_by.username
+        return None
+
+    def get_staff_present_names(self, obj):
+        return [u.first_name or u.username for u in obj.staff_present.all()]
+
+    def validate_dog_entries(self, value):
+        # A dog-less incident is allowed to exist (site damage, a vehicle
+        # knock), but if the key is sent it must not be empty on create — that
+        # is nearly always a form that failed to attach its selection.
+        if self.instance is None and not value:
+            raise serializers.ValidationError('Name at least one dog, or omit this field entirely.')
+        return value
+
+    def _sync_dog_entries(self, incident, entries):
+        """Replace the incident's dog involvements with ``entries``.
+
+        Dropped dogs lose their involvement row; dogs already attached keep
+        their ``owner_notified_at`` stamp rather than being re-created, so
+        editing an incident's account doesn't erase who has been told.
+        """
+        from django.utils import timezone
+
+        keep_ids = [entry['dog_id'] for entry in entries]
+        incident.dog_entries.exclude(dog_id__in=keep_ids).delete()
+        existing = {e.dog_id: e for e in incident.dog_entries.all()}
+        for entry in entries:
+            notified = entry['owner_notified']
+            row = existing.get(entry['dog_id'])
+            if row is None:
+                IncidentDog.objects.create(
+                    incident=incident,
+                    dog_id=entry['dog_id'],
+                    role=entry['role'],
+                    injuries=entry['injuries'],
+                    owner_notified=bool(notified),
+                    owner_notified_at=timezone.now() if notified else None,
+                )
+                continue
+            row.role = entry['role']
+            row.injuries = entry['injuries']
+            if notified is not None and notified != row.owner_notified:
+                row.owner_notified = notified
+                row.owner_notified_at = timezone.now() if notified else None
+            row.save()
+
+    def create(self, validated_data):
+        entries = validated_data.pop('dog_entries', [])
+        staff_present = validated_data.pop('staff_present', None)
+        incident = Incident.objects.create(**validated_data)
+        if staff_present:
+            incident.staff_present.set(staff_present)
+        self._sync_dog_entries(incident, entries)
+        return incident
+
+    def update(self, instance, validated_data):
+        entries = validated_data.pop('dog_entries', None)
+        staff_present = validated_data.pop('staff_present', None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save()
+        if staff_present is not None:
+            instance.staff_present.set(staff_present)
+        if entries is not None:
+            self._sync_dog_entries(instance, entries)
+        return instance
+
+
+class IncidentSummarySerializer(serializers.ModelSerializer):
+    """The compact shape the dog profile lists — enough to show what happened
+    and tap through, without dragging every photo and comment along."""
+    type_display = serializers.CharField(source='get_incident_type_display', read_only=True)
+    severity_display = serializers.CharField(source='get_severity_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    dog_names = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Incident
+        fields = ['id', 'title', 'incident_type', 'type_display', 'severity', 'severity_display',
+                  'status', 'status_display', 'occurred_at', 'dog_names']
+        read_only_fields = fields
+
+    def get_dog_names(self, obj):
+        return [entry.dog.name for entry in obj.dog_entries.all()]

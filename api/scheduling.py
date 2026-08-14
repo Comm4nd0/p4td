@@ -244,3 +244,235 @@ def process_waitlist_for_date(target_date):
         entry.save(update_fields=['status', 'notified_at'])
         notified += 1
     return notified
+
+
+# =============================================================================
+# BOARDING → DAYCARE ATTENDANCE
+# =============================================================================
+#
+# A boarding dog is here all week, so it is in daycare every weekday of its
+# stay — arrival day and going-home day included. The dog isn't out on a
+# driver's route on those days (the boarding carer already has it, and the
+# transport legs in DailyDogAssignment.needs_staff_pickup / _dropoff only exist
+# on the edges of the stay), so its attendance is booked under the business's
+# own "P4TD" account rather than a driver.
+#
+# This is billing-neutral by construction: billing.attendance_for_month skips
+# any (dog, date) inside an approved stay, so these rows are never charged as
+# daycare on top of the boarding nights. They exist so the dog shows up on the
+# day's roster, in headcount and capacity, and on the day board — instead of
+# living only in the "boarding" list off to one side.
+
+# The business's own pseudo-staff account, matched case-insensitively.
+HOUSE_STAFF_USERNAME = 'p4td'
+
+# Boarding covers weekends; daycare doesn't. Mon–Fri only.
+DAYCARE_WEEKDAYS = (1, 2, 3, 4, 5)
+
+
+def house_staff_account():
+    """The 'P4TD' pseudo-staff account, or None if it doesn't exist.
+
+    Matched on username first, then first name, so it works whichever way the
+    account was set up. Callers treat None as "leave attendance alone" rather
+    than inventing an account or silently assigning a real staff member.
+    """
+    from django.contrib.auth.models import User
+
+    staff = User.objects.filter(is_staff=True)
+    return (
+        staff.filter(username__iexact=HOUSE_STAFF_USERNAME).first()
+        or staff.filter(first_name__iexact=HOUSE_STAFF_USERNAME).first()
+    )
+
+
+def boarding_daycare_dates(start, end):
+    """The days of a stay the dog should be booked into daycare on.
+
+    Every date from arrival to departure inclusive that falls Mon–Fri and
+    isn't a CLOSED closure day.
+    """
+    from .models import ClosureDay
+
+    days = [d for d in daterange(start, end) if d.isoweekday() in DAYCARE_WEEKDAYS]
+    if not days:
+        return []
+    closed = set(
+        ClosureDay.objects
+        .filter(date__in=days, closure_type='CLOSED')
+        .values_list('date', flat=True)
+    )
+    return [d for d in days if d not in closed]
+
+
+def sync_boarding_daycare_assignments(boarding_request):
+    """Book an approved stay's dogs into daycare for every weekday it covers.
+
+    Creates the missing ``DailyDogAssignment`` rows against the house account
+    and moves rows that already exist (the dog's normal daycare day, with its
+    normal driver) onto it too — that is what "assigned to P4TD throughout the
+    stay" means for a dog whose stay overlaps its own daycare days.
+
+    Left alone:
+      * REMOVED rows — staff have explicitly said the dog isn't attending.
+      * anything outside Mon–Fri, and CLOSED days.
+
+    Called from the deliberate moments — approval, and a date/dog change on an
+    approved stay. The day-load path is :func:`materialize_boarding_for_date`,
+    which only fills gaps so it can never undo a later manual reassignment.
+
+    Returns the number of rows created or changed. A no-op when the stay isn't
+    APPROVED, or when there is no house account to assign to.
+    """
+    from .models import DailyDogAssignment
+
+    if boarding_request.status != 'APPROVED':
+        return 0
+    house = house_staff_account()
+    if house is None:
+        return 0
+
+    dates = boarding_daycare_dates(boarding_request.start_date, boarding_request.end_date)
+    if not dates:
+        return 0
+
+    dog_ids = list(boarding_request.dogs.values_list('id', flat=True))
+    if not dog_ids:
+        return 0
+
+    existing = {
+        (row.dog_id, row.date): row
+        for row in DailyDogAssignment.objects.filter(dog_id__in=dog_ids, date__in=dates)
+    }
+
+    touched = 0
+    to_create = []
+    for dog_id in dog_ids:
+        for day in dates:
+            row = existing.get((dog_id, day))
+            if row is None:
+                to_create.append(DailyDogAssignment(
+                    dog_id=dog_id,
+                    staff_member=house,
+                    date=day,
+                    status='ASSIGNED',
+                    from_boarding=True,
+                ))
+                touched += 1
+                continue
+            if row.status == 'REMOVED':
+                continue
+            if row.staff_member_id == house.id and row.status == 'ASSIGNED' and row.from_boarding:
+                continue
+            row.staff_member = house
+            row.status = 'ASSIGNED'
+            row.from_boarding = True
+            row.save(update_fields=['staff_member', 'status', 'from_boarding', 'updated_at'])
+            touched += 1
+
+    if to_create:
+        DailyDogAssignment.objects.bulk_create(to_create, ignore_conflicts=True)
+    return touched
+
+
+def clear_boarding_daycare_assignments(boarding_request, dates=None):
+    """Undo :func:`sync_boarding_daycare_assignments` for a stay that is no
+    longer happening (cancelled, denied, re-opened, or its dates moved).
+
+    Only rows flagged ``from_boarding`` are removed, so attendance staff
+    entered by hand survives. Days still covered by another approved stay for
+    the same dog are kept — back-to-back bookings shouldn't cancel each other
+    out. Anything that was a normal daycare day is re-created from the weekday
+    roster the next time that day is loaded.
+
+    ``dates`` narrows the clear-out to specific days — used when a stay's dates
+    are moved, so the days it still covers keep their attendance (and any
+    picked-up/dropped-off progress on them) instead of being churned.
+
+    Returns the number of rows deleted.
+    """
+    from .models import BoardingRequest, DailyDogAssignment
+
+    if dates is None:
+        dates = boarding_daycare_dates(boarding_request.start_date, boarding_request.end_date)
+    dates = list(dates)
+    if not dates:
+        return 0
+    dog_ids = list(boarding_request.dogs.values_list('id', flat=True))
+    if not dog_ids:
+        return 0
+
+    still_boarding = set()
+    other_stays = (
+        BoardingRequest.objects
+        .filter(
+            status='APPROVED',
+            dogs__id__in=dog_ids,
+            start_date__lte=max(dates),
+            end_date__gte=min(dates),
+        )
+        .exclude(pk=boarding_request.pk)
+        .values_list('dogs__id', 'start_date', 'end_date')
+    )
+    for dog_id, start, end in other_stays:
+        if dog_id is None:
+            continue
+        for day in dates:
+            if start <= day <= end:
+                still_boarding.add((dog_id, day))
+
+    rows = DailyDogAssignment.objects.filter(
+        dog_id__in=dog_ids, date__in=dates, from_boarding=True,
+    )
+    doomed = [row.id for row in rows if (row.dog_id, row.date) not in still_boarding]
+    if not doomed:
+        return 0
+    deleted, _ = DailyDogAssignment.objects.filter(id__in=doomed).delete()
+    return deleted
+
+
+def materialize_boarding_for_date(target_date):
+    """Fill in missing daycare attendance for every dog boarding on
+    ``target_date``.
+
+    The lazy counterpart to :func:`sync_boarding_daycare_assignments`, used
+    when a day is loaded: it catches stays approved before this existed, and
+    dogs added to a stay afterwards. Scoped to the one date and never
+    re-points an existing row, so a staff member's manual reassignment for the
+    day stands.
+    """
+    from .models import BoardingRequest, DailyDogAssignment
+
+    if target_date.isoweekday() not in DAYCARE_WEEKDAYS:
+        return 0
+    if not boarding_daycare_dates(target_date, target_date):
+        return 0  # closure day
+    house = house_staff_account()
+    if house is None:
+        return 0
+
+    dog_ids = set(
+        BoardingRequest.objects
+        .filter(status='APPROVED', start_date__lte=target_date, end_date__gte=target_date)
+        .values_list('dogs__id', flat=True)
+    )
+    dog_ids.discard(None)
+    if not dog_ids:
+        return 0
+
+    already = set(
+        DailyDogAssignment.objects
+        .filter(date=target_date, dog_id__in=dog_ids)
+        .values_list('dog_id', flat=True)
+    )
+    to_create = [
+        DailyDogAssignment(
+            dog_id=dog_id, staff_member=house, date=target_date,
+            status='ASSIGNED', from_boarding=True,
+        )
+        for dog_id in dog_ids - already
+    ]
+    if not to_create:
+        return 0
+    DailyDogAssignment.objects.bulk_create(to_create, ignore_conflicts=True)
+    return len(to_create)

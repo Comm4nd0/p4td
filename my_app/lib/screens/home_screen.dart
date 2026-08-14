@@ -32,6 +32,8 @@ import 'staff_availability_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'fleet_screen.dart';
 import 'facility_defects_screen.dart';
+import 'incidents_screen.dart';
+import 'incident_detail_screen.dart';
 import 'traffic_alert_screen.dart';
 import 'my_payments_screen.dart';
 import 'customer_payments_screen.dart';
@@ -40,7 +42,7 @@ class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
 
   /// Deep-link target set by notification taps.
-  /// Values: 'requests', 'boarding_requests', 'booking_forms', 'queries', 'inquiries', 'dogs', 'feed'
+  /// Values: 'requests', 'boarding_requests', 'booking_forms', 'queries', 'inquiries', 'incident', 'dogs', 'feed'
   final String? initialRoute;
 
   /// Optional payload for the deep link (e.g. a dog ID or request ID).
@@ -362,6 +364,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           break;
         case 'booking_forms':
           _openBookingForms();
+          break;
+        case 'incident':
+          // Staff-only: an owner tapping through (they never get the push, but
+          // be certain) lands nowhere rather than on an incident.
+          if (!_isStaff) break;
+          final incidentId = int.tryParse(widget.routePayload ?? '');
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => incidentId != null
+                  ? IncidentDetailScreen(incidentId: incidentId)
+                  : const IncidentsScreen(),
+            ),
+          );
           break;
         case 'dogs':
           // If a specific dog ID was provided and we have the dog data, navigate to it
@@ -714,6 +730,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       context,
                       MaterialPageRoute(
                         builder: (_) => FleetScreen(canManageVehicles: _canManageVehicles),
+                      ),
+                    );
+                  },
+                ),
+              if (_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.firstAidKit),
+                  title: const Text('Incidents'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const IncidentsScreen(),
                       ),
                     );
                   },
