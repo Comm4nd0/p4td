@@ -2738,11 +2738,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         day_number = target_date.isoweekday()  # Monday=1 … Sunday=7
 
-        # 1) Most recent same-weekday assignment per dog
+        # 1) Most recent same-weekday assignment per dog. Days nobody drove
+        # (a boarding arrival still waiting for a driver, or a day whose
+        # driver has since been deleted) teach nothing — and being the most
+        # recent, they would otherwise shadow the last real assignment.
         same_weekday_history = (
             DailyDogAssignment.objects
             .annotate(weekday=ExtractIsoWeekDay('date'))
-            .filter(weekday=day_number)
+            .filter(weekday=day_number, staff_member__isnull=False)
             .exclude(date=target_date)
             .order_by('dog_id', '-date')
             .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
@@ -2762,6 +2765,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # 2) Fallback: overall most-frequent staff member for remaining dogs
         fallback_history = (
             DailyDogAssignment.objects
+            .filter(staff_member__isnull=False)
             .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
             .annotate(times=Count('id'))
             .order_by('dog_id', '-times')
@@ -2836,7 +2840,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         same_weekday_history = (
             DailyDogAssignment.objects
             .annotate(weekday=ExtractIsoWeekDay('date'))
-            .filter(weekday=day_number)
+            .filter(weekday=day_number, staff_member__isnull=False)
             .exclude(date=target_date)
             .order_by('dog_id', '-date')
             .values('dog_id', 'staff_member_id')
@@ -2850,6 +2854,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # 2) Fallback: overall most-frequent staff member for remaining dogs
         fallback_history = (
             DailyDogAssignment.objects
+            .filter(staff_member__isnull=False)
             .values('dog_id', 'staff_member_id')
             .annotate(times=Count('id'))
             .order_by('dog_id', '-times')

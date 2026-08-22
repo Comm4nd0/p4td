@@ -9413,7 +9413,9 @@ class IncidentApiTests(TestCase):
 class BoardingDaycareAttendanceTests(TestCase):
     """A boarding dog is here all week, so it is booked into daycare on every
     weekday of its stay — arrival and departure days included — under the
-    business's own P4TD account."""
+    business's own P4TD account. The exception is a weekday arrival, when the
+    dog is still at home and needs collecting: that day is left unassigned for
+    a driver to claim."""
 
     def setUp(self):
         self.owner = User.objects.create_user(username='bdowner', password='pw')
@@ -9445,9 +9447,25 @@ class BoardingDaycareAttendanceTests(TestCase):
                                     {'status': 'APPROVED'}, format='json')
 
     def _dates(self):
+        """Days booked to the house account."""
         return sorted(
             DailyDogAssignment.objects
             .filter(dog=self.dog, staff_member=self.house)
+            .values_list('date', flat=True)
+        )
+
+    def _all_dates(self):
+        """Every day the stay booked, however it was staffed."""
+        return sorted(
+            DailyDogAssignment.objects
+            .filter(dog=self.dog).values_list('date', flat=True)
+        )
+
+    def _unassigned_dates(self):
+        """Days waiting for a driver to claim the pickup."""
+        return sorted(
+            DailyDogAssignment.objects
+            .filter(dog=self.dog, status='UNASSIGNED', staff_member__isnull=True)
             .values_list('date', flat=True)
         )
 
@@ -9455,12 +9473,19 @@ class BoardingDaycareAttendanceTests(TestCase):
         stay = self._stay(start=self.monday, end=date(2026, 4, 10))  # Mon–Fri
         self.assertEqual(self._approve(stay).status_code, 200)
         self.assertEqual(
-            self._dates(),
+            self._all_dates(),
             [date(2026, 4, d) for d in range(6, 11)],
         )
+        # Monday is the arrival: the dog is at home that morning, so it waits
+        # for a driver instead of going to the house account.
+        self.assertEqual(self._dates(), [date(2026, 4, d) for d in range(7, 11)])
+        self.assertEqual(self._unassigned_dates(), [self.monday])
         for assignment in DailyDogAssignment.objects.filter(dog=self.dog):
-            self.assertEqual(assignment.status, 'ASSIGNED')
             self.assertTrue(assignment.from_boarding)
+            self.assertEqual(
+                assignment.status,
+                'UNASSIGNED' if assignment.date == self.monday else 'ASSIGNED',
+            )
 
     def test_weekend_days_are_skipped(self):
         stay = self._stay()  # Mon–Sun
@@ -9497,13 +9522,15 @@ class BoardingDaycareAttendanceTests(TestCase):
     def test_cancelling_releases_the_bookings_it_made(self):
         stay = self._stay(start=self.monday, end=date(2026, 4, 10))
         self._approve(stay)
-        self.assertEqual(len(self._dates()), 5)
+        self.assertEqual(len(self._all_dates()), 5)
 
         with patch('api.notifications.send_push_notification'):
             resp = self.client.post(f'/api/boarding-requests/{stay.id}/change_status/',
                                     {'status': 'CANCELLED'}, format='json')
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(self._dates(), [])
+        # Including the unassigned arrival day — it is flagged from_boarding
+        # too, so it goes with the rest.
+        self.assertEqual(self._all_dates(), [])
 
     def test_cancelling_leaves_manual_attendance_alone(self):
         manual = DailyDogAssignment.objects.create(
@@ -9531,7 +9558,7 @@ class BoardingDaycareAttendanceTests(TestCase):
     def test_moving_the_dates_moves_the_attendance(self):
         stay = self._stay(start=self.monday, end=date(2026, 4, 8))
         self._approve(stay)
-        self.assertEqual(self._dates(), [date(2026, 4, 6), date(2026, 4, 7), date(2026, 4, 8)])
+        self.assertEqual(self._all_dates(), [date(2026, 4, 6), date(2026, 4, 7), date(2026, 4, 8)])
 
         with patch('api.notifications.send_push_notification'):
             resp = self.client.patch(
@@ -9540,7 +9567,11 @@ class BoardingDaycareAttendanceTests(TestCase):
                  'dogs': [self.dog.id]},
                 format='json')
         self.assertEqual(resp.status_code, 200, resp.data)
-        self.assertEqual(self._dates(), [date(2026, 4, 8), date(2026, 4, 9), date(2026, 4, 10)])
+        self.assertEqual(self._all_dates(), [date(2026, 4, 8), date(2026, 4, 9), date(2026, 4, 10)])
+        # The pickup moves with the arrival: Wednesday is the new first day,
+        # and the row that was booked to the house account is stood down.
+        self.assertEqual(self._unassigned_dates(), [date(2026, 4, 8)])
+        self.assertEqual(self._dates(), [date(2026, 4, 9), date(2026, 4, 10)])
 
     def test_no_house_account_means_no_change(self):
         self.house.delete()
@@ -9555,7 +9586,7 @@ class BoardingDaycareAttendanceTests(TestCase):
 
         stay = self._stay(start=self.monday, end=date(2026, 4, 10))
         self._approve(stay)
-        self.assertEqual(len(self._dates()), 5)
+        self.assertEqual(len(self._all_dates()), 5)
         self.assertEqual(attendance_for_month(2026, 4), {})
 
     def test_loading_a_day_books_a_stay_approved_earlier(self):
@@ -9564,7 +9595,7 @@ class BoardingDaycareAttendanceTests(TestCase):
         stay = self._stay(start=self.monday, end=date(2026, 4, 10), status='APPROVED')
         self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog).exists())
 
-        target = self.monday
+        target = date(2026, 4, 7)  # Tuesday — mid-stay, nobody to collect
         with patch('api.views.timezone.localdate', return_value=target):
             self.client.login(username='bdmanager', password='pw')
             resp = self.client.get(f'/api/daily-assignments/today/?date={target.isoformat()}')
@@ -9576,3 +9607,139 @@ class BoardingDaycareAttendanceTests(TestCase):
             [self.house.id],
         )
         self.assertEqual(stay.status, 'APPROVED')
+
+    # ---- weekday arrival: the dog is still at home and needs collecting ----
+
+    def test_weekday_arrival_is_left_unassigned_for_a_driver(self):
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        arrival = DailyDogAssignment.objects.get(dog=self.dog, date=self.monday)
+        self.assertEqual(arrival.status, 'UNASSIGNED')
+        self.assertIsNone(arrival.staff_member)
+        self.assertTrue(arrival.from_boarding)
+
+    def test_weekday_arrival_shows_in_the_unassigned_list(self):
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.client.login(username='bdmanager', password='pw')
+
+        with patch('api.views.timezone.localdate', return_value=self.monday):
+            resp = self.client.get(
+                f'/api/daily-assignments/unassigned_dogs/?date={self.monday.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.dog.id, [d['id'] for d in resp.data])
+
+        # The rest of the stay is covered by the house account, so it never
+        # nags the dashboard.
+        tuesday = date(2026, 4, 7)
+        with patch('api.views.timezone.localdate', return_value=tuesday):
+            resp = self.client.get(
+                f'/api/daily-assignments/unassigned_dogs/?date={tuesday.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn(self.dog.id, [d['id'] for d in resp.data])
+
+    def test_owner_who_normally_brings_the_dog_in_goes_to_the_house_account(self):
+        """Nobody has to drive out for a dog its owner drops off anyway."""
+        self.dog.owner_brings_default = True
+        self.dog.save(update_fields=['owner_brings_default'])
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.assertEqual(self._dates(), [date(2026, 4, d) for d in range(6, 11)])
+        self.assertEqual(self._unassigned_dates(), [])
+
+    def test_owner_brings_override_for_the_arrival_day_wins(self):
+        """A per-date override beats the dog's default, both ways round."""
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.house, date=self.monday,
+            owner_brings=True, from_boarding=True)
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        arrival = DailyDogAssignment.objects.get(dog=self.dog, date=self.monday)
+        self.assertEqual(arrival.status, 'ASSIGNED')
+        self.assertEqual(arrival.staff_member, self.house)
+
+    def test_owner_brings_override_can_ask_for_a_pickup(self):
+        self.dog.owner_brings_default = True
+        self.dog.save(update_fields=['owner_brings_default'])
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.house, date=self.monday,
+            owner_brings=False, from_boarding=True)
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        arrival = DailyDogAssignment.objects.get(dog=self.dog, date=self.monday)
+        self.assertEqual(arrival.status, 'UNASSIGNED')
+        self.assertIsNone(arrival.staff_member)
+
+    def test_weekend_arrival_goes_straight_to_the_house_account(self):
+        """Saturday arrival: by Monday the dog is already with the carer."""
+        stay = self._stay(start=date(2026, 4, 4), end=date(2026, 4, 8))
+        self._approve(stay)
+        self.assertEqual(
+            self._dates(), [date(2026, 4, 6), date(2026, 4, 7), date(2026, 4, 8)])
+        self.assertEqual(self._unassigned_dates(), [])
+
+    def test_arrival_day_keeps_a_driver_who_already_has_it(self):
+        """The dog's normal Monday driver collects it — don't stand them down."""
+        existing = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=self.monday)
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        existing.refresh_from_db()
+        self.assertEqual(existing.staff_member, self.driver)
+        self.assertEqual(existing.status, 'ASSIGNED')
+        self.assertFalse(existing.from_boarding)
+
+    def test_a_back_to_back_stay_does_not_ask_for_a_second_pickup(self):
+        """The dog never went home, so nobody has to fetch it again."""
+        first = self._stay(start=self.monday, end=date(2026, 4, 7))
+        self._approve(first)
+        second = self._stay(start=date(2026, 4, 8), end=date(2026, 4, 10))
+        self.assertEqual(self._approve(second).status_code, 200)
+        self.assertEqual(self._unassigned_dates(), [self.monday])
+        self.assertEqual(self._dates(), [date(2026, 4, d) for d in range(7, 11)])
+
+    def test_loading_a_day_leaves_the_arrival_unassigned(self):
+        """The lazy day-load path applies the same rule as approval."""
+        self._stay(start=self.monday, end=date(2026, 4, 10), status='APPROVED')
+        with patch('api.views.timezone.localdate', return_value=self.monday):
+            self.client.login(username='bdmanager', password='pw')
+            resp = self.client.get(
+                f'/api/daily-assignments/today/?date={self.monday.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        arrival = DailyDogAssignment.objects.get(dog=self.dog, date=self.monday)
+        self.assertEqual(arrival.status, 'UNASSIGNED')
+        self.assertIsNone(arrival.staff_member)
+        self.assertTrue(arrival.from_boarding)
+
+    def test_claiming_the_arrival_day_assigns_the_driver(self):
+        """The point of leaving it unassigned: a driver can pick it up."""
+        stay = self._stay(start=self.monday, end=date(2026, 4, 10))
+        self._approve(stay)
+        self.client.login(username='bddriver', password='pw')
+        with patch('api.views.timezone.localdate', return_value=self.monday):
+            resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+                'dog_ids': [self.dog.id], 'date': self.monday.isoformat(),
+            }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        arrival = DailyDogAssignment.objects.get(dog=self.dog, date=self.monday)
+        self.assertEqual(arrival.status, 'ASSIGNED')
+        self.assertEqual(arrival.staff_member, self.driver)
+
+    def test_standing_down_the_house_account_does_not_ping_the_owner(self):
+        """Who drives the van is not the owner's business."""
+        stay = self._stay(start=self.monday, end=date(2026, 4, 8))
+        self._approve(stay)
+        with patch('api.models.send_push_notification') as push:
+            with patch('api.notifications.send_push_notification'):
+                resp = self.client.patch(
+                    f'/api/boarding-requests/{stay.id}/',
+                    {'start_date': '2026-04-07', 'end_date': '2026-04-09',
+                     'dogs': [self.dog.id]},
+                    format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        # Tuesday was booked to the house account and is now the arrival.
+        arrival = DailyDogAssignment.objects.get(dog=self.dog, date=date(2026, 4, 7))
+        self.assertEqual(arrival.status, 'UNASSIGNED')
+        self.assertIsNone(arrival.staff_member)
+        self.assertEqual(
+            [c for c in push.call_args_list if 'Status Update' in str(c)], [])

@@ -218,6 +218,10 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
     owner_name.admin_order_field = 'dog__owner__username'
 
     def staff_member_name(self, obj):
+        # Null while a day is waiting for a driver (an unassigned boarding
+        # arrival), and on days whose driver has since been deleted.
+        if obj.staff_member is None:
+            return '—'
         return obj.staff_member.get_full_name() or obj.staff_member.username
     staff_member_name.short_description = 'Staff Member'
     staff_member_name.admin_order_field = 'staff_member__first_name'

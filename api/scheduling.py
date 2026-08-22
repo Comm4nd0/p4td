@@ -262,6 +262,16 @@ def process_waitlist_for_date(target_date):
 # daycare on top of the boarding nights. They exist so the dog shows up on the
 # day's roster, in headcount and capacity, and on the day board — instead of
 # living only in the "boarding" list off to one side.
+#
+# The arrival day is the exception. The dog is still at home that morning, so
+# somebody has to collect it (DailyDogAssignment.needs_staff_pickup says the
+# same: the home → daycare leg exists on the first day of a stay). Booking it
+# to the house account would hide that pickup from every driver's list, so an
+# arrival that lands on a weekday is left UNASSIGNED instead and surfaces in
+# ``unassigned_dogs`` for a driver to claim. Dogs whose owner normally brings
+# them in (``Dog.owner_brings_default``) need no driver and go straight to the
+# house account, as does a weekend arrival — daycare doesn't run then, and by
+# the stay's first weekday the dog is already with the boarding carer.
 
 # The business's own pseudo-staff account, matched case-insensitively.
 HOUSE_STAFF_USERNAME = 'p4td'
@@ -284,6 +294,35 @@ def house_staff_account():
         staff.filter(username__iexact=HOUSE_STAFF_USERNAME).first()
         or staff.filter(first_name__iexact=HOUSE_STAFF_USERNAME).first()
     )
+
+
+def boarding_arrival_dog_ids(dog_ids, arrival_date):
+    """Of ``dog_ids``, the ones whose stay genuinely begins on ``arrival_date``.
+
+    These are the dogs still at home that morning, so a driver has to collect
+    them. Two things disqualify a date:
+
+      * it isn't a weekday — daycare doesn't run, and by the stay's first
+        weekday the dog is already with the boarding carer;
+      * another approved stay already covered the day before. Back-to-back
+        bookings are one stay (the same rule ``needs_staff_pickup`` uses); the
+        dog isn't arriving, it is simply carrying on.
+    """
+    from .models import BoardingRequest
+
+    dog_ids = set(dog_ids)
+    if not dog_ids or arrival_date.isoweekday() not in DAYCARE_WEEKDAYS:
+        return set()
+    yesterday = arrival_date - timedelta(days=1)
+    already_here = set(
+        BoardingRequest.objects
+        .filter(
+            status='APPROVED', dogs__id__in=dog_ids,
+            start_date__lte=yesterday, end_date__gte=yesterday,
+        )
+        .values_list('dogs__id', flat=True)
+    )
+    return dog_ids - already_here
 
 
 def boarding_daycare_dates(start, end):
@@ -313,6 +352,13 @@ def sync_boarding_daycare_assignments(boarding_request):
     normal driver) onto it too — that is what "assigned to P4TD throughout the
     stay" means for a dog whose stay overlaps its own daycare days.
 
+    A weekday arrival is the exception: the dog is at home that morning and
+    needs collecting, so the day is left UNASSIGNED (no staff member) for a
+    driver to pick up from the unassigned list, and a row that already has a
+    real driver on it keeps them. Dogs the owner normally brings in
+    themselves are booked to the house account as usual — nobody has to
+    fetch them. See the section comment above.
+
     Left alone:
       * REMOVED rows — staff have explicitly said the dog isn't attending.
       * anything outside Mon–Fri, and CLOSED days.
@@ -324,7 +370,7 @@ def sync_boarding_daycare_assignments(boarding_request):
     Returns the number of rows created or changed. A no-op when the stay isn't
     APPROVED, or when there is no house account to assign to.
     """
-    from .models import DailyDogAssignment
+    from .models import DailyDogAssignment, Dog
 
     if boarding_request.status != 'APPROVED':
         return 0
@@ -340,27 +386,63 @@ def sync_boarding_daycare_assignments(boarding_request):
     if not dog_ids:
         return 0
 
+    arrival = boarding_request.start_date
+    arriving = boarding_arrival_dog_ids(dog_ids, arrival)
+    brings_default = dict(
+        Dog.objects.filter(id__in=dog_ids).values_list('id', 'owner_brings_default')
+    )
+
     existing = {
         (row.dog_id, row.date): row
         for row in DailyDogAssignment.objects.filter(dog_id__in=dog_ids, date__in=dates)
     }
+
+    def needs_collecting(dog_id, day, row):
+        """True when a driver still has to fetch this dog from home that day."""
+        if day != arrival or dog_id not in arriving:
+            return False
+        # A per-date override on an existing row beats the dog's default.
+        if row is not None and row.owner_brings is not None:
+            return not row.owner_brings
+        return not brings_default.get(dog_id, False)
 
     touched = 0
     to_create = []
     for dog_id in dog_ids:
         for day in dates:
             row = existing.get((dog_id, day))
+            collect = needs_collecting(dog_id, day, row)
             if row is None:
                 to_create.append(DailyDogAssignment(
                     dog_id=dog_id,
-                    staff_member=house,
+                    staff_member=None if collect else house,
                     date=day,
-                    status='ASSIGNED',
+                    status='UNASSIGNED' if collect else 'ASSIGNED',
                     from_boarding=True,
                 ))
                 touched += 1
                 continue
             if row.status == 'REMOVED':
+                continue
+            if collect:
+                # Whoever already has the arrival day keeps it — that driver
+                # collects the dog, and a day already waiting for one is
+                # where we want it. Only the house account is stood down,
+                # because it never drives.
+                if row.staff_member_id != house.id:
+                    continue
+                # Written through the queryset rather than save(): the
+                # post_save signal on a status change pushes "<dog> is now
+                # Unassigned" to the owner, and who drives the van is not
+                # something they should be told about. auto_now doesn't fire
+                # on update(), so stamp updated_at by hand.
+                DailyDogAssignment.objects.filter(pk=row.pk).update(
+                    staff_member=None,
+                    status='UNASSIGNED',
+                    from_boarding=True,
+                    updated_at=timezone.now(),
+                )
+                touched += 1
                 continue
             if row.staff_member_id == house.id and row.status == 'ASSIGNED' and row.from_boarding:
                 continue
@@ -439,9 +521,11 @@ def materialize_boarding_for_date(target_date):
     when a day is loaded: it catches stays approved before this existed, and
     dogs added to a stay afterwards. Scoped to the one date and never
     re-points an existing row, so a staff member's manual reassignment for the
-    day stands.
+    day stands. Dogs arriving today that somebody has to collect are created
+    UNASSIGNED rather than booked to the house account, exactly as at approval
+    time.
     """
-    from .models import BoardingRequest, DailyDogAssignment
+    from .models import BoardingRequest, DailyDogAssignment, Dog
 
     if target_date.isoweekday() not in DAYCARE_WEEKDAYS:
         return 0
@@ -465,13 +549,24 @@ def materialize_boarding_for_date(target_date):
         .filter(date=target_date, dog_id__in=dog_ids)
         .values_list('dog_id', flat=True)
     )
-    to_create = [
-        DailyDogAssignment(
-            dog_id=dog_id, staff_member=house, date=target_date,
-            status='ASSIGNED', from_boarding=True,
-        )
-        for dog_id in dog_ids - already
-    ]
+    missing = dog_ids - already
+    if not missing:
+        return 0
+
+    arriving = boarding_arrival_dog_ids(missing, target_date)
+    brings_default = dict(
+        Dog.objects.filter(id__in=missing).values_list('id', 'owner_brings_default')
+    )
+    to_create = []
+    for dog_id in missing:
+        collect = dog_id in arriving and not brings_default.get(dog_id, False)
+        to_create.append(DailyDogAssignment(
+            dog_id=dog_id,
+            staff_member=None if collect else house,
+            date=target_date,
+            status='UNASSIGNED' if collect else 'ASSIGNED',
+            from_boarding=True,
+        ))
     if not to_create:
         return 0
     DailyDogAssignment.objects.bulk_create(to_create, ignore_conflicts=True)
