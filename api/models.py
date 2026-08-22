@@ -383,7 +383,11 @@ class DailyDogAssignment(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.dog.name} assigned to {self.staff_member.username} on {self.date}"
+        # staff_member is null on a day nobody has claimed yet (a boarding
+        # arrival waiting for a driver) and on days whose driver has since
+        # been deleted (SET_NULL above).
+        who = self.staff_member.username if self.staff_member else 'nobody'
+        return f"{self.dog.name} assigned to {who} on {self.date}"
 
     # The effective_* helpers below dereference self.dog, so any queryset that
     # serializes or iterates assignments must select_related('dog') (and

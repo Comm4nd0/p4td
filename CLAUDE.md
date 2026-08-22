@@ -155,6 +155,13 @@ Additional non-router endpoints:
   are ever touched. Billing-neutral by construction —
   `billing.attendance_for_month` already skips days inside an approved stay, so
   the boarding nights are the only charge.
+  A weekday arrival is the exception: the dog is still at home that morning and
+  needs collecting, so that day is created `UNASSIGNED` with no staff member and
+  surfaces in `unassigned_dogs` for a driver to claim. It goes to `P4TD` as
+  usual when the owner normally brings the dog in themselves
+  (`Dog.owner_brings_default`, or the per-date `owner_brings` override), when
+  the stay starts at a weekend (by its first weekday the dog is already with the
+  carer), or when it runs straight on from another approved stay.
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
 - **Push notifications** via Firebase Admin SDK
 
