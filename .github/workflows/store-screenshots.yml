@@ -39,9 +39,12 @@ jobs:
         working-directory: my_app
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the pinned Flutter version
+        id: flutter_pin
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/my_app/.flutter-version")" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ steps.flutter_pin.outputs.version }}
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
@@ -136,9 +139,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Resolve the pinned Flutter version
+        id: flutter_pin
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/my_app/.flutter-version")" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ steps.flutter_pin.outputs.version }}
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"

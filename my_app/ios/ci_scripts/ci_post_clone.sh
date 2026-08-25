@@ -9,9 +9,20 @@ set -x
 export LANG=en_US.UTF-8
 
 # ---- Flutter version ----
-# Pin to a specific stable tag so builds are reproducible.
-# Update this when you upgrade Flutter locally.
-FLUTTER_VERSION="3.41.2"
+# Read from my_app/.flutter-version, the single source of truth every build
+# surface shares (the GitHub Actions workflows read the same file). Hardcoding
+# it here is what let iOS sit on 3.41.2 while CI floated on to 3.47 — see
+# CLAUDE.md > Flutter version pin. Change the version there, not here.
+PIN_FILE="$CI_PRIMARY_REPOSITORY_PATH/my_app/.flutter-version"
+if [ ! -f "$PIN_FILE" ]; then
+    echo "ERROR: $PIN_FILE is missing — cannot determine which Flutter to install."
+    exit 1
+fi
+FLUTTER_VERSION="$(tr -d '[:space:]' < "$PIN_FILE")"
+if [ -z "$FLUTTER_VERSION" ]; then
+    echo "ERROR: $PIN_FILE is empty."
+    exit 1
+fi
 
 # 1. Install Flutter via Git (with retry for network issues)
 echo "Installing Flutter $FLUTTER_VERSION..."
@@ -34,9 +45,14 @@ for i in $(seq 1 $MAX_RETRIES); do
 done
 export PATH="$HOME/flutter/bin:$PATH"
 
-# 2. Verify
+# 2. Verify the installed Flutter is the pinned one
 echo "Flutter version:"
 flutter --version
+installed="$(flutter --version | sed -n 's/^Flutter \([0-9][0-9.]*\).*/\1/p' | head -1)"
+if [ "$installed" != "$FLUTTER_VERSION" ]; then
+    echo "ERROR: installed Flutter $installed does not match the pin $FLUTTER_VERSION."
+    exit 1
+fi
 
 # 3. Navigate to Project
 APP_DIR="$CI_PRIMARY_REPOSITORY_PATH/my_app"
