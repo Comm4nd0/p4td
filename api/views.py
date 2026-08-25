@@ -1073,10 +1073,21 @@ class PhotoViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
+        # Staff only. A dog's gallery is where staff photograph vaccination
+        # cards and other medical paperwork, so a photo is a record the
+        # business keeps — an owner deleting one destroys it for everybody.
+        # Owners can still see their dog's gallery and add to it; taking one
+        # back out is a staff decision. (Deleting the dog still clears them
+        # all — see DogViewSet.destroy.)
+        if not self.request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                "Only staff can delete photos. Ask us to remove it for you.")
+
         # Remove the files too. DogViewSet.destroy already does this; deleting a
         # single photo did not, so its image and thumbnail stayed on disk
-        # forever — and prune_feed_media --include-orphans only ever scans
-        # group_media/, never dog_photos/.
+        # forever — and the prune_feed_media orphan sweep is a weekly backstop,
+        # not a substitute.
         if instance.file:
             instance.file.delete(save=False)
         if instance.thumbnail:

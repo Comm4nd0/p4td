@@ -3461,6 +3461,56 @@ class DogPhotoRetentionTests(TestCase):
         self.assertFalse(Photo.objects.filter(pk=self.photo.pk).exists())
         self.assertFalse(os.path.exists(path))
 
+    def test_an_owner_cannot_delete_a_photo(self):
+        """The gallery holds medical records — removing one is staff's call."""
+        import os
+        path = self._photo_path()
+        self.client.login(username='photoowner', password='pw')
+        resp = self.client.delete(f'/api/photos/{self.photo.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Photo.objects.filter(pk=self.photo.pk).exists())
+        self.assertTrue(os.path.exists(path))
+
+    def test_a_co_owner_cannot_delete_a_photo_either(self):
+        co_owner = User.objects.create_user(username='photocoowner', password='pw')
+        self.dog.additional_owners.add(co_owner)
+        self.client.login(username='photocoowner', password='pw')
+        resp = self.client.delete(f'/api/photos/{self.photo.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Photo.objects.filter(pk=self.photo.pk).exists())
+
+    def test_staff_can_still_delete_a_photo(self):
+        import os
+        path = self._photo_path()
+        self.client.login(username='photostaff', password='pw')
+        resp = self.client.delete(f'/api/photos/{self.photo.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Photo.objects.filter(pk=self.photo.pk).exists())
+        self.assertFalse(os.path.exists(path))
+
+    def test_an_owner_can_still_add_to_the_gallery(self):
+        """Read and upload are unchanged — only removal is restricted."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+        import io
+
+        buf = io.BytesIO()
+        Image.new('RGB', (20, 20), 'white').save(buf, format='JPEG')
+        buf.seek(0)
+        self.client.login(username='photoowner', password='pw')
+        with patch('api.views.PhotoViewSet._notify_owners_of_new_photo'):
+            resp = self.client.post('/api/photos/', {
+                'dog': self.dog.id,
+                'media_type': 'PHOTO',
+                'taken_at': timezone.now().isoformat(),
+                'file': SimpleUploadedFile('new.jpg', buf.read(), content_type='image/jpeg'),
+            }, format='multipart')
+        self.assertEqual(resp.status_code, 201, resp.data)
+
+        resp = self.client.get(f'/api/photos/by_dog/?dog_id={self.dog.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 2)
+
 
 class AssignmentTransportTests(TestCase):
     """Tests for staff-set owner_brings / owner_collects transport fields."""
