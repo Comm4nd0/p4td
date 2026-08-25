@@ -70,20 +70,56 @@ else
     echo "WARNING: GOOGLE_SERVICE_INFO_PLIST_BASE64 not set. Build may fail if this file is missing."
 fi
 
-# 5. Build Flutter Dependencies
-# This generates ios/Flutter/Generated.xcconfig with the correct FLUTTER_ROOT
+# 5. Force CocoaPods for plugin delivery
+# Flutter can vend iOS plugins through Swift Package Manager instead of
+# CocoaPods. That wiring is added to the Xcode project by `flutter build ios`
+# — which never runs here: Xcode Cloud calls xcodebuild against
+# Runner.xcworkspace directly, and this script only prepares the pods. So an
+# SPM-vended plugin ends up imported by GeneratedPluginRegistrant.m but built
+# by nothing, which is the "Module 'camera_avfoundation' not found" failure
+# that appeared the moment iOS moved from Flutter 3.41.2 to 3.47.0.
+# Keep every plugin on the CocoaPods path the Podfile and workspace expect.
+echo "Disabling Swift Package Manager so all plugins resolve through CocoaPods..."
+flutter config --no-enable-swift-package-manager \
+    || echo "WARNING: could not disable Swift Package Manager on this Flutter version."
+
+# 6. Build Flutter Dependencies
+# This generates ios/Flutter/Generated.xcconfig with the correct FLUTTER_ROOT,
+# and ios/Runner/GeneratedPluginRegistrant.m listing the plugins to import.
 echo "Running flutter pub get..."
 flutter pub get
 
-# 6. Precache iOS artifacts
+# 7. Precache iOS artifacts
 echo "Precaching iOS artifacts..."
 flutter precache --ios
 
-# 7. Install CocoaPods
+# 8. Install CocoaPods
 # Clean old pods to avoid stale cache issues, then install fresh.
 echo "Running pod install..."
 cd ios
 rm -rf Pods
 pod install --repo-update
+
+# 9. Every plugin the registrant imports must actually have been installed
+# The registrant is generated from the resolved plugin list; Podfile.lock is
+# what the build will really compile. When they disagree the failure surfaces
+# as an opaque "Module 'x' not found" deep in the Xcode log, so say it here
+# instead, naming the plugin and the file that expects it.
+registrant="Runner/GeneratedPluginRegistrant.m"   # cwd is my_app/ios
+if [ -f "$registrant" ] && [ -f Podfile.lock ]; then
+    missing=""
+    for module in $(sed -n 's/^@import \([A-Za-z0-9_]*\);.*/\1/p' "$registrant" | sort -u); do
+        grep -q "[ -]$module " Podfile.lock || missing="$missing $module"
+    done
+    if [ -n "$missing" ]; then
+        echo "ERROR: GeneratedPluginRegistrant.m imports plugin(s) CocoaPods did not install:$missing"
+        echo "The Xcode build would fail with \"Module '...' not found\"."
+        echo "Usually means the plugin resolved via Swift Package Manager instead of CocoaPods."
+        exit 1
+    fi
+    echo "All plugins imported by the registrant are present in Podfile.lock."
+else
+    echo "WARNING: could not cross-check the registrant against Podfile.lock."
+fi
 
 echo "ci_post_clone.sh setup complete."

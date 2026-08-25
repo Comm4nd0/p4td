@@ -81,6 +81,17 @@ the same job passed. Xcode Cloud had the opposite failure — a hardcoded
 version nobody remembered to touch, leaving iOS building on 3.41.2 six minor
 versions behind everything else.
 
+Xcode Cloud additionally pins *how* plugins are delivered. `ci_post_clone.sh`
+runs `flutter config --no-enable-swift-package-manager` before `flutter pub
+get`, because Xcode Cloud never runs `flutter build ios` — it calls xcodebuild
+against `Runner.xcworkspace` directly, and only this script prepares the pods.
+A plugin vended through Swift Package Manager would therefore be imported by
+`GeneratedPluginRegistrant.m` and built by nothing, which is exactly the
+`Module 'camera_avfoundation' not found` failure that appeared when iOS moved
+from 3.41.2 to 3.47.0. The script then cross-checks every module the
+registrant imports against `Podfile.lock` and fails with the plugin's name,
+rather than letting it surface as an opaque module error in the Xcode log.
+
 `scripts/check-flutter-pin.sh` enforces it, and runs as the `flutter-pin` job
 in Flutter CI. It fails the build if the pin is missing or isn't an exact
 version, if any workflow reintroduces a channel or hardcodes a version, if a
