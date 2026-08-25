@@ -286,7 +286,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` | — |
 | `python manage.py send_vaccination_reminders` | Send push reminders to owners for vaccinations that are expiring or expired | Daily 8:00am |
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
-| `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files | Weekly, Sun 3am (with `--include-orphans`) |
+| `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files. Never touches dog gallery photos — see [Feed Media Pruning](#feed-media-pruning) | Weekly, Sun 3am (with `--include-orphans`) |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
 | `python manage.py prune_auth_tokens` | Delete DRF auth tokens older than N days so an abandoned device's token can't be reused indefinitely (tokens never expire on their own). `--days`, `--dry-run` | — |
 | `python manage.py generate_monthly_invoices` | Generate draft invoices for the previous month from attendance; notifies staff with `can_manage_payments` to review/send. Idempotent; `--year`, `--month` | Monthly, 1st 6:00am |
@@ -307,14 +307,25 @@ python manage.py prune_feed_media
 # Custom retention period (e.g. 180 days)
 python manage.py prune_feed_media --days 180
 
-# Also remove orphaned files in group_media/ with no DB record
+# Also remove orphaned files in group_media/ and dog_photos/ with no DB record
 python manage.py prune_feed_media --include-orphans
 ```
 
 - **Default retention**: 90 days
 - **Production schedule**: Runs automatically every Sunday at 3am via host cron (set up by `scripts/deploy-to-hetzner.sh`). The production cron runs **with `--include-orphans`**, so orphaned files are also removed.
 - **Log file**: `/var/log/p4td-prune.log` (on production server)
-- **Tests**: `python manage.py test api.tests.PruneFeedMediaTests`
+- **Tests**: `python manage.py test api.tests.PruneFeedMediaTests api.tests.DogPhotoRetentionTests`
+
+**Dog gallery photos are never pruned by age, and must stay that way.** Staff
+photograph vaccination cards and other medical paperwork into a dog's gallery,
+so a `Photo` row is a record, not a snapshot: it goes only when someone deletes
+that photo or the dog itself (`DogViewSet.destroy` clears the files with it).
+Do not add `Photo` to the retention pass. `--include-orphans` does sweep
+`dog_photos/`, but only as a backstop for files whose row is already gone — and
+before it removes anything, a file must be absent from the reference snapshot,
+be older than `--orphan-grace-hours` (default 24, since Django writes an upload
+to disk before committing its row), *and* still be unreferenced on a second
+database check taken after the directory walk.
 
 ## Important Notes
 
