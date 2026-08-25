@@ -10,17 +10,25 @@ Read-only (GETs against the ASC API), run by xcode-cloud-diagnose.yml with
 the same API key the store workflows use. Needs ASC_KEY_ID, ASC_ISSUER_ID
 and ASC_KEY_P8 in the environment.
 """
+import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 import jwt  # PyJWT
 
 API = "https://api.appstoreconnect.apple.com"
 RUNS_TO_INSPECT = 3
+# Log lines worth surfacing from a failed action's log bundle, and the noise
+# that mentions "error" without being one.
+ERROR_RE = re.compile(r"error|fail|exception|denied|invalid|missing|unable", re.I)
+NOISE_RE = re.compile(r"0 errors|errorlevel|failable|Werror|error-free|no errors", re.I)
+MAX_LINES_PER_FILE = 40
 
 token = jwt.encode(
     {
@@ -50,6 +58,49 @@ def get(path):
 
 def attr(item, name, default=""):
     return (item.get("attributes") or {}).get(name, default)
+
+
+def dump_failed_action_logs(action_id):
+    artifacts = get(f"/v1/ciBuildActions/{action_id}/artifacts")
+    for artifact in (artifacts or {}).get("data", []):
+        file_type = attr(artifact, "fileType")
+        if file_type not in ("LOG_BUNDLE", "RESULT_BUNDLE"):
+            continue
+        detail = get(f"/v1/ciArtifacts/{artifact['id']}")
+        url = (detail or {}).get("data", {}).get("attributes", {}).get("downloadUrl")
+        name = attr(artifact, "fileName")
+        size = attr(artifact, "fileSize")
+        print(f"    artifact: {name} ({file_type}, {size} bytes)")
+        if not url or file_type != "LOG_BUNDLE":
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=300) as resp:
+                blob = resp.read()
+        except Exception as exc:  # noqa: BLE001 - diagnostic only
+            print(f"      could not download: {exc}")
+            continue
+        try:
+            bundle = zipfile.ZipFile(io.BytesIO(blob))
+        except zipfile.BadZipFile:
+            print("      (not a zip; skipping)")
+            continue
+        for member in bundle.namelist():
+            if not member.lower().endswith((".log", ".txt", ".json")):
+                continue
+            try:
+                text = bundle.read(member).decode(errors="replace")
+            except Exception:  # noqa: BLE001
+                continue
+            hits = [
+                line.strip()
+                for line in text.splitlines()
+                if ERROR_RE.search(line) and not NOISE_RE.search(line)
+            ]
+            if not hits:
+                continue
+            print(f"      -- {member}: {len(hits)} error-ish line(s) --")
+            for line in hits[-MAX_LINES_PER_FILE:]:
+                print(f"        {line[:400]}")
 
 
 products = get("/v1/ciProducts")
@@ -104,3 +155,11 @@ for product in products["data"]:
                 )
             if warnings:
                 print(f"    ({warnings} warning(s) suppressed)")
+
+            # The issue list for a distribution failure is often just the
+            # one-line summary; the real reason is in the action's log
+            # bundle. Pull it for failed actions and surface the error lines.
+            if attr(action, "completionStatus") == "FAILED":
+                dump_failed_action_logs(action["id"])
+
+
