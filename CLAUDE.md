@@ -63,7 +63,33 @@ flutter run
 ```
 
 - **Dart SDK**: >=3.3.0 <4.0.0
-- **Flutter channel**: stable
+- **Flutter SDK**: pinned in `my_app/.flutter-version` — see [Flutter version pin](#flutter-version-pin)
+
+### Flutter version pin
+
+**`my_app/.flutter-version` is the only place the Flutter version is written.**
+Every build surface reads it: all four `subosito/flutter-action` steps across
+`flutter-ci.yml`, `deploy-android-alpha.yml` and `store-screenshots.yml`, and
+`my_app/ios/ci_scripts/ci_post_clone.sh` for Xcode Cloud. To upgrade, change
+that one line — and nothing else.
+
+This is not a style preference; the split cost two broken releases. The
+workflows used to install `channel: stable`, which silently followed Flutter
+forward: the Android release build broke the day stable became 3.47 and the
+pinned Gradle was suddenly too old, while `flutter analyze` and every test in
+the same job passed. Xcode Cloud had the opposite failure — a hardcoded
+version nobody remembered to touch, leaving iOS building on 3.41.2 six minor
+versions behind everything else.
+
+`scripts/check-flutter-pin.sh` enforces it, and runs as the `flutter-pin` job
+in Flutter CI. It fails the build if the pin is missing or isn't an exact
+version, if any workflow reintroduces a channel or hardcodes a version, if a
+`flutter-action` step installs without naming the pin, or if `ci_post_clone.sh`
+stops reading the file. `flutter-ci.yml` therefore triggers on
+`.github/workflows/*.yml` as well as `my_app/**`, so the guard sees a workflow
+edit that the app-only filter would have missed. Both CI and Xcode Cloud also
+assert after install that the SDK they actually got matches the pin — the file
+states an intent, those checks prove it was honoured.
 
 ## Running Tests
 
@@ -335,7 +361,8 @@ database check taken after the directory walk.
 - Media files and `.env` are gitignored
 - Line endings: LF enforced for `.sh` files via `.gitattributes`
 - CI: `backend-ci.yml` (Django checks + full suite against PostgreSQL 15, plus a dependency
-  audit and a Docker build), `flutter-ci.yml` (analyze + test + pubspec version-bump check),
+  audit and a Docker build), `flutter-ci.yml` (analyze + test + pubspec version-bump check
+  + the [Flutter pin guard](#flutter-version-pin)),
   `deploy-android-alpha.yml` (Play Store alpha upload), `store-screenshots.yml` (manual),
   `app-store-metadata.yml` (manual — pushes the App Store listing text from
   `my_app/fastlane/metadata/`; see `my_app/STORE_METADATA.md`),

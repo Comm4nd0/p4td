@@ -8,11 +8,17 @@ on:
   push:
     paths:
       - 'my_app/**'
-      - '.github/workflows/flutter-ci.yml'
+      # The flutter-pin job guards every workflow's Flutter install and the
+      # script that checks them, so a change to any of those has to run it —
+      # otherwise `channel: stable` could go back into a workflow this filter
+      # doesn't watch and nothing would say so.
+      - '.github/workflows/*.yml'
+      - 'scripts/check-flutter-pin.sh'
   pull_request:
     paths:
       - 'my_app/**'
-      - '.github/workflows/flutter-ci.yml'
+      - '.github/workflows/*.yml'
+      - 'scripts/check-flutter-pin.sh'
 
 jobs:
   test:
@@ -27,9 +33,23 @@ jobs:
           # Need the base branch to compare the version bump against.
           fetch-depth: 0
 
+      - name: Resolve the pinned Flutter version
+        id: flutter_pin
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/my_app/.flutter-version")" >> "$GITHUB_OUTPUT"
+
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ steps.flutter_pin.outputs.version }}
+
+      - name: Check the installed SDK matches the pin
+        run: |
+          pinned="${{ steps.flutter_pin.outputs.version }}"
+          installed="$(flutter --version | sed -n 's/^Flutter \([0-9][0-9.]*\).*/\1/p' | head -1)"
+          echo "pinned=$pinned installed=$installed"
+          if [ "$installed" != "$pinned" ]; then
+            echo "::error::Flutter $installed was installed but my_app/.flutter-version pins $pinned."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: flutter pub get
@@ -41,6 +61,17 @@ jobs:
 
       - name: Test
         run: flutter test
+
+  # One Flutter version, named in my_app/.flutter-version, installed by every
+  # build surface — GitHub Actions and Xcode Cloud alike. Without this, the
+  # workflows drift forward on `channel: stable` while Xcode Cloud stays frozen
+  # on whatever was hardcoded, and neither shows up until a release breaks.
+  flutter-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every build surface installs the pinned Flutter
+        run: ./scripts/check-flutter-pin.sh
 
   # CLAUDE.md requires every commit touching my_app/ to bump the pubspec build
   # number, because the Play Store rejects a re-used one. That was only
@@ -57,6 +88,15 @@ jobs:
         run: |
           base="origin/${{ github.base_ref }}"
           git fetch origin "${{ github.base_ref }}" --depth=1
+
+          # This workflow also runs for workflow-only changes now (the
+          # flutter-pin job has to see those). The bump is only required when
+          # the app itself changed — the Play Store rejects a re-used build
+          # number, but a CI edit ships nothing.
+          if git diff --quiet "$base"...HEAD -- my_app/; then
+            echo "No my_app/ changes in this PR — no version bump required."
+            exit 0
+          fi
 
           extract() { sed -n 's/^version: .*+\([0-9]*\)$/\1/p' "$1"; }
 
