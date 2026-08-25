@@ -97,7 +97,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 |---|---|
 | `api/profile/` | User profiles |
 | `api/dogs/` | Dog profiles |
-| `api/photos/` | Dog photos/videos |
+| `api/photos/` | Dog photos/videos. Owners view and upload to their own dogs' galleries; **deleting a photo is staff-only** — the gallery holds medical paperwork staff have photographed |
 | `api/date-change-requests/` | Schedule change requests |
 | `api/feed/` | Activity feed / group media |
 | `api/comments/` | Feed comments |
@@ -318,8 +318,9 @@ python manage.py prune_feed_media --include-orphans
 
 **Dog gallery photos are never pruned by age, and must stay that way.** Staff
 photograph vaccination cards and other medical paperwork into a dog's gallery,
-so a `Photo` row is a record, not a snapshot: it goes only when someone deletes
-that photo or the dog itself (`DogViewSet.destroy` clears the files with it).
+so a `Photo` row is a record, not a snapshot: it goes only when a staff member
+deletes that photo (owners get 403 — see `PhotoViewSet.perform_destroy`) or
+when the dog itself is deleted (`DogViewSet.destroy` clears the files with it).
 Do not add `Photo` to the retention pass. `--include-orphans` does sweep
 `dog_photos/`, but only as a backstop for files whose row is already gone — and
 before it removes anything, a file must be absent from the reference snapshot,
