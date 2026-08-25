@@ -1,0 +1,28 @@
+name: Xcode Cloud Diagnose
+
+# Read-only diagnostic. The Xcode Cloud UI reports a distribution failure as
+# a bare "Preparing build for App Store Connect failed" and keeps the real
+# reason in the build's issue list; this pulls that list through the App
+# Store Connect API (products -> latest build runs -> actions -> issues) and
+# prints the errors in the job log. Uses the same ASC API key as the store
+# workflows. Never changes anything on Apple's side.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PyJWT
+        run: pip install --quiet pyjwt cryptography
+
+      - name: Pull the latest Xcode Cloud build issues
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: python3 scripts/xcode_cloud_diagnose.py
