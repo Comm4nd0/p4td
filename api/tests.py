@@ -3325,6 +3325,12 @@ class PruneFeedMediaTests(TestCase):
         call_command('prune_feed_media', days=90)
         self.assertFalse(os.path.exists(file_path))
 
+    def _age_file(self, path, hours=48):
+        """Backdate a file's mtime past the orphan grace period."""
+        import os, time
+        old = time.time() - hours * 3600
+        os.utime(path, (old, old))
+
     def test_orphan_cleanup_removes_unreferenced_files(self):
         import os
         from django.core.management import call_command
@@ -3332,6 +3338,7 @@ class PruneFeedMediaTests(TestCase):
         orphan_path = os.path.join(self.media_root, 'group_media', 'orphan.jpg')
         with open(orphan_path, 'wb') as f:
             f.write(b'orphan')
+        self._age_file(orphan_path)
         self.assertTrue(os.path.exists(orphan_path))
         call_command('prune_feed_media', days=9999, include_orphans=True)
         self.assertFalse(os.path.exists(orphan_path))
@@ -3343,6 +3350,116 @@ class PruneFeedMediaTests(TestCase):
         self.assertTrue(os.path.exists(file_path))
         call_command('prune_feed_media', days=9999, include_orphans=True)
         self.assertTrue(os.path.exists(file_path))
+
+    def test_orphan_cleanup_spares_a_file_inside_the_grace_period(self):
+        """An upload still being written looks exactly like an orphan."""
+        import os
+        from django.core.management import call_command
+        fresh_path = os.path.join(self.media_root, 'dog_photos', 'just-uploaded.jpg')
+        os.makedirs(os.path.dirname(fresh_path), exist_ok=True)
+        with open(fresh_path, 'wb') as f:
+            f.write(b'mid-upload')
+        call_command('prune_feed_media', days=9999, include_orphans=True)
+        self.assertTrue(os.path.exists(fresh_path))
+
+        # It goes on a later run, once it has sat there unclaimed.
+        self._age_file(fresh_path)
+        call_command('prune_feed_media', days=9999, include_orphans=True)
+        self.assertFalse(os.path.exists(fresh_path))
+
+
+class DogPhotoRetentionTests(TestCase):
+    """Photos in a dog's gallery hold medical records staff have photographed.
+    Nothing removes them on a schedule — only deleting the photo or the dog."""
+
+    def setUp(self):
+        import os
+        from django.conf import settings
+        from django.core.files.base import ContentFile
+
+        self.staff = User.objects.create_user(username='photostaff', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(username='photoowner', password='pw')
+        self.media_root = str(settings.MEDIA_ROOT)
+        for d in ['dog_photos', os.path.join('dog_photos', 'thumbnails')]:
+            os.makedirs(os.path.join(self.media_root, d), exist_ok=True)
+
+        self.dog = Dog.objects.create(owner=self.owner, name='Bramble')
+        self.photo = Photo.objects.create(
+            dog=self.dog,
+            taken_at=timezone.now() - timedelta(days=1200),
+            file=ContentFile(b'vaccination-card', name='meds.jpg'),
+        )
+        # Years old — well past any feed retention window.
+        Photo.objects.filter(pk=self.photo.pk).update(
+            created_at=timezone.now() - timedelta(days=1200),
+        )
+        self.photo.refresh_from_db()
+        self.client = APIClient()
+
+    def tearDown(self):
+        import shutil, os
+        from django.conf import settings
+        path = os.path.join(str(settings.MEDIA_ROOT), 'dog_photos')
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+
+    def _photo_path(self):
+        import os
+        return os.path.join(self.media_root, self.photo.file.name)
+
+    def test_pruning_never_touches_a_dog_photo_however_old(self):
+        import os
+        from django.core.management import call_command
+        path = self._photo_path()
+        self.assertTrue(os.path.exists(path))
+        # The production schedule, with the shortest retention anyone would set.
+        call_command('prune_feed_media', days=1, include_orphans=True)
+        self.assertTrue(Photo.objects.filter(pk=self.photo.pk).exists())
+        self.assertTrue(os.path.exists(path))
+
+    def test_the_orphan_sweep_spares_a_photo_added_since_its_snapshot(self):
+        """The sweep re-checks the database before deleting anything."""
+        import os
+        from django.core.files.base import ContentFile
+        from django.core.management import call_command
+        from api.management.commands import prune_feed_media
+
+        real = prune_feed_media.Command._referenced_names
+        state = {'late': None}
+
+        def snapshot_then_upload(names=None):
+            result = real(names)
+            if state['late'] is None:
+                # A staff member uploads while the command is walking the
+                # directories: the snapshot it just took is already stale.
+                late = Photo.objects.create(
+                    dog=self.dog, taken_at=timezone.now(),
+                    file=ContentFile(b'x-ray', name='xray.jpg'),
+                )
+                path = os.path.join(self.media_root, late.file.name)
+                os.utime(path, (0, 0))  # and it is not saved by the grace period
+                state['late'] = late
+            return result
+
+        with patch.object(
+            prune_feed_media.Command, '_referenced_names',
+            staticmethod(snapshot_then_upload),
+        ):
+            call_command('prune_feed_media', days=9999, include_orphans=True)
+
+        late = state['late']
+        self.assertIsNotNone(late)
+        self.assertTrue(Photo.objects.filter(pk=late.pk).exists())
+        self.assertTrue(os.path.exists(os.path.join(self.media_root, late.file.name)))
+
+    def test_deleting_the_dog_removes_its_photos(self):
+        import os
+        path = self._photo_path()
+        self.client.login(username='photostaff', password='pw')
+        resp = self.client.delete(f'/api/dogs/{self.dog.id}/')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertFalse(Photo.objects.filter(pk=self.photo.pk).exists())
+        self.assertFalse(os.path.exists(path))
 
 
 class AssignmentTransportTests(TestCase):
