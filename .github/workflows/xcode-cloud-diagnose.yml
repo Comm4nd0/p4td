@@ -9,6 +9,13 @@ name: Xcode Cloud Diagnose
 
 on:
   workflow_dispatch:
+    inputs:
+      runs:
+        description: "How many recent builds to list per product"
+        default: "3"
+      mine:
+        description: "How many of the newest failures to pull log bundles for"
+        default: "1"
 
 jobs:
   diagnose:
@@ -25,4 +32,6 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          RUNS: ${{ inputs.runs || '3' }}
+          MINE: ${{ inputs.mine || '1' }}
         run: python3 scripts/xcode_cloud_diagnose.py

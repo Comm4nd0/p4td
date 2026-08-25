@@ -23,7 +23,11 @@ import zipfile
 import jwt  # PyJWT
 
 API = "https://api.appstoreconnect.apple.com"
-RUNS_TO_INSPECT = 3
+# How many recent runs to list, and how many of the newest failures to mine
+# log bundles for (the downloads are the slow part).
+RUNS_TO_INSPECT = int(os.environ.get("RUNS", "3"))
+FAILURES_TO_MINE = int(os.environ.get("MINE", "1"))
+_mined = 0
 # Log lines worth surfacing from a failed action's log bundle, and the noise
 # that mentions "error" without being one.
 ERROR_RE = re.compile(r"error|fail|exception|denied|invalid|missing|unable", re.I)
@@ -159,7 +163,8 @@ for product in products["data"]:
             # The issue list for a distribution failure is often just the
             # one-line summary; the real reason is in the action's log
             # bundle. Pull it for failed actions and surface the error lines.
-            if attr(action, "completionStatus") == "FAILED":
+            if attr(action, "completionStatus") == "FAILED" and _mined < FAILURES_TO_MINE:
+                _mined += 1
                 dump_failed_action_logs(action["id"])
 
 
