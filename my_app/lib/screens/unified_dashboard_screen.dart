@@ -7,6 +7,7 @@ import '../constants/pickup_map.dart';
 import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/photo_tagging_status.dart';
 import '../models/roadwork_issue.dart';
 import '../widgets/roadwork_banner.dart';
 import '../models/dog.dart';
@@ -26,6 +27,7 @@ import 'dashboard/boarding_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import 'dashboard/dashboard_counts.dart';
 import 'dashboard/unspayed_males_dialog.dart';
+import 'dashboard/untagged_dogs_sheet.dart';
 import 'all_dogs_today_screen.dart';
 import 'day_board_screen.dart';
 import 'dog_home_screen.dart';
@@ -382,6 +384,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadUnassignedDogs(date);
     _loadConflicts(date);
     _loadRoadworks(date);
+    _loadPhotoTagging(date);
 
     // Pre-cache adjacent dates so swiping is instant.
     if (prefetchAdjacent) _prefetchAdjacentDates(date);
@@ -414,6 +417,21 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Failed to load roadworks: $e');
+    }
+  }
+
+  /// Photo-tagging progress for the day. Deliberately silent on failure like
+  /// roadworks — the progress card simply doesn't render, and a missing nudge
+  /// is a degradation of a nice-to-have, not a dog left behind.
+  Future<void> _loadPhotoTagging(DateTime date) async {
+    try {
+      final tagging = await _dataService.getPhotoTagging(date: date);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] =
+            _dayData(date).copyWith(tagging: tagging));
+      }
+    } catch (e) {
+      debugPrint('Failed to load photo tagging: $e');
     }
   }
 
@@ -1112,6 +1130,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                                       _buildUnassignedBanner(_selectedDate),
                                       _buildCompatibilityWarning(_selectedDate),
                                       _buildOverviewMetrics(assignments),
+                                      _buildPhotoTaggingCard(day),
                                       const SizedBox(height: 16),
                                       _buildStaffCards(assignments, day.roadworks),
                                     ]
@@ -1628,6 +1647,67 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     ]);
   }
 
+  /// Progress card nudging staff to have photographed and tagged every dog in
+  /// the feed by the end of the day. Tapping lists the dogs still needing a
+  /// photo. Hidden for future days (no photos can exist yet), before the
+  /// status loads, and when the day has no dogs.
+  Widget _buildPhotoTaggingCard(DayData day) {
+    final tagging = day.tagging;
+    final now = DateTime.now();
+    final isFuture = _dayKey(_selectedDate).isAfter(_dayKey(now));
+    if (tagging == null || tagging.total == 0 || isFuture) {
+      return const SizedBox.shrink();
+    }
+    final complete = tagging.complete;
+    final color = complete ? AppColors.success : AppColors.primary;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => showUntaggedDogsSheet(context, tagging,
+              onOpenFeed: widget.onSwitchToFeed),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(children: [
+              Picon(PiconsDuotone.camera, size: 22, color: color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      complete
+                          ? 'All ${tagging.total} dogs tagged in photos today'
+                          : '${tagging.tagged} of ${tagging.total} dogs tagged in photos',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: complete ? AppColors.success : null),
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: tagging.tagged / tagging.total,
+                        minHeight: 6,
+                        backgroundColor: AppColors.grey200,
+                        valueColor: AlwaysStoppedAnimation<Color>(color),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Picon(PiconsDuotone.caretRight, size: 16, color: AppColors.grey400),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionItems() {
     return ActionItemsSection(
       pendingRequestCount: _counts.pendingRequestCount,
@@ -2008,6 +2088,10 @@ class DayData {
   /// unlike the conflict banners, a missing roadwork warning is a degradation
   /// of a nice-to-have, not a dog left behind.
   final List<RoadworkIssue> roadworks;
+
+  /// Photo-tagging progress for the day, or null until it loads (or when the
+  /// fetch failed — the progress card hides itself either way).
+  final PhotoTaggingStatus? tagging;
   final ClosureDay? closure;
   final bool loading;
   final Object? error;
@@ -2034,6 +2118,7 @@ class DayData {
     this.unassignedDogs = const [],
     this.conflicts = const [],
     this.roadworks = const [],
+    this.tagging,
     this.closure,
     this.loading = false,
     this.error,
@@ -2048,6 +2133,7 @@ class DayData {
     List<Dog>? unassignedDogs,
     List<CompatibilityConflict>? conflicts,
     List<RoadworkIssue>? roadworks,
+    PhotoTaggingStatus? tagging,
     ClosureDay? closure,
     bool clearClosure = false,
     bool? loading,
@@ -2064,6 +2150,7 @@ class DayData {
       unassignedDogs: unassignedDogs ?? this.unassignedDogs,
       conflicts: conflicts ?? this.conflicts,
       roadworks: roadworks ?? this.roadworks,
+      tagging: tagging ?? this.tagging,
       closure: clearClosure ? null : (closure ?? this.closure),
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),

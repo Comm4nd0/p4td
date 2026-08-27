@@ -133,6 +133,10 @@ abstract class DataService {
   Future<void> reorderAssignments(List<int> assignmentIds);
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date});
 
+  /// Photo-tagging progress for a day: how many of the day's dogs have been
+  /// tagged in feed media posted that day, and which still need tagging.
+  Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date});
+
   // Support Queries
   Future<List<SupportQuery>> getSupportQueries();
   Future<SupportQuery> getSupportQuery(int queryId);

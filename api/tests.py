@@ -2782,6 +2782,72 @@ class CompatibilityConflictTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class PhotoTaggingStatusTests(TestCase):
+    """/api/daily-assignments/photo_tagging/ — which of the day's dogs have
+    been tagged in feed media posted that day."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(
+            username='staff', password='pw', is_staff=True, first_name='Alice',
+        )
+        self.dog1 = Dog.objects.create(owner=self.owner, name='Rex')
+        self.dog2 = Dog.objects.create(owner=self.owner, name='Buddy')
+        self.today = date.today()
+        self.client = APIClient()
+
+    def _assign(self, dog, status='ASSIGNED'):
+        return DailyDogAssignment.objects.create(
+            dog=dog, staff_member=self.staff, date=self.today, status=status)
+
+    def _tag(self, *dogs, days_ago=0):
+        media = GroupMedia.objects.create(
+            uploaded_by=self.staff, media_type='PHOTO', caption='walkies')
+        media.tagged_dogs.set(dogs)
+        if days_ago:
+            GroupMedia.objects.filter(pk=media.pk).update(
+                created_at=timezone.now() - timedelta(days=days_ago))
+        return media
+
+    def _get(self):
+        self.client.login(username='staff', password='pw')
+        return self.client.get(
+            f'/api/daily-assignments/photo_tagging/?date={self.today.isoformat()}')
+
+    def test_counts_tagged_and_lists_untagged(self):
+        self._assign(self.dog1)
+        self._assign(self.dog2)
+        self._tag(self.dog1)
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['total'], 2)
+        self.assertEqual(resp.data['tagged'], 1)
+        self.assertEqual(len(resp.data['untagged']), 1)
+        self.assertEqual(resp.data['untagged'][0]['dog_name'], 'Buddy')
+        self.assertEqual(resp.data['untagged'][0]['staff_member_name'], 'Alice')
+
+    def test_media_from_another_day_does_not_count(self):
+        self._assign(self.dog1)
+        self._tag(self.dog1, days_ago=1)
+        resp = self._get()
+        self.assertEqual(resp.data['tagged'], 0)
+        self.assertEqual(len(resp.data['untagged']), 1)
+
+    def test_removed_assignment_excluded(self):
+        self._assign(self.dog1)
+        self._assign(self.dog2, status='REMOVED')
+        self._tag(self.dog1)
+        resp = self._get()
+        self.assertEqual(resp.data['total'], 1)
+        self.assertEqual(resp.data['tagged'], 1)
+        self.assertEqual(resp.data['untagged'], [])
+
+    def test_non_staff_blocked(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get('/api/daily-assignments/photo_tagging/')
+        self.assertEqual(resp.status_code, 403)
+
+
 class StaffAvailabilityTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

@@ -2221,6 +2221,56 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         conflicts.sort(key=lambda c: (c['staff_member_name'].lower(), c['dog_a_name'].lower()))
         return Response({'date': target_date.isoformat(), 'conflicts': conflicts})
 
+    @action(detail=False, methods=['get'])
+    def photo_tagging(self, request):
+        """How many of the day's dogs have been tagged in feed media posted
+        that day, and which dogs still need tagging.
+
+        A dog counts as tagged when any GroupMedia created on the given local
+        date tags it — regardless of who posted. Accepts optional
+        ?date=YYYY-MM-DD (defaults to today).
+        """
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        self._materialize_roster_for_date(target_date)
+
+        assignments = (
+            self.get_queryset()
+            .filter(date=target_date)
+            .exclude(status__in=['REMOVED', 'UNASSIGNED'])
+        )
+        by_dog = {a.dog_id: a for a in assignments}
+
+        # __date evaluates in the current (Europe/London) timezone, so "posted
+        # today" matches what staff see on the feed.
+        tagged_ids = set(
+            GroupMedia.objects.filter(
+                created_at__date=target_date,
+                tagged_dogs__in=by_dog.keys(),
+            ).values_list('tagged_dogs', flat=True)
+        )
+
+        untagged = []
+        for dog_id, a in by_dog.items():
+            if dog_id in tagged_ids:
+                continue
+            image = a.dog.profile_image
+            untagged.append({
+                'dog_id': dog_id,
+                'dog_name': a.dog.name,
+                'dog_profile_image': request.build_absolute_uri(image.url) if image else None,
+                'staff_member_id': a.staff_member_id,
+                'staff_member_name': a.staff_member.first_name or a.staff_member.username,
+            })
+        untagged.sort(key=lambda d: (d['staff_member_name'].lower(), d['dog_name'].lower()))
+        return Response({
+            'date': target_date.isoformat(),
+            'total': len(by_dog),
+            'tagged': len(by_dog) - len(untagged),
+            'untagged': untagged,
+        })
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update the status of an assignment."""

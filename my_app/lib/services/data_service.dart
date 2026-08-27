@@ -33,6 +33,7 @@ import '../models/invoice.dart';
 import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
 import '../models/roadwork_issue.dart';
+import '../models/photo_tagging_status.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 import 'no_connection_exception.dart';
@@ -1609,6 +1610,15 @@ class ApiDataService implements DataService {
           .toList();
     }
     throw Exception('Failed to load compatibility conflicts: ${response.statusCode}');
+  }
+
+  @override
+  Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date}) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/photo_tagging/${_dateParam(date)}'));
+    if (response.statusCode == 200) {
+      return PhotoTaggingStatus.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception('Failed to load photo tagging status: ${response.statusCode}');
   }
 
   @override
