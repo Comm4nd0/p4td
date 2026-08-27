@@ -1733,13 +1733,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           // 100%.
           final pickupLeg = staff.assignments.where((a) => a.needsPickup).toList();
           final dropoffLeg = staff.assignments.where((a) => a.needsDropoff).toList();
-          final collectedCount = pickupLeg
+          // The P4TD house account (or any card of owner-brought dogs) has no
+          // pickup leg at all, but staff still mark those dogs With Team as
+          // they arrive — so with nothing to collect, the tick tracks arrival
+          // statuses across every dog on the card instead.
+          final hasPickups = pickupLeg.isNotEmpty;
+          final collectedPool = hasPickups ? pickupLeg : staff.assignments;
+          final collectedCount = collectedPool
               .where((a) => a.status == AssignmentStatus.pickedUp || a.status == AssignmentStatus.droppedOff)
               .length;
           final droppedCount = dropoffLeg
               .where((a) => a.status == AssignmentStatus.droppedOff)
               .length;
-          final allCollected = pickupLeg.isNotEmpty && collectedCount == pickupLeg.length;
+          final allCollected = collectedPool.isNotEmpty && collectedCount == collectedPool.length;
           final allDropped = dropoffLeg.isNotEmpty && droppedCount == dropoffLeg.length;
           final staffColor = _staffColors.of(staff.id);
           // A ring in the severity colour, so a driver with a closed road on
@@ -1773,7 +1779,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Row(children: [
                     Icon(Icons.check_circle, size: 13, color: allCollected ? AppColors.success : AppColors.grey400),
                     const SizedBox(width: 3),
-                    Text('collected $collectedCount of ${pickupLeg.length}',
+                    Text(
+                        hasPickups
+                            ? 'collected $collectedCount of ${collectedPool.length}'
+                            : '$collectedCount of ${collectedPool.length} with team',
                         style: TextStyle(fontSize: 11, color: allCollected ? AppColors.success : AppColors.grey600)),
                   ]),
                   const SizedBox(height: 2),
