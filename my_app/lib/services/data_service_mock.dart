@@ -352,6 +352,10 @@ class MockDataService implements DataService {
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date}) async => [];
 
   @override
+  Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date}) async =>
+      const PhotoTaggingStatus(total: 0, tagged: 0, untagged: []);
+
+  @override
   Future<List<Dog>> getUnassignedDogs({DateTime? date}) async => [];
 
   @override
