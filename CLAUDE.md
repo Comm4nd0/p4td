@@ -323,6 +323,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` | — |
 | `python manage.py send_vaccination_reminders` | Send push reminders to owners for vaccinations that are expiring or expired | Daily 8:00am |
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
+| `python manage.py send_end_of_day_alerts` | Push an end-of-day exception summary (dogs never picked up, still out with the team, or never assigned to a driver) to staff with `receives_business_alerts`. Silent when everything got home. `--date` | Daily 5:30pm |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files. Never touches dog gallery photos — see [Feed Media Pruning](#feed-media-pruning) | Weekly, Sun 3am (with `--include-orphans`) |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
 | `python manage.py prune_auth_tokens` | Delete DRF auth tokens older than N days so an abandoned device's token can't be reused indefinitely (tokens never expire on their own). `--days`, `--dry-run` | — |
