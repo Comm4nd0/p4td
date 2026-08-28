@@ -1,0 +1,49 @@
+name: Authorize SSH Key
+
+# One-off, manually-triggered recovery workflow: Marco rebuilt his PC and lost
+# his personal SSH key to the Hetzner box. This borrows the deploy workflow's
+# working credentials (the HETZNER_* secrets) to append his new public key to
+# the server's authorized_keys. The key is hardcoded on purpose — public key
+# material is safe in git, and the history then records exactly what was
+# authorized. Delete this workflow once the new key is confirmed working.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    env:
+      NEW_PUBLIC_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAqPRBe8Ka+dASiXdGZ4syXFNt4eUS2Rm9h1yjTNv+xC marco@X304-202608
+
+    steps:
+      - name: Configure SSH
+        env:
+          KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Append the new key to authorized_keys
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          USER_NAME: ${{ secrets.HETZNER_USER }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "$USER_NAME@$HOST" \
+            "grep -qxF '$NEW_PUBLIC_KEY' ~/.ssh/authorized_keys 2>/dev/null \
+               || printf '%s\n' '$NEW_PUBLIC_KEY' >> ~/.ssh/authorized_keys; \
+             chmod 600 ~/.ssh/authorized_keys; \
+             echo 'authorized_keys now contains:'; \
+             cut -d' ' -f3 ~/.ssh/authorized_keys"
