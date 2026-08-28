@@ -18,30 +18,35 @@ class LandingScreen extends StatelessWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Hero section ──────────────────────────────────────
-              _buildHeroSection(context, isDark),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Hero section ──────────────────────────────────────
+                  _buildHeroSection(context, isDark),
 
-              // ── Services section ──────────────────────────────────
-              _buildServicesSection(context, isDark),
+                  // ── Services section ──────────────────────────────────
+                  _buildServicesSection(context, isDark),
 
-              // ── Why choose us ─────────────────────────────────────
-              _buildTrustSection(context, isDark),
+                  // ── Why choose us ─────────────────────────────────────
+                  _buildTrustSection(context, isDark),
 
-              // ── App features ──────────────────────────────────────
-              _buildAppFeaturesSection(context, isDark),
+                  // ── App features ──────────────────────────────────────
+                  _buildAppFeaturesSection(context, isDark),
 
-              // ── Contact ───────────────────────────────────────────
-              _buildContactSection(context, isDark),
+                  // ── Contact ───────────────────────────────────────────
+                  _buildContactSection(context, isDark),
 
-              // ── CTA section ───────────────────────────────────────
-              _buildCtaSection(context, isDark),
+                  // ── CTA section ───────────────────────────────────────
+                  _buildCtaSection(context, isDark),
 
-              const SizedBox(height: 32),
-            ],
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
           ),
         ),
       ),

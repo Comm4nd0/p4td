@@ -153,172 +153,177 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Image.asset('assets/logo.png', height: 80),
-              const SizedBox(height: 24),
-              if (_errorMessage != null)
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
-              Text(
-                'Your Details',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 16),
-              Row(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _firstNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'First Name',
+                  Image.asset('assets/logo.png', height: 80),
+                  const SizedBox(height: 24),
+                  if (_errorMessage != null)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade100,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      textCapitalization: TextCapitalization.words,
-                      validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  Text(
+                    'Your Details',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _firstNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'First Name',
+                          ),
+                          textCapitalization: TextCapitalization.words,
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _lastNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Last Name',
+                          ),
+                          textCapitalization: TextCapitalization.words,
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _emailController,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: Picon(PiconsDuotone.envelope),
+                      helperText: 'This will be your login',
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (v) {
+                      if (v?.isEmpty ?? true) return 'Required';
+                      if (!_emailRegex.hasMatch(v!.trim())) return 'Enter a valid email';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _passwordController,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: Picon(PiconsDuotone.lock),
+                      suffixIcon: IconButton(
+                        icon: Picon(
+                          _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
+                        ),
+                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                      ),
+                    ),
+                    obscureText: _obscurePassword,
+                    validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _confirmPasswordController,
+                    decoration: InputDecoration(
+                      labelText: 'Confirm Password',
+                      prefixIcon: Picon(PiconsDuotone.lock),
+                      suffixIcon: IconButton(
+                        icon: Picon(
+                          _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
+                        ),
+                        onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                      ),
+                    ),
+                    obscureText: _obscureConfirm,
+                    validator: (v) {
+                      if (v?.isEmpty ?? true) return 'Required';
+                      if (v != _passwordController.text) return 'Passwords do not match';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Once your account is created you can fill out the booking form '
+                    'to get your dog(s) booked into daycare.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  ),
+                  const SizedBox(height: 24),
+                  // Privacy Policy acceptance — required to create an account.
+                  InkWell(
+                    onTap: () => setState(() => _acceptedPrivacy = !_acceptedPrivacy),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Checkbox(
+                          value: _acceptedPrivacy,
+                          onChanged: (v) => setState(() => _acceptedPrivacy = v ?? false),
+                        ),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              text: 'I have read and agree to the ',
+                              style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                              children: [
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: GestureDetector(
+                                    onTap: _openPrivacyPolicy,
+                                    child: Text(
+                                      'Privacy Policy',
+                                      style: TextStyle(
+                                        color: Theme.of(context).colorScheme.primary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _lastNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Last Name',
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                      validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: (_isLoading || !_acceptedPrivacy) ? null : _register,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Create Account', style: TextStyle(fontSize: 16)),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Already have an account? Login'),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Picon(PiconsDuotone.envelope),
-                  helperText: 'This will be your login',
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (v) {
-                  if (v?.isEmpty ?? true) return 'Required';
-                  if (!_emailRegex.hasMatch(v!.trim())) return 'Enter a valid email';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordController,
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: Picon(PiconsDuotone.lock),
-                  suffixIcon: IconButton(
-                    icon: Picon(
-                      _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
-                    ),
-                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                  ),
-                ),
-                obscureText: _obscurePassword,
-                validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _confirmPasswordController,
-                decoration: InputDecoration(
-                  labelText: 'Confirm Password',
-                  prefixIcon: Picon(PiconsDuotone.lock),
-                  suffixIcon: IconButton(
-                    icon: Picon(
-                      _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
-                    ),
-                    onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
-                  ),
-                ),
-                obscureText: _obscureConfirm,
-                validator: (v) {
-                  if (v?.isEmpty ?? true) return 'Required';
-                  if (v != _passwordController.text) return 'Passwords do not match';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Once your account is created you can fill out the booking form '
-                'to get your dog(s) booked into daycare.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-              // Privacy Policy acceptance — required to create an account.
-              InkWell(
-                onTap: () => setState(() => _acceptedPrivacy = !_acceptedPrivacy),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Checkbox(
-                      value: _acceptedPrivacy,
-                      onChanged: (v) => setState(() => _acceptedPrivacy = v ?? false),
-                    ),
-                    Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          text: 'I have read and agree to the ',
-                          style: TextStyle(color: Colors.grey[800], fontSize: 14),
-                          children: [
-                            WidgetSpan(
-                              alignment: PlaceholderAlignment.middle,
-                              child: GestureDetector(
-                                onTap: _openPrivacyPolicy,
-                                child: Text(
-                                  'Privacy Policy',
-                                  style: TextStyle(
-                                    color: Theme.of(context).colorScheme.primary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    decoration: TextDecoration.underline,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: (_isLoading || !_acceptedPrivacy) ? null : _register,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Create Account', style: TextStyle(fontSize: 16)),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Already have an account? Login'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
