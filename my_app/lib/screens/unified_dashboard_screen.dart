@@ -1046,6 +1046,70 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final day = _dayData(_selectedDate);
     final assignments = day.assignments;
 
+    Future<void> refresh() async {
+      await _loadDay(_selectedDate, force: true);
+      await _counts.refresh();
+    }
+
+    // Date-dependent content — swipe left/right to change date
+    final dayPane = GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (details) {
+        if (details.primaryVelocity == null) return;
+        if (details.primaryVelocity! < -300) {
+          _goToNextDate();
+        } else if (details.primaryVelocity! > 300) {
+          _goToPreviousDate();
+        }
+      },
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        switchInCurve: Curves.easeInOut,
+        switchOutCurve: Curves.easeInOut,
+        transitionBuilder: (child, animation) {
+          final isIncoming = child.key == ValueKey(dateKey);
+          final beginOffset = Offset(
+            isIncoming
+                ? _swipeDirection.toDouble()   // slide in from the direction of travel
+                : -_swipeDirection.toDouble(), // slide out the opposite way
+            0.0,
+          );
+          return SlideTransition(
+            position: Tween<Offset>(begin: beginOffset, end: Offset.zero)
+                .animate(animation),
+            child: child,
+          );
+        },
+        layoutBuilder: (currentChild, previousChildren) {
+          return ClipRect(
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                ...previousChildren,
+                if (currentChild != null) currentChild,
+              ],
+            ),
+          );
+        },
+        child: day.loading && !day.loaded
+            ? ListTileSkeletonList(key: const ValueKey('loading'))
+            : Column(
+                key: ValueKey(dateKey),
+                children: _isDaycareDay(_selectedDate)
+                    ? [
+                        _buildSavedDataBanner(day),
+                        _buildUnassignedBanner(_selectedDate),
+                        _buildCompatibilityWarning(_selectedDate),
+                        _buildOverviewMetrics(assignments),
+                        _buildPhotoTaggingCard(day),
+                        const SizedBox(height: 16),
+                        _buildStaffCards(assignments, day.roadworks),
+                      ]
+                    : [_buildWeekendNotice()],
+              ),
+      ),
+    );
+
     return Scaffold(
       floatingActionButton: _buildQuickActionsFab(),
       body: Column(
@@ -1074,81 +1138,60 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               ]),
             ),
           Expanded(
-            child: RefreshIndicator.adaptive(
-              onRefresh: () async {
-                await _loadDay(_selectedDate, force: true);
-                await _counts.refresh();
-              },
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  // Date-dependent content — swipe left/right to change date
-                  GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onHorizontalDragEnd: (details) {
-                      if (details.primaryVelocity == null) return;
-                      if (details.primaryVelocity! < -300) {
-                        _goToNextDate();
-                      } else if (details.primaryVelocity! > 300) {
-                        _goToPreviousDate();
-                      }
-                    },
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      switchInCurve: Curves.easeInOut,
-                      switchOutCurve: Curves.easeInOut,
-                      transitionBuilder: (child, animation) {
-                        final isIncoming = child.key == ValueKey(dateKey);
-                        final beginOffset = Offset(
-                          isIncoming
-                              ? _swipeDirection.toDouble()   // slide in from the direction of travel
-                              : -_swipeDirection.toDouble(), // slide out the opposite way
-                          0.0,
-                        );
-                        return SlideTransition(
-                          position: Tween<Offset>(begin: beginOffset, end: Offset.zero)
-                              .animate(animation),
-                          child: child,
-                        );
-                      },
-                      layoutBuilder: (currentChild, previousChildren) {
-                        return ClipRect(
-                          child: Stack(
-                            alignment: Alignment.topCenter,
-                            children: [
-                              ...previousChildren,
-                              if (currentChild != null) currentChild,
-                            ],
-                          ),
-                        );
-                      },
-                      child: day.loading && !day.loaded
-                          ? ListTileSkeletonList(key: const ValueKey('loading'))
-                          : Column(
-                              key: ValueKey(dateKey),
-                              children: _isDaycareDay(_selectedDate)
-                                  ? [
-                                      _buildSavedDataBanner(day),
-                                      _buildUnassignedBanner(_selectedDate),
-                                      _buildCompatibilityWarning(_selectedDate),
-                                      _buildOverviewMetrics(assignments),
-                                      _buildPhotoTaggingCard(day),
-                                      const SizedBox(height: 16),
-                                      _buildStaffCards(assignments, day.roadworks),
-                                    ]
-                                  : [_buildWeekendNotice()],
-                            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 900) {
+                  return RefreshIndicator.adaptive(
+                    onRefresh: refresh,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        dayPane,
+                        const SizedBox(height: 16),
+                        // Static content — stays in place when swiping between dates
+                        _buildActionItems(),
+                        const SizedBox(height: 16),
+                        _buildBoardingSection(),
+                        const SizedBox(height: 80), // space for the quick-actions FAB
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Static content — stays in place when swiping between dates
-                  _buildActionItems(),
-                  const SizedBox(height: 16),
-                  _buildBoardingSection(),
-                  const SizedBox(height: 80), // space for the quick-actions FAB
-                ],
-              ),
+                  );
+                }
+                // Wide screens: the day's roster on the left, with the
+                // date-independent action items and boarding alongside it
+                // instead of a scroll away underneath.
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: RefreshIndicator.adaptive(
+                        onRefresh: refresh,
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            dayPane,
+                            const SizedBox(height: 80), // space for the quick-actions FAB
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 400,
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
+                        children: [
+                          _buildActionItems(),
+                          const SizedBox(height: 16),
+                          _buildBoardingSection(),
+                          const SizedBox(height: 80),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -1862,18 +1905,28 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                   Row(children: [
                     Icon(Icons.check_circle, size: 13, color: allCollected ? AppColors.success : AppColors.grey400),
                     const SizedBox(width: 3),
-                    Text(
-                        hasPickups
-                            ? 'collected $collectedCount of ${collectedPool.length}'
-                            : '$collectedCount of ${collectedPool.length} with team',
-                        style: TextStyle(fontSize: 11, color: allCollected ? AppColors.success : AppColors.grey600)),
+                    // Flexible + ellipsis: on narrow phones the trailing chip
+                    // leaves these rows very little width.
+                    Flexible(
+                      child: Text(
+                          hasPickups
+                              ? 'collected $collectedCount of ${collectedPool.length}'
+                              : '$collectedCount of ${collectedPool.length} with team',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11, color: allCollected ? AppColors.success : AppColors.grey600)),
+                    ),
                   ]),
                   const SizedBox(height: 2),
                   Row(children: [
                     Picon(PiconsDuotone.houseLine, size: 13, color: allDropped ? AppColors.success : AppColors.grey400),
                     const SizedBox(width: 3),
-                    Text('returned $droppedCount of ${dropoffLeg.length}',
-                        style: TextStyle(fontSize: 11, color: allDropped ? AppColors.success : AppColors.grey600)),
+                    Flexible(
+                      child: Text('returned $droppedCount of ${dropoffLeg.length}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11, color: allDropped ? AppColors.success : AppColors.grey600)),
+                    ),
                   ]),
                   if (worstRoadwork != null) ...[
                     const SizedBox(height: 2),
@@ -1881,14 +1934,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                       Picon(PiconsDuotone.trafficCone,
                           size: 13, color: roadworkSeverityColor(worstRoadwork)),
                       const SizedBox(width: 3),
-                      Text(
-                        roadworkCount == 1
-                            ? '1 roadwork on route'
-                            : '$roadworkCount roadworks on route',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: roadworkSeverityColor(worstRoadwork)),
+                      Flexible(
+                        child: Text(
+                          roadworkCount == 1
+                              ? '1 roadwork on route'
+                              : '$roadworkCount roadworks on route',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: roadworkSeverityColor(worstRoadwork)),
+                        ),
                       ),
                     ]),
                   ],
@@ -1897,12 +1954,16 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     Row(children: [
                       const Picon(PiconsDuotone.houseLine, size: 13, color: Colors.teal),
                       const SizedBox(width: 3),
-                      Text(
-                        [
-                          if (ownerBringsCount > 0) '$ownerBringsCount drop-off${ownerBringsCount == 1 ? '' : 's'}',
-                          if (ownerCollectsCount > 0) '$ownerCollectsCount pick-up${ownerCollectsCount == 1 ? '' : 's'}',
-                        ].join(', '),
-                        style: const TextStyle(fontSize: 11, color: Colors.teal),
+                      Flexible(
+                        child: Text(
+                          [
+                            if (ownerBringsCount > 0) '$ownerBringsCount drop-off${ownerBringsCount == 1 ? '' : 's'}',
+                            if (ownerCollectsCount > 0) '$ownerCollectsCount pick-up${ownerCollectsCount == 1 ? '' : 's'}',
+                          ].join(', '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: Colors.teal),
+                        ),
                       ),
                     ]),
                   ],

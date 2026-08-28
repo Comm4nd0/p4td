@@ -87,7 +87,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _unreadInquiryCount = 0;
   String _appVersion = '';
   final GlobalKey<UnifiedDashboardScreenState> _dashboardKey = GlobalKey();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
   bool _initialRouteHandled = false;
+
+  /// Wide layouts (tablet landscape / desktop) get a persistent sidebar in
+  /// place of the modal drawer and bottom navigation bar.
+  bool get _isWideLayout => MediaQuery.of(context).size.width >= 1000;
+
+  /// Menu tiles close the drawer when tapped. As a persistent sidebar the
+  /// drawer route doesn't exist, so there is nothing to pop.
+  void _closeDrawer() {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold != null && scaffold.isDrawerOpen) scaffold.closeDrawer();
+  }
 
   // Staff filter for dashboard navigation
   int? _dogGroupsStaffFilter;
@@ -462,11 +474,57 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (changed == true) _refresh();
   }
 
+  Future<void> _onNavTap(int index) async {
+    // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
+    if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DogHomeScreen(dog: _allDogs.first, isStaff: false),
+        ),
+      );
+      if (result == 'deleted') _refresh();
+      return;
+    }
+    setState(() {
+      _currentIndex = index;
+      if (index != 2) _dogGroupsStaffFilter = null;
+    });
+    if (_isOffline) _refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isWide = _isWideLayout;
+    // Full-screen offline block only when there is truly nothing to show —
+    // with a warm cache the app keeps working offline (saved data).
+    final body = _isOffline && _allDogs.isEmpty
+        ? NoConnectionWidget(onRetry: _refresh)
+        : _currentIndex == 0
+            ? _buildDogsView()
+            : _currentIndex == 1
+                ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
+                : UnifiedDashboardScreen(
+                    key: _dashboardKey,
+                    canAssignDogs: _canAssignDogs,
+                    canManageRequests: _canManageRequests,
+                    canReplyQueries: _canReplyQueries,
+                    canViewInquiries: _canViewInquiries,
+                    canAddFeedMedia: _canAddFeedMedia,
+                    canManageVehicles: _canManageVehicles,
+                    canManagePayments: _canManagePayments,
+                    canManageBoarding: _canManageBoarding,
+                    canManageStaff: _canManageStaff,
+                    isStaff: _isStaff,
+                    isSuperuser: _isSuperuser,
+                    myUserId: _myUserId,
+                    initialStaffId: _dogGroupsStaffFilter,
+                    onSwitchToFeed: () => setState(() => _currentIndex = 1),
+                  );
     return UpgradeAlert(
       shouldPopScope: () => true,
       child: Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: GestureDetector(
           onTap: () => setState(() => _currentIndex = 1),
@@ -514,7 +572,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
         ],
       ),
-      drawer: _buildDrawer(),
+      drawer: isWide ? null : _buildDrawer(),
       floatingActionButton: _currentIndex == 0 && _isStaff
           ? FloatingActionButton.extended(
               onPressed: _addDog,
@@ -522,78 +580,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               label: const Text('Add Dog'),
             )
           : null,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).bottomNavigationBarTheme.backgroundColor,
-          border: Border(
-            top: BorderSide(
-              color: Theme.of(context).dividerTheme.color ?? AppColors.iosSeparator,
-              width: 0.5,
-            ),
-          ),
-        ),
-        child: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) async {
-          // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
-          if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
-            final result = await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DogHomeScreen(dog: _allDogs.first, isStaff: false),
+      bottomNavigationBar: isWide
+          ? null
+          : Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).bottomNavigationBarTheme.backgroundColor,
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(context).dividerTheme.color ?? AppColors.iosSeparator,
+                    width: 0.5,
+                  ),
+                ),
               ),
-            );
-            if (result == 'deleted') _refresh();
-            return;
-          }
-          setState(() {
-            _currentIndex = index;
-            if (index != 2) _dogGroupsStaffFilter = null;
-          });
-          if (_isOffline) _refresh();
-        },
-        items: [
-          BottomNavigationBarItem(
-            icon: Picon(PiconsDuotone.pawPrint),
-            label: _isStaff ? 'All Dogs' : (_allDogs.length == 1 ? _allDogs.first.name : 'My Dogs'),
-          ),
-          BottomNavigationBarItem(
-            icon: Picon(PiconsDuotone.images),
-            label: 'Feed',
-          ),
-          if (_isStaff)
-            BottomNavigationBarItem(
-              icon: Picon(PiconsDuotone.squaresFour),
-              label: "Dashboard",
-            ),
-        ],
-        ),
-      ),
-      // Full-screen offline block only when there is truly nothing to show —
-      // with a warm cache the app keeps working offline (saved data).
-      body: _isOffline && _allDogs.isEmpty
-          ? NoConnectionWidget(onRetry: _refresh)
-          : _currentIndex == 0
-              ? _buildDogsView()
-              : _currentIndex == 1
-                  ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                  : UnifiedDashboardScreen(
-                      key: _dashboardKey,
-                      canAssignDogs: _canAssignDogs,
-                      canManageRequests: _canManageRequests,
-                      canReplyQueries: _canReplyQueries,
-                      canViewInquiries: _canViewInquiries,
-                      canAddFeedMedia: _canAddFeedMedia,
-                      canManageVehicles: _canManageVehicles,
-                      canManagePayments: _canManagePayments,
-                      canManageBoarding: _canManageBoarding,
-                      canManageStaff: _canManageStaff,
-                      isStaff: _isStaff,
-                      isSuperuser: _isSuperuser,
-                      myUserId: _myUserId,
-                      initialStaffId: _dogGroupsStaffFilter,
-                      onSwitchToFeed: () => setState(() => _currentIndex = 1),
+              child: BottomNavigationBar(
+                currentIndex: _currentIndex,
+                onTap: _onNavTap,
+                items: [
+                  BottomNavigationBarItem(
+                    icon: Picon(PiconsDuotone.pawPrint),
+                    label: _isStaff ? 'All Dogs' : (_allDogs.length == 1 ? _allDogs.first.name : 'My Dogs'),
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Picon(PiconsDuotone.images),
+                    label: 'Feed',
+                  ),
+                  if (_isStaff)
+                    BottomNavigationBarItem(
+                      icon: Picon(PiconsDuotone.squaresFour),
+                      label: "Dashboard",
                     ),
+                ],
+              ),
+            ),
+      body: isWide
+          ? Row(
+              children: [
+                _buildSidebar(),
+                Expanded(child: body),
+              ],
+            )
+          : body,
     ),
     );
   }
@@ -618,11 +644,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
 
-  Widget _buildDrawer() {
-    return Drawer(
-      child: ListView(
+  Widget _buildDrawer() => Drawer(child: _menuList());
+
+  /// The always-visible wide-layout counterpart of the drawer, with the
+  /// bottom-nav destinations folded in at the top.
+  Widget _buildSidebar() {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Container(
+        width: 300,
+        decoration: BoxDecoration(
+          border: Border(
+            right: BorderSide(
+              color: Theme.of(context).dividerTheme.color ?? AppColors.iosSeparator,
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: SafeArea(child: _menuList(sidebar: true)),
+      ),
+    );
+  }
+
+  Widget _navTile(int index, Object icon, String label) => ListTile(
+        leading: Picon(icon),
+        title: Text(label),
+        selected: _currentIndex == index,
+        onTap: () => _onNavTap(index),
+      );
+
+  Widget _menuList({bool sidebar = false}) {
+    return ListView(
         padding: EdgeInsets.zero,
         children: [
+          // The sidebar sits beside the app bar's logo, so the drawer's
+          // header would just repeat it — navigation tiles go there instead.
+          if (sidebar)
+            GroupedSection(
+              children: [
+                _navTile(0, PiconsDuotone.pawPrint,
+                    _isStaff ? 'All Dogs' : (_allDogs.length == 1 ? _allDogs.first.name : 'My Dogs')),
+                _navTile(1, PiconsDuotone.images, 'Feed'),
+                if (_isStaff) _navTile(2, PiconsDuotone.squaresFour, 'Dashboard'),
+              ],
+            )
+          else
           DrawerHeader(
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
@@ -655,7 +721,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 title: const Text('Contact Staff'),
                 trailing: _drawerChevron(),
                 onTap: () async {
-                  Navigator.pop(context); // close drawer
+                  _closeDrawer();
                   await Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -673,7 +739,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 title: const Text('Booking Forms'),
                 trailing: _drawerChevron(),
                 onTap: () {
-                  Navigator.pop(context); // close drawer
+                  _closeDrawer();
                   _openBookingForms();
                 },
               ),
@@ -694,7 +760,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Website Inquiries'),
                   trailing: _drawerChevron(),
                   onTap: () async {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -709,7 +775,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   leading: Picon(PiconsDuotone.path),
                   title: const Text('Traffic Alert'),
                   onTap: () async {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     final sent = await Navigator.push<bool>(
                       context,
                       MaterialPageRoute(builder: (_) => const TrafficAlertScreen()),
@@ -730,7 +796,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Fleet'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -745,7 +811,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Incidents'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -760,7 +826,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Site Defects'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -775,7 +841,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('My Payments'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const MyPaymentsScreen()),
@@ -788,7 +854,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Customer Payments'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
@@ -801,7 +867,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Staff Management'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -816,7 +882,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('Safety & Compliance'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -833,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title: const Text('My Availability'),
                   trailing: _drawerChevron(),
                   onTap: () {
-                    Navigator.pop(context);
+                    _closeDrawer();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -847,7 +913,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 title: const Text('My Calendar'),
                 trailing: _drawerChevron(),
                 onTap: () {
-                  Navigator.pop(context);
+                  _closeDrawer();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -861,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 title: const Text('Holidays & Closures'),
                 trailing: _drawerChevron(),
                 onTap: () {
-                  Navigator.pop(context);
+                  _closeDrawer();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -879,7 +945,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 title: const Text('Profile'),
                 trailing: _drawerChevron(),
                 onTap: () {
-                  Navigator.pop(context);
+                  _closeDrawer();
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const ProfileScreen()),
@@ -900,7 +966,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
         ],
-      ),
     );
   }
 
@@ -1012,65 +1077,122 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 )
               : RefreshIndicator.adaptive(
                   onRefresh: () async => _loadDogs(),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    itemCount: _filteredDogs.length,
-                    itemBuilder: (context, index) {
-                      final dog = _filteredDogs[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        child: InkWell(
-                          onTap: () async {
-                            final result = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
-                              ),
-                            );
-                            if (result == 'deleted') {
-                              _refresh();
-                            } else {
-                              // The dog may have been edited on the profile
-                              // screen; reload so the list reflects the latest
-                              // server state (e.g. schedule type / days).
-                              _loadDogs();
-                            }
-                          },
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (dog.profileImageUrl != null)
-                                ClipRRect(
-                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                                  child: CachedNetworkImage(
-                                    imageUrl: dog.profileImageUrl!,
-                                    height: 200,
-                                    fit: BoxFit.cover,
-                                    placeholder: (context, url) => Container(
-                                      height: 200,
-                                      color: Colors.grey[200],
-                                      child: const Center(child: CircularProgressIndicator()),
-                                    ),
-                                    errorWidget: (context, url, error) =>
-                                        SizedBox(height: 200, child: Center(child: Picon(PiconsDuotone.warningCircle))),
-                                  ),
-                                ),
-                              Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Text(
-                                  dog.name,
-                                  style: Theme.of(context).textTheme.headlineSmall,
-                                ),
-                              ),
-                            ],
-                          ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Phones keep the familiar single-column cards; wide
+                      // screens tile the dogs instead of stretching them.
+                      if (constraints.maxWidth < 700) {
+                        return ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          itemCount: _filteredDogs.length,
+                          itemBuilder: (context, index) => _dogCard(_filteredDogs[index]),
+                        );
+                      }
+                      return GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 340,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          childAspectRatio: 0.85,
                         ),
+                        itemCount: _filteredDogs.length,
+                        itemBuilder: (context, index) => _dogCard(_filteredDogs[index], tiled: true),
                       );
                     },
                   ),
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _dogCard(Dog dog, {bool tiled = false}) {
+    Future<void> open() async {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
+        ),
+      );
+      if (result == 'deleted') {
+        _refresh();
+      } else {
+        // The dog may have been edited on the profile
+        // screen; reload so the list reflects the latest
+        // server state (e.g. schedule type / days).
+        _loadDogs();
+      }
+    }
+
+    // A fixed 200dp banner in the list; fills the tile above the name in the
+    // grid (height null = let the tile's constraints size it).
+    Widget image({double? height}) => dog.profileImageUrl != null
+        ? CachedNetworkImage(
+            imageUrl: dog.profileImageUrl!,
+            height: height,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => Container(
+              height: height,
+              color: Colors.grey[200],
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+            errorWidget: (context, url, error) =>
+                SizedBox(height: height, child: Center(child: Picon(PiconsDuotone.warningCircle))),
+          )
+        : Container(
+            height: height,
+            color: Colors.grey[200],
+            child: Center(child: Picon(PiconsDuotone.pawPrint, size: 48, color: Colors.grey[400])),
+          );
+
+    if (tiled) {
+      return Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: open,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: image()),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Text(
+                  dog.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: InkWell(
+        onTap: open,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (dog.profileImageUrl != null)
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                child: image(height: 200),
+              ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                dog.name,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
