@@ -6354,6 +6354,85 @@ class TrafficAlertRecipientTests(TestCase):
         self.assertNotIn(self.owner_a.id, self._notified_owner_ids(mock_push))
 
 
+class BusinessAlertTests(TestCase):
+    """Business-owner oversight alerts: staff flagged receives_business_alerts
+    (i.e. the boss) are told when a driver sends a traffic alert — who pressed
+    it, which leg, how many owners it reached — past the working-day filter,
+    and even when it reached nobody."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        self.boss = User.objects.create_user(username='claire', password='pw', is_staff=True)
+        self.boss.profile.receives_business_alerts = True
+        self.boss.profile.save()
+        self.other_staff = User.objects.create_user(username='helper', password='pw', is_staff=True)
+        self.today = date.today()
+        self.dog = Dog.objects.create(
+            owner=self.owner, name='Ace',
+            daycare_days=[self.today.isoweekday()], schedule_type='weekly',
+        )
+        self.assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=self.today, status='ASSIGNED',
+        )
+
+    def _calls_for(self, mock_push, user):
+        return [c for c in mock_push.call_args_list if c.args[0].id == user.id]
+
+    @patch('api.notifications.send_push_notification')
+    def test_boss_notified_when_traffic_alert_sent(self, mock_push):
+        from api.notifications import send_traffic_alert
+        send_traffic_alert('pickup', self.today, self.driver, detail='A34 closed')
+        calls = self._calls_for(mock_push, self.boss)
+        self.assertEqual(len(calls), 1)
+        title, body = calls[0].args[1], calls[0].args[2]
+        self.assertEqual(title, 'Traffic alert sent')
+        self.assertIn('driver', body)
+        self.assertIn('pickup', body)
+        self.assertIn('1 owner', body)
+        self.assertIn('A34 closed', body)
+        # Must reach the boss even on a day off.
+        self.assertTrue(calls[0].kwargs.get('ignore_working_hours'))
+
+    @patch('api.notifications.send_push_notification')
+    def test_unflagged_staff_not_notified(self, mock_push):
+        from api.notifications import send_traffic_alert
+        send_traffic_alert('pickup', self.today, self.driver)
+        self.assertEqual(self._calls_for(mock_push, self.other_staff), [])
+
+    @patch('api.notifications.send_push_notification')
+    def test_pressing_boss_not_notified_of_own_alert(self, mock_push):
+        from api.notifications import send_traffic_alert
+        self.assignment.staff_member = self.boss
+        self.assignment.save()
+        send_traffic_alert('pickup', self.today, self.boss)
+        self.assertEqual(self._calls_for(mock_push, self.boss), [])
+
+    @patch('api.notifications.send_push_notification')
+    def test_boss_notified_even_when_no_owners_matched(self, mock_push):
+        from api.notifications import send_traffic_alert
+        # Dog already picked up: the default pickup filter matches no owners.
+        self.assignment.status = 'PICKED_UP'
+        self.assignment.save()
+        send_traffic_alert('pickup', self.today, self.driver)
+        calls = self._calls_for(mock_push, self.boss)
+        self.assertEqual(len(calls), 1)
+        self.assertIn('no owners needed notifying', calls[0].args[2])
+        # And no owner push went out.
+        self.assertEqual(self._calls_for(mock_push, self.owner), [])
+
+    @patch('api.notifications.initialize_firebase', return_value=False)
+    @patch('api.notifications._is_staff_working_today', return_value=False)
+    def test_ignore_working_hours_bypasses_day_off_filter(self, mock_working, mock_firebase):
+        from api.notifications import send_push_notification
+        # Normal staff push on a non-working day stops before Firebase init.
+        send_push_notification(self.boss, 't', 'b')
+        mock_firebase.assert_not_called()
+        # An oversight alert carries on past the working-day gate.
+        send_push_notification(self.boss, 't', 'b', ignore_working_hours=True)
+        mock_firebase.assert_called_once()
+
+
 class IntakeRequestTests(TestCase):
     """The booking form: owners submit contact details + dogs to enrol; staff
     approve (creating the Dog records) or deny."""

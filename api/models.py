@@ -22,6 +22,14 @@ class UserProfile(models.Model):
     can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
     can_manage_boarding = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny and edit boarding requests.')
 
+    # Oversight flag for the business owner: routes "boss alerts" — events the
+    # owner wants to hear about even though another staff member is handling
+    # them (currently: a driver pressing the traffic-alert button) — to
+    # whoever has it set. Granted by a superuser like the can_* flags, not a
+    # self-service notify_* preference; deliveries ignore the working-day
+    # filter so a day off doesn't hide what happened.
+    receives_business_alerts = models.BooleanField(default=False, help_text='Receive business-owner oversight alerts (e.g. a staff member sending a traffic delay alert). Intended for the business owner.')
+
     # Per-customer billing rates (discounts). Blank = the standard price from
     # website ServicePricing. A per-dog override on the Dog beats these.
     daycare_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day daycare rate for this customer. Blank = standard day care price from Service Pricing.')
