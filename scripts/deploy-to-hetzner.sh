@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-HETZNER_HOST="${HETZNER_HOST:-root@9hj3.your-vhost.de}"
+HETZNER_HOST="${HETZNER_HOST:-root@178.104.29.66}"
 # The checkout on the server is /root/p4td (see DEPLOYMENT.md). This said
 # /opt/p4td, which does not exist on the box — the script would have failed at
 # its first `cd`.
@@ -109,4 +109,4 @@ $SSH_CMD "$HETZNER_HOST" "
 "
 
 echo ""
-echo "Done. App is live at: https://9hj3.your-vhost.de"
+echo "Done. App is live at: https://paws4thoughtdogs.com"
