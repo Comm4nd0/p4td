@@ -600,7 +600,10 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              const crossAxisCount = 3;
+              // 3 columns on a phone; wider screens (tablets) gain columns
+              // rather than stretching the drop tiles.
+              final crossAxisCount =
+                  ((constraints.maxWidth - 32) / 160).floor().clamp(3, 6);
               final rows = (tiles.length / crossAxisCount).ceil().clamp(1, 100);
               final tileWidth = (constraints.maxWidth - 32 - (crossAxisCount - 1) * 8) / crossAxisCount;
               final tileHeight =

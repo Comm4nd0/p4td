@@ -321,18 +321,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
         // Sort by takenAt descending (newest first)
         photos.sort((a, b) => b.takenAt.compareTo(a.takenAt));
 
-        // Size the decoded bitmap to the grid cell (3 columns) so we don't
-        // decode full-resolution images for tiny thumbnails.
+        // Size the decoded bitmap to the grid cell so we don't decode
+        // full-resolution images for tiny thumbnails. Cells are capped at
+        // 150dp by the grid delegate, so that bound sizes the cache.
         final media = MediaQuery.of(context);
-        final cellWidth = (media.size.width - 4 * 2 - 4 * 2) / 3;
-        final cellCacheWidth = (media.devicePixelRatio * cellWidth).round();
+        final cellCacheWidth = (media.devicePixelRatio * 150).round();
 
         return GridView.builder(
           padding: const EdgeInsets.all(4),
           shrinkWrap: widget.embed,
           physics: widget.embed ? const NeverScrollableScrollPhysics() : null,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 150,
             crossAxisSpacing: 4,
             mainAxisSpacing: 4,
           ),

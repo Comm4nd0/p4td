@@ -264,8 +264,8 @@ class _DefectDetailScreenState extends State<DefectDetailScreen> {
                         GridView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 150,
                             crossAxisSpacing: 8,
                             mainAxisSpacing: 8,
                           ),

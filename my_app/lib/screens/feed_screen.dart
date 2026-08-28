@@ -496,7 +496,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
 
   Widget _buildMediaCard(GroupMedia media) {
     final cardKey = _cardKeys.putIfAbsent(media.id, () => GlobalKey());
-    return FeedItemCard(
+    final card = FeedItemCard(
       key: cardKey,
       media: media,
       isStaff: widget.isStaff,
@@ -505,6 +505,13 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       onEdit: _editMedia,
       onReaction: (mediaId, emoji) => _toggleReaction(mediaId, emoji),
       onComment: (mediaId, text) => _addComment(mediaId, text),
+    );
+    // Cap card width so posts stay a readable column on tablets.
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: card,
+      ),
     );
   }
 
