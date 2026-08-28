@@ -8,6 +8,9 @@ from .views import (
     DogProfileChangeRequestViewSet, VaccinationRecordViewSet, WaitlistEntryViewSet,
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
     InvoiceViewSet, IncidentViewSet,
+    StaffHRRecordViewSet, StaffPayRateViewSet, StaffMeetingViewSet,
+    StaffAppraisalViewSet, SicknessAbsenceViewSet, StaffTrainingRecordViewSet,
+    ComplianceCheckTypeViewSet, ComplianceCheckLogViewSet,
     request_password_reset, verify_otp, reset_password, change_password,
     delete_account, postcode_lookup, daycare_settings, submit_contact_inquiry,
     xero_status, xero_connect, xero_callback, xero_disconnect,
@@ -41,6 +44,14 @@ router.register(r'facility-defects', FacilityDefectViewSet, basename='facility-d
 router.register(r'intake-requests', IntakeRequestViewSet, basename='intake-requests')
 router.register(r'invoices', InvoiceViewSet, basename='invoices')
 router.register(r'incidents', IncidentViewSet, basename='incidents')
+router.register(r'staff-hr', StaffHRRecordViewSet, basename='staff-hr')
+router.register(r'staff-pay-rates', StaffPayRateViewSet, basename='staff-pay-rates')
+router.register(r'staff-meetings', StaffMeetingViewSet, basename='staff-meetings')
+router.register(r'staff-appraisals', StaffAppraisalViewSet, basename='staff-appraisals')
+router.register(r'staff-absences', SicknessAbsenceViewSet, basename='staff-absences')
+router.register(r'staff-training', StaffTrainingRecordViewSet, basename='staff-training')
+router.register(r'compliance-checks', ComplianceCheckTypeViewSet, basename='compliance-checks')
+router.register(r'compliance-logs', ComplianceCheckLogViewSet, basename='compliance-logs')
 
 urlpatterns = [
     path('', include(router.urls)),

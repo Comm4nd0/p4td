@@ -16,11 +16,12 @@ class UserProfile(models.Model):
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
     can_assign_dogs = models.BooleanField(default=False, help_text='Designates whether this user can assign dogs to other staff members.')
     can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
-    can_manage_staff = models.BooleanField(default=False, help_text='Designates whether this user can manage staff: set working days and approve/deny time off requests.')
+    can_manage_staff = models.BooleanField(default=False, help_text='Designates whether this user can manage staff: the Staff Management section (pay, employment details, meetings, appraisals, sickness and training records), plus setting working days and approving/denying time off requests.')
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
     can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
     can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
     can_manage_boarding = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny and edit boarding requests.')
+    can_manage_compliance = models.BooleanField(default=False, help_text='Designates whether this user can manage the safety & compliance register (add/edit checks and schedules) and receive due-check reminders. Any staff member can record a completed check.')
 
     # Oversight flag for the business owner: routes "boss alerts" — events the
     # owner wants to hear about even though another staff member is handling
@@ -138,6 +139,8 @@ class Dog(models.Model):
     registered_vet = models.TextField(blank=True, null=True, help_text="Owner's registered vet — typically the practice name, address and phone number.")
     address = models.TextField(blank=True, null=True, help_text="Home address used for pickups/drop-offs of this dog.")
     postcode = models.CharField(max_length=10, blank=True, help_text="UK postcode of the pickup address; drives placement on the staff map (preferred over parsing the free-text address).")
+    contact_number = models.CharField(max_length=50, blank=True, default='', help_text="Day-to-day contact number for this dog's household.")
+    emergency_contact_number = models.CharField(max_length=50, blank=True, default='', help_text="Emergency contact if the main number doesn't answer — a name can be included, e.g. '07700 900123 (Sue, neighbour)'.")
     access_instructions = models.TextField(blank=True, null=True, help_text="How to access the home — keys, codes, gates, where the dog is kept.")
     van_placement = models.TextField(blank=True, null=True, help_text="Where the dog should sit in the van and any companion/seating notes.")
     general_notes = models.TextField(blank=True, null=True, help_text="General notes about the dog (behaviour, handling, misc).")
@@ -149,6 +152,10 @@ class Dog(models.Model):
     owner_collects_default_time = models.TimeField(null=True, blank=True, help_text='Expected default pick-up time when owner collects the dog.')
     sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
+    # Simple per-dog vaccination date. Kept in step with the detailed
+    # VaccinationRecord system: recording a vaccination automatically advances
+    # this to the latest date administered (see sync_dog_last_vaccination).
+    last_vaccination_date = models.DateField(null=True, blank=True, help_text='When the dog was last vaccinated. Auto-updated when a vaccination record is added; over a year ago flags the dog as overdue.')
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
     daily_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day billing rate override for this dog. Blank = standard day care price from Service Pricing. Staff-only field.')
     boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate override for this dog. Blank = standard boarding price from Service Pricing. Staff-only field.')
@@ -169,6 +176,13 @@ class Dog(models.Model):
     geocode_source = models.CharField(max_length=10, choices=GEOCODE_SOURCE_CHOICES, blank=True, help_text='Precision of the cached coordinates.')
     geocoded_address = models.TextField(blank=True, null=True, help_text='The effective postcode the cached coordinates were derived from, used to detect staleness.')
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def vaccination_overdue(self):
+        """True when the last vaccination was more than a year ago."""
+        if not self.last_vaccination_date:
+            return False
+        return self.last_vaccination_date < timezone.localdate() - timezone.timedelta(days=365)
 
     def __str__(self):
         return self.name
@@ -1029,6 +1043,26 @@ class VaccinationRecord(models.Model):
         return f"{self.dog.name} - {self.name} (expires {self.expiry_date})"
 
 
+@receiver(post_save, sender=VaccinationRecord)
+@receiver(models.signals.post_delete, sender=VaccinationRecord)
+def sync_dog_last_vaccination(sender, instance, **kwargs):
+    """Keep Dog.last_vaccination_date in step with the detailed records.
+
+    While a dog has vaccination records they are authoritative: the simple
+    date becomes the latest date administered. With no records left, the
+    manually-entered date (if any) is preserved."""
+    latest = (
+        VaccinationRecord.objects.filter(dog_id=instance.dog_id)
+        .order_by('-date_administered')
+        .values_list('date_administered', flat=True)
+        .first()
+    )
+    if latest is not None:
+        Dog.objects.filter(pk=instance.dog_id).exclude(
+            last_vaccination_date=latest
+        ).update(last_vaccination_date=latest)
+
+
 class DaycareSettings(models.Model):
     """Facility-wide settings singleton (always pk=1)."""
     default_daily_capacity = models.PositiveIntegerField(
@@ -1832,3 +1866,363 @@ class IncidentComment(models.Model):
 
     def __str__(self):
         return f"Comment on incident #{self.incident_id} by {self.user_id}"
+
+
+# --- Staff management (HR) ---
+#
+# Manager-only records for running the team: employment details and pay,
+# meetings and appraisals, sickness and training. Everything here is gated by
+# UserProfile.can_manage_staff on the API side; an appraisal additionally
+# becomes visible to its subject once shared, and staff can read their own
+# training and sickness records.
+
+
+class StaffHRRecord(models.Model):
+    """Employment record for one staff member (one per user, created lazily).
+
+    Holiday entitlement is tracked per calendar year and burned down by
+    APPROVED DayOffRequest rows — there is no separate holiday ledger."""
+
+    PAY_TYPE_CHOICES = [
+        ('HOURLY', 'Hourly'),
+        ('SALARY', 'Annual salary'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='hr_record')
+    job_title = models.CharField(max_length=100, blank=True, default='')
+    employment_start_date = models.DateField(null=True, blank=True)
+    employment_end_date = models.DateField(null=True, blank=True, help_text='Set when the staff member leaves.')
+    holiday_allowance_days = models.DecimalField(
+        max_digits=4, decimal_places=1, default=28,
+        help_text='Paid holiday days per calendar year (UK statutory minimum for full time is 28 including bank holidays).',
+    )
+    emergency_contact_name = models.CharField(max_length=100, blank=True, default='')
+    emergency_contact_phone = models.CharField(max_length=30, blank=True, default='')
+    emergency_contact_relationship = models.CharField(max_length=50, blank=True, default='')
+    manager_notes = models.TextField(blank=True, default='', help_text='Private manager notes; never shown to the staff member.')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Staff HR record'
+
+    def current_pay_rate(self):
+        """The pay rate in force today (latest effective_from not in the future)."""
+        return (
+            self.user.pay_rates.filter(effective_from__lte=timezone.localdate())
+            .order_by('-effective_from', '-id')
+            .first()
+        )
+
+    def __str__(self):
+        return f"HR record for {self.user.username}"
+
+
+class StaffPayRate(models.Model):
+    """One entry in a staff member's pay history; the latest effective row wins."""
+
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pay_rates')
+    pay_type = models.CharField(max_length=10, choices=StaffHRRecord.PAY_TYPE_CHOICES, default='HOURLY')
+    rate = models.DecimalField(max_digits=9, decimal_places=2, help_text='£ per hour for HOURLY, £ per year for SALARY.')
+    effective_from = models.DateField()
+    note = models.CharField(max_length=200, blank=True, default='')
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='pay_rates_set')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_from', '-id']
+        constraints = [
+            # Two rates from the same date would make "current pay" ambiguous.
+            models.UniqueConstraint(fields=['staff_member', 'effective_from'], name='unique_pay_rate_per_staff_date'),
+        ]
+
+    def __str__(self):
+        return f"{self.staff_member.username}: £{self.rate} ({self.get_pay_type_display()}) from {self.effective_from}"
+
+
+class StaffMeeting(models.Model):
+    """A scheduled staff meeting: a 1:1, team meeting, return-to-work etc.
+
+    Managers create and edit; attendees can see meetings they are invited to
+    (including agenda and, once completed, the minutes — they were there)."""
+
+    MEETING_TYPE_CHOICES = [
+        ('ONE_TO_ONE', 'One-to-one'),
+        ('TEAM', 'Team meeting'),
+        ('RETURN_TO_WORK', 'Return to work'),
+        ('OTHER', 'Other'),
+    ]
+    STATUS_CHOICES = [
+        ('SCHEDULED', 'Scheduled'),
+        ('COMPLETED', 'Completed'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+
+    title = models.CharField(max_length=200)
+    meeting_type = models.CharField(max_length=15, choices=MEETING_TYPE_CHOICES, default='ONE_TO_ONE')
+    scheduled_for = models.DateTimeField()
+    location = models.CharField(max_length=200, blank=True, default='')
+    agenda = models.TextField(blank=True, default='')
+    minutes = models.TextField(blank=True, default='', help_text='Notes recorded after the meeting.')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='SCHEDULED')
+    attendees = models.ManyToManyField(User, related_name='staff_meetings', blank=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='staff_meetings_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-scheduled_for']
+
+    def __str__(self):
+        return f"{self.title} ({self.scheduled_for:%Y-%m-%d %H:%M})"
+
+
+class StaffAppraisal(models.Model):
+    """A performance appraisal. Drafted privately by a manager, then shared
+    with the staff member, who can add their comments and acknowledge it."""
+
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
+        ('SHARED', 'Shared with staff member'),
+        ('ACKNOWLEDGED', 'Acknowledged by staff member'),
+    ]
+
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='appraisals')
+    appraiser = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='appraisals_given')
+    appraisal_date = models.DateField()
+    overall_rating = models.PositiveSmallIntegerField(null=True, blank=True, help_text='1 (poor) to 5 (excellent).')
+    summary = models.TextField(blank=True, default='')
+    strengths = models.TextField(blank=True, default='')
+    areas_for_improvement = models.TextField(blank=True, default='')
+    goals = models.TextField(blank=True, default='', help_text='Objectives agreed for the next period.')
+    staff_comments = models.TextField(blank=True, default='', help_text='The staff member\'s own comments, added after sharing.')
+    next_review_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='DRAFT')
+    shared_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-appraisal_date', '-id']
+
+    def __str__(self):
+        return f"Appraisal for {self.staff_member.username} on {self.appraisal_date} ({self.get_status_display()})"
+
+
+class SicknessAbsence(models.Model):
+    """A sickness absence, recorded by a manager (unplanned, unlike a
+    DayOffRequest). end_date null = still off sick."""
+
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sickness_absences')
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True, help_text='Blank while the staff member is still off.')
+    reason = models.CharField(max_length=300, blank=True, default='')
+    notes = models.TextField(blank=True, default='', help_text='Return-to-work notes, fit note details, etc.')
+    recorded_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='sickness_absences_recorded')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-start_date', '-id']
+        verbose_name_plural = 'Sickness absences'
+
+    def __str__(self):
+        until = self.end_date or 'ongoing'
+        return f"{self.staff_member.username} off sick {self.start_date} – {until}"
+
+
+class StaffTrainingRecord(models.Model):
+    """A qualification or training course (canine first aid, safeguarding,
+    driving assessment...). Expiry dates surface renewals in the app."""
+
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='training_records')
+    name = models.CharField(max_length=200, help_text='e.g. Canine First Aid')
+    provider = models.CharField(max_length=200, blank=True, default='')
+    completed_date = models.DateField(null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True, help_text='Blank if the qualification does not expire.')
+    notes = models.CharField(max_length=300, blank=True, default='')
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='training_records_added')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-completed_date', '-id']
+
+    @property
+    def expiry_status(self):
+        """VALID, EXPIRING (within 60 days), EXPIRED, or NONE (no expiry)."""
+        if not self.expiry_date:
+            return 'NONE'
+        today = timezone.localdate()
+        if self.expiry_date < today:
+            return 'EXPIRED'
+        if self.expiry_date <= today + timezone.timedelta(days=60):
+            return 'EXPIRING'
+        return 'VALID'
+
+    def __str__(self):
+        return f"{self.name} — {self.staff_member.username}"
+
+
+# --- Staff management notifications ---
+
+@receiver(models.signals.m2m_changed, sender=StaffMeeting.attendees.through)
+def notify_meeting_attendees(sender, instance, action, pk_set, **kwargs):
+    """Tell staff when they are added to a scheduled meeting. Fired from the
+    m2m so it also covers attendees added to an existing meeting."""
+    if action != 'post_add' or not pk_set:
+        return
+    if instance.status != 'SCHEDULED':
+        return
+    when = timezone.localtime(instance.scheduled_for).strftime('%a %d %b, %H:%M')
+    title = 'Meeting scheduled'
+    body = f"{instance.title} — {when}"
+    if instance.location:
+        body += f" at {instance.location}"
+    data = {
+        'type': 'staff_meeting',
+        'id': str(instance.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+    for user in User.objects.filter(pk__in=pk_set, is_staff=True):
+        if user != instance.created_by:
+            send_push_notification(user, title, body, data)
+
+
+# --- Safety & compliance register ---
+#
+# Recurring facility checks and renewals — fire alarm tests, extinguisher
+# servicing, first aid kits, licence and insurance renewals. Each check type
+# carries a frequency; completions are logged against it and the next due
+# date is derived from the latest log. Any staff member can record a check
+# (whoever does the Monday fire alarm test logs it); managing the register
+# itself needs UserProfile.can_manage_compliance.
+
+
+class ComplianceCheckType(models.Model):
+    """One recurring check or renewal on the safety & compliance register."""
+
+    CATEGORY_CHOICES = [
+        ('FIRE', 'Fire safety'),
+        ('ELECTRICAL', 'Electrical'),
+        ('HEALTH_SAFETY', 'Health & safety'),
+        ('HYGIENE', 'Hygiene & pest control'),
+        ('DOCUMENTS', 'Licences, insurance & documents'),
+        ('OTHER', 'Other'),
+    ]
+
+    FREQUENCY_CHOICES = [
+        ('WEEKLY', 'Weekly'),
+        ('MONTHLY', 'Monthly'),
+        ('QUARTERLY', 'Quarterly'),
+        ('SIX_MONTHLY', 'Every 6 months'),
+        ('ANNUAL', 'Yearly'),
+        ('TWO_YEARLY', 'Every 2 years'),
+        ('FIVE_YEARLY', 'Every 5 years'),
+        ('AD_HOC', 'As needed (no schedule)'),
+    ]
+
+    # Days per cycle; AD_HOC has no cycle and never becomes due.
+    FREQUENCY_DAYS = {
+        'WEEKLY': 7,
+        'MONTHLY': 30,
+        'QUARTERLY': 91,
+        'SIX_MONTHLY': 182,
+        'ANNUAL': 365,
+        'TWO_YEARLY': 730,
+        'FIVE_YEARLY': 1826,
+    }
+
+    name = models.CharField(max_length=200)
+    category = models.CharField(max_length=15, choices=CATEGORY_CHOICES, default='OTHER')
+    frequency = models.CharField(max_length=12, choices=FREQUENCY_CHOICES, default='MONTHLY')
+    description = models.TextField(blank=True, default='', help_text='What the check involves / who normally does it.')
+    is_active = models.BooleanField(default=True, help_text='Inactive checks keep their history but stop being due.')
+    # Reminder bookkeeping (mirrors the fleet reminder flags): each is sent at
+    # most once per cycle and re-armed when a new completion is logged.
+    advance_notice_sent = models.BooleanField(default=False, help_text='30-day advance reminder sent for the current cycle (long-cycle checks only).')
+    due_notice_sent = models.BooleanField(default=False, help_text='Due/overdue reminder sent for the current cycle.')
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='compliance_checks_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+
+    @property
+    def frequency_days(self):
+        return self.FREQUENCY_DAYS.get(self.frequency)
+
+    def last_log(self):
+        return self.logs.order_by('-performed_on', '-id').first()
+
+    def next_due(self, last_done=None):
+        """Date the check next falls due, or None (ad hoc / never done —
+        never-done scheduled checks are due immediately, reported by status())."""
+        days = self.frequency_days
+        if days is None:
+            return None
+        if last_done is None:
+            log = self.last_log()
+            last_done = log.performed_on if log else None
+        if last_done is None:
+            return None
+        return last_done + timezone.timedelta(days=days)
+
+    def due_soon_window(self):
+        """Days before the due date at which the check shows amber. Long
+        cycles get a month of lead time (booking engineers, renewing
+        policies); short cycles a proportionate sliver."""
+        days = self.frequency_days
+        if days is None:
+            return 0
+        return 30 if days >= 90 else max(1, days // 4)
+
+    def status(self, today=None, last_done=None):
+        """NONE (ad hoc/inactive), NEVER_DONE, OVERDUE, DUE_SOON or OK."""
+        if not self.is_active or self.frequency_days is None:
+            return 'NONE'
+        today = today or timezone.localdate()
+        due = self.next_due(last_done=last_done)
+        if due is None:
+            return 'NEVER_DONE'
+        if today > due:
+            return 'OVERDUE'
+        if today >= due - timezone.timedelta(days=self.due_soon_window()):
+            return 'DUE_SOON'
+        return 'OK'
+
+    def __str__(self):
+        return f"{self.name} ({self.get_frequency_display()})"
+
+
+class ComplianceCheckLog(models.Model):
+    """One completed check: who did it, when, and whether issues were found.
+
+    Issues found here are narrative — anything needing fixing should also be
+    raised as a FacilityDefect so it gets tracked to resolution."""
+
+    RESULT_CHOICES = [
+        ('PASS', 'All OK'),
+        ('ISSUES', 'Issues found'),
+    ]
+
+    check_type = models.ForeignKey(ComplianceCheckType, on_delete=models.CASCADE, related_name='logs')
+    performed_on = models.DateField()
+    performed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='compliance_logs')
+    result = models.CharField(max_length=10, choices=RESULT_CHOICES, default='PASS')
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-performed_on', '-id']
+
+    def __str__(self):
+        return f"{self.check_type.name} on {self.performed_on} ({self.get_result_display()})"
+
+
+@receiver(post_save, sender=ComplianceCheckLog)
+def rearm_compliance_reminders(sender, instance, created, **kwargs):
+    """A fresh completion starts a new cycle, so both reminder flags re-arm."""
+    if created:
+        ComplianceCheckType.objects.filter(pk=instance.check_type_id).update(
+            advance_notice_sent=False, due_notice_sent=False,
+        )

@@ -89,14 +89,17 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
   String? get _imageUrl =>
       widget.assignment?.dogProfileImage ?? _dog?.profileImageUrl ?? widget.dogImageUrl;
   String? get _ownerName => widget.assignment?.ownerName ?? _dog?.ownerDetails?.displayName;
-  String? get _phone => _firstNonEmpty(widget.assignment?.ownerPhone, _dog?.ownerDetails?.phoneNumber);
+  String? get _phone => _firstNonEmpty(
+      _dog?.contactNumber, widget.assignment?.ownerPhone, _dog?.ownerDetails?.phoneNumber);
+  String? get _emergencyPhone => _firstNonEmpty(_dog?.emergencyContactNumber);
   String? get _address => _firstNonEmpty(widget.assignment?.ownerAddress, _dog?.address);
   String? get _pickupInstructions =>
       _firstNonEmpty(widget.assignment?.pickupInstructions, _dog?.ownerDetails?.pickupInstructions);
 
-  static String? _firstNonEmpty(String? a, String? b) {
-    if (a != null && a.trim().isNotEmpty) return a;
-    if (b != null && b.trim().isNotEmpty) return b;
+  static String? _firstNonEmpty(String? a, [String? b, String? c]) {
+    for (final value in [a, b, c]) {
+      if (value != null && value.trim().isNotEmpty) return value;
+    }
     return null;
   }
 
@@ -348,6 +351,10 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
     if (_phone != null) {
       rows.add(_tapRow(context, PiconsDuotone.phone, _phone!, () => _callPhone(_phone!)));
     }
+    if (_emergencyPhone != null) {
+      rows.add(_tapRow(context, PiconsDuotone.firstAidKit,
+          'Emergency: $_emergencyPhone', () => _callPhone(_emergencyPhone!)));
+    }
     if (rows.isEmpty) return [];
     return [
       _sectionLabel(context, 'Address & Contact'),
@@ -410,6 +417,12 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
       ];
     }
     final rows = <Widget>[];
+    if (_dog?.vaccinationOverdue ?? false) {
+      final last = _dog?.lastVaccinationDate;
+      final lastText = last != null ? ' (last: ${last.day}/${last.month}/${last.year})' : '';
+      rows.add(_infoRow(context, PiconsDuotone.syringe,
+          'Vaccinations overdue$lastText', color: AppColors.error));
+    }
     final medical = _dog?.medicalNotes;
     if (medical != null && medical.trim().isNotEmpty) {
       rows.add(_infoRow(context, PiconsDuotone.firstAid, medical, color: AppColors.error));

@@ -90,7 +90,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false}) async {
     await Future.delayed(const Duration(milliseconds: 300)); // Simulate network
     final index = _dogs.indexWhere((d) => d.id == dog.id);
     if (index == -1) {
@@ -101,6 +101,8 @@ class MockDataService implements DataService {
       foodInstructions: foodInstructions,
       medicalNotes: medicalNotes,
       registeredVet: registeredVet,
+      contactNumber: contactNumber,
+      emergencyContactNumber: emergencyContactNumber,
       address: address,
       accessInstructions: accessInstructions,
       vanPlacement: vanPlacement,
@@ -116,12 +118,14 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, DateTime? lastVaccinationDate}) async {
     return Dog(
       id: '99',
       name: name,
       ownerId: 'user1',
       registeredVet: registeredVet,
+      contactNumber: contactNumber,
+      emergencyContactNumber: emergencyContactNumber,
       address: address,
       accessInstructions: accessInstructions,
       vanPlacement: vanPlacement,
@@ -713,4 +717,74 @@ class MockDataService implements DataService {
         amountPaid: status == 'PAID' ? 100 : 0,
         balance: status == 'PAID' ? 0 : 100,
       );
+
+  // --- Staff management (HR) ---
+  @override
+  Future<List<TeamMemberOverview>> getStaffTeamOverview() async => [];
+  @override
+  Future<StaffHrRecord> getStaffHrRecord(int staffId) async =>
+      StaffHrRecord(id: 1, userId: staffId, name: 'Staff');
+  @override
+  Future<StaffHrRecord> updateStaffHrRecord(int recordId, Map<String, dynamic> fields) async =>
+      StaffHrRecord(id: recordId, userId: 1, name: 'Staff');
+  @override
+  Future<List<StaffPayRate>> getStaffPayRates(int staffId) async => [];
+  @override
+  Future<StaffPayRate> createStaffPayRate(Map<String, dynamic> fields) async =>
+      StaffPayRate(id: 1, staffMemberId: 1, payType: 'HOURLY', rate: '12.50', effectiveFrom: DateTime.now());
+  @override
+  Future<void> deleteStaffPayRate(int id) async {}
+  @override
+  Future<List<StaffMeeting>> getStaffMeetings({int? staffId}) async => [];
+  @override
+  Future<StaffMeeting> createStaffMeeting(Map<String, dynamic> fields) async =>
+      StaffMeeting(id: 1, title: 'Meeting', scheduledFor: DateTime.now());
+  @override
+  Future<StaffMeeting> updateStaffMeeting(int id, Map<String, dynamic> fields) async =>
+      StaffMeeting(id: id, title: 'Meeting', scheduledFor: DateTime.now());
+  @override
+  Future<void> deleteStaffMeeting(int id) async {}
+  @override
+  Future<List<StaffAppraisal>> getStaffAppraisals({int? staffId}) async => [];
+  @override
+  Future<StaffAppraisal> createStaffAppraisal(Map<String, dynamic> fields) async =>
+      StaffAppraisal(id: 1, staffMemberId: 1, appraisalDate: DateTime.now());
+  @override
+  Future<StaffAppraisal> updateStaffAppraisal(int id, Map<String, dynamic> fields) async =>
+      StaffAppraisal(id: id, staffMemberId: 1, appraisalDate: DateTime.now());
+  @override
+  Future<StaffAppraisal> shareStaffAppraisal(int id) async =>
+      StaffAppraisal(id: id, staffMemberId: 1, appraisalDate: DateTime.now(), status: 'SHARED');
+  @override
+  Future<List<SicknessAbsence>> getSicknessAbsences({int? staffId}) async => [];
+  @override
+  Future<SicknessAbsence> createSicknessAbsence(Map<String, dynamic> fields) async =>
+      SicknessAbsence(id: 1, staffMemberId: 1, startDate: DateTime.now());
+  @override
+  Future<SicknessAbsence> updateSicknessAbsence(int id, Map<String, dynamic> fields) async =>
+      SicknessAbsence(id: id, staffMemberId: 1, startDate: DateTime.now());
+  @override
+  Future<void> deleteSicknessAbsence(int id) async {}
+  @override
+  Future<List<StaffTrainingRecord>> getStaffTrainingRecords({int? staffId}) async => [];
+  @override
+  Future<StaffTrainingRecord> createStaffTrainingRecord(Map<String, dynamic> fields) async =>
+      StaffTrainingRecord(id: 1, staffMemberId: 1, name: 'Canine First Aid');
+  @override
+  Future<void> deleteStaffTrainingRecord(int id) async {}
+
+  // --- Safety & compliance register ---
+  @override
+  Future<List<ComplianceCheck>> getComplianceChecks({bool includeInactive = false}) async => [];
+  @override
+  Future<ComplianceCheck> createComplianceCheck(Map<String, dynamic> fields) async =>
+      ComplianceCheck(id: 1, name: 'Fire alarm test');
+  @override
+  Future<ComplianceCheck> updateComplianceCheck(int id, Map<String, dynamic> fields) async =>
+      ComplianceCheck(id: id, name: 'Fire alarm test');
+  @override
+  Future<List<ComplianceLog>> getComplianceLogs(int checkTypeId) async => [];
+  @override
+  Future<ComplianceLog> logComplianceCheck(Map<String, dynamic> fields) async =>
+      ComplianceLog(id: 1, checkTypeId: 1, performedOn: DateTime.now());
 }

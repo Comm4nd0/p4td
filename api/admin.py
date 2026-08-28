@@ -94,11 +94,14 @@ class DogAdmin(admin.ModelAdmin):
             ),
             'description': 'Owner-perspective defaults. Per-day overrides live on each Daily Dog Assignment.',
         }),
+        ('Contact', {
+            'fields': ('contact_number', 'emergency_contact_number'),
+        }),
         ('Home Access', {
             'fields': ('address', 'access_instructions'),
         }),
         ('Care Instructions', {
-            'fields': ('food_instructions', 'medical_notes', 'registered_vet', 'general_notes'),
+            'fields': ('food_instructions', 'medical_notes', 'registered_vet', 'last_vaccination_date', 'general_notes'),
         }),
         ('Metadata', {
             'fields': ('created_at',),
@@ -1240,3 +1243,70 @@ class IncidentAdmin(admin.ModelAdmin):
             obj.get_status_display(),
         )
     status_display.short_description = 'Status'
+
+
+# --- Staff management (HR) ---
+
+from .models import (
+    StaffHRRecord, StaffPayRate, StaffMeeting, StaffAppraisal,
+    SicknessAbsence, StaffTrainingRecord,
+)
+
+
+@admin.register(StaffHRRecord)
+class StaffHRRecordAdmin(admin.ModelAdmin):
+    list_display = ('user', 'job_title', 'employment_start_date', 'employment_end_date', 'holiday_allowance_days')
+    search_fields = ('user__username', 'user__first_name', 'job_title')
+
+
+@admin.register(StaffPayRate)
+class StaffPayRateAdmin(admin.ModelAdmin):
+    list_display = ('staff_member', 'pay_type', 'rate', 'effective_from', 'created_by')
+    list_filter = ('pay_type',)
+    search_fields = ('staff_member__username', 'staff_member__first_name')
+
+
+@admin.register(StaffMeeting)
+class StaffMeetingAdmin(admin.ModelAdmin):
+    list_display = ('title', 'meeting_type', 'scheduled_for', 'status', 'created_by')
+    list_filter = ('meeting_type', 'status')
+    search_fields = ('title',)
+    filter_horizontal = ('attendees',)
+
+
+@admin.register(StaffAppraisal)
+class StaffAppraisalAdmin(admin.ModelAdmin):
+    list_display = ('staff_member', 'appraisal_date', 'overall_rating', 'status', 'appraiser')
+    list_filter = ('status',)
+    search_fields = ('staff_member__username', 'staff_member__first_name')
+
+
+@admin.register(SicknessAbsence)
+class SicknessAbsenceAdmin(admin.ModelAdmin):
+    list_display = ('staff_member', 'start_date', 'end_date', 'reason', 'recorded_by')
+    search_fields = ('staff_member__username', 'staff_member__first_name')
+
+
+@admin.register(StaffTrainingRecord)
+class StaffTrainingRecordAdmin(admin.ModelAdmin):
+    list_display = ('staff_member', 'name', 'completed_date', 'expiry_date')
+    search_fields = ('staff_member__username', 'staff_member__first_name', 'name')
+
+
+# --- Safety & compliance register ---
+
+from .models import ComplianceCheckType, ComplianceCheckLog
+
+
+@admin.register(ComplianceCheckType)
+class ComplianceCheckTypeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'category', 'frequency', 'is_active')
+    list_filter = ('category', 'frequency', 'is_active')
+    search_fields = ('name',)
+
+
+@admin.register(ComplianceCheckLog)
+class ComplianceCheckLogAdmin(admin.ModelAdmin):
+    list_display = ('check_type', 'performed_on', 'performed_by', 'result')
+    list_filter = ('result',)
+    search_fields = ('check_type__name',)

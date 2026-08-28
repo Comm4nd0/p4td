@@ -1677,6 +1677,25 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         label: _formatAge(_dog.dateOfBirth!),
       ));
     }
+    if (_dog.vaccinationOverdue) {
+      chips.add(Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.error.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.error.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Picon(PiconsDuotone.syringe, size: 14, color: AppColors.error),
+            const SizedBox(width: 6),
+            const Text('Vaccinations overdue',
+                style: TextStyle(fontSize: 12, color: AppColors.error)),
+          ],
+        ),
+      ));
+    }
     if (_dog.sex != null) {
       chips.add(_infoChip(
         icon: PiconsDuotone.heart,
@@ -1737,6 +1756,27 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               icon: PiconsDuotone.stethoscope,
               title: 'Registered Vet',
               body: _dog.registeredVet!,
+            ),
+          if (_dog.lastVaccinationDate != null)
+            _infoBlock(
+              icon: PiconsDuotone.syringe,
+              title: 'Last Vaccinated',
+              body:
+                  '${_dog.lastVaccinationDate!.day.toString().padLeft(2, '0')}/${_dog.lastVaccinationDate!.month.toString().padLeft(2, '0')}/${_dog.lastVaccinationDate!.year}'
+                  '${_dog.vaccinationOverdue ? ' — over a year ago' : ''}',
+              accent: _dog.vaccinationOverdue ? Colors.red[700] : null,
+            ),
+          if (_dog.contactNumber != null && _dog.contactNumber!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.phone,
+              title: 'Contact Number',
+              body: _dog.contactNumber!,
+            ),
+          if (_dog.emergencyContactNumber != null && _dog.emergencyContactNumber!.trim().isNotEmpty)
+            _infoBlock(
+              icon: PiconsDuotone.firstAidKit,
+              title: 'Emergency Contact',
+              body: _dog.emergencyContactNumber!,
             ),
           if (_dog.address != null && _dog.address!.trim().isNotEmpty)
             _infoBlock(

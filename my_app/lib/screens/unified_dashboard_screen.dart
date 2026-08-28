@@ -42,6 +42,7 @@ import 'facility_defects_screen.dart';
 import 'incidents_screen.dart';
 import 'log_incident_screen.dart';
 import 'fleet_screen.dart';
+import 'staff_management_screen.dart';
 import 'staff_permissions_screen.dart';
 import 'customer_payments_screen.dart';
 import 'social_share_screen.dart';
@@ -55,6 +56,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
   final bool canManageVehicles;
   final bool canManagePayments;
   final bool canManageBoarding;
+  final bool canManageStaff;
   final bool isStaff;
   final bool isSuperuser;
   final int? myUserId;
@@ -78,6 +80,7 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.canManageVehicles = false,
     this.canManagePayments = false,
     this.canManageBoarding = false,
+    this.canManageStaff = false,
     this.isStaff = false,
     this.isSuperuser = false,
     this.myUserId,
@@ -2041,6 +2044,16 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+              );
+            },
+          ),
+        if (widget.canManageStaff || widget.isSuperuser)
+          QuickFabAction(
+            icon: PiconsDuotone.usersThree,
+            label: 'Staff Management',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StaffManagementScreen()),
               );
             },
           ),

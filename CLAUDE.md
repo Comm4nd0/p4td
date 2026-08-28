@@ -156,6 +156,14 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs) |
 | `api/invoices/` | Monthly customer invoices (owners view/pay their own; staff with `can_manage_payments` generate/send/record payments/sync Xero) |
 | `api/incidents/` | **Staff-only** incident log — scuffles, bites, injuries, escapes. Tied to the dogs involved (per-dog role/injuries/owner-told), with photos *and* video, follow-up comments and a status. Owners get 403 on every route, including `?dog=<id>` for their own dog. |
+| `api/staff-hr/` | **Manager-only** (`can_manage_staff`) employment records: job title, employment dates, holiday allowance, emergency contact, private manager notes. Records are created lazily via `for_staff/?staff_member=<id>` (no create/destroy routes); `team_overview/` returns one summary row per staff member (pay, holiday used/remaining from approved day-off requests, sickness/training/appraisal flags) and excludes the P4TD house account. |
+| `api/staff-pay-rates/` | **Manager-only** pay history (hourly or salary, effective-from dated); the latest effective row is a staff member's current pay. |
+| `api/staff-meetings/` | Staff meetings (1:1s, team, return-to-work) with attendees, agenda, minutes and status. Managers CRUD; other staff read only meetings they attend. Attendees get a push when added to a scheduled meeting. |
+| `api/staff-appraisals/` | Appraisals with a DRAFT → SHARED → ACKNOWLEDGED flow. Managers CRUD + `share/`; the appraised staff member sees their own once shared and may only `comment/` and `acknowledge/`. |
+| `api/staff-absences/` | Sickness absences (unplanned — distinct from day-off requests), recorded by managers; staff read their own. Null end_date = still off. |
+| `api/staff-training/` | Training/qualification records (e.g. Canine First Aid) with expiry tracking (`expiry_status`: VALID/EXPIRING/EXPIRED/NONE). Managers CRUD; staff read their own. |
+| `api/compliance-checks/` | Safety & compliance register: recurring checks (fire alarm tests, extinguisher servicing, first aid kits, licence/insurance renewals) with category, frequency and computed `last_done`/`next_due`/`status` (NEVER_DONE/OVERDUE/DUE_SOON/OK/NONE). All staff read; managing the register needs `can_manage_compliance`. Seeded with UK-typical checks by migration 0083 (only when empty). `?include_inactive=1` shows retired checks. |
+| `api/compliance-logs/` | Completions of compliance checks (who/when/PASS-or-ISSUES/notes). Any staff member can log one; editing or deleting a past log is `can_manage_compliance`-only (audit trail). A new log re-arms that check's reminder flags. |
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
@@ -181,7 +189,7 @@ Additional non-router endpoints:
 ### Backend
 
 - **ViewSets + DefaultRouter** for REST endpoints
-- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_manage_staff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`. The related `receives_business_alerts` flag routes business-owner oversight pushes (e.g. a driver sending a traffic alert) to whoever holds it — normally the business owner; these bypass the staff working-day filter so they arrive even on a day off.
+- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_manage_staff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`, `can_manage_compliance`. `can_manage_staff` gates the whole Staff Management (HR) section — pay, employment details, meetings, appraisals, sickness and training — as well as working days and day-off approvals. All of these flags (plus `receives_business_alerts`) are toggleable in-app on the superuser-only Staff Permissions screen. The related `receives_business_alerts` flag routes business-owner oversight pushes (e.g. a driver sending a traffic alert) to whoever holds it — normally the business owner; these bypass the staff working-day filter so they arrive even on a day off.
 - **Token + Session auth** via djoser
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
 - **Boarding dogs attend daycare**: approving a stay books its dogs into daycare
@@ -323,6 +331,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` | — |
 | `python manage.py send_vaccination_reminders` | Send push reminders to owners for vaccinations that are expiring or expired | Daily 8:00am |
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
+| `python manage.py send_compliance_reminders` | Push due/overdue safety & compliance check reminders to staff with `can_manage_compliance` — 30 days ahead for long-cycle checks, plus at due/overdue; once per cycle, re-armed when a completion is logged | Daily 8:10am |
 | `python manage.py send_end_of_day_alerts` | Push an end-of-day exception summary (dogs never picked up, still out with the team, or never assigned to a driver) to staff with `receives_business_alerts`. Silent when everything got home. `--date` | Daily 5:30pm |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files. Never touches dog gallery photos — see [Feed Media Pruning](#feed-media-pruning) | Weekly, Sun 3am (with `--include-orphans`) |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |

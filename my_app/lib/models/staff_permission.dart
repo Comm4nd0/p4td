@@ -13,6 +13,8 @@ class StaffPermission {
   bool canManageVehicles;
   bool canManagePayments;
   bool canManageBoarding;
+  bool canManageCompliance;
+  bool receivesBusinessAlerts;
 
   StaffPermission({
     required this.userId,
@@ -29,6 +31,8 @@ class StaffPermission {
     this.canManageVehicles = false,
     this.canManagePayments = false,
     this.canManageBoarding = false,
+    this.canManageCompliance = false,
+    this.receivesBusinessAlerts = false,
   });
 
   String get displayName {
@@ -53,6 +57,8 @@ class StaffPermission {
       canManageVehicles: json['can_manage_vehicles'] ?? false,
       canManagePayments: json['can_manage_payments'] ?? false,
       canManageBoarding: json['can_manage_boarding'] ?? false,
+      canManageCompliance: json['can_manage_compliance'] ?? false,
+      receivesBusinessAlerts: json['receives_business_alerts'] ?? false,
     );
   }
 }

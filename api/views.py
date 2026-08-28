@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Dog fields an owner may propose to change via a profile-change request. Used
 # both when building the request and when applying it on approval, so the
 # approval step can re-enforce the whitelist (defense in depth — B19).
-OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth']
+OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth', 'last_vaccination_date']
 
 
 def dog_listing_queryset():
@@ -5882,3 +5882,450 @@ def street_manager_webhook(request):
         return Response({'ignored': 'error'})
 
     return Response({'result': outcome})
+
+
+# --- Staff management (HR) ---
+
+class IsStaffManager(BasePermission):
+    """Staff members who hold can_manage_staff (or superusers).
+
+    Gates the HR section: pay, employment details, appraisals, sickness and
+    training records are visible only to managers — not to ordinary staff."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.is_staff):
+            return False
+        profile = getattr(user, 'profile', None)
+        return bool(user.is_superuser or (profile and profile.can_manage_staff))
+
+
+def _is_staff_manager(user):
+    profile = getattr(user, 'profile', None)
+    return bool(user.is_staff and (user.is_superuser or (profile and profile.can_manage_staff)))
+
+
+def _holiday_summary(staff_user, hr_record, year=None):
+    """Holiday allowance vs. approved day-off days for a calendar year."""
+    from .models import DayOffRequest
+
+    year = year or timezone.localdate().year
+    used = DayOffRequest.objects.filter(
+        staff_member=staff_user, status='APPROVED',
+        date__year=year,
+    ).count()
+    allowance = hr_record.holiday_allowance_days if hr_record else None
+    remaining = None
+    if allowance is not None:
+        remaining = float(allowance) - used
+    return {
+        'year': year,
+        'allowance_days': float(allowance) if allowance is not None else None,
+        'used_days': used,
+        'remaining_days': remaining,
+    }
+
+
+class StaffHRRecordViewSet(viewsets.GenericViewSet,
+                           mixins.ListModelMixin,
+                           mixins.RetrieveModelMixin,
+                           mixins.UpdateModelMixin):
+    """Employment records, manager-only. Records are created lazily via
+    `for_staff`, so there is no create route; no destroy either — an employee
+    who leaves gets an employment_end_date, keeping the record."""
+
+    permission_classes = [IsStaffManager]
+
+    def get_queryset(self):
+        from .models import StaffHRRecord
+        return StaffHRRecord.objects.select_related('user')
+
+    def get_serializer_class(self):
+        from .serializers import StaffHRRecordSerializer
+        return StaffHRRecordSerializer
+
+    @action(detail=False, methods=['get'])
+    def for_staff(self, request):
+        """Get (creating if needed) the HR record for ?staff_member=<user id>,
+        plus this year's holiday summary."""
+        from .models import StaffHRRecord
+
+        try:
+            staff_id = int(request.query_params.get('staff_member'))
+        except (TypeError, ValueError):
+            return Response({'detail': 'staff_member query param is required'},
+                            status=drf_status.HTTP_400_BAD_REQUEST)
+        try:
+            staff_user = User.objects.get(pk=staff_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found'}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        record, _ = StaffHRRecord.objects.get_or_create(user=staff_user)
+        data = self.get_serializer(record).data
+        data['holiday'] = _holiday_summary(staff_user, record)
+        return Response(data)
+
+    @action(detail=False, methods=['get'])
+    def team_overview(self, request):
+        """One row per staff member with everything the management screen's
+        list needs: pay, holiday, sickness, meetings, appraisal and training
+        status. The P4TD house account is skipped — it isn't an employee."""
+        from .models import (
+            StaffHRRecord, SicknessAbsence, StaffAppraisal, StaffMeeting,
+            StaffTrainingRecord, DayOffRequest,
+        )
+        from .scheduling import HOUSE_STAFF_USERNAME
+        from django.db.models import Count, Q
+
+        today = timezone.localdate()
+        year = today.year
+        staff = list(
+            User.objects.filter(is_staff=True)
+            .exclude(username__iexact=HOUSE_STAFF_USERNAME)
+            .exclude(first_name__iexact=HOUSE_STAFF_USERNAME)
+            .select_related('profile')
+            .order_by('first_name', 'username')
+        )
+        records = {r.user_id: r for r in StaffHRRecord.objects.filter(user__in=staff)}
+
+        holiday_used = dict(
+            DayOffRequest.objects.filter(
+                staff_member__in=staff, status='APPROVED', date__year=year,
+            ).values_list('staff_member').annotate(n=Count('id'))
+        )
+        pending_requests = dict(
+            DayOffRequest.objects.filter(staff_member__in=staff, status='PENDING')
+            .values_list('staff_member').annotate(n=Count('id'))
+        )
+        off_sick = set(
+            SicknessAbsence.objects.filter(
+                staff_member__in=staff, start_date__lte=today,
+            ).filter(Q(end_date__isnull=True) | Q(end_date__gte=today))
+            .values_list('staff_member_id', flat=True)
+        )
+        expiring = dict(
+            StaffTrainingRecord.objects.filter(
+                staff_member__in=staff,
+                expiry_date__isnull=False,
+                expiry_date__lte=today + timezone.timedelta(days=60),
+            ).values_list('staff_member').annotate(n=Count('id'))
+        )
+        latest_appraisals = {}
+        for a in StaffAppraisal.objects.filter(staff_member__in=staff).order_by('appraisal_date'):
+            latest_appraisals[a.staff_member_id] = a
+        next_meetings = {}
+        for m in (StaffMeeting.objects.filter(status='SCHEDULED', scheduled_for__gte=timezone.now())
+                  .order_by('-scheduled_for').prefetch_related('attendees')):
+            for u in m.attendees.all():
+                next_meetings[u.id] = m  # descending order, so the last write is the soonest
+
+        rows = []
+        for s in staff:
+            record = records.get(s.id)
+            pay = record.current_pay_rate() if record else None
+            appraisal = latest_appraisals.get(s.id)
+            meeting = next_meetings.get(s.id)
+            allowance = float(record.holiday_allowance_days) if record else None
+            used = holiday_used.get(s.id, 0)
+            profile = getattr(s, 'profile', None)
+            photo = None
+            if profile and profile.profile_photo:
+                photo = request.build_absolute_uri(profile.profile_photo.url)
+            rows.append({
+                'staff_member': s.id,
+                'name': s.first_name or s.username,
+                'username': s.username,
+                'profile_photo': photo,
+                'job_title': record.job_title if record else '',
+                'employment_start_date': record.employment_start_date if record else None,
+                'employment_end_date': record.employment_end_date if record else None,
+                'pay_type': pay.pay_type if pay else None,
+                'pay_rate': str(pay.rate) if pay else None,
+                'holiday': {
+                    'year': year,
+                    'allowance_days': allowance,
+                    'used_days': used,
+                    'remaining_days': (allowance - used) if allowance is not None else None,
+                },
+                'pending_day_off_requests': pending_requests.get(s.id, 0),
+                'off_sick_today': s.id in off_sick,
+                'training_expiring': expiring.get(s.id, 0),
+                'last_appraisal_date': appraisal.appraisal_date if appraisal else None,
+                'next_review_date': appraisal.next_review_date if appraisal else None,
+                'next_meeting': {
+                    'id': meeting.id,
+                    'title': meeting.title,
+                    'scheduled_for': meeting.scheduled_for,
+                } if meeting else None,
+            })
+        return Response(rows)
+
+
+class StaffPayRateViewSet(viewsets.ModelViewSet):
+    """Pay history, manager-only. ?staff_member=<id> filters one person."""
+
+    permission_classes = [IsStaffManager]
+
+    def get_queryset(self):
+        from .models import StaffPayRate
+        qs = StaffPayRate.objects.select_related('staff_member', 'created_by')
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            qs = qs.filter(staff_member_id=staff_id)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import StaffPayRateSerializer
+        return StaffPayRateSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class StaffMeetingViewSet(viewsets.ModelViewSet):
+    """Meetings. Managers manage all; other staff see meetings they attend."""
+
+    permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.request.method not in SAFE_METHODS:
+            return [IsStaffManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import StaffMeeting
+        qs = StaffMeeting.objects.prefetch_related('attendees').select_related('created_by')
+        if not _is_staff_manager(self.request.user):
+            qs = qs.filter(attendees=self.request.user)
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            qs = qs.filter(attendees__id=staff_id)
+        return qs.distinct()
+
+    def get_serializer_class(self):
+        from .serializers import StaffMeetingSerializer
+        return StaffMeetingSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class StaffAppraisalViewSet(viewsets.ModelViewSet):
+    """Appraisals. Managers draft and share; the staff member sees their own
+    once shared, and can comment and acknowledge — not edit or delete."""
+
+    permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        # acknowledge/comment are the staff member's own actions; everything
+        # else that writes is manager-only.
+        if self.action in ('acknowledge', 'comment'):
+            return [IsAdminUser()]
+        if self.request.method not in SAFE_METHODS:
+            return [IsStaffManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import StaffAppraisal
+        qs = StaffAppraisal.objects.select_related('staff_member', 'appraiser')
+        if not _is_staff_manager(self.request.user):
+            qs = qs.filter(staff_member=self.request.user).exclude(status='DRAFT')
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            qs = qs.filter(staff_member_id=staff_id)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import StaffAppraisalSerializer
+        return StaffAppraisalSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(appraiser=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def share(self, request, pk=None):
+        """Share a draft appraisal with its staff member (manager-only —
+        share is a POST, so the manager gate in get_permissions applies)."""
+        from .notifications import send_push_notification
+
+        appraisal = self.get_object()
+        if appraisal.status != 'DRAFT':
+            return Response({'detail': 'Only draft appraisals can be shared.'},
+                            status=drf_status.HTTP_400_BAD_REQUEST)
+        appraisal.status = 'SHARED'
+        appraisal.shared_at = timezone.now()
+        appraisal.save()
+        send_push_notification(
+            appraisal.staff_member,
+            'Appraisal shared',
+            'Your appraisal is ready to read in the app.',
+            {'type': 'staff_appraisal', 'id': str(appraisal.id),
+             'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        )
+        return Response(self.get_serializer(appraisal).data)
+
+    @action(detail=True, methods=['post'])
+    def comment(self, request, pk=None):
+        """The appraised staff member adds/updates their own comments."""
+        appraisal = self.get_object()
+        if appraisal.staff_member != request.user:
+            return Response({'detail': 'Only the appraised staff member can comment here.'},
+                            status=drf_status.HTTP_403_FORBIDDEN)
+        appraisal.staff_comments = str(request.data.get('staff_comments', ''))[:5000]
+        appraisal.save()
+        return Response(self.get_serializer(appraisal).data)
+
+    @action(detail=True, methods=['post'])
+    def acknowledge(self, request, pk=None):
+        """The appraised staff member confirms they have read the appraisal."""
+        appraisal = self.get_object()
+        if appraisal.staff_member != request.user:
+            return Response({'detail': 'Only the appraised staff member can acknowledge.'},
+                            status=drf_status.HTTP_403_FORBIDDEN)
+        if appraisal.status != 'SHARED':
+            return Response({'detail': 'Only shared appraisals can be acknowledged.'},
+                            status=drf_status.HTTP_400_BAD_REQUEST)
+        if 'staff_comments' in request.data:
+            appraisal.staff_comments = str(request.data.get('staff_comments', ''))[:5000]
+        appraisal.status = 'ACKNOWLEDGED'
+        appraisal.acknowledged_at = timezone.now()
+        appraisal.save()
+        return Response(self.get_serializer(appraisal).data)
+
+
+class SicknessAbsenceViewSet(viewsets.ModelViewSet):
+    """Sickness records. Managers manage all; staff can read their own."""
+
+    permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.request.method not in SAFE_METHODS:
+            return [IsStaffManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import SicknessAbsence
+        qs = SicknessAbsence.objects.select_related('staff_member', 'recorded_by')
+        if not _is_staff_manager(self.request.user):
+            qs = qs.filter(staff_member=self.request.user)
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            qs = qs.filter(staff_member_id=staff_id)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import SicknessAbsenceSerializer
+        return SicknessAbsenceSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(recorded_by=self.request.user)
+
+
+class StaffTrainingRecordViewSet(viewsets.ModelViewSet):
+    """Training/qualifications. Managers manage all; staff can read their own."""
+
+    permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.request.method not in SAFE_METHODS:
+            return [IsStaffManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import StaffTrainingRecord
+        qs = StaffTrainingRecord.objects.select_related('staff_member', 'created_by')
+        if not _is_staff_manager(self.request.user):
+            qs = qs.filter(staff_member=self.request.user)
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            qs = qs.filter(staff_member_id=staff_id)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import StaffTrainingRecordSerializer
+        return StaffTrainingRecordSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+# --- Safety & compliance register ---
+
+class IsComplianceManager(BasePermission):
+    """Staff who hold can_manage_compliance (or superusers). Gates managing
+    the register itself; recording a completed check is open to all staff."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.is_staff):
+            return False
+        profile = getattr(user, 'profile', None)
+        return bool(user.is_superuser or (profile and profile.can_manage_compliance))
+
+
+class ComplianceCheckTypeViewSet(viewsets.ModelViewSet):
+    """The safety & compliance register: fire alarm tests, extinguisher
+    servicing, first aid kits, licence/insurance renewals, and so on.
+
+    All staff can read it (the person doing the Monday fire alarm test needs
+    the list); adding/editing/removing checks needs can_manage_compliance."""
+
+    permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.request.method not in SAFE_METHODS:
+            return [IsComplianceManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import ComplianceCheckType, ComplianceCheckLog
+
+        qs = ComplianceCheckType.objects.prefetch_related(
+            # Newest-first so the serializer's latest_logs[0] is the last done.
+            Prefetch(
+                'logs',
+                queryset=ComplianceCheckLog.objects.order_by('-performed_on', '-id'),
+                to_attr='latest_logs',
+            )
+        )
+        if self.request.query_params.get('include_inactive') not in ('1', 'true'):
+            # Inactive checks stay out of the list by default but individual
+            # retrieves still work (the edit sheet reactivates them).
+            if self.action == 'list':
+                qs = qs.filter(is_active=True)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import ComplianceCheckTypeSerializer
+        return ComplianceCheckTypeSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class ComplianceCheckLogViewSet(viewsets.ModelViewSet):
+    """Completions of compliance checks. Any staff member can log one and
+    read the history; editing or deleting a past log is manager-only (the
+    register is an audit trail)."""
+
+    permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.request.method not in SAFE_METHODS and self.action != 'create':
+            return [IsComplianceManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import ComplianceCheckLog
+        qs = ComplianceCheckLog.objects.select_related('check_type', 'performed_by')
+        check_id = self.request.query_params.get('check_type')
+        if check_id:
+            qs = qs.filter(check_type_id=check_id)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import ComplianceCheckLogSerializer
+        return ComplianceCheckLogSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(performed_by=self.request.user)

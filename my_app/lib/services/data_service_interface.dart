@@ -30,8 +30,8 @@ abstract class DataService {
   Future<UserProfile> deleteProfilePhoto();
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false});
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed});
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false});
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, DateTime? lastVaccinationDate});
   Future<UnspayedMalesResult> getUnspayedMales();
   Future<List<PostcodeAddress>> lookupPostcode(String postcode);
   Future<void> deleteDog(String dogId);
@@ -302,4 +302,34 @@ abstract class DataService {
   Future<XeroContactMatches> getXeroContactMatches();
   Future<CustomerRate> pinXeroContact(int userId, String contactId);
   Future<List<XeroContact>> searchXeroContacts(String query);
+
+  // --- Staff management (HR) — manager-only, gated by can_manage_staff ---
+  Future<List<TeamMemberOverview>> getStaffTeamOverview();
+  Future<StaffHrRecord> getStaffHrRecord(int staffId);
+  Future<StaffHrRecord> updateStaffHrRecord(int recordId, Map<String, dynamic> fields);
+  Future<List<StaffPayRate>> getStaffPayRates(int staffId);
+  Future<StaffPayRate> createStaffPayRate(Map<String, dynamic> fields);
+  Future<void> deleteStaffPayRate(int id);
+  Future<List<StaffMeeting>> getStaffMeetings({int? staffId});
+  Future<StaffMeeting> createStaffMeeting(Map<String, dynamic> fields);
+  Future<StaffMeeting> updateStaffMeeting(int id, Map<String, dynamic> fields);
+  Future<void> deleteStaffMeeting(int id);
+  Future<List<StaffAppraisal>> getStaffAppraisals({int? staffId});
+  Future<StaffAppraisal> createStaffAppraisal(Map<String, dynamic> fields);
+  Future<StaffAppraisal> updateStaffAppraisal(int id, Map<String, dynamic> fields);
+  Future<StaffAppraisal> shareStaffAppraisal(int id);
+  Future<List<SicknessAbsence>> getSicknessAbsences({int? staffId});
+  Future<SicknessAbsence> createSicknessAbsence(Map<String, dynamic> fields);
+  Future<SicknessAbsence> updateSicknessAbsence(int id, Map<String, dynamic> fields);
+  Future<void> deleteSicknessAbsence(int id);
+  Future<List<StaffTrainingRecord>> getStaffTrainingRecords({int? staffId});
+  Future<StaffTrainingRecord> createStaffTrainingRecord(Map<String, dynamic> fields);
+  Future<void> deleteStaffTrainingRecord(int id);
+
+  // --- Safety & compliance register ---
+  Future<List<ComplianceCheck>> getComplianceChecks({bool includeInactive = false});
+  Future<ComplianceCheck> createComplianceCheck(Map<String, dynamic> fields);
+  Future<ComplianceCheck> updateComplianceCheck(int id, Map<String, dynamic> fields);
+  Future<List<ComplianceLog>> getComplianceLogs(int checkTypeId);
+  Future<ComplianceLog> logComplianceCheck(Map<String, dynamic> fields);
 }

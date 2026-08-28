@@ -10145,3 +10145,501 @@ class BoardingDaycareAttendanceTests(TestCase):
         self.assertIsNone(arrival.staff_member)
         self.assertEqual(
             [c for c in push.call_args_list if 'Status Update' in str(c)], [])
+
+
+class StaffManagementTests(TestCase):
+    """The manager-only HR section: staff-hr, pay rates, meetings, appraisals,
+    sickness absences and training records, all gated by can_manage_staff."""
+
+    def setUp(self):
+        from .models import UserProfile
+        self.manager = User.objects.create_user(username='manager', password='pw', is_staff=True, first_name='Claire')
+        self.manager.profile.can_manage_staff = True
+        self.manager.profile.save()
+        self.worker = User.objects.create_user(username='worker', password='pw', is_staff=True, first_name='Sam')
+        self.owner = User.objects.create_user(username='dogowner', password='pw')
+        self.client = APIClient()
+
+    def _login(self, user):
+        self.client.force_authenticate(user=user)
+
+    # --- gating ---
+
+    def test_owner_gets_403_everywhere(self):
+        self._login(self.owner)
+        for url in ['/api/staff-hr/', '/api/staff-hr/team_overview/', '/api/staff-pay-rates/',
+                    '/api/staff-meetings/', '/api/staff-appraisals/', '/api/staff-absences/',
+                    '/api/staff-training/']:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 403, url)
+
+    def test_non_manager_staff_cannot_see_hr_or_pay(self):
+        self._login(self.worker)
+        for url in ['/api/staff-hr/', '/api/staff-hr/team_overview/',
+                    f'/api/staff-hr/for_staff/?staff_member={self.worker.id}',
+                    '/api/staff-pay-rates/']:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 403, url)
+
+    # --- HR record + holiday maths ---
+
+    def test_for_staff_creates_record_and_reports_holiday(self):
+        from .models import DayOffRequest, StaffHRRecord
+        year = timezone.localdate().year
+        for day in (5, 6, 7):
+            DayOffRequest.objects.create(staff_member=self.worker, date=date(year, 3, day), status='APPROVED')
+        DayOffRequest.objects.create(staff_member=self.worker, date=date(year, 4, 1), status='PENDING')
+
+        self._login(self.manager)
+        resp = self.client.get(f'/api/staff-hr/for_staff/?staff_member={self.worker.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(StaffHRRecord.objects.filter(user=self.worker).exists())
+        self.assertEqual(resp.data['holiday']['used_days'], 3)
+        self.assertEqual(resp.data['holiday']['allowance_days'], 28.0)
+        self.assertEqual(resp.data['holiday']['remaining_days'], 25.0)
+
+    def test_manager_can_update_hr_record(self):
+        self._login(self.manager)
+        resp = self.client.get(f'/api/staff-hr/for_staff/?staff_member={self.worker.id}')
+        record_id = resp.data['id']
+        resp = self.client.patch(f'/api/staff-hr/{record_id}/',
+                                 {'job_title': 'Driver', 'holiday_allowance_days': '30.0'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['job_title'], 'Driver')
+
+    # --- pay ---
+
+    def test_pay_rate_crud_and_current_pay(self):
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-pay-rates/', {
+            'staff_member': self.worker.id, 'pay_type': 'HOURLY', 'rate': '12.50',
+            'effective_from': '2024-01-01',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        resp = self.client.post('/api/staff-pay-rates/', {
+            'staff_member': self.worker.id, 'pay_type': 'HOURLY', 'rate': '13.25',
+            'effective_from': '2025-01-01', 'note': 'Annual review',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+        resp = self.client.get(f'/api/staff-hr/for_staff/?staff_member={self.worker.id}')
+        self.assertEqual(resp.data['current_pay']['rate'], '13.25')
+
+        resp = self.client.get(f'/api/staff-pay-rates/?staff_member={self.worker.id}')
+        self.assertEqual(len(resp.data), 2)
+
+    def test_worker_cannot_create_pay_rate(self):
+        self._login(self.worker)
+        resp = self.client.post('/api/staff-pay-rates/', {
+            'staff_member': self.worker.id, 'pay_type': 'HOURLY', 'rate': '99.00',
+            'effective_from': '2025-01-01',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    # --- meetings ---
+
+    def test_meeting_visibility_and_write_gate(self):
+        from .models import StaffMeeting
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-meetings/', {
+            'title': '1:1 with Sam', 'meeting_type': 'ONE_TO_ONE',
+            'scheduled_for': (timezone.now() + timedelta(days=2)).isoformat(),
+            'attendees': [self.worker.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        meeting_id = resp.data['id']
+
+        other_meeting = StaffMeeting.objects.create(
+            title='Managers only', scheduled_for=timezone.now() + timedelta(days=3),
+            created_by=self.manager,
+        )
+        other_meeting.attendees.set([self.manager])
+
+        # The worker sees only meetings they attend, and cannot edit them.
+        self._login(self.worker)
+        resp = self.client.get('/api/staff-meetings/')
+        titles = [m['title'] for m in resp.data]
+        self.assertEqual(titles, ['1:1 with Sam'])
+        resp = self.client.patch(f'/api/staff-meetings/{meeting_id}/', {'title': 'hacked'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+        # The manager can complete it with minutes.
+        self._login(self.manager)
+        resp = self.client.patch(f'/api/staff-meetings/{meeting_id}/',
+                                 {'status': 'COMPLETED', 'minutes': 'Agreed new rota.'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'COMPLETED')
+
+    # --- appraisals ---
+
+    def test_appraisal_share_comment_acknowledge_flow(self):
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-appraisals/', {
+            'staff_member': self.worker.id, 'appraisal_date': '2026-08-01',
+            'overall_rating': 4, 'summary': 'Strong year.', 'goals': 'Van training.',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        appraisal_id = resp.data['id']
+        self.assertEqual(resp.data['status'], 'DRAFT')
+        self.assertEqual(resp.data['appraiser'], self.manager.id)
+
+        # Invisible to the worker while draft.
+        self._login(self.worker)
+        self.assertEqual(self.client.get(f'/api/staff-appraisals/{appraisal_id}/').status_code, 404)
+        self.assertEqual(self.client.get('/api/staff-appraisals/').data, [])
+
+        # Manager shares it.
+        self._login(self.manager)
+        resp = self.client.post(f'/api/staff-appraisals/{appraisal_id}/share/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'SHARED')
+        self.assertIsNotNone(resp.data['shared_at'])
+
+        # Now the worker can read, comment and acknowledge — but not edit.
+        self._login(self.worker)
+        resp = self.client.get(f'/api/staff-appraisals/{appraisal_id}/')
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.patch(f'/api/staff-appraisals/{appraisal_id}/', {'summary': 'edited'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.post(f'/api/staff-appraisals/{appraisal_id}/acknowledge/',
+                                {'staff_comments': 'Happy with this.'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'ACKNOWLEDGED')
+        self.assertEqual(resp.data['staff_comments'], 'Happy with this.')
+        self.assertIsNotNone(resp.data['acknowledged_at'])
+
+    def test_worker_cannot_acknowledge_someone_elses_appraisal(self):
+        from .models import StaffAppraisal
+        other = User.objects.create_user(username='other', password='pw', is_staff=True)
+        appraisal = StaffAppraisal.objects.create(
+            staff_member=other, appraiser=self.manager,
+            appraisal_date=date(2026, 8, 1), status='SHARED', shared_at=timezone.now(),
+        )
+        self._login(self.worker)
+        resp = self.client.post(f'/api/staff-appraisals/{appraisal.id}/acknowledge/')
+        # Scoped out of the worker's queryset entirely.
+        self.assertEqual(resp.status_code, 404)
+
+    # --- sickness + training ---
+
+    def test_sickness_scoping_and_validation(self):
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-absences/', {
+            'staff_member': self.worker.id, 'start_date': '2026-08-20', 'end_date': '2026-08-10',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post('/api/staff-absences/', {
+            'staff_member': self.worker.id, 'start_date': '2026-08-20', 'reason': 'Flu',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+
+        other = User.objects.create_user(username='other2', password='pw', is_staff=True)
+        from .models import SicknessAbsence
+        SicknessAbsence.objects.create(staff_member=other, start_date=date(2026, 8, 1),
+                                       end_date=date(2026, 8, 2), recorded_by=self.manager)
+
+        # Worker reads only their own, and cannot write.
+        self._login(self.worker)
+        resp = self.client.get('/api/staff-absences/')
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['staff_member'], self.worker.id)
+        resp = self.client.post('/api/staff-absences/', {
+            'staff_member': self.worker.id, 'start_date': '2026-08-25',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_training_expiry_status(self):
+        from .models import StaffTrainingRecord
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-training/', {
+            'staff_member': self.worker.id, 'name': 'Canine First Aid',
+            'completed_date': '2024-09-01',
+            'expiry_date': (timezone.localdate() + timedelta(days=30)).isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['expiry_status'], 'EXPIRING')
+
+    # --- team overview ---
+
+    def test_team_overview_shape_and_house_account_excluded(self):
+        from .models import StaffHRRecord, StaffPayRate, DayOffRequest
+        User.objects.create_user(username='p4td', password='pw', is_staff=True)
+        record = StaffHRRecord.objects.create(user=self.worker, job_title='Driver')
+        StaffPayRate.objects.create(staff_member=self.worker, pay_type='HOURLY',
+                                    rate=Decimal('12.50'), effective_from=date(2024, 1, 1))
+        year = timezone.localdate().year
+        DayOffRequest.objects.create(staff_member=self.worker, date=date(year, 2, 2), status='APPROVED')
+        DayOffRequest.objects.create(staff_member=self.worker, date=date(year, 9, 9), status='PENDING')
+
+        self._login(self.manager)
+        resp = self.client.get('/api/staff-hr/team_overview/')
+        self.assertEqual(resp.status_code, 200)
+        usernames = [r['username'] for r in resp.data]
+        self.assertNotIn('p4td', usernames)
+        row = next(r for r in resp.data if r['username'] == 'worker')
+        self.assertEqual(row['job_title'], 'Driver')
+        self.assertEqual(row['pay_rate'], '12.50')
+        self.assertEqual(row['holiday']['used_days'], 1)
+        self.assertEqual(row['holiday']['remaining_days'], 27.0)
+        self.assertEqual(row['pending_day_off_requests'], 1)
+
+
+class ComplianceTests(TestCase):
+    """The safety & compliance register: all staff read and log checks,
+    can_manage_compliance gates managing the register, and the daily
+    reminder command notifies once per cycle."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(username='compmanager', password='pw', is_staff=True)
+        self.manager.profile.can_manage_compliance = True
+        self.manager.profile.save()
+        self.worker = User.objects.create_user(username='compworker', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(username='compowner', password='pw')
+        from .models import ComplianceCheckType
+        self.check = ComplianceCheckType.objects.create(
+            name='Fire alarm test', category='FIRE', frequency='WEEKLY',
+        )
+        self.client = APIClient()
+
+    def test_owner_gets_403(self):
+        self.client.force_authenticate(user=self.owner)
+        self.assertEqual(self.client.get('/api/compliance-checks/').status_code, 403)
+        self.assertEqual(self.client.get('/api/compliance-logs/').status_code, 403)
+
+    def test_any_staff_can_read_and_log_but_not_manage(self):
+        self.client.force_authenticate(user=self.worker)
+        resp = self.client.get('/api/compliance-checks/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data[0]['status'], 'NEVER_DONE')
+
+        resp = self.client.post('/api/compliance-logs/', {
+            'check_type': self.check.id,
+            'performed_on': timezone.localdate().isoformat(),
+            'result': 'PASS',
+            'notes': 'Call point 3',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['performed_by'], self.worker.id)
+
+        # But the register itself is manager-only.
+        resp = self.client.post('/api/compliance-checks/', {
+            'name': 'Made up check', 'category': 'OTHER', 'frequency': 'WEEKLY',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.patch(f'/api/compliance-checks/{self.check.id}/',
+                                 {'is_active': False}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        # And so is tampering with the audit trail.
+        log_id = self.check.logs.first().id
+        self.assertEqual(self.client.delete(f'/api/compliance-logs/{log_id}/').status_code, 403)
+
+    def test_future_dated_log_rejected(self):
+        self.client.force_authenticate(user=self.worker)
+        resp = self.client.post('/api/compliance-logs/', {
+            'check_type': self.check.id,
+            'performed_on': (timezone.localdate() + timedelta(days=1)).isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_manager_can_manage_register(self):
+        self.client.force_authenticate(user=self.manager)
+        resp = self.client.post('/api/compliance-checks/', {
+            'name': 'Boiler service', 'category': 'HEALTH_SAFETY', 'frequency': 'ANNUAL',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        check_id = resp.data['id']
+        resp = self.client.patch(f'/api/compliance-checks/{check_id}/',
+                                 {'is_active': False}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        # Inactive checks drop out of the default list but come back on demand.
+        names = [c['name'] for c in self.client.get('/api/compliance-checks/').data]
+        self.assertNotIn('Boiler service', names)
+        names = [c['name'] for c in
+                 self.client.get('/api/compliance-checks/?include_inactive=1').data]
+        self.assertIn('Boiler service', names)
+
+    def test_status_computation(self):
+        from .models import ComplianceCheckLog
+        today = timezone.localdate()
+        # Done yesterday → weekly check is OK.
+        ComplianceCheckLog.objects.create(
+            check_type=self.check, performed_on=today - timedelta(days=1))
+        self.assertEqual(self.check.status(), 'OK')
+        # Done 6 days ago → due tomorrow, within the due-soon window (1 day).
+        self.check.logs.all().delete()
+        ComplianceCheckLog.objects.create(
+            check_type=self.check, performed_on=today - timedelta(days=6))
+        self.assertEqual(self.check.status(), 'DUE_SOON')
+        # Done 10 days ago → overdue.
+        self.check.logs.all().delete()
+        ComplianceCheckLog.objects.create(
+            check_type=self.check, performed_on=today - timedelta(days=10))
+        self.assertEqual(self.check.status(), 'OVERDUE')
+        # API agrees.
+        self.client.force_authenticate(user=self.worker)
+        rows = self.client.get('/api/compliance-checks/').data
+        row = next(r for r in rows if r['id'] == self.check.id)
+        self.assertEqual(row['status'], 'OVERDUE')
+        self.assertEqual(row['next_due'], today - timedelta(days=3))
+
+    def test_reminder_command_sends_once_and_rearms_on_new_log(self):
+        from .models import ComplianceCheckType, ComplianceCheckLog
+        from io import StringIO
+        today = timezone.localdate()
+        # The migration-seeded checks would each fire a never-done reminder;
+        # keep the run to just the check under test.
+        ComplianceCheckType.objects.exclude(pk=self.check.pk).delete()
+        ComplianceCheckLog.objects.create(
+            check_type=self.check, performed_on=today - timedelta(days=10))
+
+        with patch('api.management.commands.send_compliance_reminders.send_push_notification') as mock_push:
+            out = StringIO()
+            call_command('send_compliance_reminders', stdout=out)
+            # One overdue check × one flag-holding manager.
+            self.assertEqual(mock_push.call_count, 1)
+            self.assertEqual(mock_push.call_args[0][0], self.manager)
+            # Second run is silent — already notified this cycle.
+            call_command('send_compliance_reminders', stdout=out)
+            self.assertEqual(mock_push.call_count, 1)
+
+        # Logging a completion re-arms the reminder for the next cycle.
+        ComplianceCheckLog.objects.create(check_type=self.check, performed_on=today)
+        self.check.refresh_from_db()
+        self.assertFalse(self.check.due_notice_sent)
+
+    def test_advance_notice_for_long_cycle_checks(self):
+        from .models import ComplianceCheckType, ComplianceCheckLog
+        from io import StringIO
+        today = timezone.localdate()
+        ComplianceCheckType.objects.all().delete()  # incl. migration-seeded rows
+        annual = ComplianceCheckType.objects.create(
+            name='Public liability insurance renewal', category='DOCUMENTS', frequency='ANNUAL',
+        )
+        ComplianceCheckLog.objects.create(
+            check_type=annual, performed_on=today - timedelta(days=345))  # due in 20 days
+
+        with patch('api.management.commands.send_compliance_reminders.send_push_notification') as mock_push:
+            call_command('send_compliance_reminders', stdout=StringIO())
+            self.assertEqual(mock_push.call_count, 1)
+            self.assertIn('coming up', mock_push.call_args[0][1])
+
+    def test_seeded_register(self):
+        # The data migration seeded the standard checks (setUp added one more).
+        from .models import ComplianceCheckType
+        names = set(ComplianceCheckType.objects.values_list('name', flat=True))
+        self.assertIn('Emergency lighting test', names)
+        self.assertIn('Animal welfare licence renewal', names)
+
+
+class DogContactNumberTests(TestCase):
+    """The dog-level contact and emergency contact numbers round-trip through
+    the API and the owner change-request flow."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='contactowner', password='pw')
+        self.staff = User.objects.create_user(username='contactstaff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Biscuit')
+        self.client = APIClient()
+
+    def test_staff_can_set_contact_numbers_directly(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'contact_number': '07700 900001',
+            'emergency_contact_number': '07700 900002 (Sue, neighbour)',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['contact_number'], '07700 900001')
+        self.assertEqual(resp.data['emergency_contact_number'], '07700 900002 (Sue, neighbour)')
+
+    def test_owner_edit_goes_through_change_request_and_applies(self):
+        from .models import DogProfileChangeRequest
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'contact_number': '07700 900010',
+            'emergency_contact_number': '07700 900011',
+        }, format='json')
+        self.assertEqual(resp.status_code, 202)
+        # Not applied directly — a change request was created instead.
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.contact_number, '')
+        cr = DogProfileChangeRequest.objects.get(dog=self.dog)
+        self.assertEqual(cr.proposed_changes['contact_number'], '07700 900010')
+
+        # Staff approve; the numbers land on the dog.
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.contact_number, '07700 900010')
+        self.assertEqual(self.dog.emergency_contact_number, '07700 900011')
+
+
+class DogVaccinationDateTests(TestCase):
+    """The simple per-dog vaccination date, its overdue flag, and its sync
+    with the detailed VaccinationRecord system."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='vaxowner', password='pw')
+        self.staff = User.objects.create_user(username='vaxstaff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Pip')
+        self.client = APIClient()
+
+    def test_overdue_flag(self):
+        today = timezone.localdate()
+        self.dog.last_vaccination_date = today - timedelta(days=100)
+        self.assertFalse(self.dog.vaccination_overdue)
+        self.dog.last_vaccination_date = today - timedelta(days=366)
+        self.assertTrue(self.dog.vaccination_overdue)
+        self.dog.last_vaccination_date = None
+        self.assertFalse(self.dog.vaccination_overdue)
+
+    def test_api_roundtrip_and_flag(self):
+        today = timezone.localdate()
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'last_vaccination_date': (today - timedelta(days=400)).isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['vaccination_overdue'])
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'last_vaccination_date': today.isoformat(),
+        }, format='json')
+        self.assertFalse(resp.data['vaccination_overdue'])
+
+    def test_vaccination_record_advances_the_date(self):
+        from .models import VaccinationRecord
+        today = timezone.localdate()
+        VaccinationRecord.objects.create(
+            dog=self.dog, name='DHP',
+            date_administered=today - timedelta(days=30),
+            expiry_date=today + timedelta(days=335),
+        )
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.last_vaccination_date, today - timedelta(days=30))
+
+        # A newer record advances it; deleting recomputes from what's left.
+        newer = VaccinationRecord.objects.create(
+            dog=self.dog, name='Rabies',
+            date_administered=today - timedelta(days=5),
+            expiry_date=today + timedelta(days=360),
+        )
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.last_vaccination_date, today - timedelta(days=5))
+        newer.delete()
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.last_vaccination_date, today - timedelta(days=30))
+
+    def test_owner_edit_goes_through_change_request(self):
+        from .models import DogProfileChangeRequest
+        today = timezone.localdate()
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'last_vaccination_date': today.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 202)
+        cr = DogProfileChangeRequest.objects.get(dog=self.dog)
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.last_vaccination_date, today)

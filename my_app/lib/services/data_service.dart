@@ -34,6 +34,8 @@ import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
 import '../models/roadwork_issue.dart';
 import '../models/photo_tagging_status.dart';
+import '../models/staff_hr.dart';
+import '../models/compliance.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
 import 'no_connection_exception.dart';
@@ -203,6 +205,8 @@ class ApiDataService implements DataService {
         foodInstructions: json['food_instructions'],
         medicalNotes: json['medical_notes'],
         registeredVet: json['registered_vet'],
+        contactNumber: json['contact_number'],
+        emergencyContactNumber: json['emergency_contact_number'],
         address: json['address'],
         postcode: json['postcode'],
         accessInstructions: json['access_instructions'],
@@ -221,6 +225,8 @@ class ApiDataService implements DataService {
         ownerCollectsDefaultTime: parseApiTime(json['owner_collects_default_time']),
         sex: parseDogSex(json['sex']),
         dateOfBirth: parseApiDate(json['date_of_birth']),
+        lastVaccinationDate: parseApiDate(json['last_vaccination_date']),
+        vaccinationOverdue: json['vaccination_overdue'] ?? false,
         isSpayed: json['is_spayed'] ?? false,
         cancelledDates: parseApiDateList(json['cancelled_dates']),
       );
@@ -460,7 +466,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -473,6 +479,8 @@ class ApiDataService implements DataService {
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
+      if (contactNumber != null) request.fields['contact_number'] = contactNumber;
+      if (emergencyContactNumber != null) request.fields['emergency_contact_number'] = emergencyContactNumber;
       if (address != null) request.fields['address'] = address;
       if (postcode != null) request.fields['postcode'] = postcode;
       if (accessInstructions != null) request.fields['access_instructions'] = accessInstructions;
@@ -490,6 +498,8 @@ class ApiDataService implements DataService {
       if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
       if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
       if (clearDateOfBirth) request.fields['date_of_birth'] = '';
+      if (lastVaccinationDate != null) request.fields['last_vaccination_date'] = formatApiDate(lastVaccinationDate)!;
+      if (clearLastVaccinationDate) request.fields['last_vaccination_date'] = '';
       if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
 
       if (deletePhoto) {
@@ -517,6 +527,8 @@ class ApiDataService implements DataService {
           'food_instructions': foodInstructions ?? dog.foodInstructions,
           'medical_notes': medicalNotes ?? dog.medicalNotes,
           'registered_vet': registeredVet ?? dog.registeredVet,
+          'contact_number': contactNumber ?? dog.contactNumber,
+          'emergency_contact_number': emergencyContactNumber ?? dog.emergencyContactNumber,
           'address': address ?? dog.address,
           'postcode': postcode ?? dog.postcode,
           'access_instructions': accessInstructions ?? dog.accessInstructions,
@@ -535,6 +547,8 @@ class ApiDataService implements DataService {
           if (sex != null) 'sex': dogSexToApi(sex),
           if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
           if (clearDateOfBirth) 'date_of_birth': null,
+          if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
+          if (clearLastVaccinationDate) 'last_vaccination_date': null,
           if (isSpayed != null) 'is_spayed': isSpayed,
         }),
       );
@@ -575,6 +589,8 @@ class ApiDataService implements DataService {
       foodInstructions: data['food_instructions'],
       medicalNotes: data['medical_notes'],
       registeredVet: data['registered_vet'],
+      contactNumber: data['contact_number'],
+      emergencyContactNumber: data['emergency_contact_number'],
       address: data['address'],
       postcode: data['postcode'],
       accessInstructions: data['access_instructions'],
@@ -593,6 +609,8 @@ class ApiDataService implements DataService {
       ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
       sex: parseDogSex(data['sex']),
       dateOfBirth: parseApiDate(data['date_of_birth']),
+      lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
+      vaccinationOverdue: data['vaccination_overdue'] ?? false,
       isSpayed: data['is_spayed'] ?? false,
     );
   }
@@ -672,7 +690,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed}) async {
+  Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, DateTime? lastVaccinationDate}) async {
     final token = await _authService.getToken();
 
     if (imageBytes != null) {
@@ -684,6 +702,8 @@ class ApiDataService implements DataService {
       if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
       if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
       if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
+      if (contactNumber != null) request.fields['contact_number'] = contactNumber;
+      if (emergencyContactNumber != null) request.fields['emergency_contact_number'] = emergencyContactNumber;
       if (address != null) request.fields['address'] = address;
       if (postcode != null) request.fields['postcode'] = postcode;
       if (accessInstructions != null) request.fields['access_instructions'] = accessInstructions;
@@ -699,6 +719,7 @@ class ApiDataService implements DataService {
       if (ownerCollectsDefaultTime != null) request.fields['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
       if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
       if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
+      if (lastVaccinationDate != null) request.fields['last_vaccination_date'] = formatApiDate(lastVaccinationDate)!;
       if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
 
       // Use bytes instead of file path for cross-platform compatibility
@@ -738,6 +759,8 @@ class ApiDataService implements DataService {
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
           registeredVet: data['registered_vet'],
+          contactNumber: data['contact_number'],
+          emergencyContactNumber: data['emergency_contact_number'],
           address: data['address'],
           postcode: data['postcode'],
           accessInstructions: data['access_instructions'],
@@ -756,6 +779,8 @@ class ApiDataService implements DataService {
           ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
           sex: parseDogSex(data['sex']),
           dateOfBirth: parseApiDate(data['date_of_birth']),
+          lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
+          vaccinationOverdue: data['vaccination_overdue'] ?? false,
           isSpayed: data['is_spayed'] ?? false,
         );
       } else {
@@ -772,6 +797,8 @@ class ApiDataService implements DataService {
           'food_instructions': foodInstructions,
           'medical_notes': medicalNotes,
           'registered_vet': registeredVet,
+          'contact_number': contactNumber,
+          'emergency_contact_number': emergencyContactNumber,
           'address': address,
           'postcode': postcode,
           'access_instructions': accessInstructions,
@@ -787,6 +814,7 @@ class ApiDataService implements DataService {
           if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
           if (sex != null) 'sex': dogSexToApi(sex),
           if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
+          if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
           if (isSpayed != null) 'is_spayed': isSpayed,
         }),
       );
@@ -815,6 +843,8 @@ class ApiDataService implements DataService {
           foodInstructions: data['food_instructions'],
           medicalNotes: data['medical_notes'],
           registeredVet: data['registered_vet'],
+          contactNumber: data['contact_number'],
+          emergencyContactNumber: data['emergency_contact_number'],
           address: data['address'],
           postcode: data['postcode'],
           accessInstructions: data['access_instructions'],
@@ -833,6 +863,8 @@ class ApiDataService implements DataService {
           ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
           sex: parseDogSex(data['sex']),
           dateOfBirth: parseApiDate(data['date_of_birth']),
+          lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
+          vaccinationOverdue: data['vaccination_overdue'] ?? false,
           isSpayed: data['is_spayed'] ?? false,
         );
       } else {
@@ -954,6 +986,8 @@ class ApiDataService implements DataService {
       foodInstructions: data['food_instructions'],
       medicalNotes: data['medical_notes'],
       registeredVet: data['registered_vet'],
+      contactNumber: data['contact_number'],
+      emergencyContactNumber: data['emergency_contact_number'],
       address: data['address'],
       postcode: data['postcode'],
       accessInstructions: data['access_instructions'],
@@ -3585,4 +3619,173 @@ class ApiDataService implements DataService {
     }
     throw Exception(_invoiceError(response, 'Failed to load payment summary'));
   }
+
+  // --- Staff management (HR) — manager-only, gated by can_manage_staff ---
+
+  String _staffHrError(dynamic response, String fallback) {
+    try {
+      final data = json.decode(response.body);
+      if (data is Map && data['detail'] != null) return data['detail'].toString();
+    } catch (_) {}
+    return '$fallback: ${response.statusCode}';
+  }
+
+  Uri _staffHrUri(String path, {int? staffId}) =>
+      Uri.parse('${AuthService.baseUrl}$path').replace(
+          queryParameters: staffId != null ? {'staff_member': '$staffId'} : null);
+
+  Future<List<T>> _staffHrList<T>(String path,
+      T Function(Map<String, dynamic>) fromJson, {int? staffId}) async {
+    final response = await _get(_staffHrUri(path, staffId: staffId));
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception(_staffHrError(response, 'Failed to load $path'));
+  }
+
+  Future<T> _staffHrWrite<T>(String method, String path,
+      Map<String, dynamic>? body, T Function(Map<String, dynamic>) fromJson) async {
+    final headers = await _getHeaders();
+    final uri = Uri.parse('${AuthService.baseUrl}$path');
+    final encoded = body != null ? json.encode(body) : null;
+    final response = method == 'POST'
+        ? await http.post(uri, headers: headers, body: encoded)
+        : await http.patch(uri, headers: headers, body: encoded);
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return fromJson(json.decode(response.body));
+    }
+    throw Exception(_staffHrError(response, 'Request failed'));
+  }
+
+  Future<void> _staffHrDelete(String path) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(Uri.parse('${AuthService.baseUrl}$path'), headers: headers);
+    if (response.statusCode != 204 && response.statusCode != 200) {
+      throw Exception(_staffHrError(response, 'Failed to delete'));
+    }
+  }
+
+  @override
+  Future<List<TeamMemberOverview>> getStaffTeamOverview() =>
+      _staffHrList('/api/staff-hr/team_overview/', TeamMemberOverview.fromJson);
+
+  @override
+  Future<StaffHrRecord> getStaffHrRecord(int staffId) async {
+    final response = await _get(_staffHrUri('/api/staff-hr/for_staff/', staffId: staffId));
+    if (response.statusCode == 200) {
+      return StaffHrRecord.fromJson(json.decode(response.body));
+    }
+    throw Exception(_staffHrError(response, 'Failed to load HR record'));
+  }
+
+  @override
+  Future<StaffHrRecord> updateStaffHrRecord(int recordId, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/staff-hr/$recordId/', fields, StaffHrRecord.fromJson);
+
+  @override
+  Future<List<StaffPayRate>> getStaffPayRates(int staffId) =>
+      _staffHrList('/api/staff-pay-rates/', StaffPayRate.fromJson, staffId: staffId);
+
+  @override
+  Future<StaffPayRate> createStaffPayRate(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-pay-rates/', fields, StaffPayRate.fromJson);
+
+  @override
+  Future<void> deleteStaffPayRate(int id) => _staffHrDelete('/api/staff-pay-rates/$id/');
+
+  @override
+  Future<List<StaffMeeting>> getStaffMeetings({int? staffId}) =>
+      _staffHrList('/api/staff-meetings/', StaffMeeting.fromJson, staffId: staffId);
+
+  @override
+  Future<StaffMeeting> createStaffMeeting(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-meetings/', fields, StaffMeeting.fromJson);
+
+  @override
+  Future<StaffMeeting> updateStaffMeeting(int id, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/staff-meetings/$id/', fields, StaffMeeting.fromJson);
+
+  @override
+  Future<void> deleteStaffMeeting(int id) => _staffHrDelete('/api/staff-meetings/$id/');
+
+  @override
+  Future<List<StaffAppraisal>> getStaffAppraisals({int? staffId}) =>
+      _staffHrList('/api/staff-appraisals/', StaffAppraisal.fromJson, staffId: staffId);
+
+  @override
+  Future<StaffAppraisal> createStaffAppraisal(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-appraisals/', fields, StaffAppraisal.fromJson);
+
+  @override
+  Future<StaffAppraisal> updateStaffAppraisal(int id, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/staff-appraisals/$id/', fields, StaffAppraisal.fromJson);
+
+  @override
+  Future<StaffAppraisal> shareStaffAppraisal(int id) =>
+      _staffHrWrite('POST', '/api/staff-appraisals/$id/share/', null, StaffAppraisal.fromJson);
+
+  @override
+  Future<List<SicknessAbsence>> getSicknessAbsences({int? staffId}) =>
+      _staffHrList('/api/staff-absences/', SicknessAbsence.fromJson, staffId: staffId);
+
+  @override
+  Future<SicknessAbsence> createSicknessAbsence(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-absences/', fields, SicknessAbsence.fromJson);
+
+  @override
+  Future<SicknessAbsence> updateSicknessAbsence(int id, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/staff-absences/$id/', fields, SicknessAbsence.fromJson);
+
+  @override
+  Future<void> deleteSicknessAbsence(int id) => _staffHrDelete('/api/staff-absences/$id/');
+
+  @override
+  Future<List<StaffTrainingRecord>> getStaffTrainingRecords({int? staffId}) =>
+      _staffHrList('/api/staff-training/', StaffTrainingRecord.fromJson, staffId: staffId);
+
+  @override
+  Future<StaffTrainingRecord> createStaffTrainingRecord(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-training/', fields, StaffTrainingRecord.fromJson);
+
+  @override
+  Future<void> deleteStaffTrainingRecord(int id) => _staffHrDelete('/api/staff-training/$id/');
+
+  // --- Safety & compliance register ---
+
+  @override
+  Future<List<ComplianceCheck>> getComplianceChecks({bool includeInactive = false}) async {
+    final uri = Uri.parse('${AuthService.baseUrl}/api/compliance-checks/').replace(
+        queryParameters: includeInactive ? {'include_inactive': '1'} : null);
+    final response = await _get(uri);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => ComplianceCheck.fromJson(e)).toList();
+    }
+    throw Exception(_staffHrError(response, 'Failed to load compliance checks'));
+  }
+
+  @override
+  Future<ComplianceCheck> createComplianceCheck(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/compliance-checks/', fields, ComplianceCheck.fromJson);
+
+  @override
+  Future<ComplianceCheck> updateComplianceCheck(int id, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/compliance-checks/$id/', fields, ComplianceCheck.fromJson);
+
+  @override
+  Future<List<ComplianceLog>> getComplianceLogs(int checkTypeId) async {
+    final uri = Uri.parse('${AuthService.baseUrl}/api/compliance-logs/')
+        .replace(queryParameters: {'check_type': '$checkTypeId'});
+    final response = await _get(uri);
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => ComplianceLog.fromJson(e)).toList();
+    }
+    throw Exception(_staffHrError(response, 'Failed to load check history'));
+  }
+
+  @override
+  Future<ComplianceLog> logComplianceCheck(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/compliance-logs/', fields, ComplianceLog.fromJson);
 }

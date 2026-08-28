@@ -29,6 +29,8 @@ import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'my_calendar_screen.dart';
 import 'staff_availability_screen.dart';
+import 'staff_management_screen.dart';
+import 'compliance_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'fleet_screen.dart';
 import 'facility_defects_screen.dart';
@@ -78,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canManageVehicles = false;
   bool _canManagePayments = false;
   bool _canManageBoarding = false;
+  bool _canManageCompliance = false;
   int _currentIndex = 1;
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
@@ -231,6 +234,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _canManageVehicles = profile.canManageVehicles;
           _canManagePayments = profile.canManagePayments;
           _canManageBoarding = profile.canManageBoarding;
+          _canManageCompliance = profile.canManageCompliance;
         });
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
@@ -583,6 +587,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       canManageVehicles: _canManageVehicles,
                       canManagePayments: _canManagePayments,
                       canManageBoarding: _canManageBoarding,
+                      canManageStaff: _canManageStaff,
                       isStaff: _isStaff,
                       isSuperuser: _isSuperuser,
                       myUserId: _myUserId,
@@ -787,6 +792,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
+                    );
+                  },
+                ),
+              if (_isStaff && (_canManageStaff || _isSuperuser))
+                ListTile(
+                  leading: Picon(PiconsDuotone.usersThree),
+                  title: const Text('Staff Management'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const StaffManagementScreen(),
+                      ),
+                    );
+                  },
+                ),
+              if (_isStaff)
+                ListTile(
+                  leading: Picon(PiconsDuotone.shieldCheck),
+                  title: const Text('Safety & Compliance'),
+                  trailing: _drawerChevron(),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ComplianceScreen(
+                          canManage: _canManageCompliance || _isSuperuser,
+                        ),
+                      ),
                     );
                   },
                 ),

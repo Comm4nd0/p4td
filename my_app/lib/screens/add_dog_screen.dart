@@ -40,6 +40,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
 
   DogSex? _selectedSex;
   DateTime? _selectedDateOfBirth;
+  DateTime? _selectedLastVaccination;
   bool _isSpayed = false;
   bool _postcodeLookupEnabled = false;
 
@@ -47,6 +48,8 @@ class _AddDogScreenState extends State<AddDogScreen> {
   final _foodController = TextEditingController();
   final _medicalController = TextEditingController();
   final _vetController = TextEditingController();
+  final _contactNumberController = TextEditingController();
+  final _emergencyContactController = TextEditingController();
   final _addressController = TextEditingController();
   final _postcodeController = TextEditingController();
   final _accessController = TextEditingController();
@@ -65,6 +68,8 @@ class _AddDogScreenState extends State<AddDogScreen> {
     _foodController.dispose();
     _medicalController.dispose();
     _vetController.dispose();
+    _contactNumberController.dispose();
+    _emergencyContactController.dispose();
     _addressController.dispose();
     _postcodeController.dispose();
     _accessController.dispose();
@@ -187,6 +192,8 @@ class _AddDogScreenState extends State<AddDogScreen> {
         foodInstructions: _foodController.text.trim().isEmpty ? null : _foodController.text.trim(),
         medicalNotes: _medicalController.text.trim().isEmpty ? null : _medicalController.text.trim(),
         registeredVet: _vetController.text.trim().isEmpty ? null : _vetController.text.trim(),
+        contactNumber: _contactNumberController.text.trim().isEmpty ? null : _contactNumberController.text.trim(),
+        emergencyContactNumber: _emergencyContactController.text.trim().isEmpty ? null : _emergencyContactController.text.trim(),
         address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
         postcode: _postcodeController.text.trim().isEmpty ? null : _postcodeController.text.trim().toUpperCase(),
         accessInstructions: _isStaff && _accessController.text.trim().isNotEmpty ? _accessController.text.trim() : null,
@@ -204,6 +211,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         ownerCollectsDefaultTime: _isStaff ? _ownerCollectsDefaultTime : null,
         sex: _selectedSex,
         dateOfBirth: _selectedDateOfBirth,
+        lastVaccinationDate: _selectedLastVaccination,
         isSpayed: _isSpayed,
       );
 
@@ -393,6 +401,26 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         ),
                         textCapitalization: TextCapitalization.characters,
                       ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _contactNumberController,
+                        decoration: const InputDecoration(
+                          labelText: 'Contact Number (Optional)',
+                          hintText: 'Best number to reach the owner on daycare days',
+                          prefixIcon: Picon(PiconsDuotone.phone),
+                        ),
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _emergencyContactController,
+                        decoration: const InputDecoration(
+                          labelText: 'Emergency Contact Number (Optional)',
+                          hintText: "If the owner can't be reached — e.g. 07700 900123 (Sue, neighbour)",
+                          prefixIcon: Picon(PiconsDuotone.firstAidKit),
+                        ),
+                        keyboardType: TextInputType.phone,
+                      ),
                       const SizedBox(height: 24),
                       const Text(
                         'About',
@@ -439,6 +467,38 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             _selectedDateOfBirth == null
                                 ? 'Not set'
                                 : '${_selectedDateOfBirth!.day.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.month.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.year}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () async {
+                          final now = DateTime.now();
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: _selectedLastVaccination ?? now,
+                            firstDate: DateTime(now.year - 20),
+                            lastDate: now,
+                          );
+                          if (picked != null) {
+                            setState(() => _selectedLastVaccination = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: 'Last vaccination date',
+                            prefixIcon: const Picon(PiconsDuotone.syringe),
+                            suffixIcon: _selectedLastVaccination == null
+                                ? null
+                                : IconButton(
+                                    icon: const Picon(PiconsDuotone.x),
+                                    onPressed: () => setState(() => _selectedLastVaccination = null),
+                                  ),
+                          ),
+                          child: Text(
+                            _selectedLastVaccination == null
+                                ? 'Not set'
+                                : '${_selectedLastVaccination!.day.toString().padLeft(2, '0')}/${_selectedLastVaccination!.month.toString().padLeft(2, '0')}/${_selectedLastVaccination!.year}',
                           ),
                         ),
                       ),

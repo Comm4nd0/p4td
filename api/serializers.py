@@ -52,7 +52,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled', 'staff_color']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled', 'staff_color']
         # Capability flags are assignable ONLY by a superuser via
         # update_staff_permissions. They must never be writable through this
         # self-service endpoint, or any authenticated user could PATCH their own
@@ -63,6 +63,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests',
             'can_reply_queries', 'can_manage_staff', 'can_view_inquiries',
             'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding',
+            'can_manage_compliance',
             'receives_business_alerts',
             'daycare_rate', 'boarding_rate',
         ]
@@ -128,6 +129,7 @@ class StaffPermissionsSerializer(serializers.ModelSerializer):
             'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff',
             'can_view_inquiries',
             'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding',
+            'can_manage_compliance',
             'receives_business_alerts',
         ]
 
@@ -139,7 +141,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
         read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates']
         extra_kwargs = {
             'owner': {'required': False},
@@ -1541,3 +1543,223 @@ class IncidentSummarySerializer(serializers.ModelSerializer):
 
     def get_dog_names(self, obj):
         return [entry.dog.name for entry in obj.dog_entries.all()]
+
+
+# --- Staff management (HR) ---
+
+from .models import (
+    StaffHRRecord, StaffPayRate, StaffMeeting, StaffAppraisal,
+    SicknessAbsence, StaffTrainingRecord,
+)
+
+
+def _display_name(user):
+    if user is None:
+        return None
+    return user.first_name or user.username
+
+
+class StaffPayRateSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffPayRate
+        fields = [
+            'id', 'staff_member', 'staff_member_name', 'pay_type', 'rate',
+            'effective_from', 'note', 'created_by', 'created_by_name', 'created_at',
+        ]
+        read_only_fields = ['id', 'staff_member_name', 'created_by', 'created_by_name', 'created_at']
+
+    def get_staff_member_name(self, obj):
+        return _display_name(obj.staff_member)
+
+    def get_created_by_name(self, obj):
+        return _display_name(obj.created_by)
+
+
+class StaffHRRecordSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    username = serializers.CharField(source='user.username', read_only=True)
+    current_pay = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffHRRecord
+        fields = [
+            'id', 'user', 'username', 'staff_member_name', 'job_title',
+            'employment_start_date', 'employment_end_date', 'holiday_allowance_days',
+            'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship',
+            'manager_notes', 'current_pay', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'user', 'username', 'staff_member_name', 'current_pay', 'created_at', 'updated_at']
+
+    def get_staff_member_name(self, obj):
+        return _display_name(obj.user)
+
+    def get_current_pay(self, obj):
+        rate = obj.current_pay_rate()
+        return StaffPayRateSerializer(rate).data if rate else None
+
+
+class StaffMeetingSerializer(serializers.ModelSerializer):
+    attendee_names = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffMeeting
+        fields = [
+            'id', 'title', 'meeting_type', 'scheduled_for', 'location', 'agenda',
+            'minutes', 'status', 'attendees', 'attendee_names',
+            'created_by', 'created_by_name', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'attendee_names', 'created_by', 'created_by_name', 'created_at', 'updated_at']
+
+    def get_attendee_names(self, obj):
+        return [_display_name(u) for u in obj.attendees.all()]
+
+    def get_created_by_name(self, obj):
+        return _display_name(obj.created_by)
+
+
+class StaffAppraisalSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    appraiser_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffAppraisal
+        fields = [
+            'id', 'staff_member', 'staff_member_name', 'appraiser', 'appraiser_name',
+            'appraisal_date', 'overall_rating', 'summary', 'strengths',
+            'areas_for_improvement', 'goals', 'staff_comments', 'next_review_date',
+            'status', 'shared_at', 'acknowledged_at', 'created_at', 'updated_at',
+        ]
+        # Status moves only through the share/acknowledge actions so the
+        # DRAFT → SHARED → ACKNOWLEDGED audit trail can't be edited directly.
+        read_only_fields = [
+            'id', 'staff_member_name', 'appraiser', 'appraiser_name',
+            'status', 'shared_at', 'acknowledged_at', 'created_at', 'updated_at',
+        ]
+
+    def validate_overall_rating(self, value):
+        if value is not None and not (1 <= value <= 5):
+            raise serializers.ValidationError('Rating must be between 1 and 5.')
+        return value
+
+    def get_staff_member_name(self, obj):
+        return _display_name(obj.staff_member)
+
+    def get_appraiser_name(self, obj):
+        return _display_name(obj.appraiser)
+
+
+class SicknessAbsenceSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    recorded_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SicknessAbsence
+        fields = [
+            'id', 'staff_member', 'staff_member_name', 'start_date', 'end_date',
+            'reason', 'notes', 'recorded_by', 'recorded_by_name', 'created_at',
+        ]
+        read_only_fields = ['id', 'staff_member_name', 'recorded_by', 'recorded_by_name', 'created_at']
+
+    def validate(self, data):
+        start = data.get('start_date', getattr(self.instance, 'start_date', None))
+        end = data.get('end_date', getattr(self.instance, 'end_date', None))
+        if start and end and end < start:
+            raise serializers.ValidationError('end_date must be on or after start_date.')
+        return data
+
+    def get_staff_member_name(self, obj):
+        return _display_name(obj.staff_member)
+
+    def get_recorded_by_name(self, obj):
+        return _display_name(obj.recorded_by)
+
+
+class StaffTrainingRecordSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    expiry_status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = StaffTrainingRecord
+        fields = [
+            'id', 'staff_member', 'staff_member_name', 'name', 'provider',
+            'completed_date', 'expiry_date', 'expiry_status', 'notes',
+            'created_by', 'created_at',
+        ]
+        read_only_fields = ['id', 'staff_member_name', 'expiry_status', 'created_by', 'created_at']
+
+    def get_staff_member_name(self, obj):
+        return _display_name(obj.staff_member)
+
+
+# --- Safety & compliance register ---
+
+from django.utils import timezone
+from .models import ComplianceCheckType, ComplianceCheckLog
+
+
+class ComplianceCheckLogSerializer(serializers.ModelSerializer):
+    performed_by_name = serializers.SerializerMethodField()
+    check_name = serializers.CharField(source='check_type.name', read_only=True)
+
+    class Meta:
+        model = ComplianceCheckLog
+        fields = [
+            'id', 'check_type', 'check_name', 'performed_on', 'performed_by',
+            'performed_by_name', 'result', 'notes', 'created_at',
+        ]
+        read_only_fields = ['id', 'check_name', 'performed_by', 'performed_by_name', 'created_at']
+
+    def validate_performed_on(self, value):
+        if value > timezone.localdate():
+            raise serializers.ValidationError('A check cannot be logged for a future date.')
+        return value
+
+    def get_performed_by_name(self, obj):
+        return _display_name(obj.performed_by)
+
+
+class ComplianceCheckTypeSerializer(serializers.ModelSerializer):
+    frequency_label = serializers.CharField(source='get_frequency_display', read_only=True)
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+    last_done = serializers.SerializerMethodField()
+    last_result = serializers.SerializerMethodField()
+    next_due = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ComplianceCheckType
+        fields = [
+            'id', 'name', 'category', 'category_label', 'frequency',
+            'frequency_label', 'description', 'is_active',
+            'last_done', 'last_result', 'next_due', 'status', 'created_at',
+        ]
+        read_only_fields = [
+            'id', 'category_label', 'frequency_label',
+            'last_done', 'last_result', 'next_due', 'status', 'created_at',
+        ]
+
+    def _last_log(self, obj):
+        # The viewset prefetches logs newest-first into `latest_logs`; fall
+        # back to a query for detail routes that didn't.
+        cached = getattr(obj, 'latest_logs', None)
+        if cached is not None:
+            return cached[0] if cached else None
+        return obj.last_log()
+
+    def get_last_done(self, obj):
+        log = self._last_log(obj)
+        return log.performed_on if log else None
+
+    def get_last_result(self, obj):
+        log = self._last_log(obj)
+        return log.result if log else None
+
+    def get_next_due(self, obj):
+        return obj.next_due(last_done=self.get_last_done(obj))
+
+    def get_status(self, obj):
+        return obj.status(last_done=self.get_last_done(obj))

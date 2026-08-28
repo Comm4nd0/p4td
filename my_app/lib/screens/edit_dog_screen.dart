@@ -29,6 +29,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
   late TextEditingController _foodController;
   late TextEditingController _medicalController;
   late TextEditingController _vetController;
+  late TextEditingController _contactNumberController;
+  late TextEditingController _emergencyContactController;
   late TextEditingController _addressController;
   late TextEditingController _postcodeController;
   late TextEditingController _accessController;
@@ -50,6 +52,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
   TimeOfDay? _ownerCollectsDefaultTime;
   DogSex? _selectedSex;
   DateTime? _selectedDateOfBirth;
+  DateTime? _selectedLastVaccination;
   bool _isSpayed = false;
   bool _postcodeLookupEnabled = false;
 
@@ -60,6 +63,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _foodController = TextEditingController(text: widget.dog.foodInstructions ?? '');
     _medicalController = TextEditingController(text: widget.dog.medicalNotes ?? '');
     _vetController = TextEditingController(text: widget.dog.registeredVet ?? '');
+    _contactNumberController = TextEditingController(text: widget.dog.contactNumber ?? '');
+    _emergencyContactController = TextEditingController(text: widget.dog.emergencyContactNumber ?? '');
     _addressController = TextEditingController(text: widget.dog.address ?? '');
     _postcodeController = TextEditingController(text: widget.dog.postcode ?? '');
     _accessController = TextEditingController(text: widget.dog.accessInstructions ?? '');
@@ -75,6 +80,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _ownerCollectsDefaultTime = widget.dog.ownerCollectsDefaultTime;
     _selectedSex = widget.dog.sex;
     _selectedDateOfBirth = widget.dog.dateOfBirth;
+    _selectedLastVaccination = widget.dog.lastVaccinationDate;
     _isSpayed = widget.dog.isSpayed;
     _checkUserRole();
   }
@@ -85,6 +91,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _foodController.dispose();
     _medicalController.dispose();
     _vetController.dispose();
+    _contactNumberController.dispose();
+    _emergencyContactController.dispose();
     _addressController.dispose();
     _postcodeController.dispose();
     _accessController.dispose();
@@ -202,6 +210,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
         foodInstructions: _foodController.text,
         medicalNotes: _medicalController.text,
         registeredVet: _vetController.text,
+        contactNumber: _contactNumberController.text.trim(),
+        emergencyContactNumber: _emergencyContactController.text.trim(),
         address: _addressController.text,
         postcode: _postcodeController.text.trim().toUpperCase(),
         accessInstructions: _isStaff ? _accessController.text : null,
@@ -220,6 +230,9 @@ class _EditDogScreenState extends State<EditDogScreen> {
         sex: _selectedSex,
         dateOfBirth: _selectedDateOfBirth,
         clearDateOfBirth: _selectedDateOfBirth == null && widget.dog.dateOfBirth != null,
+        lastVaccinationDate: _selectedLastVaccination,
+        clearLastVaccinationDate:
+            _selectedLastVaccination == null && widget.dog.lastVaccinationDate != null,
         isSpayed: _isStaff ? _isSpayed : null,
       );
 
@@ -501,6 +514,26 @@ class _EditDogScreenState extends State<EditDogScreen> {
             ),
             textCapitalization: TextCapitalization.characters,
           ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _contactNumberController,
+            decoration: const InputDecoration(
+              labelText: 'Contact Number',
+              hintText: 'Best number to reach you on daycare days',
+              prefixIcon: Picon(PiconsDuotone.phone),
+            ),
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _emergencyContactController,
+            decoration: const InputDecoration(
+              labelText: 'Emergency Contact Number',
+              hintText: "If we can't reach you — e.g. 07700 900123 (Sue, neighbour)",
+              prefixIcon: Picon(PiconsDuotone.firstAidKit),
+            ),
+            keyboardType: TextInputType.phone,
+          ),
           const SizedBox(height: 24),
           _sectionHeader('About', visibleToOwner: true),
           const SizedBox(height: 8),
@@ -544,6 +577,38 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 _selectedDateOfBirth == null
                     ? 'Not set'
                     : '${_selectedDateOfBirth!.day.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.month.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.year}',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: () async {
+              final now = DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedLastVaccination ?? now,
+                firstDate: DateTime(now.year - 20),
+                lastDate: now,
+              );
+              if (picked != null) {
+                setState(() => _selectedLastVaccination = picked);
+              }
+            },
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Last vaccination date',
+                prefixIcon: const Picon(PiconsDuotone.syringe),
+                suffixIcon: _selectedLastVaccination == null
+                    ? null
+                    : IconButton(
+                        icon: const Picon(PiconsDuotone.x),
+                        onPressed: () => setState(() => _selectedLastVaccination = null),
+                      ),
+              ),
+              child: Text(
+                _selectedLastVaccination == null
+                    ? 'Not set'
+                    : '${_selectedLastVaccination!.day.toString().padLeft(2, '0')}/${_selectedLastVaccination!.month.toString().padLeft(2, '0')}/${_selectedLastVaccination!.year}',
               ),
             ),
           ),

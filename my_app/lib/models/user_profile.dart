@@ -18,6 +18,7 @@ class UserProfile {
   final bool canManageVehicles;
   final bool canManagePayments;
   final bool canManageBoarding;
+  final bool canManageCompliance;
 
   // Notification preferences
   final bool notifyFeed;
@@ -52,6 +53,7 @@ class UserProfile {
     this.canManageVehicles = false,
     this.canManagePayments = false,
     this.canManageBoarding = false,
+    this.canManageCompliance = false,
     this.notifyFeed = true,
     this.notifyTraffic = true,
     this.notifyBookings = true,
@@ -81,6 +83,7 @@ class UserProfile {
       canManageVehicles: json['can_manage_vehicles'] ?? false,
       canManagePayments: json['can_manage_payments'] ?? false,
       canManageBoarding: json['can_manage_boarding'] ?? false,
+      canManageCompliance: json['can_manage_compliance'] ?? false,
       notifyFeed: json['notify_feed'] ?? true,
       notifyTraffic: json['notify_traffic'] ?? true,
       notifyBookings: json['notify_bookings'] ?? true,

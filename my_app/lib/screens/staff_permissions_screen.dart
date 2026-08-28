@@ -82,10 +82,12 @@ final List<_PermDef> _permissionCatalogue = [
   _PermDef(
     field: 'can_manage_staff',
     label: 'Manage Staff',
-    subtitle: 'Set staff working days, approve/deny day-off requests',
+    subtitle: 'Staff Management section: pay, time off, meetings, appraisals',
     description:
-        'Set which days each staff member works and approve or deny '
-        'staff day-off requests.',
+        'Full access to the Staff Management section: employment details '
+        'and pay, holiday allowances, sickness and training records, '
+        'meetings and appraisals. Also sets which days each staff member '
+        'works and approves or denies day-off requests.',
     icon: PiconsDuotone.calendarCheck,
     getValue: (s) => s.canManageStaff,
     setValue: (s, v) => s.canManageStaff = v,
@@ -136,6 +138,33 @@ final List<_PermDef> _permissionCatalogue = [
     icon: PiconsDuotone.bed,
     getValue: (s) => s.canManageBoarding,
     setValue: (s, v) => s.canManageBoarding = v,
+  ),
+  _PermDef(
+    field: 'can_manage_compliance',
+    label: 'Manage Compliance',
+    subtitle: 'Safety & compliance register: schedules and reminders',
+    description:
+        'Add, edit and retire checks on the Safety & Compliance register '
+        '(fire alarm tests, extinguisher servicing, licence and insurance '
+        'renewals…) and receive the reminders when a check falls due. Any '
+        'staff member can record a completed check without this permission.',
+    icon: PiconsDuotone.shieldCheck,
+    getValue: (s) => s.canManageCompliance,
+    setValue: (s, v) => s.canManageCompliance = v,
+  ),
+  _PermDef(
+    field: 'receives_business_alerts',
+    label: 'Evening Report & Owner Alerts',
+    subtitle: 'End-of-day exception report and business oversight alerts',
+    description:
+        'Receives the 5:30pm end-of-day report (dogs never picked up, '
+        'still out with the team, or never assigned to a driver) and '
+        'business oversight alerts such as a driver sending a traffic '
+        'delay. These arrive even on a day off. Intended for the business '
+        'owner.',
+    icon: PiconsDuotone.bellRinging,
+    getValue: (s) => s.receivesBusinessAlerts,
+    setValue: (s, v) => s.receivesBusinessAlerts = v,
   ),
 ];
 

@@ -208,6 +208,10 @@ class Dog {
   final String? foodInstructions;
   final String? medicalNotes;
   final String? registeredVet;
+  /// Day-to-day contact number for this dog's household.
+  final String? contactNumber;
+  /// Emergency contact if the main number doesn't answer (may include a name).
+  final String? emergencyContactNumber;
   final String? address;
   /// UK postcode of the pickup address; drives placement on the staff map.
   final String? postcode;
@@ -229,6 +233,10 @@ class Dog {
   final TimeOfDay? ownerCollectsDefaultTime;
   final DogSex? sex;
   final DateTime? dateOfBirth;
+  /// When the dog was last vaccinated (auto-advanced by vaccination records).
+  final DateTime? lastVaccinationDate;
+  /// Server-computed: last vaccination was more than a year ago.
+  final bool vaccinationOverdue;
   final bool isSpayed;
   /// Upcoming dates staff have removed the dog from (server-side REMOVED
   /// assignments with no matching cancellation request). The profile drops
@@ -243,6 +251,8 @@ class Dog {
     this.foodInstructions,
     this.medicalNotes,
     this.registeredVet,
+    this.contactNumber,
+    this.emergencyContactNumber,
     this.address,
     this.postcode,
     this.accessInstructions,
@@ -261,6 +271,8 @@ class Dog {
     this.ownerCollectsDefaultTime,
     this.sex,
     this.dateOfBirth,
+    this.lastVaccinationDate,
+    this.vaccinationOverdue = false,
     this.isSpayed = false,
     this.cancelledDates = const [],
   });
@@ -288,6 +300,8 @@ class Dog {
     String? foodInstructions,
     String? medicalNotes,
     String? registeredVet,
+    String? contactNumber,
+    String? emergencyContactNumber,
     String? address,
     String? postcode,
     String? accessInstructions,
@@ -306,6 +320,8 @@ class Dog {
     TimeOfDay? ownerCollectsDefaultTime,
     DogSex? sex,
     DateTime? dateOfBirth,
+    DateTime? lastVaccinationDate,
+    bool? vaccinationOverdue,
     bool? isSpayed,
     List<DateTime>? cancelledDates,
   }) {
@@ -317,6 +333,8 @@ class Dog {
       foodInstructions: foodInstructions ?? this.foodInstructions,
       medicalNotes: medicalNotes ?? this.medicalNotes,
       registeredVet: registeredVet ?? this.registeredVet,
+      contactNumber: contactNumber ?? this.contactNumber,
+      emergencyContactNumber: emergencyContactNumber ?? this.emergencyContactNumber,
       address: address ?? this.address,
       postcode: postcode ?? this.postcode,
       accessInstructions: accessInstructions ?? this.accessInstructions,
@@ -335,6 +353,8 @@ class Dog {
       ownerCollectsDefaultTime: ownerCollectsDefaultTime ?? this.ownerCollectsDefaultTime,
       sex: sex ?? this.sex,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
+      lastVaccinationDate: lastVaccinationDate ?? this.lastVaccinationDate,
+      vaccinationOverdue: vaccinationOverdue ?? this.vaccinationOverdue,
       isSpayed: isSpayed ?? this.isSpayed,
       cancelledDates: cancelledDates ?? this.cancelledDates,
     );
