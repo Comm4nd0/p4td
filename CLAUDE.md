@@ -181,7 +181,7 @@ Additional non-router endpoints:
 ### Backend
 
 - **ViewSets + DefaultRouter** for REST endpoints
-- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_manage_staff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`
+- **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_manage_staff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`. The related `receives_business_alerts` flag routes business-owner oversight pushes (e.g. a driver sending a traffic alert) to whoever holds it — normally the business owner; these bypass the staff working-day filter so they arrive even on a day off.
 - **Token + Session auth** via djoser
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
 - **Boarding dogs attend daycare**: approving a stay books its dogs into daycare

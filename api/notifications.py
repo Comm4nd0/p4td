@@ -94,7 +94,8 @@ def _user_has_preference(user, category):
         return True
 
 
-def send_push_notification(user, title, body, data=None, category=None):
+def send_push_notification(user, title, body, data=None, category=None,
+                           ignore_working_hours=False):
     """Sends a push notification to all devices registered for a specific user.
 
     If *category* is supplied the user's notification preferences are checked
@@ -102,12 +103,14 @@ def send_push_notification(user, title, body, data=None, category=None):
     skipped.
 
     Staff members are skipped on days they are not working (per their weekly
-    availability or approved day-off requests).
+    availability or approved day-off requests), unless *ignore_working_hours*
+    is set — used for business-owner oversight alerts, which should arrive
+    even on the recipient's day off.
     """
     if not _user_has_preference(user, category):
         return
 
-    if user.is_staff and not _is_staff_working_today(user):
+    if user.is_staff and not ignore_working_hours and not _is_staff_working_today(user):
         return
 
     if not initialize_firebase():
@@ -213,6 +216,39 @@ def send_traffic_alert(alert_type, date, staff_member, detail='', dog_ids=None):
         owner_ids.add(assignment.dog.owner_id)
         for additional_owner in assignment.dog.additional_owners.all():
             owner_ids.add(additional_owner.id)
+
+    # Oversight copy to the business owner (profiles flagged
+    # receives_business_alerts): who pressed the button, which leg, how many
+    # owners it reached. Sent even when nothing reached an owner — the boss
+    # still wants to know the button was pressed — and past the working-day
+    # filter, so a day off doesn't swallow it.
+    staff_name = staff_member.first_name or staff_member.username
+    leg = 'pickup' if alert_type == 'pickup' else 'drop-off'
+    if owner_ids:
+        count = len(owner_ids)
+        boss_body = (
+            f"{staff_name} sent a {leg} traffic delay alert to "
+            f"{count} owner{'s' if count != 1 else ''} on their route."
+        )
+    else:
+        boss_body = (
+            f"{staff_name} pressed the {leg} traffic alert button, "
+            f"but no owners needed notifying."
+        )
+    if detail:
+        boss_body += f"\n\nDetail: {detail}"
+    send_staff_notification(
+        "Traffic alert sent",
+        boss_body,
+        {
+            'type': 'traffic_alert_sent',
+            'alert_type': alert_type,
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        },
+        permission='receives_business_alerts',
+        exclude_user=staff_member,
+        ignore_working_hours=True,
+    )
 
     if not owner_ids:
         return
@@ -348,7 +384,8 @@ def notify_defect_comment(comment, defect, defect_type='vehicle'):
         send_push_notification(user, title, body, data)
 
 
-def send_staff_notification(title, body, data=None, permission=None, exclude_user=None):
+def send_staff_notification(title, body, data=None, permission=None, exclude_user=None,
+                            ignore_working_hours=False):
     """Sends a push notification to staff members individually.
 
     Unlike the previous topic-based approach, this sends to each staff member
@@ -373,4 +410,5 @@ def send_staff_notification(title, body, data=None, permission=None, exclude_use
         recipients = recipients.exclude(pk=exclude_user.pk)
 
     for user in recipients:
-        send_push_notification(user, title, body, data)
+        send_push_notification(user, title, body, data,
+                               ignore_working_hours=ignore_working_hours)
