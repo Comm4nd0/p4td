@@ -6,6 +6,12 @@
       "runtimeExecutable": "wsl",
       "runtimeArgs": ["-d", "Ubuntu", "--", "bash", "-c", "cd /home/marco/code/p4td-android && DJANGO_DEBUG=true python3 manage.py runserver 0.0.0.0:8001"],
       "port": 8001
+    },
+    {
+      "name": "django-dev-windows",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set DJANGO_DEBUG=true&& set DJANGO_SECRET_KEY=dev-only-not-for-prod&& python manage.py runserver 127.0.0.1:8002"],
+      "port": 8002
     }
   ]
 }
