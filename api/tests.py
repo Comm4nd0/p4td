@@ -6433,6 +6433,96 @@ class BusinessAlertTests(TestCase):
         mock_firebase.assert_called_once()
 
 
+class EndOfDayAlertTests(TestCase):
+    """send_end_of_day_alerts — the closing-time exception sweep: dogs never
+    picked up, still out with the team, or never claimed by a driver go to
+    staff flagged receives_business_alerts; owner-handled legs, house-account
+    boarding rows and closure days never alarm."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        self.boss = User.objects.create_user(username='claire', password='pw', is_staff=True)
+        self.boss.profile.receives_business_alerts = True
+        self.boss.profile.save()
+        self.today = date.today()
+        self.weekday = [self.today.isoweekday()]
+
+    def _dog(self, name, **overrides):
+        return Dog.objects.create(
+            owner=self.owner, name=name, daycare_days=self.weekday,
+            schedule_type='weekly', **overrides)
+
+    def _row(self, dog, status, staff=..., **overrides):
+        return DailyDogAssignment.objects.create(
+            dog=dog, staff_member=self.driver if staff is ... else staff,
+            date=self.today, status=status, **overrides)
+
+    def _boss_calls(self, mock_push):
+        return [c for c in mock_push.call_args_list if c.args[0].id == self.boss.id]
+
+    @patch('api.notifications.send_push_notification')
+    def test_exceptions_summarised_to_boss(self, mock_push):
+        self._row(self._dog('Ace'), 'ASSIGNED')                # never picked up
+        self._row(self._dog('Buddy'), 'PICKED_UP')             # still out
+        self._row(self._dog('Coco'), 'DROPPED_OFF')            # fine
+        self._row(self._dog('Dot', owner_brings_default=True), 'ASSIGNED')  # owner's leg
+        self._row(self._dog('Elm'), 'UNASSIGNED', staff=None)  # never claimed
+        call_command('send_end_of_day_alerts')
+        calls = self._boss_calls(mock_push)
+        self.assertEqual(len(calls), 1)
+        title, body = calls[0].args[1], calls[0].args[2]
+        self.assertIn('3 dogs', title)
+        for name in ('Ace', 'Buddy', 'Elm'):
+            self.assertIn(name, body)
+        for name in ('Coco', 'Dot'):
+            self.assertNotIn(name, body)
+        self.assertTrue(calls[0].kwargs.get('ignore_working_hours'))
+
+    @patch('api.notifications.send_push_notification')
+    def test_silent_when_everything_got_home(self, mock_push):
+        self._row(self._dog('Ace'), 'DROPPED_OFF')
+        self._row(self._dog('Rem'), 'REMOVED')
+        call_command('send_end_of_day_alerts')
+        mock_push.assert_not_called()
+
+    @patch('api.notifications.send_push_notification')
+    def test_owner_collected_dog_marked_with_team_not_flagged(self, mock_push):
+        self._row(self._dog('Ace', owner_collects_default=True), 'PICKED_UP')
+        call_command('send_end_of_day_alerts')
+        mock_push.assert_not_called()
+
+    @patch('api.notifications.send_push_notification')
+    def test_unassigned_with_owner_handling_both_legs_not_flagged(self, mock_push):
+        dog = self._dog('Ace', owner_brings_default=True, owner_collects_default=True)
+        self._row(dog, 'UNASSIGNED', staff=None)
+        call_command('send_end_of_day_alerts')
+        mock_push.assert_not_called()
+
+    @patch('api.notifications.send_push_notification')
+    def test_house_account_boarding_rows_skipped(self, mock_push):
+        house = User.objects.create_user(username='P4TD', password='pw', is_staff=True)
+        self._row(self._dog('Ace'), 'ASSIGNED', staff=house, from_boarding=True)
+        call_command('send_end_of_day_alerts')
+        mock_push.assert_not_called()
+
+    @patch('api.notifications.send_push_notification')
+    def test_closure_day_skipped(self, mock_push):
+        ClosureDay.objects.create(date=self.today, closure_type='CLOSED', reason='Bank holiday')
+        self._row(self._dog('Ace'), 'ASSIGNED')
+        call_command('send_end_of_day_alerts')
+        mock_push.assert_not_called()
+
+    @patch('api.notifications.send_push_notification')
+    def test_explicit_date_option(self, mock_push):
+        other_day = self.today - timedelta(days=1)
+        DailyDogAssignment.objects.create(
+            dog=self._dog('Ace'), staff_member=self.driver,
+            date=other_day, status='ASSIGNED')
+        call_command('send_end_of_day_alerts', date=other_day.isoformat())
+        self.assertEqual(len(self._boss_calls(mock_push)), 1)
+
+
 class IntakeRequestTests(TestCase):
     """The booking form: owners submit contact details + dogs to enrol; staff
     approve (creating the Dog records) or deny."""

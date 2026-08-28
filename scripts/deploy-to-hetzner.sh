@@ -101,6 +101,10 @@ $SSH_CMD "$HETZNER_HOST" "
     INVOICE_REMINDER_CRON='0 9 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_invoice_reminders >> /var/log/p4td-invoices.log 2>&1'
     ( crontab -l 2>/dev/null | grep -v 'send_invoice_reminders'; echo \"\$INVOICE_REMINDER_CRON\" ) | crontab -
 
+    echo '>>> Setting up end-of-day exception alert cron job...'
+    EOD_CRON='30 17 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_end_of_day_alerts >> /var/log/p4td-eod.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'send_end_of_day_alerts'; echo \"\$EOD_CRON\" ) | crontab -
+
     echo '=== Deployment complete ==='
 "
 
