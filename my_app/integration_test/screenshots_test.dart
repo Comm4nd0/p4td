@@ -190,7 +190,10 @@ void main() {
       //        the profile. Tapping a thumbnail opens the full-screen viewer
       //        (a large photo on black) — a real, reachable user flow.
       await _scrollDown(tester, by: 1200, times: 3);
-      await _waitFor(tester, seconds: 1);
+      // Give the embedded gallery grid time to load its thumbnails over the
+      // network — the CI runners are slow, and finding no photo demotes this
+      // shot to a duplicate of the profile.
+      await _waitFor(tester, seconds: 4);
       final galleryPhoto = find.descendant(
         of: find.byType(GridView),
         matching: find.byType(CachedNetworkImage),
@@ -240,11 +243,16 @@ void _log(String message) {
   // The iOS simulator log reader drops app-side prints intermittently (it
   // failed outright on the Xcode 26 runners), so also accumulate the trace in
   // reportData — the driver prints it host-side when the run ends.
+  //
+  // MERGE into reportData, never replace it: takeScreenshot() stores the
+  // captured PNGs in reportData['screenshots'], so assigning a fresh map
+  // here silently discarded every screenshot of the run.
   _trace.add(message);
   try {
-    IntegrationTestWidgetsFlutterBinding.instance.reportData = {
-      'trace': List<String>.of(_trace),
-    };
+    final binding = IntegrationTestWidgetsFlutterBinding.instance;
+    final data = binding.reportData ?? <String, dynamic>{};
+    data['trace'] = List<String>.of(_trace);
+    binding.reportData = data;
   } catch (_) {}
 }
 
@@ -300,11 +308,15 @@ Future<void> _openDogProfile(WidgetTester tester, String? dogName) async {
   await _waitFor(tester, seconds: 4);
 
   // Single-dog owners land straight on the profile. Multi-dog owners get the
-  // list — tap the first dog card to open it.
-  if (find.text('Request Boarding').evaluate().isEmpty) {
-    final cards = find.byType(InkWell);
-    if (cards.evaluate().isNotEmpty) {
-      await tester.tap(cards.first);
+  // dogs list/grid — open the known dog's card by its name (on wide layouts
+  // "the first InkWell" is a sidebar tile, not a dog card).
+  if (find.byType(DogHomeScreen).evaluate().isEmpty) {
+    Finder card = dogName != null
+        ? find.widgetWithText(InkWell, dogName)
+        : find.byType(InkWell);
+    if (card.evaluate().isEmpty) card = find.byType(InkWell);
+    if (card.evaluate().isNotEmpty) {
+      await tester.tap(card.first);
       await _waitFor(tester, seconds: 4);
     }
   }
