@@ -123,29 +123,60 @@ void main() {
     double nameFontSize() =>
         tester.widget<Text>(find.text('Bella')).style!.fontSize!;
 
-    // The board opens fully zoomed out (smallest cards, dense icon).
-    expect(find.byIcon(Icons.density_small), findsOneWidget);
-    final zoomedOut = nameFontSize();
-
-    // Cycling jumps to the comfortable preset first...
-    await tester.tap(find.byIcon(Icons.density_small));
-    await tester.pump();
+    // The board opens fitted to the screen — two columns in 1400px is roomy,
+    // so the scale rests at its largest ("comfortable") stop.
     expect(find.byIcon(Icons.density_large), findsOneWidget);
-    final comfortable = nameFontSize();
-    expect(comfortable, greaterThan(zoomedOut));
+    final fitted = nameFontSize();
 
-    // ...then compact...
+    // Cycling jumps to the compact preset first...
     await tester.tap(find.byIcon(Icons.density_large));
     await tester.pump();
     expect(find.byIcon(Icons.density_medium), findsOneWidget);
     final compact = nameFontSize();
-    expect(compact, lessThan(comfortable));
+    expect(compact, lessThan(fitted));
 
-    // ...then dense.
+    // ...then dense...
     await tester.tap(find.byIcon(Icons.density_medium));
     await tester.pump();
     expect(find.byIcon(Icons.density_small), findsOneWidget);
-    expect(nameFontSize(), lessThan(compact));
+    final dense = nameFontSize();
+    expect(dense, lessThan(compact));
+
+    // ...then back to comfortable.
+    await tester.tap(find.byIcon(Icons.density_small));
+    await tester.pump();
+    expect(find.byIcon(Icons.density_large), findsOneWidget);
+    expect(nameFontSize(), greaterThan(dense));
+  });
+
+  testWidgets('the board opens with every column fitted on screen',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      home: DayBoardScreen(
+        date: DateTime(2030, 6, 3),
+        assignments: [
+          make(1, 7, 'Sarah', 'Bella', 0, AssignmentStatus.assigned),
+          make(2, 9, 'James', 'Rex', 0, AssignmentStatus.assigned),
+        ],
+        staffMembers: const [
+          {'id': 7, 'username': 'sarah', 'first_name': 'Sarah', 'staff_color': ''},
+          {'id': 9, 'username': 'james', 'first_name': 'James', 'staff_color': ''},
+        ],
+        canAssignDogs: true,
+      ),
+    ));
+
+    // Three columns (Unassigned + two staff) in 800px only fit below the
+    // comfortable scale — the board opens shrunk to exactly fill the width,
+    // so the horizontal list has nothing left to scroll.
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    expect(position.axis, Axis.horizontal);
+    expect(position.maxScrollExtent, lessThan(0.5));
   });
 
   testWidgets('pinching the board rescales the cards continuously',
@@ -169,33 +200,33 @@ void main() {
         tester.widget<Text>(find.text('Bella')).style!.fontSize!;
     final before = nameFontSize();
 
-    // The board opens fully zoomed out, so pinch out first (fingers diverge
-    // vertically so the horizontal column scroll doesn't claim them): the
-    // cards get larger.
-    final g1 = await tester.startGesture(const Offset(900, 390));
-    final g2 = await tester.startGesture(const Offset(900, 410));
+    // The board opens fitted — at 1400px that rests on the largest scale —
+    // so pinch in first (fingers converge vertically so the horizontal
+    // column scroll doesn't claim them): the cards get smaller.
+    final g1 = await tester.startGesture(const Offset(900, 300));
+    final g2 = await tester.startGesture(const Offset(900, 500));
     await tester.pump();
-    await g1.moveBy(const Offset(0, -80));
-    await g2.moveBy(const Offset(0, 80));
+    await g1.moveBy(const Offset(0, 60));
+    await g2.moveBy(const Offset(0, -60));
     await tester.pump();
     await g1.up();
     await g2.up();
     await tester.pump();
 
-    final zoomedIn = nameFontSize();
-    expect(zoomedIn, greaterThan(before));
+    final zoomedOut = nameFontSize();
+    expect(zoomedOut, lessThan(before));
 
-    // Pinching in zooms back out (smaller cards).
-    final g3 = await tester.startGesture(const Offset(900, 300));
-    final g4 = await tester.startGesture(const Offset(900, 500));
+    // Pinching out zooms back in (larger cards).
+    final g3 = await tester.startGesture(const Offset(900, 390));
+    final g4 = await tester.startGesture(const Offset(900, 410));
     await tester.pump();
-    await g3.moveBy(const Offset(0, 60));
-    await g4.moveBy(const Offset(0, -60));
+    await g3.moveBy(const Offset(0, -80));
+    await g4.moveBy(const Offset(0, 80));
     await tester.pump();
     await g3.up();
     await g4.up();
     await tester.pump();
-    expect(nameFontSize(), lessThan(zoomedIn));
+    expect(nameFontSize(), greaterThan(zoomedOut));
   });
 
   testWidgets(

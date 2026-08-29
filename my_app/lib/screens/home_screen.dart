@@ -36,7 +36,6 @@ import 'fleet_screen.dart';
 import 'facility_defects_screen.dart';
 import 'incidents_screen.dart';
 import 'incident_detail_screen.dart';
-import 'traffic_alert_screen.dart';
 import 'my_payments_screen.dart';
 import 'customer_payments_screen.dart';
 
@@ -768,26 +767,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     );
                     _loadUnreadInquiryCount();
-                  },
-                ),
-              if (_isStaff)
-                ListTile(
-                  leading: Picon(PiconsDuotone.path),
-                  title: const Text('Traffic Alert'),
-                  onTap: () async {
-                    _closeDrawer();
-                    final sent = await Navigator.push<bool>(
-                      context,
-                      MaterialPageRoute(builder: (_) => const TrafficAlertScreen()),
-                    );
-                    if (sent == true && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Traffic alert sent'),
-                          backgroundColor: AppColors.success,
-                        ),
-                      );
-                    }
                   },
                 ),
               if (_isStaff)
