@@ -334,6 +334,9 @@ class AppColors {
         clipBehavior: Clip.antiAlias,
         showDragHandle: true,
         dragHandleColor: separator,
+        // Cap every modal sheet's width on tablets/desktop (Material's own
+        // large-screen guidance) instead of spanning the whole window.
+        constraints: const BoxConstraints(maxWidth: 640),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,

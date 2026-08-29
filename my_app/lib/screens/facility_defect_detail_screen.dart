@@ -9,6 +9,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/defect_comments_section.dart';
+import '../widgets/page_body.dart';
 
 class FacilityDefectDetailScreen extends StatefulWidget {
   final int defectId;
@@ -169,7 +170,7 @@ class _FacilityDefectDetailScreenState extends State<FacilityDefectDetailScreen>
             ),
         ],
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : defect == null
               ? const Center(child: Text('Defect not found'))
@@ -286,7 +287,7 @@ class _FacilityDefectDetailScreenState extends State<FacilityDefectDetailScreen>
                         ),
                     ],
                   ),
-                ),
+                )),
     );
   }
 }
@@ -330,7 +331,7 @@ class _FacilityDefectPhotoViewerState extends State<_FacilityDefectPhotoViewer> 
           style: const TextStyle(color: Colors.white),
         ),
       ),
-      body: PageView.builder(
+      body: PageBody(child: PageView.builder(
         controller: _pageController,
         onPageChanged: (index) => setState(() => _currentIndex = index),
         itemCount: widget.images.length,
@@ -346,7 +347,7 @@ class _FacilityDefectPhotoViewerState extends State<_FacilityDefectPhotoViewer> 
             ),
           );
         },
-      ),
+      )),
     );
   }
 }

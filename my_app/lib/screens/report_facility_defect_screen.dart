@@ -5,6 +5,7 @@ import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 class ReportFacilityDefectScreen extends StatefulWidget {
   const ReportFacilityDefectScreen({super.key});
@@ -139,7 +140,7 @@ class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen>
       appBar: AppBar(
         title: const Text('Report Defect'),
       ),
-      body: Form(
+      body: PageBody(child: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -249,7 +250,7 @@ class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen>
             const SizedBox(height: 32),
           ],
         ),
-      ),
+      )),
     );
   }
 

@@ -8,6 +8,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
+import '../widgets/page_body.dart';
 
 /// Vaccination records for a dog. Staff can add, edit and delete records;
 /// owners get a read-only view. Expiry reminders are sent automatically.
@@ -257,7 +258,7 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
               label: const Text('Add Record'),
             )
           : null,
-      body: FutureBuilder<List<VaccinationRecord>>(
+      body: PageBody(child: FutureBuilder<List<VaccinationRecord>>(
         future: _recordsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -345,7 +346,7 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
                   ),
           );
         },
-      ),
+      )),
     );
   }
 }

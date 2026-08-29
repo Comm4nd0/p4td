@@ -19,6 +19,7 @@ import '../widgets/grouped_section.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 import 'change_password_screen.dart';
+import '../widgets/page_body.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -717,7 +718,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-      body: _isLoading
+      body: PageBody(child: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text('Error: $_error'))
@@ -900,7 +901,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                ),
+                )),
     );
   }
 }

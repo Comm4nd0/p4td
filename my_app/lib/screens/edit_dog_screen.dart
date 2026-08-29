@@ -10,6 +10,7 @@ import '../services/service_locator.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
+import '../widgets/page_body.dart';
 
 class EditDogScreen extends StatefulWidget {
   final Dog dog;
@@ -429,7 +430,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
           ),
         ],
       ),
-      body: ListView(
+      body: PageBody(child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _buildPhotoSection(),
@@ -840,7 +841,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
           ],
           const SizedBox(height: 32),
         ],
-      ),
+      )),
     );
   }
 }

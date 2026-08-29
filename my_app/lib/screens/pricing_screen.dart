@@ -5,6 +5,7 @@ import '../utils/snacks.dart';
 import '../models/customer_rate.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 /// Pricing management for payment managers: the standard day-care and
 /// boarding prices, plus per-customer rates (discounts). Blank customer
@@ -287,7 +288,7 @@ class _PricingScreenState extends State<PricingScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pricing')),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           // _buildDefaultsCard dereferences _settings!, which is still null if
           // the load failed. Throwing from build() replaces the entire Scaffold
@@ -337,6 +338,7 @@ class _PricingScreenState extends State<PricingScreen> {
                 ],
               ),
             ),
+      ),
     );
   }
 

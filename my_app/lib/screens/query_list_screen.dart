@@ -8,6 +8,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'query_detail_screen.dart';
 import '../widgets/skeleton_loaders.dart';
+import '../widgets/page_body.dart';
 
 class QueryListScreen extends StatefulWidget {
   final bool isStaff;
@@ -295,7 +296,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
         icon: Picon(PiconsDuotone.plus),
         label: Text(widget.isStaff ? 'Message Owner' : 'New Message'),
       ),
-      body: Column(
+      body: PageBody(child: Column(
         children: [
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -350,7 +351,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                   ),
           ),
         ],
-      ),
+      )),
     );
   }
 

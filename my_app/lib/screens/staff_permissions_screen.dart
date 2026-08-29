@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import '../models/staff_permission.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 /// One entry in the permission catalogue: drives both the toggle rows on each
 /// staff card and the "what does each permission allow?" guide sheet, so the
@@ -318,7 +319,7 @@ class _StaffPermissionsScreenState extends State<StaffPermissionsScreen> {
           ),
         ],
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator.adaptive(
               onRefresh: _load,
@@ -332,7 +333,7 @@ class _StaffPermissionsScreenState extends State<StaffPermissionsScreen> {
                   onToggle: _togglePermission,
                 ),
               ),
-            ),
+            )),
     );
   }
 }

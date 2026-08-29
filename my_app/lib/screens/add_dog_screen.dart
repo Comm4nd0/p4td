@@ -9,6 +9,7 @@ import '../models/owner_profile.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
+import '../widgets/page_body.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -248,7 +249,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
           ),
         ],
       ),
-      body: Form(
+      body: PageBody(child: Form(
                   key: _formKey,
                   child: ListView(
                     padding: const EdgeInsets.all(16),
@@ -754,7 +755,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       ),
                     ],
                   ),
-                ),
+                )),
     );
   }
 }

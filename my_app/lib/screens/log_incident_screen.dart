@@ -9,6 +9,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dog_typeahead.dart';
+import '../widgets/page_body.dart';
 
 /// Write-up form for a new incident.
 ///
@@ -264,7 +265,7 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Log Incident')),
-      body: Form(
+      body: PageBody(child: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -447,7 +448,7 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
             const SizedBox(height: 32),
           ],
         ),
-      ),
+      )),
     );
   }
 

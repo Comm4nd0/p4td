@@ -9,6 +9,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'my_payments_screen.dart' show InvoiceStatusPill, invoiceStatusColor;
+import '../widgets/page_body.dart';
 
 /// One invoice, shared between owners and payments managers.
 ///
@@ -305,7 +306,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       appBar: AppBar(
         title: Text(invoice == null ? 'Invoice' : 'Invoice — ${invoice.periodLabel}'),
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : invoice == null
               ? const Center(child: Text('Invoice not found'))
@@ -328,12 +329,15 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                       const SizedBox(height: 24),
                     ],
                   ),
-                ),
+                )),
       bottomNavigationBar: (invoice != null &&
               !widget.canManagePayments &&
               invoice.isPayable)
           ? SafeArea(
-              child: Padding(
+              // Same width cap as the body, so the button doesn't span a
+              // desktop window edge-to-edge.
+              child: PageBody(
+                child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: FilledButton.icon(
                   onPressed: _busy ? null : _payNow,
@@ -341,6 +345,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                   label: Text(
                       'Pay now — £${invoice.balance.toStringAsFixed(2)}'),
                 ),
+              ),
               ),
             )
           : null,

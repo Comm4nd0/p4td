@@ -9,6 +9,7 @@ import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'add_edit_vehicle_screen.dart';
 import 'vehicle_detail_screen.dart';
+import '../widgets/page_body.dart';
 
 /// Colour for a server-computed due status ('overdue' | 'due_soon' | 'ok').
 Color dueStatusColor(String? status) {
@@ -133,7 +134,7 @@ class _FleetScreenState extends State<FleetScreen> with WidgetsBindingObserver {
               label: const Text('Add Vehicle'),
             )
           : null,
-      body: _loading
+      body: PageBody(child: _loading
           ? const ListTileSkeletonList()
           : RefreshIndicator.adaptive(
               onRefresh: _loadVehicles,
@@ -171,7 +172,7 @@ class _FleetScreenState extends State<FleetScreen> with WidgetsBindingObserver {
                       itemCount: _vehicles.length,
                       itemBuilder: (context, index) => _buildVehicleCard(_vehicles[index]),
                     ),
-            ),
+            )),
     );
   }
 

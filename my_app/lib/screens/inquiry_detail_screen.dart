@@ -5,6 +5,7 @@ import '../models/contact_inquiry.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/page_body.dart';
 
 class InquiryDetailScreen extends StatefulWidget {
   final ContactInquiry inquiry;
@@ -145,7 +146,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: PageBody(child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,7 +285,7 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 }

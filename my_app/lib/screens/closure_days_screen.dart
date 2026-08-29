@@ -6,6 +6,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/skeleton_loaders.dart';
+import '../widgets/page_body.dart';
 
 class ClosureDaysScreen extends StatefulWidget {
   final bool isStaff;
@@ -104,7 +105,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
               label: const Text('Add Closure'),
             )
           : null,
-      body: _loading
+      body: PageBody(child: _loading
           ? const ListTileSkeletonList()
           : RefreshIndicator.adaptive(
               onRefresh: _load,
@@ -181,7 +182,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                       );
                     },
                   ),
-                ),
+                )),
     );
   }
 }

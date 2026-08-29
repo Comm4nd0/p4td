@@ -12,6 +12,7 @@ import '../widgets/skeleton_loaders.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/boarding_request_card.dart';
 import 'request_boarding_screen.dart';
+import '../widgets/page_body.dart';
 
 class StaffNotificationsScreen extends StatefulWidget {
   final bool canManageRequests;
@@ -217,7 +218,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             ),
           ],
         ),
-        body: Column(
+        body: PageBody(child: Column(
           children: [
             // Filter chips
             SingleChildScrollView(
@@ -247,7 +248,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                     ),
             ),
           ],
-        ),
+        )),
       ),
     );
   }

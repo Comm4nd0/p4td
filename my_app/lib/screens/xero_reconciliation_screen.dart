@@ -5,6 +5,7 @@ import '../utils/snacks.dart';
 import '../models/xero_contact.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 /// Xero contact reconciliation for the invoicing transition.
 ///
@@ -108,12 +109,12 @@ class _XeroReconciliationScreenState extends State<XeroReconciliationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Xero contact matching')),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : RefreshIndicator.adaptive(
               onRefresh: _load,
               child: _buildBody(),
-            ),
+            )),
     );
   }
 

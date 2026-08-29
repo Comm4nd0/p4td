@@ -8,6 +8,7 @@ import '../models/dog_note.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/skeleton_loaders.dart';
+import '../widgets/page_body.dart';
 
 class DogNotesScreen extends StatefulWidget {
   final int dogId;
@@ -160,7 +161,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
         icon: Picon(PiconsDuotone.plus),
         label: const Text('Add Note'),
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const ListTileSkeletonList()
           : RefreshIndicator.adaptive(
               onRefresh: _load,
@@ -274,7 +275,7 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                       );
                     },
                   ),
-                ),
+                )),
     );
   }
 }

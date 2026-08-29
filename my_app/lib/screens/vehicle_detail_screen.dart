@@ -12,6 +12,7 @@ import 'add_edit_vehicle_screen.dart';
 import 'defect_detail_screen.dart';
 import 'fleet_screen.dart';
 import 'report_defect_screen.dart';
+import '../widgets/page_body.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
   final int vehicleId;
@@ -229,7 +230,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               icon: Picon(PiconsDuotone.warning),
               label: const Text('Report Defect'),
             ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : vehicle == null
               ? const Center(child: Text('Vehicle not found'))
@@ -256,7 +257,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       if (_history.isNotEmpty) _buildHistorySection(),
                     ],
                   ),
-                ),
+                )),
     );
   }
 

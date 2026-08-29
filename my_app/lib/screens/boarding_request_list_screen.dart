@@ -10,6 +10,7 @@ import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/boarding_request_card.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'request_boarding_screen.dart';
+import '../widgets/page_body.dart';
 
 /// Boarding requests screen with List and Calendar tabs.
 ///
@@ -270,7 +271,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
             ],
           ),
         ),
-        body: _loading
+        body: PageBody(child: _loading
             ? const ListTileSkeletonList()
             : _error != null
                 ? _buildErrorState()
@@ -279,7 +280,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
                       _buildListTab(),
                       _buildCalendarTab(),
                     ],
-                  ),
+                  )),
       ),
     );
   }

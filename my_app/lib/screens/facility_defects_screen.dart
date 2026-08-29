@@ -7,6 +7,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'facility_defect_detail_screen.dart';
 import 'report_facility_defect_screen.dart';
+import '../widgets/page_body.dart';
 
 class FacilityDefectsScreen extends StatefulWidget {
   const FacilityDefectsScreen({super.key});
@@ -68,7 +69,7 @@ class _FacilityDefectsScreenState extends State<FacilityDefectsScreen> {
         icon: Picon(PiconsDuotone.warningCircle, color: Colors.white),
         label: const Text('Report Defect'),
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : RefreshIndicator.adaptive(
               onRefresh: _loadDefects,
@@ -114,7 +115,7 @@ class _FacilityDefectsScreenState extends State<FacilityDefectsScreen> {
                             ...resolved.map(_buildDefectTile),
                           ],
                         ),
-            ),
+            )),
     );
   }
 

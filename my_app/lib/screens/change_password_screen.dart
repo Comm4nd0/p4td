@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../services/auth_service.dart';
 import '../widgets/password_requirements.dart';
+import '../widgets/page_body.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -78,7 +79,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       appBar: AppBar(
         title: const Text('Change Password'),
       ),
-      body: SingleChildScrollView(
+      body: PageBody(child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -154,7 +155,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 }

@@ -8,6 +8,7 @@ import '../models/vehicle.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/page_body.dart';
 
 class AddEditVehicleScreen extends StatefulWidget {
   /// When null this screen creates a new vehicle; otherwise it edits [vehicle].
@@ -197,7 +198,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Vehicle' : 'Add Vehicle'),
       ),
-      body: Form(
+      body: PageBody(child: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -287,7 +288,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
             const SizedBox(height: 32),
           ],
         ),
-      ),
+      )),
     );
   }
 
