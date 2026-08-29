@@ -255,7 +255,20 @@ Future<void> _waitFor(WidgetTester tester, {required int seconds}) async {
 Future<void> _openDogProfile(WidgetTester tester, String? dogName) async {
   // Tap the first bottom-nav item ("My Dogs" / the dog's name).
   final navBar = find.byType(BottomNavigationBar);
-  if (dogName != null) {
+  if (navBar.evaluate().isEmpty) {
+    // Wide layout (iPad/desktop, >=1000dp): no bottom nav — the destinations
+    // are ListTiles in the persistent sidebar, labelled with the dog's name
+    // for a single-dog owner or "My Dogs" otherwise.
+    var tile = dogName != null
+        ? find.widgetWithText(ListTile, dogName)
+        : find.widgetWithText(ListTile, 'My Dogs');
+    if (tile.evaluate().isEmpty) tile = find.widgetWithText(ListTile, 'My Dogs');
+    if (tile.evaluate().isEmpty) {
+      _log('sidebar nav tile not found');
+    } else {
+      await tester.tap(tile.first);
+    }
+  } else if (dogName != null) {
     final byName = find.descendant(of: navBar, matching: find.text(dogName));
     if (byName.evaluate().isNotEmpty) {
       await tester.tap(byName.first);
@@ -291,9 +304,15 @@ Future<void> _tapFirstNavItem(WidgetTester tester) async {
   await tester.tapAt(target);
 }
 
-/// Open the Scaffold drawer via the app-bar hamburger.
+/// Open the Scaffold drawer via the app-bar hamburger. On wide layouts
+/// (iPad/desktop) there is no drawer — the same menu is already on screen as
+/// the persistent sidebar, so there's nothing to open.
 Future<void> _openDrawer(WidgetTester tester) async {
   final state = tester.firstState<ScaffoldState>(find.byType(Scaffold));
+  if (!state.hasDrawer) {
+    _log('wide layout: menu is the persistent sidebar — no drawer to open');
+    return;
+  }
   state.openDrawer();
   await _waitFor(tester, seconds: 2);
 }

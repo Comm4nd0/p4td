@@ -113,11 +113,17 @@ rm -rf build/screenshots
 
 # ── Organise raw captures into the fastlane layout ───────────────────────────
 echo "▶  Organising into fastlane layout…"
-# iOS deliver: fastlane/screenshots/<locale>/  (deliver maps device by pixel size)
+# iOS deliver: fastlane/screenshots/<locale>/  (deliver maps device by pixel
+# size). Prefix each file with its device key: every device captures the same
+# shot names (01_feed.png…), so unprefixed iPhone and iPad copies would
+# overwrite each other in the shared locale folder.
 mkdir -p "fastlane/screenshots/$LOCALE"
 for d in build/screenshots/ios-*; do
   [[ -d "$d" ]] || continue
-  cp "$d"/*.png "fastlane/screenshots/$LOCALE/" 2>/dev/null || true
+  for f in "$d"/*.png; do
+    [[ -e "$f" ]] || continue
+    cp "$f" "fastlane/screenshots/$LOCALE/$(basename "$d")_$(basename "$f")"
+  done
 done
 
 # Android supply: fastlane/metadata/android/<locale>/images/{phone,sevenInch,tenInch}Screenshots/
