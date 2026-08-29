@@ -25,8 +25,8 @@ if [[ -n "${IOS_DEVICES_ENV:-}" ]]; then
   IFS=$'\n' read -rd '' -a IOS_DEVICES <<< "$IOS_DEVICES_ENV" || true
 else
   IOS_DEVICES=(
-    "iPhone 16 Pro Max"          # App Store 6.9" (required)
-    "iPad Pro 13-inch (M4)"      # App Store iPad 13" (required if you ship iPad)
+    "iPhone 17 Pro Max"          # App Store 6.9" (required)
+    "iPad Pro 13-inch (M5)"      # App Store iPad 13" (required — we ship iPad)
   )
 fi
 # Android: AVD names you created (emulator -list-avds). Phone + tablets.
