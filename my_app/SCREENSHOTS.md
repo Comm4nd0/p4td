@@ -124,13 +124,15 @@ the **alpha** track on Play.
 | Store | Device (sim/AVD) | Covers |
 |---|---|---|
 | App Store | iPhone 16 Pro Max | 6.9" (required; also covers smaller iPhones) |
-| App Store | iPad Pro 13-inch (M4) | iPad 13" (only if you ship iPad) |
+| App Store | iPad Pro 13-inch (M4) | iPad 13" (required — the app ships iPad), and the Mac App Store listing ("iPad app on Apple silicon Macs" shows the iPad set; there is no separate macOS upload) |
 | Play Store | Pixel 7 (phone) | phone screenshots |
 | Play Store | ~10" tablet AVD | tablet screenshots (optional) |
 
 Apple now lets a single 6.9" iPhone set cover the smaller iPhone sizes, so one
 iPhone sim is enough. Add more sims/AVDs to the arrays in `tool/screenshots.sh`
-if you want additional sizes.
+if you want additional sizes. On the 13" iPad the app renders its wide layout
+(persistent sidebar, no bottom nav) — the harness detects which navigation is
+present, so the same test drives both.
 
 ## Which screens are captured
 

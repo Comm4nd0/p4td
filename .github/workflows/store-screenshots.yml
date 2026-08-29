@@ -33,7 +33,7 @@ jobs:
   ios:
     if: ${{ inputs.platforms == 'both' || inputs.platforms == 'ios' }}
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: my_app
@@ -77,12 +77,19 @@ jobs:
               echo '</dict></plist>'
             } > ios/Runner/GoogleService-Info.plist
           fi
-      - name: Boot iOS simulator (maintained action — reliable full boot)
+      - name: Boot iPhone simulator (maintained action — reliable full boot)
         uses: futureware-tech/simulator-action@v3
         with:
           model: "iPhone 16 Pro Max"
+      - name: Boot iPad simulator
+        # Multiple simulators can be booted at once; the capture script targets
+        # each by name. The iPad set also serves as the Mac App Store listing
+        # ("iPad app on Apple silicon Macs" shows the iPad screenshots).
+        uses: futureware-tech/simulator-action@v3
+        with:
+          model: "iPad Pro 13-inch (M4)"
       - name: Capture iOS screenshots
-        timeout-minutes: 24
+        timeout-minutes: 52
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
@@ -92,16 +99,20 @@ jobs:
           # Verbose flutter drive output, tee'd to a log we upload even on
           # timeout — so a silent hang still leaves a readable trace.
           SCREENSHOT_VERBOSE: "1"
-          # Only the 6.9" iPhone is required; add an iPad line if you ship iPad.
+          # The 6.9" iPhone covers all iPhone sizes; the 13" iPad covers the
+          # iPad listing and, via "iPad app on Mac", the Mac App Store too.
           IOS_DEVICES_ENV: |
             iPhone 16 Pro Max
+            iPad Pro 13-inch (M4)
         run: |
           mkdir -p build
           set -o pipefail
           # The simulator <-> flutter VM-service handshake is intermittently
           # flaky (can hang on "Waiting for VM Service port"). Cap each attempt
           # with gtimeout and retry once so a single bad handshake isn't fatal.
-          attempt() { gtimeout 660 ./tool/screenshots.sh ios 2>&1 | tee -a build/ios-drive.log; }
+          # 1500s covers both devices in one attempt (the second device reuses
+          # the first one's build, so it drives much faster).
+          attempt() { gtimeout 1500 ./tool/screenshots.sh ios 2>&1 | tee -a build/ios-drive.log; }
           attempt || { echo "SS> iOS capture attempt 1 failed/timed out — retrying once"; attempt; }
       - name: Upload iOS drive log
         if: always()
