@@ -97,10 +97,15 @@ platform :ios do
     deliver(
       api_key:               api_key,
       app_identifier:        IOS_BUNDLE_ID,
+      # Screenshots can only attach to an EDITABLE version. When the latest
+      # version is already released there is none, and deliver fails with
+      # "Could not find a version to edit" — so name the version from
+      # pubspec and let deliver create the draft when it has to. A draft
+      # costs nothing; the next release edits the same one.
+      app_version:           marketing_version,
       screenshots_path:      File.expand_path("screenshots", __dir__),
       skip_binary_upload:    true,
       skip_metadata:         true,
-      skip_app_version_update: true,
       overwrite_screenshots: true,
       run_precheck_before_submit: false,
       force:                 true, # no interactive HTML preview
