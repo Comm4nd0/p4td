@@ -33,7 +33,7 @@ jobs:
   ios:
     if: ${{ inputs.platforms == 'both' || inputs.platforms == 'ios' }}
     runs-on: macos-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: my_app
@@ -89,7 +89,7 @@ jobs:
         with:
           model: "iPad Pro 13-inch (M5)"
       - name: Capture iOS screenshots
-        timeout-minutes: 52
+        timeout-minutes: 75
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
           DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
@@ -110,9 +110,10 @@ jobs:
           # The simulator <-> flutter VM-service handshake is intermittently
           # flaky (can hang on "Waiting for VM Service port"). Cap each attempt
           # with gtimeout and retry once so a single bad handshake isn't fatal.
-          # 1500s covers both devices in one attempt (the second device reuses
-          # the first one's build, so it drives much faster).
-          attempt() { gtimeout 1500 ./tool/screenshots.sh ios 2>&1 | tee -a build/ios-drive.log; }
+          # 2100s covers both devices in one attempt (the iPhone drive alone
+          # has taken ~15 min on these runners). A retry skips devices that
+          # already captured (.complete markers), so it only redoes failures.
+          attempt() { gtimeout 2100 ./tool/screenshots.sh ios 2>&1 | tee -a build/ios-drive.log; }
           attempt || { echo "SS> iOS capture attempt 1 failed/timed out — retrying once"; attempt; }
       - name: Upload iOS drive log
         if: always()
