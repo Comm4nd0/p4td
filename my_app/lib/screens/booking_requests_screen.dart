@@ -6,6 +6,7 @@ import '../models/intake_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import 'booking_form_screen.dart';
+import '../widgets/page_body.dart';
 
 /// Booking forms submitted through the app. Staff review and approve/deny;
 /// owners see the status of their own submissions and can withdraw a pending
@@ -222,7 +223,7 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
                 icon: Picon(PiconsDuotone.plus),
                 label: const Text('New Booking Form'),
               ),
-        body: _isLoading
+        body: PageBody(child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _requests.isEmpty
                 ? _buildEmptyState()
@@ -233,7 +234,7 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
                       itemCount: _requests.length,
                       itemBuilder: (context, index) => _buildRequestCard(_requests[index]),
                     ),
-                  ),
+                  )),
       ),
     );
   }

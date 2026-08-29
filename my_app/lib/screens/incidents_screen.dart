@@ -7,6 +7,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'incident_detail_screen.dart';
 import 'log_incident_screen.dart';
+import '../widgets/page_body.dart';
 
 /// The staff-only incident log.
 ///
@@ -99,7 +100,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
         icon: Picon(PiconsDuotone.firstAidKit, color: Colors.white),
         label: const Text('Log Incident'),
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : RefreshIndicator.adaptive(
               onRefresh: _load,
@@ -157,7 +158,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
                             ...resolved.map(_buildTile),
                           ],
                         ),
-            ),
+            )),
     );
   }
 

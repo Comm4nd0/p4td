@@ -10,6 +10,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/defect_comments_section.dart';
 import '../widgets/feed_item_card.dart' show VideoPlayerWidget;
+import '../widgets/page_body.dart';
 
 /// The full record of one incident: who was involved, what happened, what was
 /// done, the photos, and the follow-up thread. Staff-only — the API refuses
@@ -208,7 +209,7 @@ class _IncidentDetailScreenState extends State<IncidentDetailScreen> {
             TextButton(onPressed: _changeStatus, child: const Text('Set Status')),
         ],
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : incident == null
               ? const Center(child: Text('Incident not found'))
@@ -232,7 +233,7 @@ class _IncidentDetailScreenState extends State<IncidentDetailScreen> {
                       const SizedBox(height: 24),
                     ],
                   ),
-                ),
+                )),
     );
   }
 
@@ -512,7 +513,7 @@ class _IncidentMediaViewerState extends State<_IncidentMediaViewer> {
           style: const TextStyle(color: Colors.white),
         ),
       ),
-      body: PageView.builder(
+      body: PageBody(child: PageView.builder(
         controller: _pageController,
         onPageChanged: (index) => setState(() => _currentIndex = index),
         itemCount: widget.media.length,
@@ -534,7 +535,7 @@ class _IncidentMediaViewerState extends State<_IncidentMediaViewer> {
             child: Center(child: CachedNetworkImage(imageUrl: url)),
           );
         },
-      ),
+      )),
     );
   }
 }

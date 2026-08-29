@@ -7,6 +7,7 @@ import '../models/support_message.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/page_body.dart';
 
 class QueryDetailScreen extends StatefulWidget {
   final int queryId;
@@ -213,7 +214,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
             ),
         ],
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _query == null
               ? const Center(child: Text('Conversation not found'))
@@ -327,7 +328,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                         ),
                       ),
                   ],
-                ),
+                )),
     );
   }
 

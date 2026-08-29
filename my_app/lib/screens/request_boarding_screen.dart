@@ -5,6 +5,7 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/page_body.dart';
 
 /// Create a new boarding request, or — when [existing] is passed — edit the
 /// dates and instructions of an existing booking. In edit mode the dogs are
@@ -162,7 +163,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Boarding' : 'Request Boarding'),
       ),
-      body: _isLoadingDogs
+      body: PageBody(child: _isLoadingDogs
           ? const Center(child: CircularProgressIndicator())
           : (!_isEditing && _dogs.isEmpty)
               ? Center(
@@ -284,7 +285,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                   ),
                 ],
               ),
-            ),
+            )),
     );
   }
 }

@@ -6,6 +6,7 @@ import '../utils/date_formats.dart';
 import '../models/day_off_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 class StaffAvailabilityScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -187,7 +188,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           ],
         ),
       ),
-      body: TabBarView(
+      body: PageBody(child: TabBarView(
         controller: _tabController,
         children: [
           _buildMyAvailabilityTab(),
@@ -195,7 +196,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           _buildTeamCalendarTab(),
           if (_showCoverage) _buildCoverageTab(),
         ],
-      ),
+      )),
     );
   }
 

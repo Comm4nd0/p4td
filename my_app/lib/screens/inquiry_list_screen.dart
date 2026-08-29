@@ -6,6 +6,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'inquiry_detail_screen.dart';
 import '../widgets/skeleton_loaders.dart';
+import '../widgets/page_body.dart';
 
 class InquiryListScreen extends StatefulWidget {
   const InquiryListScreen({super.key});
@@ -59,7 +60,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
       appBar: AppBar(
         title: const Text('Website Inquiries'),
       ),
-      body: Column(
+      body: PageBody(child: Column(
         children: [
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -110,7 +111,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
                   ),
           ),
         ],
-      ),
+      )),
     );
   }
 

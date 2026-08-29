@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/staff_hr.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 /// Everything a manager needs about one staff member, in five tabs:
 /// Overview (employment, holiday, emergency contact, private notes),
@@ -105,7 +106,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
             ],
           ),
         ),
-        body: _loading
+        body: PageBody(child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
                 ? Center(
@@ -135,7 +136,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
                       _buildAppraisalsTab(),
                       _buildRecordsTab(),
                     ],
-                  ),
+                  )),
       ),
     );
   }

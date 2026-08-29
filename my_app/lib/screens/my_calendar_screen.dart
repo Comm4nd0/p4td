@@ -8,6 +8,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
+import '../widgets/page_body.dart';
 
 /// Month view of the caller's booked daycare days, boarding stays, closures
 /// and full days — with a waitlist join/leave flow for full days.
@@ -299,7 +300,7 @@ class _MyCalendarScreenState extends State<MyCalendarScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('My Calendar')),
-      body: RefreshIndicator.adaptive(
+      body: PageBody(child: RefreshIndicator.adaptive(
         onRefresh: _refresh,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -378,7 +379,7 @@ class _MyCalendarScreenState extends State<MyCalendarScreen> {
             const SizedBox(height: 24),
           ],
         ),
-      ),
+      )),
     );
   }
 }

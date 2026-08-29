@@ -23,6 +23,7 @@ import 'dog_notes_screen.dart';
 import 'vaccinations_screen.dart';
 import 'incidents_screen.dart';
 import '../constants/app_colors.dart';
+import '../widgets/page_body.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -1939,7 +1940,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: PageBody(child: SingleChildScrollView(
         child: Column(
           children: [
             Container(
@@ -2091,7 +2092,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             const SizedBox(height: 80), // Extra space at bottom for scrolling nicely
           ],
         ),
-      ),
+      )),
     );
   }
 }

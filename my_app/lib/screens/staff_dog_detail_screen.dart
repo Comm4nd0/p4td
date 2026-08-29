@@ -16,6 +16,7 @@ import '../widgets/roadwork_banner.dart';
 import 'dog_home_screen.dart';
 import 'pickup_map_screen.dart';
 import 'traffic_alert_screen.dart';
+import '../widgets/page_body.dart';
 
 enum DogSortOption {
   nameAsc('Name (A-Z)'),
@@ -468,7 +469,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             _buildSortButton(),
           ],
         ),
-        body: Column(
+        body: PageBody(child: Column(
           children: [
             RoadworkBanner(issues: widget.roadworks),
             Expanded(
@@ -487,7 +488,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                   : _buildSectionedList(),
             ),
           ],
-        ),
+        )),
       ),
     );
   }

@@ -5,6 +5,7 @@ import '../models/dog_profile_change_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../constants/app_colors.dart';
+import '../widgets/page_body.dart';
 
 /// Staff screen for reviewing pending dog profile change requests.
 class DogProfileChangesScreen extends StatefulWidget {
@@ -101,7 +102,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
       appBar: AppBar(
         title: const Text('Profile Change Requests'),
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(
@@ -134,7 +135,7 @@ class _DogProfileChangesScreenState extends State<DogProfileChangesScreen> {
                         itemCount: _requests.length,
                         itemBuilder: (context, index) => _buildRequestCard(_requests[index]),
                       ),
-                    ),
+                    )),
     );
   }
 

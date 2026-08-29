@@ -5,6 +5,7 @@ import '../models/invoice.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import 'invoice_detail_screen.dart';
+import '../widgets/page_body.dart';
 
 /// Colour for an invoice status ('DRAFT' | 'SENT' | 'PART_PAID' | 'PAID' |
 /// 'VOID'), with overdue overriding to the error colour.
@@ -120,7 +121,7 @@ class _MyPaymentsScreenState extends State<MyPaymentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('My Payments')),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : RefreshIndicator.adaptive(
               onRefresh: _loadInvoices,
@@ -157,7 +158,7 @@ class _MyPaymentsScreenState extends State<MyPaymentsScreen> {
                       itemBuilder: (context, index) =>
                           _buildInvoiceCard(_invoices[index]),
                     ),
-            ),
+            )),
     );
   }
 

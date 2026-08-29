@@ -14,6 +14,7 @@ import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/assignment_card.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
+import '../widgets/page_body.dart';
 
 enum _SortOption {
   nameAsc('Name (A-Z)'),
@@ -514,7 +515,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
             _buildSortButton(),
           ],
         ),
-        body: Column(
+        body: PageBody(child: Column(
           children: [
             // Status summary bar
             Container(
@@ -558,7 +559,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                     ),
             ),
           ],
-        ),
+        )),
       ),
     );
   }

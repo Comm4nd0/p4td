@@ -5,6 +5,7 @@ import '../models/staff_hr.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import 'staff_member_detail_screen.dart';
+import '../widgets/page_body.dart';
 
 /// Manager-only hub for running the team: one card per staff member with
 /// their role, holiday position and anything needing attention (pending
@@ -56,7 +57,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Staff Management')),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _buildError()
@@ -69,7 +70,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                     itemBuilder: (context, index) =>
                         _buildMemberCard(_team[index]),
                   ),
-                ),
+                )),
     );
   }
 

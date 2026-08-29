@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/compliance.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 /// The Safety & Compliance register: recurring facility checks (fire alarm
 /// tests, extinguisher servicing, first aid kits, licence and insurance
@@ -122,7 +123,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
               label: const Text('Add check'),
             )
           : null,
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _buildError()
@@ -146,7 +147,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
                       ..._buildGroupedList(),
                     ],
                   ),
-                ),
+                )),
     );
   }
 

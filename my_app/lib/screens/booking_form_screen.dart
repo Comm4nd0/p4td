@@ -6,6 +6,7 @@ import '../models/intake_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/postcode_lookup_dialog.dart';
+import '../widgets/page_body.dart';
 
 /// Per-dog form state on the booking form. Controllers live for the lifetime
 /// of the screen and are disposed with it.
@@ -173,7 +174,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Booking Form')),
-      body: Form(
+      body: PageBody(child: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -304,7 +305,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
             const SizedBox(height: 16),
           ],
         ),
-      ),
+      )),
     );
   }
 

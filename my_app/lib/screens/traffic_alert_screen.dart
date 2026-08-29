@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import '../models/daily_dog_assignment.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/page_body.dart';
 
 /// Lets a driver send a traffic-delay notification to the owners on their own
 /// route, choosing exactly which dogs' owners are notified. Defaults to the
@@ -142,11 +143,11 @@ class _TrafficAlertScreenState extends State<TrafficAlertScreen> {
           ],
         ),
       ),
-      body: _loading
+      body: PageBody(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _loadError != null
               ? _buildError()
-              : _buildBody(),
+              : _buildBody()),
     );
   }
 

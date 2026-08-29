@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../services/enquiry_service.dart';
 import '../services/no_connection_exception.dart';
+import '../widgets/page_body.dart';
 
 /// Public "Send us a message" form, reachable from the logged-out landing
 /// page — no account needed. Submissions land in the same inbox staff already
@@ -98,7 +99,7 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
       appBar: AppBar(
         title: const Text('Send Us a Message'),
       ),
-      body: SingleChildScrollView(
+      body: PageBody(child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
@@ -193,7 +194,7 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }

@@ -11,6 +11,7 @@ import 'invoice_detail_screen.dart';
 import 'my_payments_screen.dart' show InvoiceStatusPill;
 import 'pricing_screen.dart';
 import 'xero_reconciliation_screen.dart';
+import '../widgets/page_body.dart';
 
 /// Staff payments dashboard (requires can_manage_payments): monthly invoices
 /// with summary totals, generate/send-all/Xero-sync actions and per-invoice
@@ -273,7 +274,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: PageBody(child: Column(
         children: [
           _buildMonthPicker(),
           _buildSummaryRow(),
@@ -321,7 +322,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                   ),
           ),
         ],
-      ),
+      )),
     );
   }
 
