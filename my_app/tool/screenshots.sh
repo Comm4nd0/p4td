@@ -94,7 +94,15 @@ run_ios() {
       sleep 5
     fi
     if SCREENSHOT_OUT="build/screenshots/$key" "${DRIVE[@]}" -d "$name"; then
-      touch "build/screenshots/$key/.complete"
+      # A "passing" drive that delivered no PNGs is still a failure — it has
+      # happened (a bug wiped reportData['screenshots']) and marking it
+      # complete would upload nothing without anyone noticing.
+      if ls "build/screenshots/$key"/*.png >/dev/null 2>&1; then
+        touch "build/screenshots/$key/.complete"
+      else
+        echo "✗  iOS drive passed but produced no screenshots for $name"
+        FAILED=1
+      fi
     else
       echo "✗  iOS capture failed for $name (continuing with remaining devices)"
       FAILED=1
