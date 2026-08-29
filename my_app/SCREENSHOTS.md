@@ -123,8 +123,8 @@ the **alpha** track on Play.
 
 | Store | Device (sim/AVD) | Covers |
 |---|---|---|
-| App Store | iPhone 16 Pro Max | 6.9" (required; also covers smaller iPhones) |
-| App Store | iPad Pro 13-inch (M4) | iPad 13" (required — the app ships iPad), and the Mac App Store listing ("iPad app on Apple silicon Macs" shows the iPad set; there is no separate macOS upload) |
+| App Store | iPhone 17 Pro Max | 6.9" (required; also covers smaller iPhones) |
+| App Store | iPad Pro 13-inch (M5) | iPad 13" (required — the app ships iPad), and the Mac App Store listing ("iPad app on Apple silicon Macs" shows the iPad set; there is no separate macOS upload) |
 | Play Store | Pixel 7 (phone) | phone screenshots |
 | Play Store | ~10" tablet AVD | tablet screenshots (optional) |
 

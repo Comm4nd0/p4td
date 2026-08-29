@@ -80,14 +80,14 @@ jobs:
       - name: Boot iPhone simulator (maintained action — reliable full boot)
         uses: futureware-tech/simulator-action@v3
         with:
-          model: "iPhone 16 Pro Max"
+          model: "iPhone 17 Pro Max"
       - name: Boot iPad simulator
         # Multiple simulators can be booted at once; the capture script targets
         # each by name. The iPad set also serves as the Mac App Store listing
         # ("iPad app on Apple silicon Macs" shows the iPad screenshots).
         uses: futureware-tech/simulator-action@v3
         with:
-          model: "iPad Pro 13-inch (M4)"
+          model: "iPad Pro 13-inch (M5)"
       - name: Capture iOS screenshots
         timeout-minutes: 52
         env:
@@ -102,8 +102,8 @@ jobs:
           # The 6.9" iPhone covers all iPhone sizes; the 13" iPad covers the
           # iPad listing and, via "iPad app on Mac", the Mac App Store too.
           IOS_DEVICES_ENV: |
-            iPhone 16 Pro Max
-            iPad Pro 13-inch (M4)
+            iPhone 17 Pro Max
+            iPad Pro 13-inch (M5)
         run: |
           mkdir -p build
           set -o pipefail
