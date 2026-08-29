@@ -28,6 +28,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:paws4thoughtdogs/main.dart';
 import 'package:paws4thoughtdogs/screens/home_screen.dart';
+import 'package:paws4thoughtdogs/screens/dog_home_screen.dart';
 import 'package:paws4thoughtdogs/models/dog.dart';
 import 'package:paws4thoughtdogs/services/service_locator.dart';
 import 'package:paws4thoughtdogs/services/cache_service.dart';
@@ -91,7 +92,10 @@ void main() {
     // store listing leads with the app's value, not its sign-in form.
     await _tapText(tester, 'Log In');
     await _waitFor(tester, seconds: 2);
-    final onLogin = find.text('LOGIN').evaluate().isNotEmpty;
+    // The "create one" link only exists on the login screen (the landing page
+    // behind it has its own 'Log In' button, so that text can't be the marker).
+    final onLogin =
+        find.text("Don't have an account? Create one").evaluate().isNotEmpty;
     _log('on login screen: $onLogin');
     if (onLogin) {
       await binding.takeScreenshot('06_login');
@@ -150,7 +154,9 @@ void main() {
     // single dog, tapping it lands straight on the dog profile; otherwise it
     // shows the dogs list and we tap the first card.
     await _openDogProfile(tester, dogName);
-    final onProfile = find.text('Request Boarding').evaluate().isNotEmpty;
+    // Type-based marker: screen texts have rotted before ('Request Boarding'
+    // moved into the quick-actions menu and silently skipped 02–04).
+    final onProfile = find.byType(DogHomeScreen).evaluate().isNotEmpty;
     _log('on dog profile: $onProfile');
 
     if (onProfile) {
@@ -160,8 +166,10 @@ void main() {
 
       // ── 04. Booking — open the "Request Boarding" dialog ─────────────────
       // Captured before the gallery so we don't have to scroll back up.
-      await _ensureVisible(tester, find.text('Request Boarding'));
-      await tester.tap(find.text('Request Boarding').first);
+      // Request Boarding lives in the expanding Quick Actions FAB menu.
+      await _tapText(tester, 'Quick Actions');
+      await _waitFor(tester, seconds: 1);
+      await _tapText(tester, 'Request Boarding');
       await _waitFor(tester, seconds: 2);
       if (find.textContaining('Request Boarding for').evaluate().isNotEmpty) {
         await binding.takeScreenshot('04_booking');
@@ -223,10 +231,21 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 8)));
 }
 
+final List<String> _trace = [];
+
 void _log(String message) {
   // Prefixed so it's easy to grep in the flutter drive output.
   // ignore: avoid_print
   print('SS> $message');
+  // The iOS simulator log reader drops app-side prints intermittently (it
+  // failed outright on the Xcode 26 runners), so also accumulate the trace in
+  // reportData — the driver prints it host-side when the run ends.
+  _trace.add(message);
+  try {
+    IntegrationTestWidgetsFlutterBinding.instance.reportData = {
+      'trace': List<String>.of(_trace),
+    };
+  } catch (_) {}
 }
 
 /// Tap a widget found by its exact visible text, logging (rather than failing)

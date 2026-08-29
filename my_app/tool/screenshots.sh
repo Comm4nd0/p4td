@@ -63,10 +63,19 @@ DRIVE=(flutter drive
 
 slugify() { echo "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-'; }
 
+FAILED=0
+
 run_ios() {
   command -v xcrun >/dev/null || { echo "xcrun not found (need macOS/Xcode)"; exit 1; }
   for name in "${IOS_DEVICES[@]}"; do
     local key; key="ios-$(slugify "$name")"
+    # A retry of the whole script (CI does this on flaky simulator
+    # handshakes) skips devices that already captured successfully.
+    if [[ -f "build/screenshots/$key/.complete" ]]; then
+      echo "▶  iOS: $name — already captured, skipping"
+      continue
+    fi
+    rm -rf "build/screenshots/$key"
     echo "▶  iOS: $name"
     # In CI the simulator is booted by a dedicated action beforehand
     # (IOS_SKIP_BOOT=1). Locally we boot it ourselves: a headless `simctl boot`
@@ -84,8 +93,12 @@ run_ios() {
       done
       sleep 5
     fi
-    SCREENSHOT_OUT="build/screenshots/$key" \
-      "${DRIVE[@]}" -d "$name"
+    if SCREENSHOT_OUT="build/screenshots/$key" "${DRIVE[@]}" -d "$name"; then
+      touch "build/screenshots/$key/.complete"
+    else
+      echo "✗  iOS capture failed for $name (continuing with remaining devices)"
+      FAILED=1
+    fi
     [[ -z "${IOS_SKIP_BOOT:-}" ]] && xcrun simctl shutdown "$name" 2>/dev/null || true
   done
 }
@@ -95,19 +108,23 @@ run_android() {
   for avd in "${ANDROID_AVDS[@]}"; do
     local key; key="android-$(slugify "$avd")"
     echo "▶  Android: $avd"
+    rm -rf "build/screenshots/$key"
     emulator -avd "$avd" -no-snapshot -no-boot-anim -netdelay none -netspeed full >/dev/null 2>&1 &
     local pid=$!
     adb wait-for-device
     # wait for full boot
     until [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; do sleep 2; done
-    SCREENSHOT_OUT="build/screenshots/$key" \
-      "${DRIVE[@]}" -d emulator-5554
+    if ! SCREENSHOT_OUT="build/screenshots/$key" "${DRIVE[@]}" -d emulator-5554; then
+      echo "✗  Android capture failed for $avd (continuing with remaining devices)"
+      FAILED=1
+    fi
     adb -s emulator-5554 emu kill 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
 }
 
-rm -rf build/screenshots
+# NOTE: deliberately NOT `rm -rf build/screenshots` here — a CI retry of the
+# whole script must keep the devices that already captured (.complete markers).
 [[ "$WHAT" == "all" || "$WHAT" == "ios" ]] && run_ios
 [[ "$WHAT" == "all" || "$WHAT" == "android" ]] && run_android
 
@@ -139,6 +156,13 @@ for d in build/screenshots/android-*; do
   cp "$d"/*.png "$dest/" 2>/dev/null || true
 done
 
+echo "▶  Captured files:"
+find build/screenshots -name '*.png' | sort || true
+
+if [[ "$FAILED" != "0" ]]; then
+  echo "✗  One or more devices failed to capture." >&2
+  exit 1
+fi
 echo "✅  Raw screenshots captured."
 echo "    Next: cd fastlane && fastlane frame   (frames + captions)"
 echo "    Then: fastlane upload_ios  /  fastlane upload_android"
