@@ -136,8 +136,11 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
 
   /// Board zoom: always opens fully zoomed out so the whole day fits on
   /// screen; pinch or the app-bar presets zoom in for a closer look.
+  // Recomputed each build to fit every visible column on screen until the
+  // user takes over with a pinch or the app-bar preset button.
   double _boardScale = _BoardSizing.min;
   double _pinchStartScale = _BoardSizing.min;
+  bool _scaleAdjusted = false;
 
   _BoardSizing get _sizing => _BoardSizing(_boardScale);
 
@@ -227,6 +230,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   /// dense → comfortable), from wherever pinching has left the scale.
   void _cycleSizePreset() {
     setState(() {
+      _scaleAdjusted = true;
       _boardScale = _boardScale > 0.9
           ? _BoardSizing.compact
           : _boardScale > 0.72
@@ -245,7 +249,21 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
     if (details.pointerCount < 2) return;
     final next = (_pinchStartScale * details.scale)
         .clamp(_BoardSizing.min, _BoardSizing.max);
-    if (next != _boardScale) setState(() => _boardScale = next);
+    if (next != _boardScale) {
+      setState(() {
+        _scaleAdjusted = true;
+        _boardScale = next;
+      });
+    }
+  }
+
+  /// Scale at which every visible column fits on screen at once (clamped to
+  /// the pinch range, so a packed board on a phone still scrolls). Columns
+  /// are 260·scale wide plus a 12dp margin, inside 12dp list padding.
+  double _fitScale(double width, int columnCount) {
+    if (columnCount == 0) return _BoardSizing.comfortable;
+    final scale = (width - 24 - columnCount * 12) / (columnCount * 260);
+    return scale.clamp(_BoardSizing.min, _BoardSizing.max);
   }
 
   /// Whether a staff member is on the rota for this date. An empty
@@ -470,6 +488,14 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   @override
   Widget build(BuildContext context) {
     final columns = _staffColumns.where((s) => _isColumnVisible(s.id)).toList();
+    // Until the user resizes (pinch or the app-bar button), the board opens —
+    // and stays — fitted: every visible column on screen at once. The board
+    // is a full-screen route, so the screen width is the board width, and
+    // MediaQuery re-runs this on rotation or a desktop window resize.
+    if (!_scaleAdjusted) {
+      _boardScale = _fitScale(MediaQuery.of(context).size.width,
+          (_showUnassigned ? 1 : 0) + columns.length);
+    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
