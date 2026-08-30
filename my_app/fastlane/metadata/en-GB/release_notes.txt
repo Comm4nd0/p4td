@@ -1,14 +1,11 @@
-Incident Log
+Now on iPad and Mac
 
-Staff can now write up an incident — a scuffle, an injury, a dog getting loose — naming every dog involved, what happened, any injuries, and what was done about it, with photos or video attached at the time or added later.
-Each dog on an incident carries its own account, because two dogs in the same scuffle rarely come out of it the same way, and every dog's profile links through to the incidents it has been involved in.
-Incidents are staff only. They are never shown to owners in the app — what an owner is told is a conversation, and staff tick it off per dog as they make it.
+The app now runs properly on iPad — and through it on Apple silicon Macs — rather than as a scaled-up phone screen. On a big screen the menu stays open at the side wherever you go: pages like Contact Staff and Booking Forms open beside it instead of covering it, with a back button to step out of deeper pages as usual.
 
-Boarding Dogs on the Daycare Roster
+Made for bigger screens
 
-A dog that is boarding is now booked into daycare for every weekday of its stay, arrival and going-home day included, so it turns up on the day's roster and headcount rather than only in the boarding list.
-Nothing changes about what a stay costs: the nights are still the only charge.
+Dogs are laid out as photo tiles rather than one long stretched column, the staff dashboard puts the day's roster and the action list side by side, and the day board opens with every staff column fitted on screen. Photo grids gain columns instead of blowing up, and forms, lists and sheets keep a comfortable reading width. Nothing changes on the phone.
 
-Elsewhere
+Also in this release
 
-Uploading to the feed has moved off the dashboard and onto the feed page, where the post actually lands.
+The staff overview's status lines no longer overflow on smaller phones.
