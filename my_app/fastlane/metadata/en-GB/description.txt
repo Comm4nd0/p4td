@@ -1,5 +1,7 @@
 Stay connected with your dog's daycare experience with the Paws 4 Thought Dogs app — the easiest way to manage your dog's schedule, view their daily adventures, and communicate with the team.
 
+Works on iPhone, iPad, and Apple silicon Macs. On bigger screens the menu stays open beside your content, dogs are laid out as photo tiles, and the staff dashboard makes use of the extra space.
+
 For Dog Owners:
 
 • Photo & Video Feed — See photos and videos of your dog enjoying their day at daycare. React and comment on posts from staff.
