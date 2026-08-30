@@ -1,10 +1,14 @@
 Now on iPad and Mac
 
-The app now runs properly on iPad — and through it on Apple silicon Macs — rather than as a scaled-up phone screen. On a big screen the menu stays open at the side wherever you go: pages like Contact Staff and Booking Forms open beside it instead of covering it, with a back button to step out of deeper pages as usual.
+The app now runs properly on iPad — and through it on Apple silicon Macs — rather than as a scaled-up phone screen. On a big screen the menu stays open at the side wherever you go, pages open beside it, dogs are laid out as photo tiles, the staff dashboard shows the day's roster and action list side by side, and the day board opens with every staff column fitted on screen. Nothing changes on the phone.
 
-Made for bigger screens
+Vaccination records
 
-Dogs are laid out as photo tiles rather than one long stretched column, the staff dashboard puts the day's roster and the action list side by side, and the day board opens with every staff column fitted on screen. Photo grids gain columns instead of blowing up, and forms, lists and sheets keep a comfortable reading width. Nothing changes on the phone.
+A dog's vaccinations now live on its profile, and owners get a reminder when one is close to expiring — no more finding out at check-in.
+
+For the team
+
+A new staff management section brings employment details, meetings, appraisals, sickness and training records together for managers, and a safety & compliance register keeps track of the recurring checks — fire alarm tests, extinguisher servicing, first aid kits, renewals — with reminders when one falls due.
 
 Also in this release
 
