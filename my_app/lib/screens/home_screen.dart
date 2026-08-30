@@ -87,7 +87,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _appVersion = '';
   final GlobalKey<UnifiedDashboardScreenState> _dashboardKey = GlobalKey();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
+  final GlobalKey<NavigatorState> _paneNavKey = GlobalKey<NavigatorState>();
   bool _initialRouteHandled = false;
+
+  /// Push [route] on the pane navigator when the sidebar layout is active, so
+  /// the menu stays visible beside the opened page; on phones this is the
+  /// root navigator and pages cover the screen exactly as before. Screens
+  /// deeper in the tree don't need this — their own contexts already resolve
+  /// to the pane navigator.
+  Future<T?> _push<T>(Route<T> route) {
+    final pane = _isWideLayout ? _paneNavKey.currentState : null;
+    return (pane ?? Navigator.of(context)).push(route);
+  }
 
   /// Wide layouts (tablet landscape / desktop) get a persistent sidebar in
   /// place of the modal drawer and bottom navigation bar.
@@ -339,8 +350,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       switch (widget.initialRoute) {
         case 'requests':
-          Navigator.push(
-            context,
+          _push(
             MaterialPageRoute(
               builder: (_) => StaffNotificationsScreen(
                 canManageRequests: _canManageRequests,
@@ -350,8 +360,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
           break;
         case 'boarding_requests':
-          Navigator.push(
-            context,
+          _push(
             MaterialPageRoute(
               builder: (_) => BoardingRequestListScreen(
                 isStaff: _isStaff,
@@ -361,8 +370,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
           break;
         case 'queries':
-          Navigator.push(
-            context,
+          _push(
             MaterialPageRoute(
               builder: (_) => QueryListScreen(
                 isStaff: _isStaff,
@@ -372,8 +380,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
           break;
         case 'inquiries':
-          Navigator.push(
-            context,
+          _push(
             MaterialPageRoute(builder: (_) => const InquiryListScreen()),
           );
           break;
@@ -385,8 +392,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // be certain) lands nowhere rather than on an incident.
           if (!_isStaff) break;
           final incidentId = int.tryParse(widget.routePayload ?? '');
-          Navigator.push(
-            context,
+          _push(
             MaterialPageRoute(
               builder: (_) => incidentId != null
                   ? IncidentDetailScreen(incidentId: incidentId)
@@ -400,8 +406,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (dogId != null && _allDogs.isNotEmpty) {
             final dog = _allDogs.where((d) => d.id.toString() == dogId).firstOrNull;
             if (dog != null) {
-              Navigator.push(
-                context,
+              _push(
                 MaterialPageRoute(
                   builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
                 ),
@@ -419,14 +424,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // Staff payment managers land on the management screen; owners on
           // their own invoice list (optionally straight into one invoice).
           if (_isStaff && _canManagePayments) {
-            Navigator.push(
-              context,
+            _push(
               MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
             );
           } else {
             final invoiceId = int.tryParse(widget.routePayload ?? '');
-            Navigator.push(
-              context,
+            _push(
               MaterialPageRoute(
                 builder: (_) => MyPaymentsScreen(openInvoiceId: invoiceId),
               ),
@@ -435,8 +438,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           break;
         case 'customer_payments':
           if (_isStaff && _canManagePayments) {
-            Navigator.push(
-              context,
+            _push(
               MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
             );
           }
@@ -448,8 +450,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
 
   Future<void> _addDog() async {
-    final result = await Navigator.push(
-      context,
+    final result = await _push(
       MaterialPageRoute(builder: (_) => const AddDogScreen()),
     );
     if (result == true) {
@@ -458,26 +459,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openBookingForm() async {
-    final submitted = await Navigator.push<bool>(
-      context,
+    final submitted = await _push<bool>(
       MaterialPageRoute(builder: (_) => const BookingFormScreen()),
     );
     if (submitted == true) _refresh();
   }
 
   Future<void> _openBookingForms() async {
-    final changed = await Navigator.push<bool>(
-      context,
+    final changed = await _push<bool>(
       MaterialPageRoute(builder: (_) => BookingRequestsScreen(isStaff: _isStaff)),
     );
     if (changed == true) _refresh();
   }
 
   Future<void> _onNavTap(int index) async {
+    // Selecting a destination while a page is open in the pane returns to the
+    // tab itself first (the pane navigator only exists on wide layouts).
+    _paneNavKey.currentState?.popUntil((route) => route.isFirst);
     // If non-staff user with a single dog taps "My Dogs", go straight to dog profile
     if (index == 0 && !_isStaff && !_loadingDogs && _allDogs.length == 1) {
-      final result = await Navigator.push(
-        context,
+      final result = await _push(
         MaterialPageRoute(
           builder: (_) => DogHomeScreen(dog: _allDogs.first, isStaff: false),
         ),
@@ -537,8 +538,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: Picon(PiconsDuotone.bell),
                   tooltip: 'Date Change Requests',
                   onPressed: () async {
-                    await Navigator.push(
-                      context,
+                    await _push(
                       MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests, canManageBoarding: _canManageBoarding)),
                     );
                     _loadPendingRequestCount();
@@ -615,7 +615,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? Row(
               children: [
                 _buildSidebar(),
-                Expanded(child: body),
+                // Pushed pages open INSIDE this pane-scoped navigator, so the
+                // sidebar persists on every page; each page's AppBar back
+                // button unwinds nested navigation as usual. The live tab
+                // content is the pane's root page — the pages API keeps it
+                // rebuilding with this State, unlike an onGenerateRoute
+                // initial route, which is built once and would go stale.
+                Expanded(
+                  child: NavigatorPopHandler(
+                    onPopWithResult: (result) =>
+                        _paneNavKey.currentState?.maybePop(),
+                    child: Navigator(
+                      key: _paneNavKey,
+                      onDidRemovePage: (page) {},
+                      pages: [
+                        MaterialPage(
+                          key: const ValueKey('pane-root'),
+                          child: body,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             )
           : body,
@@ -721,8 +742,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 trailing: _drawerChevron(),
                 onTap: () async {
                   _closeDrawer();
-                  await Navigator.push(
-                    context,
+                  await _push(
                     MaterialPageRoute(
                       builder: (_) => QueryListScreen(
                         isStaff: _isStaff,
@@ -760,8 +780,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () async {
                     _closeDrawer();
-                    await Navigator.push(
-                      context,
+                    await _push(
                       MaterialPageRoute(
                         builder: (_) => const InquiryListScreen(),
                       ),
@@ -776,8 +795,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(
                         builder: (_) => FleetScreen(canManageVehicles: _canManageVehicles),
                       ),
@@ -791,8 +809,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(
                         builder: (_) => const IncidentsScreen(),
                       ),
@@ -806,8 +823,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(
                         builder: (_) => const FacilityDefectsScreen(),
                       ),
@@ -821,8 +837,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(builder: (_) => const MyPaymentsScreen()),
                     );
                   },
@@ -834,8 +849,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(builder: (_) => const CustomerPaymentsScreen()),
                     );
                   },
@@ -847,8 +861,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(
                         builder: (_) => const StaffManagementScreen(),
                       ),
@@ -862,8 +875,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(
                         builder: (_) => ComplianceScreen(
                           canManage: _canManageCompliance || _isSuperuser,
@@ -879,8 +891,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    Navigator.push(
-                      context,
+                    _push(
                       MaterialPageRoute(
                         builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canManageStaff: _canManageStaff),
                       ),
@@ -893,8 +904,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 trailing: _drawerChevron(),
                 onTap: () {
                   _closeDrawer();
-                  Navigator.push(
-                    context,
+                  _push(
                     MaterialPageRoute(
                       builder: (_) => const MyCalendarScreen(),
                     ),
@@ -907,8 +917,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 trailing: _drawerChevron(),
                 onTap: () {
                   _closeDrawer();
-                  Navigator.push(
-                    context,
+                  _push(
                     MaterialPageRoute(
                       builder: (_) => ClosureDaysScreen(isStaff: _isStaff),
                     ),
@@ -925,8 +934,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 trailing: _drawerChevron(),
                 onTap: () {
                   _closeDrawer();
-                  Navigator.push(
-                    context,
+                  _push(
                     MaterialPageRoute(builder: (_) => const ProfileScreen()),
                   );
                 },
@@ -1005,8 +1013,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: () {
-                  Navigator.push(
-                    context,
+                  _push(
                     MaterialPageRoute(
                       builder: (_) => QueryListScreen(isStaff: _isStaff),
                     ),
@@ -1088,8 +1095,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _dogCard(Dog dog, {bool tiled = false}) {
     Future<void> open() async {
-      final result = await Navigator.push(
-        context,
+      final result = await _push(
         MaterialPageRoute(
           builder: (_) => DogHomeScreen(dog: dog, isStaff: _isStaff),
         ),
