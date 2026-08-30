@@ -139,6 +139,18 @@ platform :ios do
       run_precheck_before_submit: false,
       force:                 true, # no interactive HTML preview
     )
+
+    # Print what the listing actually holds now — deliver has quietly
+    # under-uploaded before, so the log should prove the final state.
+    version = Spaceship::ConnectAPI::App.find(IOS_BUNDLE_ID)
+      .get_edit_app_store_version(platform: Spaceship::ConnectAPI::Platform::IOS)
+    version.get_app_store_version_localizations.each do |loc|
+      loc.get_app_screenshot_sets(includes: "appScreenshots").each do |set|
+        shots = set.app_screenshots
+        UI.important("FINAL: #{loc.locale} #{set.screenshot_display_type}: #{shots.count} screenshots")
+        shots.each { |s| UI.message("  FINAL: #{s.file_name}") }
+      end
+    end
   end
 
   # ---------------------------------------------------------------------------
