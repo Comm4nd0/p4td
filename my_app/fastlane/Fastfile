@@ -140,11 +140,24 @@ platform :ios do
       force:                 true, # no interactive HTML preview
     )
 
-    # Print what the listing actually holds now — deliver has quietly
-    # under-uploaded before, so the log should prove the final state.
+    # deliver's processing-retry re-uploads shots it wrongly believes failed,
+    # leaving duplicates on the listing (observed: 01-03 doubled in every
+    # set). Reconcile — keep the first of each file name, delete the rest —
+    # then print the final state so the log proves what the listing holds.
     version = Spaceship::ConnectAPI::App.find(IOS_BUNDLE_ID)
       .get_edit_app_store_version(platform: Spaceship::ConnectAPI::Platform::IOS)
     version.get_app_store_version_localizations.each do |loc|
+      loc.get_app_screenshot_sets(includes: "appScreenshots").each do |set|
+        seen = {}
+        set.app_screenshots.each do |shot|
+          if seen[shot.file_name]
+            UI.important("Deleting duplicate #{shot.file_name} (#{set.screenshot_display_type})")
+            shot.delete!
+          else
+            seen[shot.file_name] = true
+          end
+        end
+      end
       loc.get_app_screenshot_sets(includes: "appScreenshots").each do |set|
         shots = set.app_screenshots
         UI.important("FINAL: #{loc.locale} #{set.screenshot_display_type}: #{shots.count} screenshots")
