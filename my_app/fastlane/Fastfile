@@ -86,9 +86,34 @@ end
 default_platform(:ios)
 
 platform :ios do
+  # Delete every screenshot set on the editable version. deliver's own
+  # overwrite deletes too, but its per-device quota check raced the deletion
+  # (counting the just-deleted sets and skipping the tail of ours), and its
+  # sync mode chokes on assets stuck in a failed-processing state — which
+  # those racy runs left behind. An explicit purge makes the upload start
+  # from a clean slate every time, so neither failure mode can occur.
+  lane :purge_screenshots do
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      filepath:  ENV.fetch("ASC_KEY_PATH"),
+    )
+    app = Spaceship::ConnectAPI::App.find(IOS_BUNDLE_ID)
+    version = app.get_edit_app_store_version(platform: Spaceship::ConnectAPI::Platform::IOS)
+    if version.nil?
+      UI.message("No editable version — nothing to purge (deliver will create one).")
+      next
+    end
+    version.get_app_store_version_localizations.each do |loc|
+      loc.get_app_screenshot_sets.each do |set|
+        UI.message("Deleting screenshot set #{set.screenshot_display_type} (#{loc.locale})")
+        set.delete!
+      end
+    end
+  end
+
   lane :upload_ios do
-    # sync_screenshots is behind an acknowledgement flag while beta.
-    ENV["FASTLANE_ENABLE_BETA_DELIVER_SYNC_SCREENSHOTS"] = "true"
+    purge_screenshots
     # Requires an App Store Connect API key. Provide it via env:
     #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (path to the .p8)
     api_key = app_store_connect_api_key(
@@ -108,11 +133,9 @@ platform :ios do
       screenshots_path:      File.expand_path("screenshots", __dir__),
       skip_binary_upload:    true,
       skip_metadata:         true,
-      # sync (checksum reconcile), not overwrite (delete-then-reupload):
-      # overwrite's deletion hadn't propagated before its own per-device
-      # quota check ran, which counted the deleted sets and silently skipped
-      # the tail of ours ("Too many screenshots found for device...").
-      sync_screenshots:      true,
+      # The purge above already emptied the version's sets; overwrite is a
+      # harmless no-op delete pass on an empty listing.
+      overwrite_screenshots: true,
       run_precheck_before_submit: false,
       force:                 true, # no interactive HTML preview
     )

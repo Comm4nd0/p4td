@@ -25,6 +25,10 @@ on:
         description: "Upload to the stores (otherwise artifacts only)"
         type: boolean
         default: true
+      screenshots_run_id:
+        description: "Reuse the ios-screenshots artifact from this run id (skips iOS capture — for retrying just the upload)"
+        type: string
+        default: ""
 
 env:
   LOCALE: en-GB
@@ -40,9 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Resolve the pinned Flutter version
+        if: ${{ inputs.screenshots_run_id == '' }}
         id: flutter_pin
         run: echo "version=$(cat "$GITHUB_WORKSPACE/my_app/.flutter-version")" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
+        if: ${{ inputs.screenshots_run_id == '' }}
         with:
           flutter-version: ${{ steps.flutter_pin.outputs.version }}
       - uses: ruby/setup-ruby@v1
@@ -53,8 +59,10 @@ jobs:
           brew install coreutils || true
           gem install fastlane --no-document
       - name: Install dependencies
+        if: ${{ inputs.screenshots_run_id == '' }}
         run: flutter pub get
       - name: Provide GoogleService-Info.plist (Firebase build input)
+        if: ${{ inputs.screenshots_run_id == '' }}
         # Screenshots never initialise Firebase, so a stub satisfies the Xcode
         # build. If you add the real plist as a secret, it's used instead.
         env:
@@ -77,11 +85,21 @@ jobs:
               echo '</dict></plist>'
             } > ios/Runner/GoogleService-Info.plist
           fi
+      - name: Reuse screenshots from a previous run
+        if: ${{ inputs.screenshots_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-screenshots
+          path: my_app/fastlane/screenshots
+          run-id: ${{ inputs.screenshots_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Boot iPhone simulator (maintained action — reliable full boot)
+        if: ${{ inputs.screenshots_run_id == '' }}
         uses: futureware-tech/simulator-action@v3
         with:
           model: "iPhone 17 Pro Max"
       - name: Boot iPad simulator
+        if: ${{ inputs.screenshots_run_id == '' }}
         # Multiple simulators can be booted at once; the capture script targets
         # each by name. The iPad set also serves as the Mac App Store listing
         # ("iPad app on Apple silicon Macs" shows the iPad screenshots).
@@ -89,6 +107,7 @@ jobs:
         with:
           model: "iPad Pro 13-inch (M5)"
       - name: Capture iOS screenshots
+        if: ${{ inputs.screenshots_run_id == '' }}
         timeout-minutes: 75
         env:
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
