@@ -124,7 +124,10 @@ void main() {
         tester.widget<Text>(find.text('Bella')).style!.fontSize!;
 
     // The board opens fitted to the screen — two columns in 1400px is roomy,
-    // so the scale rests at its largest ("comfortable") stop.
+    // so the scale rests at its largest ("comfortable") stop. The fit is
+    // measured by the body's LayoutBuilder, so the AppBar icon syncs one
+    // frame later.
+    await tester.pump();
     expect(find.byIcon(Icons.density_large), findsOneWidget);
     final fitted = nameFontSize();
 

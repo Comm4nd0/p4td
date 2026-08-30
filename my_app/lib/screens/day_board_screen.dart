@@ -488,14 +488,6 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   @override
   Widget build(BuildContext context) {
     final columns = _staffColumns.where((s) => _isColumnVisible(s.id)).toList();
-    // Until the user resizes (pinch or the app-bar button), the board opens —
-    // and stays — fitted: every visible column on screen at once. The board
-    // is a full-screen route, so the screen width is the board width, and
-    // MediaQuery re-runs this on rotation or a desktop window resize.
-    if (!_scaleAdjusted) {
-      _boardScale = _fitScale(MediaQuery.of(context).size.width,
-          (_showUnassigned ? 1 : 0) + columns.length);
-    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -542,7 +534,24 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
         // Flutter only delivers onDragEnd/onDraggableCanceled to a mounted
         // draggable. Swapping it out of the tree meant the drag never
         // "finished", leaving the board stuck on the overview after a drop.
-        body: Stack(
+        body: LayoutBuilder(builder: (context, constraints) {
+          // Until the user resizes (pinch or the app-bar button), the board
+          // opens — and stays — fitted: every visible column on screen at
+          // once. Fit to the ACTUAL body width: on wide layouts the board
+          // renders inside the sidebar's content pane, not the full window.
+          if (!_scaleAdjusted) {
+            final fit = _fitScale(
+                constraints.maxWidth, (_showUnassigned ? 1 : 0) + columns.length);
+            if (fit != _boardScale) {
+              _boardScale = fit;
+              // The AppBar's density icon rendered before this ran — sync it
+              // next frame (one-shot: fit == scale on the rebuild).
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && !_scaleAdjusted) setState(() {});
+              });
+            }
+          }
+          return Stack(
           // Expand so the stack keeps the body's size while the column view
           // is offstage (an offstage child otherwise collapses the stack).
           fit: StackFit.expand,
@@ -586,7 +595,8 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
             ),
             if (_dragging != null) Positioned.fill(child: _buildDragOverview(columns)),
           ],
-        ),
+          );
+        }),
       ),
     );
   }
