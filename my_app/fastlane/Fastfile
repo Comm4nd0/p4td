@@ -106,7 +106,11 @@ platform :ios do
       screenshots_path:      File.expand_path("screenshots", __dir__),
       skip_binary_upload:    true,
       skip_metadata:         true,
-      overwrite_screenshots: true,
+      # sync (checksum reconcile), not overwrite (delete-then-reupload):
+      # overwrite's deletion hadn't propagated before its own per-device
+      # quota check ran, which counted the deleted sets and silently skipped
+      # the tail of ours ("Too many screenshots found for device...").
+      sync_screenshots:      true,
       run_precheck_before_submit: false,
       force:                 true, # no interactive HTML preview
     )
