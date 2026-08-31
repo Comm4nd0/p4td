@@ -210,7 +210,7 @@ jobs:
           # NOTE: keep each command on one line — the action's shell does not
           # handle backslash line-continuations.
           script: |
-            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
+            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD" --dart-define=DEMO_DOG=Luna
             mkdir -p "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots"
             cp build/screenshots/android-phone/*.png "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots/" || true
       - name: Upload to Play Console

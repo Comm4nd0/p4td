@@ -185,6 +185,18 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f"{'Created' if dog_created else 'Found'} dog {dog.name} (id={dog.id})"))
 
+        # The screenshot harness only ever shows the seeded dog, but any other
+        # dog on this account is a liability — real household details have
+        # ended up here before. Shout about it so it gets cleaned up.
+        extra_dogs = Dog.objects.filter(owner=user).exclude(pk=dog.pk)
+        if extra_dogs.exists():
+            self.stdout.write(self.style.WARNING(
+                "WARNING: the demo account also owns: "
+                + ", ".join(f"{d.name} (id={d.id})" for d in extra_dogs)
+                + " — these are NOT seeded demo data. Reassign or delete them; "
+                "nothing on this account should belong to a real customer."
+            ))
+
         if opts["no_media"]:
             self.stdout.write("Skipped media (--no-media).")
             self._print_summary(email, opts["password"])
@@ -209,20 +221,39 @@ class Command(BaseCommand):
                 p.save()
             self.stdout.write(self.style.SUCCESS("Added 3 gallery photos."))
 
-        # A couple of feed posts (GroupMedia) tagged with the dog.
+        # Feed posts (GroupMedia) tagged with the dog. The feed is communal —
+        # every owner sees every post, newest first — so the demo posts are
+        # recreated with fresh timestamps on EVERY run: re-running this command
+        # right before a screenshot capture is what keeps real customers' posts
+        # (their dogs' names and photos) off the top of the demo feed. Enough
+        # posts are seeded to fill the first screen on the largest device.
+        old_posts = GroupMedia.objects.filter(uploaded_by=user)
+        if old_posts.exists():
+            for gm in old_posts:
+                for f in (gm.file, gm.thumbnail):
+                    if f:
+                        f.delete(save=False)
+            old_posts.delete()
         captions = [
             f"{dog.name} had a brilliant day in the paddock! 🐾",
             f"Nap time after a big play session for {dog.name} 😴",
+            f"{dog.name} made a new best friend today 🐶",
+            f"Splash time! {dog.name} loved the paddling pool 💦",
         ]
-        if GroupMedia.objects.filter(tagged_dogs=dog).count() == 0:
-            for i, cap in enumerate(captions):
-                data = _make_image(f"{dog.name}", _BG_COLORS[(i + 1) % len(_BG_COLORS)])
-                gm = GroupMedia(uploaded_by=user, media_type="PHOTO", caption=cap)
-                gm.file.save(f"demo_feed_{dog.id}_{i}.png", ContentFile(data), save=False)
-                gm.thumbnail.save(f"demo_feed_thumb_{dog.id}_{i}.png", ContentFile(data), save=False)
-                gm.save()
-                gm.tagged_dogs.add(dog)
-            self.stdout.write(self.style.SUCCESS("Added 2 feed posts."))
+        now = timezone.now()
+        for i, cap in enumerate(captions):
+            data = _make_image(f"{dog.name}", _BG_COLORS[(i + 1) % len(_BG_COLORS)])
+            gm = GroupMedia(uploaded_by=user, media_type="PHOTO", caption=cap)
+            gm.file.save(f"demo_feed_{dog.id}_{i}.png", ContentFile(data), save=False)
+            gm.thumbnail.save(f"demo_feed_thumb_{dog.id}_{i}.png", ContentFile(data), save=False)
+            gm.save()
+            gm.tagged_dogs.add(dog)
+            # created_at is auto_now_add; stagger the posts a few minutes apart
+            # (newest first) so the feed looks organic rather than bulk-loaded.
+            GroupMedia.objects.filter(pk=gm.pk).update(
+                created_at=now - timedelta(minutes=7 * i)
+            )
+        self.stdout.write(self.style.SUCCESS(f"Refreshed {len(captions)} feed posts (now newest in the feed)."))
 
         self._print_summary(email, opts["password"])
 

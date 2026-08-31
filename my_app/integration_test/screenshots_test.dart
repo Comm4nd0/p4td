@@ -39,6 +39,11 @@ import 'package:firebase_core/firebase_core.dart';
 
 const _demoEmail = String.fromEnvironment('DEMO_EMAIL');
 const _demoPassword = String.fromEnvironment('DEMO_PASSWORD');
+// The seeded demo dog the harness is allowed to shoot. The demo account has
+// occasionally accumulated other dogs whose profiles carry real household
+// details; picking "whatever dog is first" put those details in the store
+// listing. Only the dog seeded by `manage.py seed_demo_data` is safe to show.
+const _demoDog = String.fromEnvironment('DEMO_DOG', defaultValue: 'Luna');
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -122,6 +127,9 @@ void main() {
     expect(loginError, isNull, reason: 'Demo login failed: $loginError');
 
     // Learn the demo dog up-front so we can navigate to its profile by name.
+    // ONLY the seeded demo dog may be shot: any other dog on the account is
+    // not curated data and must never appear in a store listing, so failing
+    // the run beats capturing it.
     List<Dog> dogs = const [];
     try {
       dogs = await ApiDataService().getDogs();
@@ -129,7 +137,16 @@ void main() {
     } catch (e) {
       _log('getDogs failed (continuing): $e');
     }
-    final String? dogName = dogs.isNotEmpty ? dogs.first.name : null;
+    expect(
+      dogs.any((d) => d.name == _demoDog),
+      isTrue,
+      reason: 'Demo dog "$_demoDog" not found on the account '
+          '(has: ${dogs.map((d) => d.name).toList()}). '
+          'Re-run `manage.py seed_demo_data` against the backend, or pass '
+          '--dart-define=DEMO_DOG=<name>. Refusing to screenshot an '
+          'uncurated dog profile.',
+    );
+    const String dogName = _demoDog;
 
     // The token is now stored. Swap the logged-out tree for the owner
     // HomeScreen using the app's REAL navigator (the one MyApp installed via
