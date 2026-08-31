@@ -56,6 +56,9 @@ DRIVE=(flutter drive
   --target=integration_test/screenshots_test.dart
   --dart-define=DEMO_EMAIL="$DEMO_EMAIL"
   --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD"
+  # The harness only shoots the seeded demo dog (and refuses to run without
+  # it) so uncurated dogs on the account can never end up in a store listing.
+  --dart-define=DEMO_DOG="${DEMO_DOG:-Luna}"
 )
 # SCREENSHOT_VERBOSE=1 adds flutter's verbose output (granular launch/connect
 # logging) — useful for diagnosing CI hangs.

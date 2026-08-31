@@ -80,8 +80,16 @@ python manage.py seed_demo_data \
 ```
 
 It prints the `DEMO_EMAIL` / `DEMO_PASSWORD` to use next. Re-running is safe
-(idempotent). Tip: log in as this account in the app first and upload a few real
-dog photos — they'll make far nicer screenshots than the placeholders.
+(idempotent).
+
+**Re-run this immediately before every capture.** The feed is communal (every
+owner sees every post, newest first), so the seeder recreates the demo posts
+with fresh timestamps each run — that is what keeps real customers' dogs,
+names and photos out of the feed screenshot. The harness also refuses to run
+unless the seeded dog (`Luna`, or `--dart-define=DEMO_DOG=<name>`) is on the
+account, and only ever shoots that dog's profile — never add a real customer's
+dog to the demo account: its pickup address, schedule and map location would
+end up on the public store listing.
 
 ## 3. Capture (one command, all devices)
 
