@@ -29,9 +29,14 @@ on:
         description: "Reuse the ios-screenshots artifact from this run id (skips iOS capture — for retrying just the upload)"
         type: string
         default: ""
+      demo_dog:
+        description: "Name of the dog on the demo account to screenshot (the harness refuses any other dog)"
+        type: string
+        default: "Luna"
 
 env:
   LOCALE: en-GB
+  DEMO_DOG: ${{ inputs.demo_dog }}
 
 jobs:
   ios:
@@ -210,7 +215,7 @@ jobs:
           # NOTE: keep each command on one line — the action's shell does not
           # handle backslash line-continuations.
           script: |
-            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD" --dart-define=DEMO_DOG=Luna
+            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --dart-define=DEMO_EMAIL="$DEMO_EMAIL" --dart-define=DEMO_PASSWORD="$DEMO_PASSWORD" --dart-define=DEMO_DOG="${DEMO_DOG:-Luna}"
             mkdir -p "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots"
             cp build/screenshots/android-phone/*.png "fastlane/metadata/android/${LOCALE:-en-GB}/images/phoneScreenshots/" || true
       - name: Upload to Play Console
