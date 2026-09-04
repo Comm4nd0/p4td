@@ -4,6 +4,7 @@ import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../utils/snacks.dart';
 import '../models/customer_rate.dart';
+import '../models/dog.dart';
 import '../models/invoice.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -86,8 +87,9 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         title: const Text('Generate invoices?'),
         content: Text(
             'Draft invoices for $_monthLabel will be created from attendance '
-            'records. Customers already invoiced for this month are skipped, '
-            'and nothing is sent until you review each draft.'),
+            'records and raised as drafts in Xero. Customers already invoiced '
+            'for this month are skipped, and nothing is sent until a draft is '
+            'approved here or in Xero.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Generate')),
@@ -100,6 +102,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
       final result = await _dataService.generateInvoices(_month.year, _month.month);
       if (mounted) {
         showSuccess('Created ${result.created} draft invoice(s)'
+            '${result.inXero > 0 ? ' (${result.inXero} in Xero)' : ''}'
             '${result.skipped > 0 ? ', skipped ${result.skipped} already invoiced' : ''}'
             '${result.manual > 0 ? ', ${result.manual} on manual Xero billing' : ''}');
       }
@@ -134,7 +137,8 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         _month.year, _month.month, customerId: chosen.userId);
       if (mounted) {
         if (result.created > 0) {
-          showSuccess('Draft invoice created for ${chosen.displayName}');
+          showSuccess('Draft invoice created for ${chosen.displayName}'
+              '${result.inXero > 0 ? ' — now a draft in Xero' : ''}');
         } else if (result.skipped > 0) {
           showError('${chosen.displayName} already has an invoice for $_monthLabel — void it first to reissue.');
         } else {
@@ -142,6 +146,62 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         }
       }
       await _load();
+    } catch (e) {
+      if (mounted) showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Raise the month for one dog, in the dog's name. This is the route for
+  /// the customers who aren't on the app: the draft is created in Xero, where
+  /// the customer is assigned and the invoice sent.
+  Future<void> _generateForDog() async {
+    List<Dog> dogs;
+    try {
+      dogs = await _dataService.getDogs();
+    } catch (e) {
+      showError(e);
+      return;
+    }
+    if (!mounted) return;
+
+    final chosen = await showModalBottomSheet<Dog>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _DogPickerSheet(dogs: dogs),
+    );
+    if (chosen == null || !mounted) return;
+    final dogId = int.tryParse(chosen.id);
+    if (dogId == null) return;
+
+    setState(() => _busy = true);
+    try {
+      final result = await _dataService.generateInvoices(
+        _month.year, _month.month, dogId: dogId);
+      if (mounted) {
+        if (result.created > 0) {
+          showSuccess('Draft invoice created for ${chosen.name}'
+              '${result.inXero > 0 ? ' — now a draft in Xero' : ''}');
+        } else if (result.skipped > 0) {
+          showError('${chosen.name} is already on an invoice for $_monthLabel — void it first to reissue.');
+        } else {
+          showError('${chosen.name} has nothing to bill for $_monthLabel.');
+        }
+      }
+      await _load();
+      if (mounted && result.invoiceIds.isNotEmpty) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InvoiceDetailScreen(
+              invoiceId: result.invoiceIds.first,
+              canManagePayments: true,
+            ),
+          ),
+        );
+        await _load();
+      }
     } catch (e) {
       if (mounted) showError(e);
     } finally {
@@ -225,6 +285,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                 case 'generate_one':
                   _generateForCustomer();
                   break;
+
+                case 'generate_dog':
+                  _generateForDog();
+                  break;
                 case 'send_all':
                   _sendAllDrafts();
                   break;
@@ -253,6 +317,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
               const PopupMenuItem(
                 value: 'generate_one',
                 child: Text('Generate for one customer'),
+              ),
+              const PopupMenuItem(
+                value: 'generate_dog',
+                child: Text('Generate for one dog'),
               ),
               const PopupMenuItem(
                 value: 'send_all',
@@ -547,6 +615,99 @@ class _CustomerPickerSheetState extends State<_CustomerPickerSheet> {
                                 : Text(customer.dogNames.join(', '),
                                     style: const TextStyle(fontSize: 12)),
                             onTap: () => Navigator.pop(context, customer),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DogPickerSheet extends StatefulWidget {
+  final List<Dog> dogs;
+
+  const _DogPickerSheet({required this.dogs});
+
+  @override
+  State<_DogPickerSheet> createState() => _DogPickerSheetState();
+}
+
+class _DogPickerSheetState extends State<_DogPickerSheet> {
+  String _search = '';
+
+  static String _ownerLabel(Dog dog) {
+    final owner = dog.ownerDetails;
+    if (owner == null) return 'No client on the app';
+    final first = owner.firstName?.trim();
+    return (first != null && first.isNotEmpty) ? first : owner.username;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.toLowerCase();
+    final visible = widget.dogs
+        .where((d) =>
+            query.isEmpty ||
+            d.name.toLowerCase().contains(query) ||
+            _ownerLabel(d).toLowerCase().contains(query))
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Column(
+                  children: [
+                    Text('Choose a dog',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(
+                      "The invoice is raised in the dog's name and lands in Xero as a draft — assign the customer and send it there.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search dogs or owners',
+                        prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
+                        isDense: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onChanged: (value) => setState(() => _search = value),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: visible.isEmpty
+                    ? Center(
+                        child: Text('No dogs found',
+                            style: TextStyle(color: Colors.grey[600])),
+                      )
+                    : ListView.builder(
+                        itemCount: visible.length,
+                        itemBuilder: (context, index) {
+                          final dog = visible[index];
+                          return ListTile(
+                            title: Text(dog.name),
+                            subtitle: Text(_ownerLabel(dog),
+                                style: const TextStyle(fontSize: 12)),
+                            onTap: () => Navigator.pop(context, dog),
                           );
                         },
                       ),

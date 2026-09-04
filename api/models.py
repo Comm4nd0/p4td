@@ -1642,6 +1642,10 @@ class XeroConnection(models.Model):
     oauth_state_created_at = models.DateTimeField(null=True, blank=True)
     connected_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     connected_at = models.DateTimeField(null=True, blank=True)
+    # The Xero contact that per-dog draft invoices are raised against when the
+    # dog has no pinned contact yet: the business reassigns the draft to the
+    # real customer in Xero, and the sync pins that contact to the dog.
+    unassigned_contact_id = models.CharField(max_length=64, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

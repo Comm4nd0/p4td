@@ -225,6 +225,7 @@ def disconnect():
     conn.oauth_state = ''
     conn.oauth_state_created_at = None
     conn.connected_at = None
+    conn.unassigned_contact_id = ''
     conn.save()
 
 
@@ -334,14 +335,8 @@ def find_or_create_contact_by_name(name, email=''):
     return result['Contacts'][0]['ContactID']
 
 
-def create_invoice(invoice, contact_id):
-    """Create an authorised ACCREC invoice in Xero from a local Invoice.
-
-    ``LineAmountTypes: Inclusive`` keeps the app's gross total equal to the
-    Xero total regardless of the org's default tax rate. Returns
-    ``(InvoiceID, InvoiceNumber)``.
-    """
-    lines = [
+def _line_items(invoice):
+    return [
         {
             'Description': line.description,
             'Quantity': line.quantity,
@@ -349,21 +344,61 @@ def create_invoice(invoice, contact_id):
         }
         for line in invoice.lines.all()
     ]
+
+
+def create_invoice(invoice, contact_id, status='AUTHORISED', due_date=None):
+    """Create an ACCREC invoice in Xero from a local Invoice.
+
+    ``status`` is ``DRAFT`` when the invoice is being staged for review inside
+    Xero (the business assigns the right contact and approves it there) and
+    ``AUTHORISED`` when the app itself is sending it. ``LineAmountTypes:
+    Inclusive`` keeps the app's gross total equal to the Xero total regardless
+    of the org's default tax rate. Returns ``(InvoiceID, InvoiceNumber)``.
+    """
+    today = timezone.now().date()
+    due = due_date or invoice.due_date or today
     payload = {
         'Invoices': [{
             'Type': 'ACCREC',
             'Contact': {'ContactID': contact_id},
-            'Status': 'AUTHORISED',
+            'Status': status,
             'LineAmountTypes': 'Inclusive',
-            'Date': timezone.now().date().isoformat(),
-            'DueDate': invoice.due_date.isoformat() if invoice.due_date else timezone.now().date().isoformat(),
+            'Date': today.isoformat(),
+            'DueDate': due.isoformat(),
             'Reference': f'Daycare {invoice.period_label}',
-            'LineItems': lines,
+            'LineItems': _line_items(invoice),
         }],
     }
     result = _tenant_call('POST', 'Invoices', payload=payload)
     created = result['Invoices'][0]
     return created['InvoiceID'], created.get('InvoiceNumber', '')
+
+
+def update_draft_invoice(xero_invoice_id, invoice):
+    """Replace a Xero DRAFT invoice's line items with the local invoice's.
+
+    Xero replaces the whole line set on update, so the local lines are always
+    sent in full. Only valid while the Xero copy is still a draft.
+    """
+    _tenant_call('POST', 'Invoices', payload={
+        'Invoices': [{
+            'InvoiceID': xero_invoice_id,
+            'LineAmountTypes': 'Inclusive',
+            'LineItems': _line_items(invoice),
+        }],
+    })
+
+
+def authorise_invoice(xero_invoice_id, due_date):
+    """Approve a Xero DRAFT invoice (DRAFT -> AUTHORISED) with a due date.
+    Idempotent on an invoice Xero has already approved."""
+    _tenant_call('POST', 'Invoices', payload={
+        'Invoices': [{
+            'InvoiceID': xero_invoice_id,
+            'Status': 'AUTHORISED',
+            'DueDate': due_date.isoformat(),
+        }],
+    })
 
 
 def email_invoice(xero_invoice_id):
@@ -426,15 +461,16 @@ def fetch_invoices(xero_invoice_ids):
     return result.get('Invoices') or []
 
 
-def void_invoice(xero_invoice_id):
+def void_invoice(xero_invoice_id, draft=False):
     """Void an invoice in Xero, mirroring an in-app void.
 
-    Xero only allows voiding invoices with no payments applied — if payments
-    exist there, this raises XeroError and the books need a manual credit
-    note/refund instead.
+    Xero has two flavours: an approved invoice is VOIDED, a draft is DELETED
+    (Xero refuses to void a draft). Xero only allows voiding invoices with no
+    payments applied — if payments exist there, this raises XeroError and the
+    books need a manual credit note/refund instead.
     """
     _tenant_call('POST', 'Invoices', payload={
-        'Invoices': [{'InvoiceID': xero_invoice_id, 'Status': 'VOIDED'}],
+        'Invoices': [{'InvoiceID': xero_invoice_id, 'Status': 'DELETED' if draft else 'VOIDED'}],
     })
 
 

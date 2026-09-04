@@ -668,7 +668,8 @@ class MockDataService implements DataService {
   @override
   Future<Invoice> getInvoice(int id) async => _mockInvoice(id);
   @override
-  Future<({int created, int skipped, int manual})> generateInvoices(int year, int month, {int? customerId}) async => (created: 0, skipped: 0, manual: 0);
+  Future<InvoiceGenerationResult> generateInvoices(int year, int month, {int? customerId, int? dogId}) async =>
+      (created: 0, skipped: 0, manual: 0, inXero: 0, invoiceIds: const <int>[]);
   @override
   Future<Invoice> sendInvoice(int id) async => _mockInvoice(id, status: 'SENT');
   @override

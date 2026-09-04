@@ -2,8 +2,10 @@
 
 Designed to run from cron on the 1st of each month, billing the previous
 calendar month in arrears. Idempotent: customers who already have a non-VOID
-invoice for the period are skipped, so reruns create nothing new. Staff with
-can_manage_payments get a push prompting them to review and send the drafts.
+invoice for the period are skipped, so reruns create nothing new. Each draft
+is also raised as a DRAFT in Xero when connected, so it can be finished there.
+Staff with can_manage_payments get a push prompting them to review and send
+the drafts.
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone

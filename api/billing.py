@@ -17,6 +17,15 @@ opposite, which is a dangerous thing to leave lying around next to a billing
 engine: anyone "fixing the code to match the docs" would double-charge every
 boarding customer.)
 
+Every generated draft is also raised in Xero as a DRAFT invoice (when Xero
+is connected), so the business can review, reassign the contact and approve
+it inside Xero. ``sync_invoices_from_xero`` notices the approval and flips the
+app's copy to SENT — adopting Xero's total and due date, since what Xero
+emailed is the invoice the customer has — and learns the contact the draft was
+reassigned to, pinning it to the dog so next month's draft goes straight
+there. Approving from the app (``send_invoice``) authorises the same Xero
+draft rather than raising a second invoice.
+
 Xero is best-effort for *retries* — a push failure stores the error on the
 invoice — but ``send_invoice`` will not mark an invoice SENT unless the push
 succeeded, so an invoice is never presented to a customer as sent when Xero
@@ -42,6 +51,16 @@ PAYMENT_TERMS_DAYS = 14
 
 # Xero caps the length of the IDs= filter; batch open invoices when syncing.
 XERO_FETCH_CHUNK = 40
+
+# The Xero contact a per-dog draft is raised against until the dog has a
+# pinned contact. Xero requires a contact on every invoice, and inventing one
+# per dog would litter the contact list — the business reassigns the draft to
+# the real customer in Xero, and the sync pins that contact to the dog.
+UNASSIGNED_CONTACT_NAME = 'Unassigned (Paws 4 Thought app)'
+
+# Xero statuses that mean the invoice has been approved (and possibly settled).
+XERO_APPROVED_STATUSES = ('AUTHORISED', 'PAID')
+XERO_CANCELLED_STATUSES = ('DELETED', 'VOIDED')
 
 
 class XeroSendFailed(Exception):
@@ -171,23 +190,39 @@ def boarding_nights_for_month(year, month):
     return by_owner
 
 
-def generate_invoices_for_month(year, month, created_by=None, customer=None):
+def generate_invoices_for_month(year, month, created_by=None, customer=None, dog=None):
     """Create DRAFT invoices for every APP-billed customer with daycare
     attendance or boarding nights in the period (or just one customer when
-    ``customer`` is given).
+    ``customer`` is given, or just one dog when ``dog`` is given).
 
     MANUAL-mode customers (and ownerless dogs) are left alone — the business
     still invoices them by hand in Xero each month, and generating here too
-    would double-bill them. Passing ``customer`` bypasses that check: an
-    explicit single-customer generation is a deliberate staff action (and the
+    would double-bill them. Passing ``customer`` or ``dog`` bypasses that
+    check: an explicit single generation is a deliberate staff action (and the
     escape hatch for one-off app invoices during the transition).
 
-    Idempotent: customers who already have a non-VOID invoice for the period
-    are skipped, as are customers with nothing to bill. Returns
+    A ``dog`` invoice is raised in the dog's name whether or not the dog has a
+    client attached: most of the client book isn't on the app yet, so the
+    business raises the month per dog, then assigns the customer in Xero.
+
+    Idempotent: a customer with a non-VOID invoice for the period is skipped,
+    and a dog already on any non-VOID invoice for the period (its own, or its
+    owner's) is never billed twice — a per-dog invoice raised first drops that
+    dog from the owner's invoice, and vice versa. Customers/dogs with nothing
+    left to bill are skipped too. Every created draft is also raised as a
+    DRAFT in Xero when connected. Returns
     ``(created_invoices, skipped_count, manual_count)``.
     """
+    target_dog = dog
+    if customer is not None and target_dog is not None:
+        raise ValueError('Generate for a customer or a dog, not both.')
     daycare_by_owner = attendance_for_month(year, month)
     boarding_by_owner = boarding_nights_for_month(year, month)
+
+    if target_dog is not None:
+        # Per-dog: lift this dog's charges out of its owner's bucket.
+        daycare_by_owner = {None: {d: v for d, v in daycare_by_owner.get(target_dog.owner, {}).items() if d.id == target_dog.id}}
+        boarding_by_owner = {None: {d: v for d, v in boarding_by_owner.get(target_dog.owner, {}).items() if d.id == target_dog.id}}
 
     # Merge on user id (the two maps carry separate User instances). Dogs with
     # no client attached bill per dog, in the dog's name, so key those by dog.
@@ -203,59 +238,68 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None):
         })
 
     for owner, dogs in daycare_by_owner.items():
-        for dog, days in dogs.items():
-            _entry(owner, dog)['daycare'][dog] = days
+        for d, days in dogs.items():
+            _entry(owner, d)['daycare'][d] = days
     for owner, dogs in boarding_by_owner.items():
-        for dog, nights in dogs.items():
-            _entry(owner, dog)['boarding'].setdefault(dog, []).extend(nights)
+        for d, nights in dogs.items():
+            _entry(owner, d)['boarding'].setdefault(d, []).extend(nights)
 
     if customer is not None:
         entry = customers.get(('user', customer.id))
         customers = {('user', customer.id): entry} if entry else {}
+    if target_dog is not None:
+        entry = customers.get(('dog', target_dog.id))
+        customers = {('dog', target_dog.id): entry} if entry else {}
 
     manual = 0
-    if customer is None:
+    if customer is None and target_dog is None:
         app_billed = {}
         for key, entry in customers.items():
-            owner, dog = entry['owner'], entry['dog']
+            owner, entry_dog = entry['owner'], entry['dog']
             if owner is not None:
                 mode = getattr(getattr(owner, 'profile', None), 'billing_mode', 'MANUAL')
             else:
-                mode = dog.billing_mode
+                mode = entry_dog.billing_mode
             if mode == 'APP':
                 app_billed[key] = entry
             else:
                 manual += 1
         customers = app_billed
 
-    billed_customers = set()
-    billed_dogs = set()
-    for invoice in Invoice.objects.filter(period_year=year, period_month=month).exclude(status='VOID'):
-        if invoice.customer_id is not None:
-            billed_customers.add(invoice.customer_id)
-        if invoice.billed_dog_id is not None:
-            billed_dogs.add(invoice.billed_dog_id)
+    billed_customers = set(
+        Invoice.objects.filter(period_year=year, period_month=month, customer__isnull=False)
+        .exclude(status='VOID').values_list('customer_id', flat=True)
+    )
+    # A dog on any active invoice for the period is already billed, whichever
+    # invoice (its own, or its owner's) carries it.
+    billed_dogs = _dogs_billed_elsewhere(year, month)
 
     created = []
     skipped = 0
     for entry in customers.values():
-        owner, dog = entry['owner'], entry['dog']
-        if (owner is not None and owner.id in billed_customers) or (dog is not None and dog.id in billed_dogs):
+        owner, billed_dog = entry['owner'], entry['dog']
+        if (owner is not None and owner.id in billed_customers) or (billed_dog is not None and billed_dog.id in billed_dogs):
+            skipped += 1
+            continue
+        daycare = {d: v for d, v in entry['daycare'].items() if d.id not in billed_dogs}
+        boarding = {d: v for d, v in entry['boarding'].items() if d.id not in billed_dogs}
+        if not daycare and not boarding:
             skipped += 1
             continue
         with transaction.atomic():
             invoice = Invoice.objects.create(
                 customer=owner,
-                billed_dog=dog,
+                billed_dog=billed_dog,
                 period_year=year,
                 period_month=month,
                 status='DRAFT',
                 created_by=created_by,
             )
-            total = _build_lines(invoice, entry['daycare'])
-            total += _build_boarding_lines(invoice, entry['boarding'])
+            total = _build_lines(invoice, daycare)
+            total += _build_boarding_lines(invoice, boarding)
             invoice.total = total
             invoice.save(update_fields=['total', 'updated_at'])
+        push_draft_to_xero(invoice)
         created.append(invoice)
     return created, skipped, manual
 
@@ -327,6 +371,18 @@ def _build_boarding_lines(invoice, dogs):
     return total
 
 
+def _dogs_billed_elsewhere(year, month, exclude=None):
+    """Ids of dogs already carried by a non-VOID invoice for the period
+    (as its billed dog or on one of its lines), optionally ignoring one."""
+    active = Invoice.objects.filter(period_year=year, period_month=month).exclude(status='VOID')
+    if exclude is not None:
+        active = active.exclude(pk=exclude.pk)
+    billed = set(active.filter(billed_dog__isnull=False).values_list('billed_dog_id', flat=True))
+    billed.update(
+        InvoiceLine.objects.filter(invoice__in=active, dog__isnull=False).values_list('dog_id', flat=True))
+    return billed
+
+
 def _adjustments_total(invoice):
     return invoice.lines.filter(is_adjustment=True).aggregate(total=Sum('line_total'))['total'] or Decimal('0.00')
 
@@ -339,12 +395,19 @@ def regenerate_draft(invoice):
     """
     if invoice.status != 'DRAFT':
         raise ValueError('Only draft invoices can be regenerated.')
-    daycare = attendance_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
-    boarding = boarding_nights_for_month(invoice.period_year, invoice.period_month).get(invoice.customer, {})
-    if invoice.customer is None:
-        # Dog-name invoice: only its own dog's charges belong on it.
+    # A dog-name invoice's attendance sits under the dog's owner (or None
+    # when it has no client); only its own dog's charges belong on it.
+    owner_key = invoice.billed_dog.owner if invoice.billed_dog is not None else invoice.customer
+    daycare = attendance_for_month(invoice.period_year, invoice.period_month).get(owner_key, {})
+    boarding = boarding_nights_for_month(invoice.period_year, invoice.period_month).get(owner_key, {})
+    if invoice.billed_dog is not None:
         daycare = {dog: days for dog, days in daycare.items() if dog.id == invoice.billed_dog_id}
         boarding = {dog: nights for dog, nights in boarding.items() if dog.id == invoice.billed_dog_id}
+    else:
+        # Dogs raised on their own invoice for the period stay off the owner's.
+        elsewhere = _dogs_billed_elsewhere(invoice.period_year, invoice.period_month, exclude=invoice)
+        daycare = {dog: days for dog, days in daycare.items() if dog.id not in elsewhere}
+        boarding = {dog: nights for dog, nights in boarding.items() if dog.id not in elsewhere}
     with transaction.atomic():
         invoice.lines.filter(is_adjustment=False).delete()
         invoice.total = (
@@ -353,6 +416,7 @@ def regenerate_draft(invoice):
             + _adjustments_total(invoice)
         )
         invoice.save(update_fields=['total', 'updated_at'])
+    _sync_draft_lines_to_xero(invoice)
     return invoice
 
 
@@ -382,6 +446,7 @@ def add_adjustment(invoice, description, amount):
     )
     invoice.total += amount
     invoice.save(update_fields=['total', 'updated_at'])
+    _sync_draft_lines_to_xero(invoice)
     return line
 
 
@@ -397,6 +462,7 @@ def remove_adjustment(invoice, line_id):
     invoice.total -= line.line_total
     line.delete()
     invoice.save(update_fields=['total', 'updated_at'])
+    _sync_draft_lines_to_xero(invoice)
     return invoice
 
 
@@ -433,8 +499,9 @@ def send_invoice(invoice, user=None):
         invoice.status = 'DRAFT'
         invoice.save(update_fields=['status', 'updated_at'])
 
+    due_date = timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS)
     try:
-        pushed = push_invoice_to_xero(invoice)
+        pushed = push_invoice_to_xero(invoice, due_date=due_date)
         if pushed:
             email_invoice_from_xero(invoice)
     except BaseException:
@@ -455,7 +522,7 @@ def send_invoice(invoice, user=None):
 
     invoice.status = 'SENT'
     invoice.sent_at = timezone.now()
-    invoice.due_date = timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS)
+    invoice.due_date = due_date
     invoice.save(update_fields=['status', 'sent_at', 'due_date', 'updated_at'])
 
     # Dog-name invoices have no app user to notify — they're emailed from Xero.
@@ -469,40 +536,101 @@ def send_invoice(invoice, user=None):
     return invoice
 
 
-def push_invoice_to_xero(invoice):
-    """Create the invoice in Xero and store the ids + online payment URL.
+def push_invoice_to_xero(invoice, due_date=None):
+    """Make sure the invoice exists in Xero as an APPROVED invoice, and store
+    the ids + online payment URL.
 
-    Best-effort: returns True on success, False when Xero is not connected or
-    the push failed (error stored on ``xero_sync_error``). Never raises.
+    If the invoice is already in Xero as a draft (the normal case — drafts are
+    raised at generation), this approves that draft rather than creating a
+    second invoice. Best-effort: returns True on success, False when Xero is
+    not connected or the push failed (error stored on ``xero_sync_error``).
+    Never raises.
     """
     if not XeroConnection.load().is_connected:
         return False
-    if invoice.xero_invoice_id:
-        # Already pushed — just try to backfill the online URL if missing.
-        if not invoice.xero_online_url:
-            try:
-                invoice.xero_online_url = xero.get_online_invoice_url(invoice.xero_invoice_id)
-                invoice.save(update_fields=['xero_online_url', 'updated_at'])
-            except xero.XeroError as exc:
-                logger.warning('Could not fetch Xero online invoice URL: %s', exc)
-        return True
+    due_date = due_date or invoice.due_date or timezone.now().date()
     try:
-        contact_id = _resolve_contact_id(invoice)
-        xero_id, xero_number = xero.create_invoice(invoice, contact_id)
-        invoice.xero_invoice_id = xero_id
-        invoice.xero_invoice_number = xero_number
-        invoice.xero_sync_error = ''
-        try:
-            invoice.xero_online_url = xero.get_online_invoice_url(xero_id)
-        except xero.XeroError as exc:
-            logger.warning('Could not fetch Xero online invoice URL: %s', exc)
-        invoice.save(update_fields=['xero_invoice_id', 'xero_invoice_number', 'xero_online_url', 'xero_sync_error', 'updated_at'])
-        return True
+        if invoice.xero_invoice_id:
+            if invoice.status in ('DRAFT', 'SENDING'):
+                # Still a draft on both sides: approve the Xero copy.
+                xero.authorise_invoice(invoice.xero_invoice_id, due_date)
+                invoice.xero_sync_error = ''
+                invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+        else:
+            contact_id = _resolve_contact_id(invoice)
+            xero_id, xero_number = xero.create_invoice(invoice, contact_id, status='AUTHORISED', due_date=due_date)
+            invoice.xero_invoice_id = xero_id
+            invoice.xero_invoice_number = xero_number
+            invoice.xero_sync_error = ''
+            invoice.save(update_fields=['xero_invoice_id', 'xero_invoice_number', 'xero_sync_error', 'updated_at'])
     except xero.XeroError as exc:
         logger.error('Failed to push invoice #%s to Xero: %s', invoice.id, exc)
         invoice.xero_sync_error = str(exc)
         invoice.save(update_fields=['xero_sync_error', 'updated_at'])
         return False
+    _backfill_online_url(invoice)
+    return True
+
+
+def push_draft_to_xero(invoice):
+    """Raise a freshly generated draft in Xero as a DRAFT invoice.
+
+    Best-effort and idempotent (no-op when already in Xero or Xero is not
+    connected); a failure is stored on ``xero_sync_error`` and the app draft
+    carries on — ``send_invoice`` will create the Xero copy then instead.
+    Returns True when the invoice is in Xero afterwards.
+    """
+    if invoice.xero_invoice_id:
+        return True
+    if not XeroConnection.load().is_connected:
+        return False
+    try:
+        contact_id = _resolve_contact_id(invoice)
+        xero_id, xero_number = xero.create_invoice(
+            invoice, contact_id, status='DRAFT',
+            due_date=timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS),
+        )
+    except xero.XeroError as exc:
+        logger.error('Failed to raise draft invoice #%s in Xero: %s', invoice.id, exc)
+        invoice.xero_sync_error = str(exc)
+        invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+        return False
+    invoice.xero_invoice_id = xero_id
+    invoice.xero_invoice_number = xero_number
+    invoice.xero_sync_error = ''
+    invoice.save(update_fields=['xero_invoice_id', 'xero_invoice_number', 'xero_sync_error', 'updated_at'])
+    return True
+
+
+def _sync_draft_lines_to_xero(invoice):
+    """Mirror an edited app draft's lines onto its Xero draft (best-effort)."""
+    if invoice.status != 'DRAFT' or not invoice.xero_invoice_id:
+        return False
+    if not XeroConnection.load().is_connected:
+        return False
+    try:
+        xero.update_draft_invoice(invoice.xero_invoice_id, invoice)
+    except xero.XeroError as exc:
+        logger.error('Failed to update Xero draft for invoice #%s: %s', invoice.id, exc)
+        invoice.xero_sync_error = f'Xero draft update failed: {exc}'
+        invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+        return False
+    if invoice.xero_sync_error:
+        invoice.xero_sync_error = ''
+        invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+    return True
+
+
+def _backfill_online_url(invoice):
+    """Fetch the customer-facing payment URL if missing (best-effort). Xero
+    only issues one once the invoice is approved."""
+    if invoice.xero_online_url or not invoice.xero_invoice_id:
+        return
+    try:
+        invoice.xero_online_url = xero.get_online_invoice_url(invoice.xero_invoice_id)
+        invoice.save(update_fields=['xero_online_url', 'updated_at'])
+    except xero.XeroError as exc:
+        logger.warning('Could not fetch Xero online invoice URL: %s', exc)
 
 
 def _resolve_contact_id(invoice):
@@ -522,16 +650,21 @@ def _resolve_contact_id(invoice):
             profile.xero_contact_id = contact_id
             profile.save(update_fields=['xero_contact_id'])
         return contact_id
-    # No client attached: the Xero contact is the dog itself, so the
-    # business can attach an email in Xero and send the invoice there.
+    # Dog-name invoice: the dog's pinned contact when it has one (learned
+    # from the contact the business assigned in Xero last time), otherwise
+    # the shared "unassigned" placeholder for the business to reassign.
     dog = invoice.billed_dog
     if dog is not None and dog.xero_contact_id:
         return dog.xero_contact_id
-    contact_id = xero.find_or_create_contact_by_name(invoice.billed_name)
-    if dog is not None:
-        dog.xero_contact_id = contact_id
-        dog.save(update_fields=['xero_contact_id'])
-    return contact_id
+    return _unassigned_contact_id()
+
+
+def _unassigned_contact_id():
+    conn = XeroConnection.load()
+    if not conn.unassigned_contact_id:
+        conn.unassigned_contact_id = xero.find_or_create_contact_by_name(UNASSIGNED_CONTACT_NAME)
+        conn.save(update_fields=['unassigned_contact_id', 'updated_at'])
+    return conn.unassigned_contact_id
 
 
 def email_invoice_from_xero(invoice):
@@ -645,21 +778,29 @@ def record_manual_payment(invoice, amount, method, payment_date=None, recorded_b
 
 
 def sync_invoices_from_xero():
-    """Pull payment status for open invoices back from Xero.
+    """Pull status back from Xero for drafts and open invoices.
 
-    Imports Xero payments as PaymentRecords (deduped by ``xero_payment_id``)
-    and, when Xero reports more paid than the ledger accounts for (credit
-    notes, prepayments, overpayments), books the difference as a synthetic
-    adjustment so the totals stay honest. Returns counts for logging.
+    Drafts raised in Xero: an approval there (AUTHORISED/PAID) marks the app
+    copy SENT — adopting Xero's total (any difference booked as an "amended in
+    Xero" adjustment line so the lines still add up), due date and number —
+    and pins the contact the draft was assigned to on the dog; a draft deleted
+    in Xero is VOIDed here.
+
+    Open invoices: imports Xero payments as PaymentRecords (deduped by
+    ``xero_payment_id``) and, when Xero reports more paid than the ledger
+    accounts for (credit notes, prepayments, overpayments), books the
+    difference as a synthetic adjustment so the totals stay honest. Returns
+    counts for logging.
     """
-    counts = {'checked': 0, 'payments_imported': 0, 'paid': 0, 'errors': 0}
+    counts = {'checked': 0, 'payments_imported': 0, 'paid': 0, 'approved': 0, 'voided': 0, 'errors': 0}
     if not XeroConnection.load().is_connected:
         return counts
 
     open_invoices = list(
         Invoice.objects
-        .filter(status__in=('SENT', 'PART_PAID'))
+        .filter(status__in=('DRAFT', 'SENT', 'PART_PAID'))
         .exclude(xero_invoice_id='')
+        .select_related('billed_dog', 'customer__profile')
     )
     by_xero_id = {inv.xero_invoice_id: inv for inv in open_invoices}
     ids = list(by_xero_id.keys())
@@ -678,6 +819,21 @@ def sync_invoices_from_xero():
             if invoice is None:
                 continue
             counts['checked'] += 1
+            _learn_contact(invoice, remote)
+            if invoice.status == 'DRAFT':
+                remote_status = remote.get('Status', '')
+                if remote_status in XERO_CANCELLED_STATUSES:
+                    invoice.status = 'VOID'
+                    invoice.xero_last_synced_at = now
+                    invoice.save(update_fields=['status', 'xero_last_synced_at', 'updated_at'])
+                    counts['voided'] += 1
+                    continue
+                if remote_status not in XERO_APPROVED_STATUSES:
+                    invoice.xero_last_synced_at = now
+                    invoice.save(update_fields=['xero_last_synced_at', 'updated_at'])
+                    continue
+                _mark_sent_from_xero(invoice, remote)
+                counts['approved'] += 1
             was_paid = invoice.status == 'PAID'
             counts['payments_imported'] += _import_remote_payments(invoice, remote)
             refresh_payment_state(invoice)
@@ -687,6 +843,58 @@ def sync_invoices_from_xero():
                 counts['paid'] += 1
                 _notify_invoice_paid(invoice)
     return counts
+
+
+def _mark_sent_from_xero(invoice, remote):
+    """A draft approved inside Xero becomes SENT here. Xero's copy is the one
+    the customer received, so its total, due date and number win."""
+    remote_total = Decimal(str(remote.get('Total', invoice.total) or 0)).quantize(Decimal('0.01'))
+    if remote_total != invoice.total:
+        difference = remote_total - invoice.total
+        InvoiceLine.objects.create(
+            invoice=invoice,
+            description='Amended in Xero',
+            quantity=1,
+            unit_price=difference,
+            line_total=difference,
+            is_adjustment=True,
+        )
+        invoice.total = remote_total
+    invoice.status = 'SENT'
+    invoice.sent_at = timezone.now()
+    invoice.due_date = _parse_xero_date(remote.get('DueDate')) or (
+        timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS))
+    if remote.get('InvoiceNumber'):
+        invoice.xero_invoice_number = remote['InvoiceNumber']
+    invoice.xero_sync_error = ''
+    invoice.save(update_fields=[
+        'status', 'sent_at', 'due_date', 'total', 'xero_invoice_number', 'xero_sync_error', 'updated_at'])
+    _backfill_online_url(invoice)
+    if invoice.customer is not None:
+        send_push_notification(
+            invoice.customer,
+            'New invoice',
+            f'Your daycare invoice for {invoice.period_label} is ready: £{invoice.total}.',
+            data={'type': 'invoice', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        )
+
+
+def _learn_contact(invoice, remote):
+    """Pin the Xero contact an invoice ended up on, so the next invoice for
+    the same dog/customer is raised against it directly. Ignores the
+    "unassigned" placeholder — that's the one waiting to be replaced."""
+    contact_id = (remote.get('Contact') or {}).get('ContactID', '')
+    if not contact_id or contact_id == XeroConnection.load().unassigned_contact_id:
+        return
+    dog = invoice.billed_dog
+    if invoice.customer is None and dog is not None and dog.xero_contact_id != contact_id:
+        dog.xero_contact_id = contact_id
+        dog.save(update_fields=['xero_contact_id'])
+        return
+    profile = getattr(invoice.customer, 'profile', None) if invoice.customer is not None else None
+    if profile is not None and not profile.xero_contact_id:
+        profile.xero_contact_id = contact_id
+        profile.save(update_fields=['xero_contact_id'])
 
 
 def _import_remote_payments(invoice, remote):
