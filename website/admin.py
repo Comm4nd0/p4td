@@ -100,7 +100,7 @@ class SiteSettingsAdmin(ResizableSummernoteAdmin):
 class ServicePricingAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Day Care', {
-            'fields': ('day_care_price',),
+            'fields': ('day_care_price_1_day', 'day_care_price_2_to_4_days', 'day_care_price_5_days', 'day_care_price'),
         }),
         ('Day Care Bundle', {
             'fields': ('day_care_bundle_price', 'day_care_bundle_days'),

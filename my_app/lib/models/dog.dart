@@ -238,6 +238,9 @@ class Dog {
   /// Server-computed: last vaccination was more than a year ago.
   final bool vaccinationOverdue;
   final bool isSpayed;
+  /// Payment-manager override of the per-day daycare rate. Null = the
+  /// standard tier for how many days a week the dog is booked in.
+  final double? dailyRate;
   /// Upcoming dates staff have removed the dog from (server-side REMOVED
   /// assignments with no matching cancellation request). The profile drops
   /// these from the dog's upcoming booked dates so it matches the dashboard.
@@ -274,6 +277,7 @@ class Dog {
     this.lastVaccinationDate,
     this.vaccinationOverdue = false,
     this.isSpayed = false,
+    this.dailyRate,
     this.cancelledDates = const [],
   });
 
@@ -323,6 +327,7 @@ class Dog {
     DateTime? lastVaccinationDate,
     bool? vaccinationOverdue,
     bool? isSpayed,
+    double? dailyRate,
     List<DateTime>? cancelledDates,
   }) {
     return Dog(
@@ -356,6 +361,7 @@ class Dog {
       lastVaccinationDate: lastVaccinationDate ?? this.lastVaccinationDate,
       vaccinationOverdue: vaccinationOverdue ?? this.vaccinationOverdue,
       isSpayed: isSpayed ?? this.isSpayed,
+      dailyRate: dailyRate ?? this.dailyRate,
       cancelledDates: cancelledDates ?? this.cancelledDates,
     );
   }

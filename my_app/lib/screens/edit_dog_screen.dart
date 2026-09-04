@@ -69,6 +69,9 @@ class _EditDogScreenState extends State<EditDogScreen> {
   bool _isSpayed = false;
   bool _postcodeLookupEnabled = false;
   int? _myUserId;
+  /// Payment managers can override the per-day daycare rate for this dog.
+  bool _canManagePayments = false;
+  late TextEditingController _dailyRateController;
 
   // Vaccination certificate state. Existing certificates are listed from the
   // server; a newly picked one is held here and uploaded when the form is
@@ -92,6 +95,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _accessController = TextEditingController(text: widget.dog.accessInstructions ?? '');
     _vanPlacementController = TextEditingController(text: widget.dog.vanPlacement ?? '');
     _generalNotesController = TextEditingController(text: widget.dog.generalNotes ?? '');
+    _dailyRateController = TextEditingController(
+        text: widget.dog.dailyRate == null ? '' : widget.dog.dailyRate!.toStringAsFixed(2));
     _currentImageUrl = widget.dog.profileImageUrl;
     _selectedDays = Set.from(widget.dog.daysInDaycare);
     _selectedDropoffTime = widget.dog.preferredDropoffTime;
@@ -135,7 +140,17 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _accessController.dispose();
     _vanPlacementController.dispose();
     _generalNotesController.dispose();
+    _dailyRateController.dispose();
     super.dispose();
+  }
+
+  /// The override typed in, or null when blank (standard tier) — a
+  /// non-numeric entry is treated as blank rather than sent.
+  double? get _enteredDailyRate {
+    final text = _dailyRateController.text.trim();
+    if (text.isEmpty) return null;
+    final value = double.tryParse(text);
+    return (value == null || value < 0) ? null : value;
   }
 
   Future<void> _checkUserRole() async {
@@ -144,6 +159,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
       if (!mounted) return;
       setState(() {
         _isStaff = profile.isStaff;
+        _canManagePayments = profile.isStaff && profile.canManagePayments;
         _postcodeLookupEnabled = profile.postcodeLookupEnabled;
         _myUserId = profile.userId;
       });
@@ -370,6 +386,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
         clearLastVaccinationDate:
             _selectedLastVaccination == null && widget.dog.lastVaccinationDate != null,
         isSpayed: _isStaff ? _isSpayed : null,
+        dailyRate: _canManagePayments ? _enteredDailyRate : null,
+        clearDailyRate: _canManagePayments &&
+            _dailyRateController.text.trim().isEmpty &&
+            widget.dog.dailyRate != null,
       );
 
       if (!await _uploadPendingCertificate()) return;
@@ -852,6 +872,28 @@ class _EditDogScreenState extends State<EditDogScreen> {
             value: _isSpayed,
             onChanged: _isStaff ? (v) => setState(() => _isSpayed = v) : null,
           ),
+          if (_canManagePayments) ...[
+            const SizedBox(height: 24),
+            _sectionHeader('Billing', fontSize: 16, visibleToOwner: false),
+            const SizedBox(height: 4),
+            Text(
+              'Daycare is normally priced by how many days a week the dog is booked in. '
+              'Enter a rate here to charge this dog a fixed amount per day instead; '
+              'leave blank for the standard tier.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dailyRateController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Daily rate override',
+                prefixText: '£',
+                hintText: 'Standard tier',
+                prefixIcon: Picon(PiconsDuotone.currencyGbp),
+              ),
+            ),
+          ],
           if (_isStaff) ...[
             const SizedBox(height: 24),
             _sectionHeader('Staff Notes', fontSize: 16, visibleToOwner: false),
