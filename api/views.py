@@ -5282,12 +5282,16 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     def generate(self, request):
         """Generate draft invoices for a month from attendance records.
 
-        Optional ``customer`` (user id) restricts generation to one client —
-        used to (re)issue a single invoice, e.g. after voiding it. That form
-        also bypasses the customer's billing mode; the bulk form only bills
-        APP-mode customers and reports MANUAL ones in ``manual``.
+        Optional ``customer`` (user id) restricts generation to one client,
+        and ``dog`` (dog id) raises the month for one dog in the dog's name —
+        the route for the customers who aren't on the app: the draft lands in
+        Xero, where the business assigns the customer and sends it. Both
+        single forms bypass billing mode; the bulk form only bills APP-mode
+        customers and reports MANUAL ones in ``manual``. Drafts are raised in
+        Xero as drafts when it is connected.
         """
         from . import billing
+        from .models import Dog
 
         self._require_manager()
         year, month = self._parse_period(request)
@@ -5299,9 +5303,23 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 customer = User.objects.get(pk=request.data['customer'])
             except (User.DoesNotExist, ValueError, TypeError):
                 return Response({'customer': 'No such customer.'}, status=400)
+        dog = None
+        if request.data.get('dog'):
+            try:
+                dog = Dog.objects.get(pk=request.data['dog'])
+            except (Dog.DoesNotExist, ValueError, TypeError):
+                return Response({'dog': 'No such dog.'}, status=400)
+        if customer is not None and dog is not None:
+            return Response({'detail': 'Generate for a customer or a dog, not both.'}, status=400)
         created, skipped, manual = billing.generate_invoices_for_month(
-            year, month, created_by=request.user, customer=customer)
-        return Response({'created': len(created), 'skipped': skipped, 'manual': manual})
+            year, month, created_by=request.user, customer=customer, dog=dog)
+        return Response({
+            'created': len(created),
+            'skipped': skipped,
+            'manual': manual,
+            'invoices': [inv.id for inv in created],
+            'in_xero': sum(1 for inv in created if inv.xero_invoice_id),
+        })
 
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):
@@ -5440,6 +5458,9 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 },
                 status=400,
             )
+        # A draft is DELETED in Xero rather than VOIDED — Xero refuses to
+        # void an unapproved invoice.
+        was_draft = invoice.status in ('DRAFT', 'SENDING')
         invoice.status = 'VOID'
         invoice.save(update_fields=['status', 'updated_at'])
 
@@ -5447,7 +5468,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         xero_error = ''
         if invoice.xero_invoice_id and XeroConnection.load().is_connected:
             try:
-                xero.void_invoice(invoice.xero_invoice_id)
+                xero.void_invoice(invoice.xero_invoice_id, draft=was_draft)
                 xero_voided = True
                 invoice.xero_sync_error = ''
             except xero.XeroError as exc:
@@ -5496,17 +5517,21 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def push_to_xero(self, request, pk=None):
-        """Retry pushing an invoice to Xero after a failed/missing push (and
-        the follow-up Xero email, if it hasn't gone out yet)."""
+        """Retry pushing an invoice to Xero after a failed/missing push (and,
+        for a sent invoice, the follow-up Xero email if it hasn't gone out
+        yet). A draft is raised in Xero as a draft."""
         from . import billing
 
         self._require_manager()
         invoice = self.get_object()
-        if invoice.status in ('DRAFT', 'VOID'):
-            return Response({'detail': 'Only sent invoices can be pushed to Xero.'}, status=400)
-        ok = billing.push_invoice_to_xero(invoice)
-        if ok:
-            billing.email_invoice_from_xero(invoice)
+        if invoice.status in ('SENDING', 'VOID'):
+            return Response({'detail': 'This invoice cannot be pushed to Xero.'}, status=400)
+        if invoice.status == 'DRAFT':
+            ok = billing.push_draft_to_xero(invoice)
+        else:
+            ok = billing.push_invoice_to_xero(invoice)
+            if ok:
+                billing.email_invoice_from_xero(invoice)
         invoice.refresh_from_db()
         data = self.get_serializer(invoice).data
         data['pushed'] = ok

@@ -289,7 +289,10 @@ abstract class DataService {
   // require can_manage_payments)
   Future<List<Invoice>> getInvoices({int? year, int? month, String? status, int? customerId});
   Future<Invoice> getInvoice(int id);
-  Future<({int created, int skipped, int manual})> generateInvoices(int year, int month, {int? customerId});
+  /// Generate draft invoices for a month from attendance: the whole month,
+  /// one [customerId], or one [dogId] (in the dog's name — the draft lands in
+  /// Xero for the business to assign the customer there).
+  Future<InvoiceGenerationResult> generateInvoices(int year, int month, {int? customerId, int? dogId});
   Future<Invoice> sendInvoice(int id);
   Future<int> sendAllInvoices(int year, int month);
   Future<Invoice> regenerateInvoice(int id);

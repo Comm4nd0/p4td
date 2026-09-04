@@ -3532,7 +3532,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<({int created, int skipped, int manual})> generateInvoices(int year, int month, {int? customerId}) async {
+  Future<InvoiceGenerationResult> generateInvoices(int year, int month, {int? customerId, int? dogId}) async {
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/invoices/generate/'),
@@ -3541,6 +3541,7 @@ class ApiDataService implements DataService {
         'year': year,
         'month': month,
         if (customerId != null) 'customer': customerId,
+        if (dogId != null) 'dog': dogId,
       }),
     );
     if (response.statusCode == 200) {
@@ -3549,6 +3550,8 @@ class ApiDataService implements DataService {
         created: data['created'] as int,
         skipped: data['skipped'] as int,
         manual: (data['manual'] ?? 0) as int,
+        inXero: (data['in_xero'] ?? 0) as int,
+        invoiceIds: ((data['invoices'] as List<dynamic>?) ?? const []).cast<int>(),
       );
     }
     throw Exception(_invoiceError(response, 'Failed to generate invoices'));

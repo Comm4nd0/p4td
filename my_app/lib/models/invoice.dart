@@ -95,12 +95,27 @@ class InvoicePayment {
   }
 }
 
+/// Outcome of a generate call: how many drafts were created/skipped/left on
+/// manual billing, how many of the new drafts were also raised in Xero, and
+/// the new invoice ids (so a single-dog generation can open its draft).
+typedef InvoiceGenerationResult = ({
+  int created,
+  int skipped,
+  int manual,
+  int inXero,
+  List<int> invoiceIds,
+});
+
 class Invoice {
   final int id;
 
   /// Null for invoices in a dog's name (dog has no client attached —
   /// those are emailed from Xero rather than paid in-app).
   final int? customerId;
+
+  /// Set when the invoice is in a dog's name (raised per dog); the customer
+  /// is assigned to it in Xero.
+  final int? billedDogId;
   final String customerName;
   final String customerEmail;
   final int periodYear;
@@ -120,6 +135,11 @@ class Invoice {
   final DateTime? paidAt;
   final String xeroInvoiceNumber;
 
+  /// Whether the invoice exists in Xero — as a draft while [status] is
+  /// DRAFT (drafts are raised there at generation, to be finished in Xero),
+  /// approved otherwise.
+  final bool inXero;
+
   /// Staff-only diagnostic; empty for owners and when the push succeeded.
   final String xeroSyncError;
 
@@ -131,6 +151,7 @@ class Invoice {
   Invoice({
     required this.id,
     this.customerId,
+    this.billedDogId,
     required this.customerName,
     required this.customerEmail,
     required this.periodYear,
@@ -145,6 +166,7 @@ class Invoice {
     this.sentAt,
     this.paidAt,
     this.xeroInvoiceNumber = '',
+    this.inXero = false,
     this.xeroSyncError = '',
     this.hasOnlinePayment = false,
     this.lines = const [],
@@ -181,6 +203,7 @@ class Invoice {
     return Invoice(
       id: json['id'],
       customerId: json['customer'],
+      billedDogId: json['billed_dog'],
       // billed_name covers both clients and dog-name invoices server-side.
       customerName: json['billed_name'] ?? fallbackName,
       customerEmail: customer?['email'] ?? '',
@@ -197,6 +220,7 @@ class Invoice {
       sentAt: json['sent_at'] != null ? DateTime.parse(json['sent_at']) : null,
       paidAt: json['paid_at'] != null ? DateTime.parse(json['paid_at']) : null,
       xeroInvoiceNumber: json['xero_invoice_number'] ?? '',
+      inXero: json['in_xero'] ?? (json['xero_invoice_number'] ?? '').toString().isNotEmpty,
       xeroSyncError: json['xero_sync_error'] ?? '',
       hasOnlinePayment: json['has_online_payment'] ?? false,
       lines: (json['lines'] as List<dynamic>?)

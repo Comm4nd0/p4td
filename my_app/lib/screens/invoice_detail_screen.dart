@@ -100,9 +100,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Send invoice?'),
         content: Text(
-          '${invoice.customerName} will be notified of their '
-          '${invoice.periodLabel} invoice for £${invoice.total.toStringAsFixed(2)}'
-          '${invoice.xeroInvoiceNumber.isEmpty ? ', and it will be created in Xero if connected' : ''}.',
+          invoice.inXero
+              ? 'The Xero draft for ${invoice.customerName} (${invoice.periodLabel}, '
+                  '£${invoice.total.toStringAsFixed(2)}) will be approved and emailed '
+                  'from Xero, and any app customer notified. To pick a different '
+                  'customer, approve it in Xero instead.'
+              : '${invoice.customerName} will be notified of their '
+                  '${invoice.periodLabel} invoice for £${invoice.total.toStringAsFixed(2)}'
+                  ', and it will be created in Xero if connected.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -116,7 +121,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   Future<void> _confirmVoid() async {
-    final hadXeroCopy = _invoice!.xeroInvoiceNumber.isNotEmpty;
+    final hadXeroCopy = _invoice!.inXero;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -385,8 +390,15 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
             if (invoice.dueDate != null)
               _kv('Due', ukDate(invoice.dueDate!),
                   color: invoice.isOverdue ? AppColors.error : null),
-            if (invoice.xeroInvoiceNumber.isNotEmpty)
-              _kv('Xero invoice', invoice.xeroInvoiceNumber),
+            if (invoice.inXero)
+              _kv(
+                'Xero',
+                invoice.status == 'DRAFT'
+                    ? 'Draft${invoice.xeroInvoiceNumber.isNotEmpty ? ' ${invoice.xeroInvoiceNumber}' : ''} — assign the customer and approve in Xero, or send below'
+                    : invoice.xeroInvoiceNumber.isNotEmpty
+                        ? invoice.xeroInvoiceNumber
+                        : 'Approved',
+              ),
             if (widget.canManagePayments && invoice.xeroSyncError.isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
@@ -583,7 +595,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
           label: const Text('Record payment'),
         ),
       if ((invoice.status == 'SENT' || invoice.status == 'PART_PAID') &&
-          (invoice.xeroSyncError.isNotEmpty || invoice.xeroInvoiceNumber.isEmpty))
+          (invoice.xeroSyncError.isNotEmpty || !invoice.inXero))
         OutlinedButton.icon(
           onPressed: _busy
               ? null
@@ -591,6 +603,15 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                   () => _dataService.pushInvoiceToXero(invoice.id), 'Pushed to Xero'),
           icon: Picon(PiconsDuotone.uploadSimple, size: 18),
           label: const Text('Push to Xero'),
+        ),
+      if (invoice.status == 'DRAFT' && !invoice.inXero)
+        OutlinedButton.icon(
+          onPressed: _busy
+              ? null
+              : () => _runAction(
+                  () => _dataService.pushInvoiceToXero(invoice.id), 'Draft raised in Xero'),
+          icon: Picon(PiconsDuotone.uploadSimple, size: 18),
+          label: const Text('Raise draft in Xero'),
         ),
       if (invoice.status != 'PAID' && invoice.status != 'VOID')
         OutlinedButton.icon(

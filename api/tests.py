@@ -8569,41 +8569,179 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         self.assertEqual(created[0].status, 'SENT')
         mock_push.assert_not_called()  # nobody to push to
 
-    @patch('api.xero._api_request')
-    def test_xero_contact_created_in_dogs_name(self, mock_api):
-        from api import billing
-
+    def _connect_xero(self):
         conn = XeroConnection.load()
         conn.tenant_id = 'tenant-1'
         conn.refresh_token = 'refresh-1'
         conn.access_token = 'access-1'
         conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
         conn.save()
+        return conn
 
-        self._attend(self.stray, 1)
-        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+    @patch('api.xero._api_request')
+    def test_draft_raised_in_xero_against_unassigned_contact(self, mock_api):
+        """Generating a dog-name invoice raises a DRAFT in Xero on the shared
+        "unassigned" placeholder contact — not a contact per dog — for the
+        business to reassign in Xero."""
+        from api import billing
+
+        self._connect_xero()
 
         def api_response(method, path, *args, **kwargs):
             if path == 'Contacts' and method == 'GET':
                 return {'Contacts': []}
             if path == 'Contacts' and method == 'POST':
-                return {'Contacts': [{'ContactID': 'contact-dog'}]}
+                return {'Contacts': [{'ContactID': 'contact-unassigned'}]}
             if path == 'Invoices' and method == 'POST':
                 return {'Invoices': [{'InvoiceID': 'inv-1', 'InvoiceNumber': 'INV-0001'}]}
-            return {'OnlineInvoices': [{'OnlineInvoiceUrl': 'https://in.xero.com/dog'}]}
+            raise AssertionError(f'unexpected call {method} {path}')
+        mock_api.side_effect = api_response
+
+        self._attend(self.stray, 1)
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'DRAFT')
+        self.assertEqual(invoice.xero_invoice_id, 'inv-1')
+        self.assertEqual(invoice.xero_invoice_number, 'INV-0001')
+        self.assertEqual(invoice.xero_sync_error, '')
+
+        invoice_posts = [c for c in mock_api.call_args_list if c.args[0] == 'POST' and c.args[1] == 'Invoices']
+        self.assertEqual(len(invoice_posts), 1)
+        sent = invoice_posts[0].kwargs['payload']['Invoices'][0]
+        self.assertEqual(sent['Status'], 'DRAFT')
+        self.assertEqual(sent['Contact'], {'ContactID': 'contact-unassigned'})
+        self.assertEqual(len(sent['LineItems']), 1)
+
+        contact_posts = [c for c in mock_api.call_args_list if c.args[0] == 'POST' and c.args[1] == 'Contacts']
+        self.assertEqual(len(contact_posts), 1)
+        self.assertEqual(contact_posts[0].kwargs['payload']['Contacts'][0]['Name'], billing.UNASSIGNED_CONTACT_NAME)
+        # The placeholder is remembered on the connection, never pinned to the dog.
+        self.assertEqual(XeroConnection.load().unassigned_contact_id, 'contact-unassigned')
+        self.stray.refresh_from_db()
+        self.assertEqual(self.stray.xero_contact_id, '')
+
+        # No online-payment lookup for a draft (Xero has no URL until approval).
+        self.assertFalse(any('OnlineInvoice' in c.args[1] for c in mock_api.call_args_list))
+
+    @patch('api.xero._api_request')
+    def test_pinned_dog_contact_is_used_for_next_draft(self, mock_api):
+        from api import billing
+
+        self._connect_xero()
+        self.stray.xero_contact_id = 'contact-real-owner'
+        self.stray.save()
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-2', 'InvoiceNumber': 'INV-0002'}]}
+
+        self._attend(self.stray, 1)
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            billing.generate_invoices_for_month(2026, 6)
+        sent = mock_api.call_args.kwargs['payload']['Invoices'][0]
+        self.assertEqual(sent['Contact'], {'ContactID': 'contact-real-owner'})
+        # Only the invoice call: no contact lookup needed.
+        self.assertEqual(mock_api.call_count, 1)
+
+    @patch('api.xero._api_request')
+    def test_send_approves_the_existing_xero_draft(self, mock_api):
+        """Sending from the app authorises the draft already in Xero rather
+        than raising a second invoice."""
+        from api import billing
+
+        self._connect_xero()
+        self._attend(self.stray, 1)
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-1', 'InvoiceNumber': 'INV-0001'}], 'Contacts': [{'ContactID': 'contact-unassigned'}]}
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.xero_invoice_id, 'inv-1')
+        mock_api.reset_mock()
+
+        def api_response(method, path, *args, **kwargs):
+            if path == 'Invoices' and method == 'POST':
+                return {'Invoices': [{'InvoiceID': 'inv-1', 'InvoiceNumber': 'INV-0001'}]}
+            if path.endswith('/OnlineInvoice'):
+                return {'OnlineInvoices': [{'OnlineInvoiceUrl': 'https://in.xero.com/dog'}]}
+            if path.endswith('/Email'):
+                return {}
+            raise AssertionError(f'unexpected call {method} {path}')
         mock_api.side_effect = api_response
 
         with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
-            billing.send_invoice(created[0])
-        created[0].refresh_from_db()
-        self.assertEqual(created[0].xero_invoice_id, 'inv-1')
-        contact_posts = [c for c in mock_api.call_args_list
-                         if c.args[0] == 'POST' and c.args[1] == 'Contacts']
-        self.assertEqual(len(contact_posts), 1)
-        self.assertEqual(contact_posts[0].kwargs['payload']['Contacts'][0]['Name'], 'Stray (dog)')
-        # The created contact is pinned on the dog for the next push.
-        self.stray.refresh_from_db()
-        self.assertEqual(self.stray.xero_contact_id, 'contact-dog')
+            billing.send_invoice(invoice)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'SENT')
+        self.assertEqual(invoice.xero_invoice_id, 'inv-1')
+        self.assertEqual(invoice.xero_online_url, 'https://in.xero.com/dog')
+        invoice_posts = [c for c in mock_api.call_args_list if c.args[0] == 'POST' and c.args[1] == 'Invoices']
+        self.assertEqual(len(invoice_posts), 1)
+        sent = invoice_posts[0].kwargs['payload']['Invoices'][0]
+        self.assertEqual(sent['InvoiceID'], 'inv-1')
+        self.assertEqual(sent['Status'], 'AUTHORISED')
+        self.assertEqual(sent['DueDate'], invoice.due_date.isoformat())
+        self.assertNotIn('LineItems', sent)
+
+    @patch('api.xero._api_request')
+    def test_draft_edits_update_the_xero_draft(self, mock_api):
+        from api import billing
+
+        self._connect_xero()
+        self._attend(self.stray, 1)
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-1', 'InvoiceNumber': 'INV-0001'}], 'Contacts': [{'ContactID': 'contact-unassigned'}]}
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.xero_invoice_id, 'inv-1')
+        mock_api.reset_mock()
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-1'}]}
+
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            billing.add_adjustment(invoice, 'Damaged lead', Decimal('5.00'))
+        sent = mock_api.call_args.kwargs['payload']['Invoices'][0]
+        self.assertEqual(sent['InvoiceID'], 'inv-1')
+        self.assertNotIn('Status', sent)
+        self.assertEqual([li['Description'] for li in sent['LineItems']][-1], 'Damaged lead')
+        self.assertEqual(len(sent['LineItems']), 2)
+
+    @patch('api.xero._api_request')
+    def test_void_deletes_the_xero_draft(self, mock_api):
+        from api import billing
+
+        self._connect_xero()
+        self._attend(self.stray, 1)
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-1', 'InvoiceNumber': 'INV-0001'}], 'Contacts': [{'ContactID': 'contact-unassigned'}]}
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.xero_invoice_id, 'inv-1')
+        mock_api.reset_mock()
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-1'}]}
+
+        self.client.login(username='manager', password='pw')
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            resp = self.client.post(f'/api/invoices/{invoice.id}/void/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['xero_voided'])
+        sent = mock_api.call_args.kwargs['payload']['Invoices'][0]
+        self.assertEqual(sent, {'InvoiceID': 'inv-1', 'Status': 'DELETED'})
+
+    def test_generation_survives_xero_push_failure(self):
+        """A Xero outage at generation leaves an app draft with the error on
+        it, not a missing invoice."""
+        from api import billing, xero
+
+        self._connect_xero()
+        self._attend(self.stray, 1)
+        with patch('api.xero._api_request', side_effect=xero.XeroError('boom')):
+            created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        invoice = created[0]
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'DRAFT')
+        self.assertEqual(invoice.xero_invoice_id, '')
+        self.assertIn('boom', invoice.xero_sync_error)
 
     def test_owners_never_see_dog_name_invoices(self):
         from api import billing
@@ -8649,6 +8787,339 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         created[0].refresh_from_db()
         self.assertEqual(created[0].lines.get().quantity, 2)
         self.assertEqual(created[0].total, Decimal('50.00'))
+
+
+class PerDogGenerationTests(BillingTestsBase):
+    """Staff can raise a month for one dog, in the dog's name, regardless of
+    whether the dog has a client on the app — the draft goes to Xero, where
+    the business assigns the customer. A dog is never billed twice for a
+    period, whichever invoice carries it."""
+
+    def setUp(self):
+        super().setUp()
+        self._attend(self.dog, 1)
+        self._attend(self.dog, 2)
+        self._attend(self.dog2, 3)
+        self.client.login(username='manager', password='pw')
+
+    def test_per_dog_invoice_is_in_the_dogs_name(self):
+        from api import billing
+
+        created, skipped, manual = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(len(created), 1)
+        invoice = created[0]
+        self.assertIsNone(invoice.customer)
+        self.assertEqual(invoice.billed_dog, self.dog)
+        self.assertEqual(invoice.billed_name, 'Biscuit (dog)')
+        line = invoice.lines.get()
+        self.assertEqual(line.dog, self.dog)
+        self.assertEqual(line.quantity, 2)
+        self.assertEqual(invoice.total, Decimal('50.00'))
+
+    def test_per_dog_uses_dog_rate_not_owner_discount(self):
+        """In the dog's name there is no customer on the invoice, so the
+        owner's per-client rate doesn't apply — the dog's own override does."""
+        from api import billing
+
+        self.owner.profile.daycare_rate = Decimal('20.00')
+        self.owner.profile.save()
+        created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('25.00'))
+
+        Invoice.objects.all().delete()
+        self.dog.daily_rate = Decimal('30.00')
+        self.dog.save()
+        created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('30.00'))
+
+    def test_owner_invoice_excludes_dog_already_billed_per_dog(self):
+        from api import billing
+
+        billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(len(created), 1)
+        owner_invoice = created[0]
+        self.assertEqual(owner_invoice.customer, self.owner)
+        self.assertEqual([l.dog for l in owner_invoice.lines.all()], [self.dog2])
+        self.assertEqual(owner_invoice.total, Decimal('25.00'))
+
+    def test_per_dog_skipped_when_owner_invoice_already_carries_dog(self):
+        from api import billing
+
+        billing.generate_invoices_for_month(2026, 6, customer=self.owner)
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(created, [])
+        self.assertEqual(skipped, 1)
+
+    def test_per_dog_is_idempotent_and_voidable(self):
+        from api import billing
+
+        first, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        again, skipped, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(again, [])
+        self.assertEqual(skipped, 1)
+        first[0].status = 'VOID'
+        first[0].save()
+        third, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(len(third), 1)
+
+    def test_owner_with_all_dogs_billed_per_dog_is_skipped(self):
+        from api import billing
+
+        billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        billing.generate_invoices_for_month(2026, 6, dog=self.dog2)
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created, [])
+        self.assertEqual(skipped, 1)
+
+    def test_regenerate_per_dog_invoice_for_owned_dog_keeps_its_lines(self):
+        from api import billing
+
+        created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self._attend(self.dog, 4)
+        billing.regenerate_draft(created[0])
+        created[0].refresh_from_db()
+        line = created[0].lines.get()
+        self.assertEqual(line.dog, self.dog)
+        self.assertEqual(line.quantity, 3)
+        self.assertEqual(created[0].total, Decimal('75.00'))
+
+    def test_regenerate_owner_invoice_keeps_per_dog_billed_dog_off(self):
+        from api import billing
+
+        billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        owner_invoice = created[0]
+        self._attend(self.dog, 5)  # more Biscuit days: still Biscuit's own invoice's business
+        billing.regenerate_draft(owner_invoice)
+        owner_invoice.refresh_from_db()
+        self.assertEqual([l.dog for l in owner_invoice.lines.all()], [self.dog2])
+        self.assertEqual(owner_invoice.total, Decimal('25.00'))
+
+    def test_per_dog_bypasses_billing_mode(self):
+        from api import billing
+
+        self.owner.profile.billing_mode = 'MANUAL'
+        self.owner.profile.save()
+        created, _, manual = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(manual, 0)
+
+    def test_per_dog_with_nothing_to_bill_is_skipped(self):
+        from api import billing
+
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6, dog=self.other_dog)
+        self.assertEqual(created, [])
+        self.assertEqual(skipped, 0)
+
+    def test_generate_endpoint_accepts_dog(self):
+        resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'dog': self.dog.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['created'], 1)
+        self.assertEqual(resp.data['in_xero'], 0)  # Xero not connected
+        invoice = Invoice.objects.get(pk=resp.data['invoices'][0])
+        self.assertEqual(invoice.billed_dog, self.dog)
+        self.assertIsNone(invoice.customer)
+        detail = self.client.get(f'/api/invoices/{invoice.id}/')
+        self.assertEqual(detail.data['billed_dog'], self.dog.id)
+        self.assertFalse(detail.data['in_xero'])
+
+    def test_generate_endpoint_rejects_unknown_dog_and_both(self):
+        resp = self.client.post('/api/invoices/generate/', {'year': 2026, 'month': 6, 'dog': 999999}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'dog': self.dog.id, 'customer': self.owner.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('api.xero._api_request')
+    def test_push_to_xero_endpoint_raises_draft_for_draft(self, mock_api):
+        created_resp = self.client.post('/api/invoices/generate/', {
+            'year': 2026, 'month': 6, 'dog': self.dog.id,
+        }, format='json')
+        invoice_id = created_resp.data['invoices'][0]
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.unassigned_contact_id = 'contact-unassigned'
+        conn.save()
+        mock_api.return_value = {'Invoices': [{'InvoiceID': 'inv-9', 'InvoiceNumber': 'INV-0009'}]}
+        with self.settings(XERO_CLIENT_ID='id', XERO_CLIENT_SECRET='secret'):
+            resp = self.client.post(f'/api/invoices/{invoice_id}/push_to_xero/', format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['pushed'])
+        self.assertTrue(resp.data['in_xero'])
+        self.assertEqual(resp.data['status'], 'DRAFT')
+        sent = mock_api.call_args.kwargs['payload']['Invoices'][0]
+        self.assertEqual(sent['Status'], 'DRAFT')
+
+
+@override_settings(XERO_CLIENT_ID='client-id', XERO_CLIENT_SECRET='client-secret')
+class XeroDraftSyncTests(BillingTestsBase):
+    """A draft raised in Xero is finished there: the sync notices the
+    approval (or deletion) and updates the app's copy."""
+
+    def setUp(self):
+        super().setUp()
+        conn = XeroConnection.load()
+        conn.tenant_id = 'tenant-1'
+        conn.refresh_token = 'refresh-1'
+        conn.access_token = 'access-1'
+        conn.access_token_expires_at = timezone.now() + timedelta(minutes=20)
+        conn.unassigned_contact_id = 'contact-unassigned'
+        conn.save()
+        from api.models import InvoiceLine
+
+        self.stray = Dog.objects.create(owner=None, name='Stray')
+        self.invoice = Invoice.objects.create(
+            customer=None, billed_dog=self.stray, period_year=2026, period_month=6, status='DRAFT',
+            total=Decimal('50.00'), xero_invoice_id='xero-draft-1', xero_invoice_number='INV-0001')
+        InvoiceLine.objects.create(
+            invoice=self.invoice, dog=self.stray, description='Daycare — Stray (2 days @ £25)',
+            quantity=2, unit_price=Decimal('25.00'), line_total=Decimal('50.00'))
+
+    def _remote(self, status='AUTHORISED', total=50, contact='contact-unassigned', **extra):
+        remote = {
+            'InvoiceID': 'xero-draft-1',
+            'InvoiceNumber': 'INV-0042',
+            'Status': status,
+            'Total': total,
+            'DueDate': '/Date(1751241600000+0000)/',  # 2025-06-30
+            'Contact': {'ContactID': contact, 'Name': 'Someone'},
+            'AmountPaid': 0,
+            'AmountCredited': 0,
+            'Payments': [],
+        }
+        remote.update(extra)
+        return [remote]
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.get_online_invoice_url', return_value='https://in.xero.com/draft1')
+    @patch('api.xero.fetch_invoices')
+    def test_approval_in_xero_marks_sent_and_pins_contact(self, mock_fetch, mock_url, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(contact='contact-olive')
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['approved'], 1)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'SENT')
+        self.assertIsNotNone(self.invoice.sent_at)
+        self.assertEqual(self.invoice.due_date, date(2025, 6, 30))
+        self.assertEqual(self.invoice.xero_invoice_number, 'INV-0042')
+        self.assertEqual(self.invoice.xero_online_url, 'https://in.xero.com/draft1')
+        self.assertEqual(self.invoice.total, Decimal('50.00'))
+        self.assertEqual(self.invoice.lines.count(), 1)
+        # The contact the business assigned in Xero is remembered for next month.
+        self.stray.refresh_from_db()
+        self.assertEqual(self.stray.xero_contact_id, 'contact-olive')
+        mock_push.assert_not_called()  # dog-name invoice: nobody on the app to tell
+
+        # A second sync leaves it alone (now an open invoice, no payments).
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['approved'], 0)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'SENT')
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.get_online_invoice_url', return_value='')
+    @patch('api.xero.fetch_invoices')
+    def test_total_changed_in_xero_is_booked_as_adjustment(self, mock_fetch, mock_url, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(total=45)
+        billing.sync_invoices_from_xero()
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.total, Decimal('45.00'))
+        adjustment = self.invoice.lines.get(is_adjustment=True)
+        self.assertEqual(adjustment.line_total, Decimal('-5.00'))
+        self.assertEqual(adjustment.description, 'Amended in Xero')
+        self.assertEqual(sum(l.line_total for l in self.invoice.lines.all()), Decimal('45.00'))
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.get_online_invoice_url', return_value='')
+    @patch('api.xero.fetch_invoices')
+    def test_unassigned_contact_is_not_pinned(self, mock_fetch, mock_url, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(contact='contact-unassigned')
+        billing.sync_invoices_from_xero()
+        self.stray.refresh_from_db()
+        self.assertEqual(self.stray.xero_contact_id, '')
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.fetch_invoices')
+    def test_still_draft_in_xero_is_left_alone(self, mock_fetch, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(status='DRAFT')
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['checked'], 1)
+        self.assertEqual(counts['approved'], 0)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'DRAFT')
+        self.assertIsNotNone(self.invoice.xero_last_synced_at)
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.fetch_invoices')
+    def test_deleted_in_xero_voids_here(self, mock_fetch, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(status='DELETED')
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['voided'], 1)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'VOID')
+        # The period can be raised again.
+        self._attend(self.stray, 1)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.stray)
+        self.assertEqual(len(created), 1)
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.get_online_invoice_url', return_value='')
+    @patch('api.xero.fetch_invoices')
+    def test_approved_and_paid_in_one_sync(self, mock_fetch, mock_url, mock_push, mock_staff):
+        from api import billing
+
+        mock_fetch.return_value = self._remote(
+            status='PAID', AmountPaid=50,
+            Payments=[{'PaymentID': 'pay-1', 'Amount': 50, 'Date': '2026-07-01T00:00:00'}])
+        counts = billing.sync_invoices_from_xero()
+        self.assertEqual(counts['approved'], 1)
+        self.assertEqual(counts['payments_imported'], 1)
+        self.assertEqual(counts['paid'], 1)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'PAID')
+
+    @patch('api.billing.send_staff_notification')
+    @patch('api.billing.send_push_notification')
+    @patch('api.xero.get_online_invoice_url', return_value='')
+    @patch('api.xero.fetch_invoices')
+    def test_customer_invoice_approval_notifies_owner(self, mock_fetch, mock_url, mock_push, mock_staff):
+        from api import billing
+
+        self.invoice.delete()
+        invoice = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='DRAFT',
+            total=Decimal('50.00'), xero_invoice_id='xero-draft-1')
+        mock_fetch.return_value = self._remote(contact='contact-olive')
+        billing.sync_invoices_from_xero()
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'SENT')
+        self.assertEqual(mock_push.call_args.args[0], self.owner)
+        self.assertIn('New invoice', mock_push.call_args.args[1])
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.xero_contact_id, 'contact-olive')
 
 
 class BillingModeTransitionTests(BillingTestsBase):

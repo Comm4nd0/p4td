@@ -1241,6 +1241,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     is_overdue = serializers.BooleanField(read_only=True)
     has_online_payment = serializers.SerializerMethodField()
     balance = serializers.SerializerMethodField()
+    in_xero = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -1250,9 +1251,14 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'period_label', 'status', 'total', 'amount_paid', 'balance',
             'due_date', 'is_overdue', 'sent_at', 'paid_at',
             'xero_invoice_number', 'xero_sync_error', 'xero_emailed_at', 'has_online_payment',
-            'lines', 'payments', 'created_at',
+            'in_xero', 'lines', 'payments', 'created_at',
         ]
         read_only_fields = fields
+
+    def get_in_xero(self, obj):
+        """Whether the invoice exists in Xero (as a draft while status is
+        DRAFT, approved otherwise)."""
+        return bool(obj.xero_invoice_id)
 
     def get_customer_details(self, obj):
         if obj.customer is None:
