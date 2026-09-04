@@ -2214,34 +2214,74 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def compatibility_conflicts(self, request):
-        """List pairs of incompatible dogs assigned to the same staff member
-        on a given date.
+        """List pairs of incompatible dogs attending daycare on a given date.
 
-        A conflict is detected when both dogs share the same ``staff_member``
-        for the date and at least one negative COMPATIBILITY DogNote links
-        them. Accepts optional ?date=YYYY-MM-DD (defaults to today).
+        Two dogs are incompatible when at least one negative COMPATIBILITY
+        DogNote links them. Each pair that is in on the day is reported once
+        with a ``scope``:
+
+        * ``SAME_GROUP`` — both dogs are booked to the same driver, so they
+          share a pickup and drop-off run as well as the day.
+        * ``SAME_DAY`` — the dogs are in the daycare on the same day but under
+          different drivers (or one has no driver yet, or is brought in by its
+          owner / boarding under the house account). The pickup groups are
+          separate, but the groups mix once everyone is at the daycare, so the
+          pair still needs watching.
+
+        Accepts optional ``?date=YYYY-MM-DD`` (defaults to today) and
+        ``?scope=group|all``. The default, ``group``, returns only SAME_GROUP
+        pairs — the behaviour app versions before 1.12.5 were built against.
+        ``all`` returns both kinds.
         """
         from django.db.models import Q
         from .models import DogNote
+        from .scheduling import HOUSE_STAFF_USERNAME
 
         target_date, error = self._parse_date(request)
         if error:
             return error
+        scope = (request.query_params.get('scope') or 'group').lower()
+        if scope not in ('group', 'all'):
+            return Response(
+                {'detail': "scope must be 'group' or 'all'."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
         self._materialize_roster_for_date(target_date)
 
+        # Everything attending the day. UNASSIGNED rows are dogs that are
+        # coming in but have no driver yet — they are still in the building,
+        # so they count for the same-day check.
         assignments = (
             self.get_queryset()
             .filter(date=target_date)
-            .exclude(status__in=['REMOVED', 'UNASSIGNED'])
+            .exclude(status='REMOVED')
+            .select_related('dog', 'staff_member')
         )
+        assignment_by_dog = {a.dog_id: a for a in assignments}
 
-        dogs_by_staff = {}
-        for a in assignments:
-            dogs_by_staff.setdefault(a.staff_member_id, []).append(a)
+        def is_house(user):
+            return user is not None and (
+                (user.username or '').lower() == HOUSE_STAFF_USERNAME
+                or (user.first_name or '').lower() == HOUSE_STAFF_USERNAME
+            )
+
+        def staff_name(user):
+            if user is None:
+                return None
+            return user.first_name or user.username
+
+        def group_key(assignment):
+            """The pickup group a dog rides in, or None when it doesn't ride
+            with a driver at all (no driver yet, or on the house account)."""
+            user = assignment.staff_member
+            if user is None or assignment.status == 'UNASSIGNED' or is_house(user):
+                return None
+            return user.id
 
         negative_notes = (
             DogNote.objects.filter(note_type='COMPATIBILITY', is_positive=False)
             .filter(~Q(related_dog=None))
+            .filter(dog_id__in=assignment_by_dog, related_dog_id__in=assignment_by_dog)
             .select_related('dog', 'related_dog')
         )
         incompat = {}
@@ -2250,27 +2290,34 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             incompat.setdefault(key, []).append(note)
 
         conflicts = []
-        for staff_id, staff_assignments in dogs_by_staff.items():
-            assigned_dog_ids = {a.dog_id for a in staff_assignments}
-            assignment_by_dog = {a.dog_id: a for a in staff_assignments}
-            for (dog_a_id, dog_b_id), notes in incompat.items():
-                if dog_a_id in assigned_dog_ids and dog_b_id in assigned_dog_ids:
-                    a_assignment = assignment_by_dog[dog_a_id]
-                    b_assignment = assignment_by_dog[dog_b_id]
-                    conflicts.append({
-                        'staff_member_id': staff_id,
-                        'staff_member_name': (
-                            a_assignment.staff_member.first_name
-                            or a_assignment.staff_member.username
-                        ),
-                        'dog_a_id': dog_a_id,
-                        'dog_a_name': a_assignment.dog.name,
-                        'dog_b_id': dog_b_id,
-                        'dog_b_name': b_assignment.dog.name,
-                        'reasons': [n.text for n in notes],
-                    })
+        for (dog_a_id, dog_b_id), notes in incompat.items():
+            a_assignment = assignment_by_dog[dog_a_id]
+            b_assignment = assignment_by_dog[dog_b_id]
+            a_group = group_key(a_assignment)
+            same_group = a_group is not None and a_group == group_key(b_assignment)
+            if not same_group and scope == 'group':
+                continue
+            shared_staff = a_assignment.staff_member if same_group else None
+            conflicts.append({
+                'scope': 'SAME_GROUP' if same_group else 'SAME_DAY',
+                'staff_member_id': shared_staff.id if shared_staff else None,
+                'staff_member_name': staff_name(shared_staff) or '',
+                'dog_a_id': dog_a_id,
+                'dog_a_name': a_assignment.dog.name,
+                'dog_a_staff_id': a_assignment.staff_member_id,
+                'dog_a_staff_name': staff_name(a_assignment.staff_member),
+                'dog_b_id': dog_b_id,
+                'dog_b_name': b_assignment.dog.name,
+                'dog_b_staff_id': b_assignment.staff_member_id,
+                'dog_b_staff_name': staff_name(b_assignment.staff_member),
+                'reasons': [n.text for n in notes],
+            })
 
-        conflicts.sort(key=lambda c: (c['staff_member_name'].lower(), c['dog_a_name'].lower()))
+        conflicts.sort(key=lambda c: (
+            c['scope'] != 'SAME_GROUP',
+            c['staff_member_name'].lower(),
+            c['dog_a_name'].lower(),
+        ))
         return Response({'date': target_date.isoformat(), 'conflicts': conflicts})
 
     @action(detail=False, methods=['get'])

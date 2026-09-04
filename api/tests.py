@@ -2781,6 +2781,99 @@ class CompatibilityConflictTests(TestCase):
         resp = self.client.get('/api/daily-assignments/compatibility_conflicts/')
         self.assertEqual(resp.status_code, 403)
 
+    def _note(self, dog, other, text='Fights'):
+        DogNote.objects.create(
+            dog=dog, related_dog=other,
+            note_type='COMPATIBILITY', is_positive=False,
+            text=text, created_by=self.staff_a,
+        )
+
+    def _get(self, scope=None):
+        self.client.login(username='staffa', password='pw')
+        url = f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        if scope:
+            url += f'&scope={scope}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        return resp.data['conflicts']
+
+    def test_same_group_pair_is_scoped_same_group(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_a)
+        self._note(self.dog1, self.dog2)
+        conflicts = self._get(scope='all')
+        self.assertEqual(len(conflicts), 1)
+        c = conflicts[0]
+        self.assertEqual(c['scope'], 'SAME_GROUP')
+        self.assertEqual(c['staff_member_id'], self.staff_a.id)
+        self.assertEqual(c['staff_member_name'], 'Alice')
+        self.assertEqual(c['dog_a_staff_name'], 'Alice')
+        self.assertEqual(c['dog_b_staff_name'], 'Alice')
+
+    def test_scope_all_flags_incompatible_dogs_in_on_same_day_with_different_staff(self):
+        # Separate pickup runs, but the groups mix once everyone is in the
+        # daycare — so the pair is still reported, as SAME_DAY.
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_b)
+        self._note(self.dog1, self.dog2)
+        conflicts = self._get(scope='all')
+        self.assertEqual(len(conflicts), 1)
+        c = conflicts[0]
+        self.assertEqual(c['scope'], 'SAME_DAY')
+        self.assertIsNone(c['staff_member_id'])
+        self.assertEqual(c['staff_member_name'], '')
+        by_dog = {c['dog_a_id']: c['dog_a_staff_name'], c['dog_b_id']: c['dog_b_staff_name']}
+        self.assertEqual(by_dog, {self.dog1.id: 'Alice', self.dog2.id: 'Bob'})
+        self.assertIn('Fights', c['reasons'])
+
+    def test_default_scope_hides_same_day_pairs_for_old_apps(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_b)
+        self._note(self.dog1, self.dog2)
+        self.assertEqual(self._get(), [])
+        self.assertEqual(self._get(scope='group'), [])
+
+    def test_unassigned_dog_still_counts_as_in_for_the_day(self):
+        self._assign(self.dog1, self.staff_a)
+        DailyDogAssignment.objects.create(
+            dog=self.dog2, staff_member=None, date=self.today, status='UNASSIGNED',
+        )
+        self._note(self.dog1, self.dog2)
+        conflicts = self._get(scope='all')
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]['scope'], 'SAME_DAY')
+        staff_names = {conflicts[0]['dog_a_staff_name'], conflicts[0]['dog_b_staff_name']}
+        self.assertEqual(staff_names, {'Alice', None})
+
+    def test_house_account_pair_is_same_day_not_same_group(self):
+        # Two owner-brought dogs both sit on the P4TD house account. They are
+        # not in a van together, only in the building together.
+        house = User.objects.create_user(
+            username='p4td', password='pw', is_staff=True, first_name='P4TD',
+        )
+        self._assign(self.dog1, house)
+        self._assign(self.dog2, house)
+        self._note(self.dog1, self.dog2)
+        self.assertEqual(self._get(), [])
+        conflicts = self._get(scope='all')
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]['scope'], 'SAME_DAY')
+
+    def test_same_group_pairs_sort_before_same_day_pairs(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_b)
+        self._assign(self.dog3, self.staff_b)
+        self._note(self.dog1, self.dog2)  # different groups
+        self._note(self.dog2, self.dog3)  # both with Bob
+        conflicts = self._get(scope='all')
+        self.assertEqual([c['scope'] for c in conflicts], ['SAME_GROUP', 'SAME_DAY'])
+        self.assertEqual(conflicts[0]['staff_member_name'], 'Bob')
+
+    def test_scope_rejects_unknown_value(self):
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get('/api/daily-assignments/compatibility_conflicts/?scope=nope')
+        self.assertEqual(resp.status_code, 400)
+
 
 class PhotoTaggingStatusTests(TestCase):
     """/api/daily-assignments/photo_tagging/ — which of the day's dogs have

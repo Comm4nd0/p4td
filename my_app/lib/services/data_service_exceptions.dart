@@ -52,35 +52,67 @@ class DogHealthFlags {
         vaccinationsOverdue = const [];
 }
 
+/// Why two incompatible dogs are being flagged for a day.
+enum CompatibilityConflictScope {
+  /// Both dogs ride with the same driver — they share the pickup and
+  /// drop-off run as well as the day at daycare.
+  sameGroup,
+
+  /// The dogs are in the daycare on the same day but under different
+  /// drivers. Pickup groups are separate, but they mix once everyone is in.
+  sameDay,
+}
+
 class CompatibilityConflict {
-  final int staffMemberId;
+  final CompatibilityConflictScope scope;
+
+  /// The driver both dogs share. Null for [CompatibilityConflictScope.sameDay].
+  final int? staffMemberId;
   final String staffMemberName;
   final int dogAId;
   final String dogAName;
+
+  /// Who drives dog A that day; null when it has no driver yet.
+  final String? dogAStaffName;
   final int dogBId;
   final String dogBName;
+  final String? dogBStaffName;
   final List<String> reasons;
 
   CompatibilityConflict({
+    this.scope = CompatibilityConflictScope.sameGroup,
     required this.staffMemberId,
     required this.staffMemberName,
     required this.dogAId,
     required this.dogAName,
+    this.dogAStaffName,
     required this.dogBId,
     required this.dogBName,
+    this.dogBStaffName,
     required this.reasons,
   });
 
+  bool get isSameGroup => scope == CompatibilityConflictScope.sameGroup;
+
+  static int? _optInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    return int.tryParse(v.toString());
+  }
+
   factory CompatibilityConflict.fromJson(Map<String, dynamic> json) {
     return CompatibilityConflict(
-      staffMemberId: json['staff_member_id'] is int
-          ? json['staff_member_id']
-          : int.parse(json['staff_member_id'].toString()),
+      scope: json['scope'] == 'SAME_DAY'
+          ? CompatibilityConflictScope.sameDay
+          : CompatibilityConflictScope.sameGroup,
+      staffMemberId: _optInt(json['staff_member_id']),
       staffMemberName: json['staff_member_name']?.toString() ?? '',
-      dogAId: json['dog_a_id'] is int ? json['dog_a_id'] : int.parse(json['dog_a_id'].toString()),
+      dogAId: _optInt(json['dog_a_id']) ?? 0,
       dogAName: json['dog_a_name']?.toString() ?? '',
-      dogBId: json['dog_b_id'] is int ? json['dog_b_id'] : int.parse(json['dog_b_id'].toString()),
+      dogAStaffName: json['dog_a_staff_name']?.toString(),
+      dogBId: _optInt(json['dog_b_id']) ?? 0,
       dogBName: json['dog_b_name']?.toString() ?? '',
+      dogBStaffName: json['dog_b_staff_name']?.toString(),
       reasons: (json['reasons'] as List<dynamic>? ?? [])
           .map((r) => r.toString())
           .toList(),
