@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:picons/picons.dart';
@@ -639,6 +640,26 @@ class _DogPickerSheet extends StatefulWidget {
 class _DogPickerSheetState extends State<_DogPickerSheet> {
   String _search = '';
 
+  static Widget _dogAvatar(Dog dog) {
+    final fallback = CircleAvatar(
+      radius: 22,
+      backgroundColor: AppColors.grey200,
+      child: Picon(PiconsDuotone.pawPrint, size: 22, color: Colors.grey[700]),
+    );
+    if (dog.profileImageUrl == null) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: CachedNetworkImage(
+        imageUrl: dog.profileImageUrl!,
+        width: 44,
+        height: 44,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => Container(width: 44, height: 44, color: AppColors.grey200),
+        errorWidget: (_, __, ___) => fallback,
+      ),
+    );
+  }
+
   static String _ownerLabel(Dog dog) {
     final owner = dog.ownerDetails;
     if (owner == null) return 'No client on the app';
@@ -703,7 +724,10 @@ class _DogPickerSheetState extends State<_DogPickerSheet> {
                         itemCount: visible.length,
                         itemBuilder: (context, index) {
                           final dog = visible[index];
+                          // Several dogs share a name — the photo (and the
+                          // owner line) is how staff tell them apart.
                           return ListTile(
+                            leading: _dogAvatar(dog),
                             title: Text(dog.name),
                             subtitle: Text(_ownerLabel(dog),
                                 style: const TextStyle(fontSize: 12)),
