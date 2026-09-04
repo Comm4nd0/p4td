@@ -1462,6 +1462,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final label = conflicts.length == 1
         ? '1 grouping conflict'
         : '${conflicts.length} grouping conflicts';
+    final subtitle = compatibilityConflictSummary(conflicts);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Material(
@@ -1485,7 +1486,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       ),
                       Text(
-                        'Incompatible dogs assigned to the same staff',
+                        subtitle,
                         style: TextStyle(color: Colors.white.withAlpha(220), fontSize: 12),
                       ),
                     ],

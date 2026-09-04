@@ -1653,7 +1653,11 @@ class ApiDataService implements DataService {
 
   @override
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date}) async {
-    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/compatibility_conflicts/${_dateParam(date)}'));
+    // scope=all: same-day pairs as well as same-pickup-group pairs. The
+    // server defaults to group-only for app versions that predate the split.
+    final dateParam = _dateParam(date);
+    final query = dateParam.isEmpty ? '?scope=all' : '$dateParam&scope=all';
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/compatibility_conflicts/$query'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body) as Map<String, dynamic>;
       final list = data['conflicts'] as List<dynamic>? ?? [];
