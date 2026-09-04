@@ -7561,7 +7561,9 @@ class XeroSyncTests(BillingTestsBase):
 
 
 class PaymentsCommandTests(BillingTestsBase):
-    def test_generate_command_defaults_to_previous_month_and_notifies(self):
+    def test_generate_command_defaults_to_current_month_and_notifies(self):
+        """Invoices go out in advance: the default period is the month we're
+        in, and an unbilled day from last month rides along as an extra."""
         today = timezone.localdate()
         prev_year, prev_month = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
         DailyDogAssignment.objects.create(
@@ -7571,8 +7573,11 @@ class PaymentsCommandTests(BillingTestsBase):
         with patch('api.management.commands.generate_monthly_invoices.send_staff_notification') as mock_staff:
             call_command('generate_monthly_invoices')
         invoice = Invoice.objects.get()
-        self.assertEqual((invoice.period_year, invoice.period_month), (prev_year, prev_month))
+        self.assertEqual((invoice.period_year, invoice.period_month), (today.year, today.month))
         self.assertEqual(invoice.status, 'DRAFT')
+        line = invoice.lines.get()
+        self.assertIn(f'extra day in {date(prev_year, prev_month, 1).strftime("%B")}', line.description)
+        self.assertEqual(line.attendance_dates, [date(prev_year, prev_month, 15).isoformat()])
         self.assertEqual(mock_staff.call_args.kwargs.get('permission'), 'can_manage_payments')
 
         # Idempotent rerun: no new invoices, no new notification.
@@ -7981,6 +7986,134 @@ class BillingRateResolutionTests(BillingTestsBase):
         self.assertEqual(resp.data['daycare_rate'], '20.00')
 
 
+class AdvanceBillingTests(BillingTestsBase):
+    """Invoices are raised in advance for the month's booked days, and catch
+    up last month's unbilled extras. June 2026 starts on a Monday."""
+
+    def setUp(self):
+        super().setUp()
+        self.dog.daycare_days = [1, 3]  # Mon + Wed
+        self.dog.save()
+
+    def _june_dates(self, weekdays):
+        return [date(2026, 6, d) for d in range(1, 31) if date(2026, 6, d).isoweekday() in weekdays]
+
+    def test_bills_the_months_booked_days_ahead_of_time(self):
+        from api import billing
+
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        expected = self._june_dates({1, 3})
+        self.assertEqual(line.quantity, len(expected))  # 9 days
+        self.assertEqual(line.attendance_dates, [d.isoformat() for d in expected])
+        self.assertIn('booked days', line.description)
+        self.assertEqual(created[0].total, Decimal('25.00') * len(expected))
+
+    def test_closure_days_and_boarding_days_are_not_booked(self):
+        from api import billing
+        from api.models import ClosureDay
+
+        ClosureDay.objects.create(date=date(2026, 6, 1), closure_type='CLOSED')
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date=date(2026, 6, 3), end_date=date(2026, 6, 5), status='APPROVED')
+        br.dogs.add(self.dog)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        daycare = created[0].lines.get(description__startswith='Daycare')
+        self.assertNotIn('2026-06-01', daycare.attendance_dates)
+        self.assertNotIn('2026-06-03', daycare.attendance_dates)
+        self.assertEqual(daycare.quantity, 7)
+
+    def test_approved_changes_shape_the_booking(self):
+        from api import billing
+        from api.models import DateChangeRequest
+
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL', original_date=date(2026, 6, 8), status='APPROVED')
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=date(2026, 6, 12), status='APPROVED')
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        dates = created[0].lines.get().attendance_dates
+        self.assertNotIn('2026-06-08', dates)
+        self.assertIn('2026-06-12', dates)
+
+    def test_staff_removal_drops_the_day(self):
+        from api import billing
+
+        self._attend(self.dog, 15, status='REMOVED')
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertNotIn('2026-06-15', created[0].lines.get().attendance_dates)
+
+    def test_last_months_unbilled_extras_are_caught_up(self):
+        """May's invoice charged May's booked days; a day added in May after
+        that goes on June's invoice, and the booked May days are not charged
+        again."""
+        from api import billing
+
+        may, _, _ = billing.generate_invoices_for_month(2026, 5)
+        may_line = may[0].lines.get()
+        self.assertIn('2026-05-04', may_line.attendance_dates)  # a booked Monday
+        # Later in May: the booked Monday happens, plus an unplanned Friday.
+        self._attend(self.dog, 4, month=5)
+        self._attend(self.dog, 8, month=5)
+
+        june, _, _ = billing.generate_invoices_for_month(2026, 6)
+        lines = list(june[0].lines.order_by('id'))
+        self.assertEqual(len(lines), 2)
+        booked, extra = lines
+        self.assertIn('booked days', booked.description)
+        self.assertIn('extra day in May', extra.description)
+        self.assertEqual(extra.attendance_dates, ['2026-05-08'])
+        self.assertEqual(june[0].total, Decimal('25.00') * (9 + 1))
+
+    def test_extras_with_no_prior_invoice_are_days_off_the_schedule(self):
+        """Transition: May was invoiced by hand, so its regular booked days
+        are taken as paid and only the unscheduled Friday comes through."""
+        from api import billing
+
+        self._attend(self.dog, 4, month=5)   # Monday: on the schedule, treated as billed by hand
+        self._attend(self.dog, 8, month=5)   # Friday: not on the schedule
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        extra = created[0].lines.get(description__contains='extra')
+        self.assertEqual(extra.attendance_dates, ['2026-05-08'])
+
+    def test_regenerate_keeps_days_billed_elsewhere_off(self):
+        from api import billing
+
+        may, _, _ = billing.generate_invoices_for_month(2026, 5)
+        self._attend(self.dog, 8, month=5)
+        june, _, _ = billing.generate_invoices_for_month(2026, 6)
+        self._attend(self.dog, 15, month=5)  # another May extra after June was drafted
+        billing.regenerate_draft(june[0])
+        june[0].refresh_from_db()
+        extra = june[0].lines.get(description__contains='extra')
+        self.assertEqual(extra.attendance_dates, ['2026-05-08', '2026-05-15'])
+        # May's booked days stay on May's invoice only.
+        self.assertEqual(june[0].lines.filter(description__contains='booked').get().quantity, 9)
+
+    def test_dog_with_nothing_booked_and_nothing_attended_is_skipped(self):
+        from api import billing
+
+        self.dog.daycare_days = []
+        self.dog.save()
+        created, skipped, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created, [])
+
+    def test_owner_transport_defaults_apply_to_booked_days(self):
+        from api import billing
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.owner_transport_discount = 5
+        pricing.save()
+        self.dog.owner_brings_default = True
+        self.dog.owner_collects_default = True
+        self.dog.save()
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertEqual(line.unit_price, Decimal('20.00'))
+        self.assertIn('owner drop-off & pick-up', line.description)
+
+
 class DaycarePriceTierTests(BillingTestsBase):
     """The day rate follows how many days a week the dog is *booked in*:
     one day £40, two to four £35, five £33 — whatever it actually attended.
@@ -8021,19 +8154,25 @@ class DaycarePriceTierTests(BillingTestsBase):
         self.assertEqual(self._rate_for([])[0], Decimal('40.00'))
 
     def test_extra_day_still_bills_at_booked_tier(self):
-        """A one-day-a-week dog that came in twice pays £40 for both days."""
+        """A one-day-a-week dog that takes an extra day pays £40 for it too —
+        whether the extra is on this month's roster or caught up from last
+        month."""
         from api import billing
 
-        self.dog.daycare_days = [1]
+        self.dog.daycare_days = [1]  # Mondays: 1, 8, 15, 22, 29 June 2026
         self.dog.save()
-        self._attend(self.dog, 1)   # Monday, the booked day
-        self._attend(self.dog, 2)   # an extra Tuesday
+        self._attend(self.dog, 2)                 # an extra Tuesday already on June's roster
+        self._attend(self.dog, 20, month=5)       # an extra day in May, never invoiced
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
-        self.assertEqual(line.quantity, 2)
-        self.assertEqual(line.unit_price, Decimal('40.00'))
-        self.assertEqual(created[0].total, Decimal('80.00'))
-        self.assertIn('1 day a week rate', line.description)
+        lines = {('extra' in l.description): l for l in created[0].lines.all()}
+        booked, extra = lines[False], lines[True]
+        self.assertEqual(booked.quantity, 6)
+        self.assertEqual(booked.unit_price, Decimal('40.00'))
+        self.assertIn('1 day a week rate', booked.description)
+        self.assertEqual(extra.quantity, 1)
+        self.assertEqual(extra.unit_price, Decimal('40.00'))
+        self.assertIn('extra day in May', extra.description)
+        self.assertEqual(created[0].total, Decimal('280.00'))
 
     def test_five_day_dog_missing_days_still_gets_five_day_rate(self):
         from api import billing
@@ -9007,7 +9146,7 @@ class PerDogGenerationTests(BillingTestsBase):
         billing.generate_invoices_for_month(2026, 6, dog=self.dog2)
         created, skipped, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created, [])
-        self.assertEqual(skipped, 1)
+        self.assertEqual(skipped, 2)  # the two per-dog invoices already covering the month
 
     def test_regenerate_per_dog_invoice_for_owned_dog_keeps_its_lines(self):
         from api import billing

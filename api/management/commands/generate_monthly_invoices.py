@@ -1,11 +1,12 @@
-"""Generate draft monthly invoices from attendance records.
+"""Generate draft monthly invoices for the month ahead.
 
-Designed to run from cron on the 1st of each month, billing the previous
-calendar month in arrears. Idempotent: customers who already have a non-VOID
-invoice for the period are skipped, so reruns create nothing new. Each draft
-is also raised as a DRAFT in Xero when connected, so it can be finished there.
-Staff with can_manage_payments get a push prompting them to review and send
-the drafts.
+Designed to run from cron on the 1st of each month: the invoice for a month
+charges every day the dog is booked in that month, plus any days it attended
+last month that were never charged (days added after last month's invoice
+went out). Idempotent: customers who already have a non-VOID invoice for the
+period are skipped, so reruns create nothing new. Each draft is also raised
+as a DRAFT in Xero when connected, so it can be finished there. Staff with
+can_manage_payments get a push prompting them to review and send the drafts.
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
@@ -16,11 +17,11 @@ from api.notifications import send_staff_notification
 
 
 class Command(BaseCommand):
-    help = 'Generate draft invoices for a month from attendance (default: previous month). Run on the 1st.'
+    help = 'Generate draft invoices for a month: its booked days plus last month\'s unbilled extras (default: the current month). Run on the 1st.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--year', type=int, help='Billing year (defaults to the previous calendar month).')
-        parser.add_argument('--month', type=int, help='Billing month 1-12 (defaults to the previous calendar month).')
+        parser.add_argument('--year', type=int, help='Billing year (defaults to the current month).')
+        parser.add_argument('--month', type=int, help='Billing month 1-12 (defaults to the current month).')
 
     def handle(self, *args, **options):
         year, month = options.get('year'), options.get('month')
@@ -28,7 +29,7 @@ class Command(BaseCommand):
             raise CommandError('Provide both --year and --month, or neither.')
         if year is None:
             today = timezone.localdate()
-            year, month = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+            year, month = today.year, today.month
         if not 1 <= month <= 12:
             raise CommandError('Month must be 1-12.')
 
