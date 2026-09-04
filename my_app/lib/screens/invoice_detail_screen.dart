@@ -583,9 +583,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
               ? null
               : () => _runAction(
                   () => _dataService.regenerateInvoice(invoice.id),
-                  'Invoice regenerated from attendance'),
+                  'Invoice regenerated from the current bookings'),
           icon: Picon(PiconsDuotone.arrowClockwise, size: 18),
-          label: const Text('Regenerate from attendance'),
+          label: const Text('Regenerate from bookings'),
         ),
       ],
       if (invoice.status == 'SENT' || invoice.status == 'PART_PAID')

@@ -1,15 +1,27 @@
 """Monthly customer billing.
 
-Invoices are generated in arrears from actual attendance: every
-``DailyDogAssignment`` row in the period whose status is not ``REMOVED``
-counts as an attended day (``UNASSIGNED`` means the dog attended but had no
-staff member — see the model comment). One invoice per customer per month,
-one line per dog, at ``Dog.daily_rate`` (a payment manager's per-dog
-override), else the customer's per-client rate, else the tier for how many
-days a week the dog is *booked in* (``ServicePricing.day_care_tier``: one
-day, two to four, five). The tier follows the booking, not the month's
-attendance — a one-day-a-week dog that adds an extra day pays the one-day
-rate for both, which the line description spells out.
+Invoices are raised **in advance**: the invoice for a month charges every
+day the dog is booked in that month as the roster stands today
+(``booked_days_for_month`` — the regular weekly days plus approved
+additions, minus approved cancellations, staff removals, closure days and
+days inside a boarding stay), and then catches up the *previous* month's
+extras: days the dog actually attended (a non-``REMOVED``
+``DailyDogAssignment`` row; ``UNASSIGNED`` means it attended without a
+staff member) that no invoice has charged yet. A day is charged once, ever:
+``_billed_dates_by_dog`` reads back the dates on every non-VOID invoice
+line, so a day billed in advance is not billed again when it is attended,
+and a day added after the invoice went out is picked up next month.
+Booked days are charged whether or not the dog turns up — a refund for a
+day cancelled after invoicing is a staff adjustment.
+
+One invoice per customer per month, one line per dog per kind (booked days,
+last month's extras, boarding nights), at ``Dog.daily_rate`` (a payment
+manager's per-dog override), else the customer's per-client rate, else the
+tier for how many days a week the dog is *booked in*
+(``ServicePricing.day_care_tier``: one day, two to four, five). The tier
+follows the booking, not the month's attendance — a one-day-a-week dog that
+adds an extra day pays the one-day rate for both, which the line
+description spells out.
 
 Approved boarding stays bill separately at a per-night rate
 (``Dog.boarding_rate`` falling back to ``ServicePricing.boarding_price_per_night``):
@@ -45,7 +57,8 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from . import xero
-from .models import BoardingRequest, DailyDogAssignment, Invoice, InvoiceLine, PaymentRecord, XeroConnection
+from .models import BoardingRequest, DailyDogAssignment, Dog, Invoice, InvoiceLine, PaymentRecord, XeroConnection
+from .scheduling import ScheduleIndex, daterange
 from .notifications import send_push_notification, send_staff_notification
 
 logger = logging.getLogger(__name__)
@@ -201,6 +214,142 @@ def boarding_nights_for_month(year, month):
     return by_owner
 
 
+def _month_bounds(year, month):
+    return date_cls(year, month, 1), date_cls(year, month, _calendar.monthrange(year, month)[1])
+
+
+def previous_month(year, month):
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def booked_days_for_month(year, month, regular_only=False):
+    """``{dog: [(date, owner_transport), ...]}`` — every day each dog is booked
+    in for the month, as the roster stands now: its regular weekly days plus
+    approved additions, minus approved cancellations, staff removals and
+    CLOSED closure days (``ScheduleIndex``), and minus days inside an approved
+    boarding stay (the boarding charge covers those). ``owner_transport``
+    comes from the day's assignment row when one exists, else the dog's
+    transport defaults.
+
+    ``regular_only`` ignores assignment rows — the schedule as booked, not as
+    attended — which is what a by-hand invoice for a past month would have
+    charged.
+    """
+    start, end = _month_bounds(year, month)
+    index = ScheduleIndex(start, end)
+    rows = {
+        (row.dog_id, row.date): row
+        for row in DailyDogAssignment.objects.filter(date__range=(start, end))
+        .exclude(status='REMOVED').select_related('dog')
+    }
+    dogs = {d.id: d for d in Dog.objects.select_related('owner__profile')}
+
+    def scheduled(day):
+        if regular_only:
+            closure = index.closure(day)
+            if closure and closure.closure_type == 'CLOSED':
+                return set()
+            return (index.weekday_dogs.get(day.isoweekday(), set()) | index.adds_by_date.get(day, set())) \
+                - index.cancels_by_date.get(day, set())
+        return index.attending_dog_ids(day)
+
+    booked = {}
+    for day in daterange(start, end):
+        for dog_id in scheduled(day) - index.boarding_dog_ids(day):
+            dog = dogs.get(dog_id)
+            if dog is None:
+                continue
+            row = rows.get((dog_id, day))
+            if row is not None:
+                owner_transport = row.effective_owner_brings and row.effective_owner_collects
+            else:
+                owner_transport = dog.owner_brings_default and dog.owner_collects_default
+            booked.setdefault(dog, []).append((day, owner_transport))
+    return booked
+
+
+def _billed_dates_by_dog(exclude_invoice=None):
+    """``{dog_id: {date, ...}}`` of every day already charged on a non-VOID
+    invoice line (booked, extra or boarding), optionally ignoring one invoice
+    (the one being rebuilt)."""
+    lines = InvoiceLine.objects.filter(is_adjustment=False, dog__isnull=False).exclude(invoice__status='VOID')
+    if exclude_invoice is not None:
+        lines = lines.exclude(invoice=exclude_invoice)
+    billed = {}
+    for dog_id, dates in lines.values_list('dog_id', 'attendance_dates'):
+        target = billed.setdefault(dog_id, set())
+        for iso in dates or []:
+            try:
+                target.add(date_cls.fromisoformat(iso))
+            except (TypeError, ValueError):
+                continue
+    return billed
+
+
+def _by_dog(by_owner):
+    """Flatten an ``{owner: {dog: value}}`` map to ``{dog_id: (dog, value)}``."""
+    flat = {}
+    for dogs in by_owner.values():
+        for dog, value in dogs.items():
+            flat[dog.id] = (dog, value)
+    return flat
+
+
+def charges_for_month(year, month, exclude_invoice=None):
+    """Everything to charge on the month's invoices, per owner per dog::
+
+        {owner_or_None: {dog: {
+            'daycare': [(date, owner_transport)],      # booked this month
+            'extra_daycare': [(date, owner_transport)], # attended last month, unbilled
+            'boarding': [night, ...],                   # this month's nights
+            'extra_boarding': [night, ...],             # last month's, unbilled
+        }}}
+
+    Days already on another non-VOID invoice are left out, so nothing is
+    charged twice however the schedule moved between invoices. A dog with no
+    app invoice touching last month at all was invoiced by hand for it (the
+    pre-app way), so its regular booked days for last month count as charged
+    and only days off that schedule come through as extras.
+    """
+    prev_year, prev_month = previous_month(year, month)
+    prev_start, prev_end = _month_bounds(prev_year, prev_month)
+    booked = booked_days_for_month(year, month)
+    attended_prev = _by_dog(attendance_for_month(prev_year, prev_month))
+    boarding = _by_dog(boarding_nights_for_month(year, month))
+    boarding_prev = _by_dog(boarding_nights_for_month(prev_year, prev_month))
+    billed = _billed_dates_by_dog(exclude_invoice)
+    scheduled_prev = {
+        dog.id: {d for d, _ in days}
+        for dog, days in booked_days_for_month(prev_year, prev_month, regular_only=True).items()
+    }
+
+    dogs = {}
+    for dog, days in booked.items():
+        dogs.setdefault(dog.id, (dog, {}))[1]['daycare'] = days
+    for dog_id, (dog, days) in attended_prev.items():
+        dogs.setdefault(dog_id, (dog, {}))[1]['extra_daycare'] = days
+    for dog_id, (dog, nights) in boarding.items():
+        dogs.setdefault(dog_id, (dog, {}))[1]['boarding'] = nights
+    for dog_id, (dog, nights) in boarding_prev.items():
+        dogs.setdefault(dog_id, (dog, {}))[1]['extra_boarding'] = nights
+
+    by_owner = {}
+    for dog_id, (dog, raw) in dogs.items():
+        done = set(billed.get(dog_id, set()))
+        if not any(prev_start <= d <= prev_end for d in done):
+            done |= scheduled_prev.get(dog_id, set())
+        charges = {
+            'daycare': [(d, t) for d, t in raw.get('daycare', []) if d not in done],
+            'extra_daycare': [(d, t) for d, t in raw.get('extra_daycare', []) if d not in done],
+            'boarding': [n for n in raw.get('boarding', []) if n not in done],
+            'extra_boarding': [n for n in raw.get('extra_boarding', []) if n not in done],
+        }
+        if not any(charges.values()):
+            continue
+        by_owner.setdefault(dog.owner, {})[dog] = charges
+    return by_owner
+
+
 def generate_invoices_for_month(year, month, created_by=None, customer=None, dog=None):
     """Create DRAFT invoices for every APP-billed customer with daycare
     attendance or boarding nights in the period (or just one customer when
@@ -227,33 +376,24 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None, dog
     target_dog = dog
     if customer is not None and target_dog is not None:
         raise ValueError('Generate for a customer or a dog, not both.')
-    daycare_by_owner = attendance_for_month(year, month)
-    boarding_by_owner = boarding_nights_for_month(year, month)
+    charges_by_owner = charges_for_month(year, month)
 
     if target_dog is not None:
         # Per-dog: lift this dog's charges out of its owner's bucket.
-        daycare_by_owner = {None: {d: v for d, v in daycare_by_owner.get(target_dog.owner, {}).items() if d.id == target_dog.id}}
-        boarding_by_owner = {None: {d: v for d, v in boarding_by_owner.get(target_dog.owner, {}).items() if d.id == target_dog.id}}
+        charges_by_owner = {None: {d: v for d, v in charges_by_owner.get(target_dog.owner, {}).items() if d.id == target_dog.id}}
 
-    # Merge on user id (the two maps carry separate User instances). Dogs with
-    # no client attached bill per dog, in the dog's name, so key those by dog.
+    # Dogs with no client attached bill per dog, in the dog's name, so key
+    # those by dog.
     customers = {}
-
-    def _entry(owner, dog):
-        key = ('user', owner.id) if owner is not None else ('dog', dog.id)
-        return customers.setdefault(key, {
-            'owner': owner,
-            'dog': dog if owner is None else None,
-            'daycare': {},
-            'boarding': {},
-        })
-
-    for owner, dogs in daycare_by_owner.items():
-        for d, days in dogs.items():
-            _entry(owner, d)['daycare'][d] = days
-    for owner, dogs in boarding_by_owner.items():
-        for d, nights in dogs.items():
-            _entry(owner, d)['boarding'].setdefault(d, []).extend(nights)
+    for owner, dogs in charges_by_owner.items():
+        for d, charges in dogs.items():
+            key = ('user', owner.id) if owner is not None else ('dog', d.id)
+            entry = customers.setdefault(key, {
+                'owner': owner,
+                'dog': d if owner is None else None,
+                'dogs': {},
+            })
+            entry['dogs'][d] = charges
 
     if customer is not None:
         entry = customers.get(('user', customer.id))
@@ -277,25 +417,36 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None, dog
                 manual += 1
         customers = app_billed
 
-    billed_customers = set(
-        Invoice.objects.filter(period_year=year, period_month=month, customer__isnull=False)
-        .exclude(status='VOID').values_list('customer_id', flat=True)
-    )
+    active = Invoice.objects.filter(period_year=year, period_month=month).exclude(status='VOID')
+    billed_customers = set(active.filter(customer__isnull=False).values_list('customer_id', flat=True))
     # A dog on any active invoice for the period is already billed, whichever
     # invoice (its own, or its owner's) carries it.
     billed_dogs = _dogs_billed_elsewhere(year, month)
 
+    # "Skipped" = customers/dogs in scope that already have this period's
+    # invoice. Their booked days are excluded upstream (charges_for_month), so
+    # they usually have nothing left and never reach the loop below — count
+    # them from the invoices themselves.
+    skipped_keys = set()
+    if customer is not None:
+        if customer.id in billed_customers:
+            skipped_keys.add(('user', customer.id))
+    elif target_dog is not None:
+        if target_dog.id in billed_dogs:
+            skipped_keys.add(('dog', target_dog.id))
+    else:
+        for customer_id, billed_dog_id in active.values_list('customer_id', 'billed_dog_id'):
+            skipped_keys.add(('user', customer_id) if customer_id is not None else ('dog', billed_dog_id))
+
     created = []
-    skipped = 0
-    for entry in customers.values():
+    for key, entry in customers.items():
         owner, billed_dog = entry['owner'], entry['dog']
         if (owner is not None and owner.id in billed_customers) or (billed_dog is not None and billed_dog.id in billed_dogs):
-            skipped += 1
+            skipped_keys.add(key)
             continue
-        daycare = {d: v for d, v in entry['daycare'].items() if d.id not in billed_dogs}
-        boarding = {d: v for d, v in entry['boarding'].items() if d.id not in billed_dogs}
-        if not daycare and not boarding:
-            skipped += 1
+        dogs = {d: v for d, v in entry['dogs'].items() if d.id not in billed_dogs}
+        if not dogs:
+            skipped_keys.add(key)
             continue
         with transaction.atomic():
             invoice = Invoice.objects.create(
@@ -306,18 +457,33 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None, dog
                 status='DRAFT',
                 created_by=created_by,
             )
-            total = _build_lines(invoice, daycare)
-            total += _build_boarding_lines(invoice, boarding)
-            invoice.total = total
+            invoice.total = _build_all_lines(invoice, dogs)
             invoice.save(update_fields=['total', 'updated_at'])
         push_draft_to_xero(invoice)
         created.append(invoice)
-    return created, skipped, manual
+    return created, len(skipped_keys), manual
 
 
-def _build_lines(invoice, dogs):
+def _build_all_lines(invoice, dogs):
+    """Create every line for ``{dog: charges}`` (see ``charges_for_month``);
+    returns the total. Booked days first, then last month's extras, then
+    boarding — each its own line so the invoice reads as the charge it is."""
+    prev_label = _calendar.month_name[previous_month(invoice.period_year, invoice.period_month)[1]]
+    total = Decimal('0.00')
+    total += _build_lines(invoice, {d: c['daycare'] for d, c in dogs.items() if c.get('daycare')})
+    total += _build_lines(invoice, {d: c['extra_daycare'] for d, c in dogs.items() if c.get('extra_daycare')},
+                          extra_month=prev_label)
+    total += _build_boarding_lines(invoice, {d: c['boarding'] for d, c in dogs.items() if c.get('boarding')})
+    total += _build_boarding_lines(invoice, {d: c['extra_boarding'] for d, c in dogs.items() if c.get('extra_boarding')},
+                                   extra_month=prev_label)
+    return total
+
+
+def _build_lines(invoice, dogs, extra_month=None):
     """Create the daycare InvoiceLines for a dog map of (date, owner_transport)
-    day tuples; returns the lines' total.
+    day tuples; returns the lines' total. ``extra_month`` names the previous
+    month when the days are its unbilled extras rather than this month's
+    booked days.
 
     Days where the owner handled both transport legs bill at the day rate
     minus the configurable owner-transport discount (as their own line, so
@@ -332,12 +498,16 @@ def _build_lines(invoice, dogs):
         split_discount = discount > 0
         standard = [d for d, owner_transport in days if not (owner_transport and split_discount)]
         discounted = [d for d, owner_transport in days if owner_transport and split_discount]
+        def what(n):
+            days = f"{n} {'extra' if extra_month else 'booked'} day{'s' if n != 1 else ''}"
+            return f'{days} in {extra_month}' if extra_month else days
+
         if standard:
             line_total = rate * len(standard)
             InvoiceLine.objects.create(
                 invoice=invoice,
                 dog=dog,
-                description=f"Daycare — {dog.name} ({len(standard)} day{'s' if len(standard) != 1 else ''} @ £{rate}, {note})",
+                description=f"Daycare — {dog.name} ({what(len(standard))} @ £{rate}, {note})",
                 quantity=len(standard),
                 unit_price=rate,
                 line_total=line_total,
@@ -351,7 +521,7 @@ def _build_lines(invoice, dogs):
                 invoice=invoice,
                 dog=dog,
                 description=(
-                    f"Daycare — {dog.name} ({len(discounted)} day{'s' if len(discounted) != 1 else ''} "
+                    f"Daycare — {dog.name} ({what(len(discounted))} "
                     f"@ £{discounted_rate}, {note}, owner drop-off & pick-up)"
                 ),
                 quantity=len(discounted),
@@ -363,16 +533,17 @@ def _build_lines(invoice, dogs):
     return total
 
 
-def _build_boarding_lines(invoice, dogs):
+def _build_boarding_lines(invoice, dogs, extra_month=None):
     """Create one boarding InvoiceLine per dog; returns the lines' total."""
     total = Decimal('0.00')
     for dog, nights in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
         rate = get_boarding_rate(dog, customer=invoice.customer)
         line_total = rate * len(nights)
+        where = f' in {extra_month}' if extra_month else ''
         InvoiceLine.objects.create(
             invoice=invoice,
             dog=dog,
-            description=f"Boarding — {dog.name} ({len(nights)} night{'s' if len(nights) != 1 else ''} @ £{rate})",
+            description=f"Boarding — {dog.name} ({len(nights)} night{'s' if len(nights) != 1 else ''}{where} @ £{rate})",
             quantity=len(nights),
             unit_price=rate,
             line_total=line_total,
@@ -406,26 +577,20 @@ def regenerate_draft(invoice):
     """
     if invoice.status != 'DRAFT':
         raise ValueError('Only draft invoices can be regenerated.')
-    # A dog-name invoice's attendance sits under the dog's owner (or None
-    # when it has no client); only its own dog's charges belong on it.
+    # A dog-name invoice's charges sit under the dog's owner (or None when it
+    # has no client); only its own dog's charges belong on it. The invoice's
+    # own lines are ignored when working out what is already billed.
     owner_key = invoice.billed_dog.owner if invoice.billed_dog is not None else invoice.customer
-    daycare = attendance_for_month(invoice.period_year, invoice.period_month).get(owner_key, {})
-    boarding = boarding_nights_for_month(invoice.period_year, invoice.period_month).get(owner_key, {})
+    dogs = charges_for_month(invoice.period_year, invoice.period_month, exclude_invoice=invoice).get(owner_key, {})
     if invoice.billed_dog is not None:
-        daycare = {dog: days for dog, days in daycare.items() if dog.id == invoice.billed_dog_id}
-        boarding = {dog: nights for dog, nights in boarding.items() if dog.id == invoice.billed_dog_id}
+        dogs = {dog: c for dog, c in dogs.items() if dog.id == invoice.billed_dog_id}
     else:
         # Dogs raised on their own invoice for the period stay off the owner's.
         elsewhere = _dogs_billed_elsewhere(invoice.period_year, invoice.period_month, exclude=invoice)
-        daycare = {dog: days for dog, days in daycare.items() if dog.id not in elsewhere}
-        boarding = {dog: nights for dog, nights in boarding.items() if dog.id not in elsewhere}
+        dogs = {dog: c for dog, c in dogs.items() if dog.id not in elsewhere}
     with transaction.atomic():
         invoice.lines.filter(is_adjustment=False).delete()
-        invoice.total = (
-            _build_lines(invoice, daycare)
-            + _build_boarding_lines(invoice, boarding)
-            + _adjustments_total(invoice)
-        )
+        invoice.total = _build_all_lines(invoice, dogs) + _adjustments_total(invoice)
         invoice.save(update_fields=['total', 'updated_at'])
     _sync_draft_lines_to_xero(invoice)
     return invoice

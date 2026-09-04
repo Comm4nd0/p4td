@@ -87,10 +87,11 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Generate invoices?'),
         content: Text(
-            'Draft invoices for $_monthLabel will be created from attendance '
-            'records and raised as drafts in Xero. Customers already invoiced '
-            'for this month are skipped, and nothing is sent until a draft is '
-            'approved here or in Xero.'),
+            'Draft invoices for $_monthLabel will charge every day each dog is '
+            'booked in during $_monthLabel, plus any days attended last month '
+            'that were never invoiced, and are raised as drafts in Xero. '
+            'Customers already invoiced for this month are skipped, and nothing '
+            'is sent until a draft is approved here or in Xero.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Generate')),
@@ -373,7 +374,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        'Use the menu to generate invoices from attendance',
+                                        'Use the menu to generate invoices for the month ahead',
                                         style: TextStyle(color: Colors.grey[500], fontSize: 13),
                                       ),
                                     ],
