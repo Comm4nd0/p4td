@@ -34,7 +34,11 @@ AUTH_URL = 'https://login.xero.com/identity/connect/authorize'
 TOKEN_URL = 'https://identity.xero.com/connect/token'
 CONNECTIONS_URL = 'https://api.xero.com/connections'
 API_BASE = 'https://api.xero.com/api.xro/2.0'
-SCOPES = 'offline_access accounting.transactions accounting.contacts'
+# Granular scopes, not the broad ``accounting.transactions``: apps registered
+# with Xero on or after 2 March 2026 are refused it (``invalid_scope`` on the
+# consent page). These three cover everything this module calls — Contacts,
+# Invoices (incl. /Email and /OnlineInvoice) and Payments.
+SCOPES = 'offline_access accounting.invoices accounting.payments accounting.contacts'
 
 # How long an in-flight authorize state stays valid.
 STATE_MAX_AGE_SECONDS = 600
