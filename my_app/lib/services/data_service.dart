@@ -23,6 +23,7 @@ import '../models/intake_request.dart';
 import '../models/staff_permission.dart';
 import '../models/postcode_address.dart';
 import '../models/vaccination_record.dart';
+import '../models/vaccination_certificate.dart';
 import '../models/owner_calendar.dart';
 import '../models/vehicle.dart';
 import '../models/vehicle_defect.dart';
@@ -893,20 +894,31 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<UnspayedMalesResult> getUnspayedMales() async {
-    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dogs/unspayed_males/'));
+  Future<DogHealthFlags> getDogHealthFlags() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dogs/health_flags/'));
     if (response.statusCode != 200) {
-      throw Exception('Failed to load unspayed males: ${response.body}');
+      throw Exception('Failed to load dog health flags: ${response.body}');
     }
     final data = json.decode(response.body) as Map<String, dynamic>;
-    final dogs = (data['dogs'] as List<dynamic>? ?? [])
-        .map((d) => UnspayedMaleSummary(
-              id: d['id'].toString(),
-              name: d['name']?.toString() ?? '',
-              imageUrl: d['profile_image']?.toString(),
-            ))
-        .toList();
-    return UnspayedMalesResult(count: data['count'] ?? dogs.length, dogs: dogs);
+    List<FlaggedDogSummary> parse(String key) {
+      final section = data[key] as Map<String, dynamic>? ?? const {};
+      return (section['dogs'] as List<dynamic>? ?? [])
+          .map((d) => FlaggedDogSummary(
+                id: d['id'].toString(),
+                name: d['name']?.toString() ?? '',
+                imageUrl: d['profile_image']?.toString(),
+                lastVaccinationDate: parseApiDate(d['last_vaccination_date'] as String?),
+              ))
+          .toList();
+    }
+
+    final unspayed = parse('unspayed_males');
+    final overdue = parse('vaccinations_overdue');
+    return DogHealthFlags(
+      count: (data['count'] as num?)?.toInt() ?? (unspayed.length + overdue.length),
+      unspayedMales: unspayed,
+      vaccinationsOverdue: overdue,
+    );
   }
 
   @override
@@ -2331,6 +2343,105 @@ class ApiDataService implements DataService {
     if (response.statusCode != 204) {
       throw Exception('Failed to delete vaccination: ${response.statusCode}');
     }
+  }
+
+  // ── Vaccination certificates ───────────────────────────────────────
+  //
+  // These files are private: no URL, no cache, no CachedNetworkImage. Every
+  // byte comes through the token-checked download view.
+
+  @override
+  Future<List<VaccinationCertificate>> getVaccinationCertificates(String dogId) async {
+    final data = await _fetchAllPages(
+      Uri.parse('${AuthService.baseUrl}/api/vaccination-certificates/?dog=$dogId'),
+    );
+    return data.map((e) => VaccinationCertificate.fromJson(e)).toList();
+  }
+
+  static String _certificateMimeType(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  @override
+  Future<VaccinationCertificate> uploadVaccinationCertificate({
+    required String dogId,
+    required Uint8List bytes,
+    required String filename,
+    DateTime? vaccinationDate,
+  }) async {
+    final token = await _authService.getToken();
+    final mime = _certificateMimeType(filename).split('/');
+    final response = await http.sendMultipart(
+      method: 'POST',
+      url: Uri.parse('${AuthService.baseUrl}/api/vaccination-certificates/'),
+      fill: (request) {
+        request.headers['Authorization'] = 'Token $token';
+        request.fields['dog'] = dogId;
+        if (vaccinationDate != null) {
+          request.fields['vaccination_date'] = formatApiDate(vaccinationDate)!;
+        }
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: filename,
+          contentType: http_parser.MediaType(mime[0], mime[1]),
+        ));
+      },
+    );
+    if (response.statusCode == 201) {
+      return VaccinationCertificate.fromJson(json.decode(response.body));
+    }
+    // The server's message is written for the person holding the phone
+    // ("That file is a web page, not a certificate.") — surface it as-is.
+    String message = 'Failed to upload the certificate';
+    try {
+      final body = json.decode(response.body);
+      if (body is Map && body.isNotEmpty) {
+        final first = body.values.first;
+        message = first is List ? first.first.toString() : first.toString();
+      }
+    } catch (_) {
+      message = 'Server error (${response.statusCode})';
+    }
+    throw Exception(message);
+  }
+
+  @override
+  Future<void> deleteVaccinationCertificate(int id) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/vaccination-certificates/$id/'),
+      headers: headers,
+    );
+    if (response.statusCode == 403) {
+      String message = 'Only staff can remove this certificate.';
+      try {
+        message = json.decode(response.body)['detail']?.toString() ?? message;
+      } catch (_) {}
+      throw Exception(message);
+    }
+    if (response.statusCode != 204) {
+      throw Exception('Failed to remove the certificate (${response.statusCode})');
+    }
+  }
+
+  @override
+  Future<Uint8List> downloadVaccinationCertificate(int id) async {
+    final headers = await _getHeaders();
+    // Up to 10 MB on a rural connection: give it longer than a JSON read.
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/vaccination-certificates/$id/download/'),
+      headers: headers,
+      timeout: const Duration(seconds: 120),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to download the certificate (${response.statusCode})');
+    }
+    return response.bodyBytes;
   }
 
   // ── Owner calendar & waitlist ──────────────────────────────────────

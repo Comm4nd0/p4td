@@ -5,7 +5,8 @@ from .views import (
     GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet,
     DailyDogAssignmentViewSet, SupportQueryViewSet, ContactInquiryViewSet,
     ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
-    DogProfileChangeRequestViewSet, VaccinationRecordViewSet, WaitlistEntryViewSet,
+    DogProfileChangeRequestViewSet, VaccinationRecordViewSet, VaccinationCertificateViewSet,
+    WaitlistEntryViewSet,
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
     InvoiceViewSet, IncidentViewSet,
     StaffHRRecordViewSet, StaffPayRateViewSet, StaffMeetingViewSet,
@@ -37,6 +38,7 @@ router.register(r'day-off-requests', DayOffRequestViewSet, basename='day-off-req
 router.register(r'contact-inquiries', ContactInquiryViewSet, basename='contact-inquiries')
 router.register(r'dog-profile-changes', DogProfileChangeRequestViewSet, basename='dog-profile-changes')
 router.register(r'vaccinations', VaccinationRecordViewSet, basename='vaccinations')
+router.register(r'vaccination-certificates', VaccinationCertificateViewSet, basename='vaccination-certificates')
 router.register(r'waitlist', WaitlistEntryViewSet, basename='waitlist')
 router.register(r'vehicles', VehicleViewSet, basename='vehicles')
 router.register(r'vehicle-defects', VehicleDefectViewSet, basename='vehicle-defects')

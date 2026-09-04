@@ -47,6 +47,10 @@ services:
     # volume — Caddy would then serve an empty/stale directory.
     volumes:
       - ./media:/app/media
+      # Vaccination certificates. A sibling of media/ on purpose: Caddy's
+      # file_server root is /srv/p4td-media (= ./media) and must never be
+      # widened to cover this. Only the gated API view reads it.
+      - ./private-media:/app/private-media
     # The host's Caddy container reverse-proxies to 172.17.0.1:8000 (Caddy is on
     # a DIFFERENT Docker network), so the app port MUST be published on the host.
     # Bind it to the docker0 gateway only: Caddy can reach it, but it is NOT

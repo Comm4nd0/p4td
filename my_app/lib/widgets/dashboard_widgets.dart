@@ -85,7 +85,10 @@ class ActionItemTile extends StatelessWidget {
   final VoidCallback onTap;
   final Color? countColor;
 
-  const ActionItemTile({super.key, required this.icon, required this.label, required this.count, required this.onTap, this.countColor});
+  /// Breakdown of a grouped count, e.g. "2 site · 1 vehicle".
+  final String? subtitle;
+
+  const ActionItemTile({super.key, required this.icon, required this.label, required this.count, required this.onTap, this.countColor, this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -93,6 +96,7 @@ class ActionItemTile extends StatelessWidget {
       child: ListTile(
         leading: Picon(icon),
         title: Text(label),
+        subtitle: subtitle == null ? null : Text(subtitle!, style: const TextStyle(fontSize: 12)),
         trailing: CircleAvatar(
           radius: 14,
           backgroundColor: countColor ?? Colors.grey[700],

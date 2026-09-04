@@ -49,8 +49,10 @@ class DashboardCounts extends ChangeNotifier {
   int unresolvedDefectCount = 0;
   int unresolvedVehicleDefectCount = 0;
   int openIncidentCount = 0;
-  int unspayedMalesCount = 0;
-  List<UnspayedMaleSummary> unspayedMales = [];
+  /// Neutered status to confirm + vaccinations over a year old: one row on
+  /// the dashboard, one call to the server.
+  DogHealthFlags dogHealthFlags = const DogHealthFlags.empty();
+  int get dogHealthCount => dogHealthFlags.count;
 
   /// Every approved boarding stay, so the dashboard can answer "who is
   /// boarding?" for any day on the date strip rather than only tonight —
@@ -92,15 +94,13 @@ class DashboardCounts extends ChangeNotifier {
       reloadUnresolvedDefectCount(),
       reloadUnresolvedVehicleDefectCount(),
       reloadOpenIncidentCount(),
-      reloadUnspayedMales(),
+      reloadDogHealthFlags(),
     ]);
   }
 
-  Future<void> reloadUnspayedMales() async {
+  Future<void> reloadDogHealthFlags() async {
     try {
-      final result = await _dataService.getUnspayedMales();
-      unspayedMalesCount = result.count;
-      unspayedMales = result.dogs;
+      dogHealthFlags = await _dataService.getDogHealthFlags();
       _safeNotify();
     } catch (_) {}
   }

@@ -149,6 +149,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/contact-inquiries/` | Website contact form |
 | `api/dog-profile-changes/` | Owner-requested dog profile change requests |
 | `api/vaccinations/` | Dog vaccination records |
+| `api/vaccination-certificates/` | The vet's certificate behind a dog's vaccination date (PDF or photo). Owners, co-owners and staff list/upload/download for their dogs; removal is the uploader's or staff's; no update. **Files live under `PRIVATE_MEDIA_ROOT`, not `MEDIA_ROOT`, and have no URL** — `<id>/download/` is the only way to the bytes (attachment + nosniff, through the scoped queryset). Images are re-encoded through Pillow (EXIF/GPS stripped, polyglots neutralised); PDFs are sniffed and refused if they carry JavaScript/launch actions/embedded files. 10 MB cap, 25 per dog, uploads throttled 60/hour/user. All of it in `api/certificates.py`. |
 | `api/waitlist/` | Daycare waitlist entries |
 | `api/vehicles/` | Fleet vehicles (MOT/service tracking) |
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
@@ -167,6 +168,11 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
+- `api/dogs/health_flags/` — staff-only; feeds the dashboard's single **Dog health to
+  confirm** row: male dogs over a year old not marked neutered, plus dogs whose
+  `last_vaccination_date` is more than a year old (no date = not flagged), with a grand
+  total. `api/dogs/unspayed_males/` is the older half of this and is kept for old app
+  versions. Add the next health list here, not as a new dashboard row.
 - `api/billing-settings/` — standard daycare/boarding prices (payment managers; backed by the website ServicePricing singleton)
 - `api/customer-rates/` — per-customer billing rate overrides / discounts and billing mode (payment managers). `billing_mode` gates the invoicing transition: `MANUAL` customers (the default) are still invoiced by hand in Xero and skipped by monthly generation; `APP` customers get auto-generated invoices. Explicit single-customer generation bypasses the flag.
 - `api/password/reset/request/`, `api/password/reset/verify/`, `api/password/reset/confirm/` — password reset OTP flow
@@ -317,6 +323,9 @@ See `.env.example` for required variables. Key ones:
   whole country's street works.
 - `ROADWORK_MATCH_RADIUS_M` — metres from a dog's cached pickup coordinates within which
   a roadwork flags that staff member's route (default 400).
+- `PRIVATE_MEDIA_ROOT` — where vaccination certificates are stored (default
+  `<repo>/private-media`, bind-mounted in production). Must stay outside `MEDIA_ROOT`
+  and outside anything Caddy serves; see `api/certificates.py` and DEPLOYMENT.md.
 - Firebase credentials for push notifications. Media is stored on local disk
   (`FileSystemStorage`) and served by Caddy — there is no S3 integration.
 
@@ -329,7 +338,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py import_dogs` | Bulk import dogs from a text file (one name per line) or CSV (`owner_username,dog_name`). `--owner`, `--dry-run` | — |
 | `python manage.py seed_demo_data` | Seed/refresh the demo owner account (with a demo dog, gallery, and feed) used for App Store / Play Store screenshots. Idempotent; `--no-media` | — |
 | `python manage.py geocode_dogs` | Geocode dog pickup addresses (postcodes.io, free, no API key) and cache lat/lng on each Dog for the staff pickup map. Idempotent; `--dry-run`, `--force`, `--limit`, `--sleep` | — |
-| `python manage.py send_vaccination_reminders` | Send push reminders to owners for vaccinations that are expiring or expired | Daily 8:00am |
+| `python manage.py send_vaccination_reminders` | Send push reminders to owners for vaccinations that are expiring or expired. Also, for dogs with no detailed records, one push a week before `Dog.last_vaccination_date` turns a year old (keyed on the date via `annual_vaccination_reminder_sent_for`, so a new date re-arms it) | Daily 8:00am |
 | `python manage.py send_fleet_reminders` | Push MOT/service due reminders to staff with `can_manage_vehicles` | Daily 8:05am |
 | `python manage.py send_compliance_reminders` | Push due/overdue safety & compliance check reminders to staff with `can_manage_compliance` — 30 days ahead for long-cycle checks, plus at due/overdue; once per cycle, re-armed when a completion is logged | Daily 8:10am |
 | `python manage.py send_end_of_day_alerts` | Push an end-of-day exception summary (dogs never picked up, still out with the team, or never assigned to a driver) to staff with `receives_business_alerts`. Silent when everything got home. `--date` | Daily 5:30pm |
@@ -379,7 +388,12 @@ database check taken after the directory walk.
 
 - The `app/` directory is a **legacy Android app** — the active mobile client is `my_app/` (Flutter)
 - No backend linter is configured — follow standard Django/PEP 8 conventions
-- Media files and `.env` are gitignored
+- Media files, `private-media/` and `.env` are gitignored
+- **`/media/` is public.** Anything under `MEDIA_ROOT` is served to anyone with the
+  link, with no authentication. Paperwork that identifies a person (vaccination
+  certificates today) goes under `PRIVATE_MEDIA_ROOT` behind a gated download view
+  instead — copy the `VaccinationCertificate` pattern in `api/certificates.py` rather
+  than adding another `FileField(upload_to=...)`.
 - Line endings: LF enforced for `.sh` files via `.gitattributes`
 - CI: `backend-ci.yml` (Django checks + full suite against PostgreSQL 15, plus a dependency
   audit and a Docker build), `flutter-ci.yml` (analyze + test + pubspec version-bump check

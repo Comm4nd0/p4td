@@ -9,8 +9,17 @@ import '../../widgets/dashboard_widgets.dart';
 /// renders [ActionItemTile]s from the counts the screen passes in and fires the
 /// matching `onOpen*` callback when tapped. Each callback owns navigation and
 /// the post-return count reload, exactly as before. Visibility flags
-/// ([canViewInquiries], [canManageRequests]) and the `unspayedMalesCount > 0`
-/// guard reproduce the original conditional rows.
+/// ([canViewInquiries], [canManageRequests]) reproduce the original
+/// conditional rows.
+///
+/// Two rows are groupings, so the list stays a list of things to *do* rather
+/// than one row per data source:
+///
+/// * **Defects** — site and vehicle defects in one row with the split in its
+///   subtitle; the tap offers the two screens.
+/// * **Dog health to confirm** — neutered status to confirm and vaccinations
+///   over a year old. Both are "have a word with the owner" items, and the
+///   row only appears when there is at least one.
 class ActionItemsSection extends StatelessWidget {
   final int pendingRequestCount;
   final int unresolvedQueryCount;
@@ -20,7 +29,7 @@ class ActionItemsSection extends StatelessWidget {
   final int unresolvedDefectCount;
   final int unresolvedVehicleDefectCount;
   final int openIncidentCount;
-  final int unspayedMalesCount;
+  final int dogHealthCount;
 
   final bool canViewInquiries;
   final bool canManageRequests;
@@ -31,10 +40,9 @@ class ActionItemsSection extends StatelessWidget {
   final VoidCallback onOpenInquiries;
   final VoidCallback onOpenProfileChanges;
   final VoidCallback onOpenBoardingRequests;
-  final VoidCallback onOpenSiteDefects;
-  final VoidCallback onOpenVehicleDefects;
+  final VoidCallback onOpenDefects;
   final VoidCallback onOpenIncidents;
-  final VoidCallback onOpenUnspayedMales;
+  final VoidCallback onOpenDogHealth;
 
   const ActionItemsSection({
     super.key,
@@ -46,7 +54,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.unresolvedDefectCount,
     required this.unresolvedVehicleDefectCount,
     required this.openIncidentCount,
-    required this.unspayedMalesCount,
+    required this.dogHealthCount,
     required this.canViewInquiries,
     required this.canManageRequests,
     this.canManageBoarding = false,
@@ -55,11 +63,18 @@ class ActionItemsSection extends StatelessWidget {
     required this.onOpenInquiries,
     required this.onOpenProfileChanges,
     required this.onOpenBoardingRequests,
-    required this.onOpenSiteDefects,
-    required this.onOpenVehicleDefects,
+    required this.onOpenDefects,
     required this.onOpenIncidents,
-    required this.onOpenUnspayedMales,
+    required this.onOpenDogHealth,
   });
+
+  int get defectCount => unresolvedDefectCount + unresolvedVehicleDefectCount;
+
+  /// "2 site · 1 vehicle" — only once there is something to split.
+  String? get defectBreakdown {
+    if (defectCount == 0) return null;
+    return '$unresolvedDefectCount site · $unresolvedVehicleDefectCount vehicle';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,18 +135,11 @@ class ActionItemsSection extends StatelessWidget {
         const SizedBox(height: 4),
         ActionItemTile(
           icon: PiconsDuotone.wrench,
-          label: 'Site Defects',
-          count: unresolvedDefectCount,
-          countColor: unresolvedDefectCount > 0 ? Colors.red : null,
-          onTap: onOpenSiteDefects,
-        ),
-        const SizedBox(height: 4),
-        ActionItemTile(
-          icon: PiconsDuotone.van,
-          label: 'Vehicle Defects',
-          count: unresolvedVehicleDefectCount,
-          countColor: unresolvedVehicleDefectCount > 0 ? Colors.red : null,
-          onTap: onOpenVehicleDefects,
+          label: 'Defects',
+          subtitle: defectBreakdown,
+          count: defectCount,
+          countColor: defectCount > 0 ? Colors.red : null,
+          onTap: onOpenDefects,
         ),
         const SizedBox(height: 4),
         // Staff-only: incidents are never surfaced to owners anywhere.
@@ -142,14 +150,14 @@ class ActionItemsSection extends StatelessWidget {
           countColor: openIncidentCount > 0 ? Colors.red : null,
           onTap: onOpenIncidents,
         ),
-        if (unspayedMalesCount > 0) ...[
+        if (dogHealthCount > 0) ...[
           const SizedBox(height: 4),
           ActionItemTile(
             icon: PiconsDuotone.warningCircle,
-            label: 'Neutered status to confirm',
-            count: unspayedMalesCount,
-            countColor: unspayedMalesCount > 0 ? Colors.red : null,
-            onTap: onOpenUnspayedMales,
+            label: 'Dog health to confirm',
+            count: dogHealthCount,
+            countColor: Colors.red,
+            onTap: onOpenDogHealth,
           ),
         ],
       ],

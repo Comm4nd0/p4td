@@ -32,7 +32,8 @@ abstract class DataService {
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false});
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, DateTime? lastVaccinationDate});
-  Future<UnspayedMalesResult> getUnspayedMales();
+  /// Staff dashboard: neutered status to confirm + vaccinations over a year old.
+  Future<DogHealthFlags> getDogHealthFlags();
   Future<List<PostcodeAddress>> lookupPostcode(String postcode);
   Future<void> deleteDog(String dogId);
   Future<Dog> assignDogToUser(String dogId, {int? owner, List<int>? additionalOwners, bool removeOwner = false});
@@ -169,6 +170,18 @@ abstract class DataService {
   Future<VaccinationRecord> createVaccination({required String dogId, required String name, required DateTime dateAdministered, required DateTime expiryDate, String? notes});
   Future<VaccinationRecord> updateVaccination(int id, {String? name, DateTime? dateAdministered, DateTime? expiryDate, String? notes});
   Future<void> deleteVaccination(int id);
+
+  // Vaccination certificates (private files — see VaccinationCertificate)
+  Future<List<VaccinationCertificate>> getVaccinationCertificates(String dogId);
+  Future<VaccinationCertificate> uploadVaccinationCertificate({
+    required String dogId,
+    required Uint8List bytes,
+    required String filename,
+    DateTime? vaccinationDate,
+  });
+  Future<void> deleteVaccinationCertificate(int id);
+  /// The file bytes, fetched with the auth token through the gated download view.
+  Future<Uint8List> downloadVaccinationCertificate(int id);
 
   // Owner calendar & waitlist
   Future<OwnerCalendar> getOwnerCalendar({DateTime? start, DateTime? end});

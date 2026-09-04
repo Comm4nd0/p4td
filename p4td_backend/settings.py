@@ -243,6 +243,20 @@ STORAGES = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Everything under MEDIA_ROOT is public: Caddy serves /media/* straight off
+# disk with no authentication, and urls.py does the same through Django's
+# static serve. Vaccination certificates are vet paperwork that names the
+# owner as well as the dog, so they live here instead — a *sibling* of media/,
+# never a child, so no future edit to Caddy's handle_path can expose them by
+# accident. Nothing serves this directory; the only way to a file is the
+# owner/staff-gated download view (api/certificates.py has the whole story).
+PRIVATE_MEDIA_ROOT = Path(os.environ.get('PRIVATE_MEDIA_ROOT', BASE_DIR / 'private-media'))
+
+# Certificates are a page or two of a vet's paperwork. 10 MB covers a full-
+# resolution phone photo or a scanned PDF and keeps a compromised account from
+# filling the disk one upload at a time (there is a per-dog cap as well).
+MAX_VACCINATION_CERTIFICATE_BYTES = 10 * 1024 * 1024
+
 # =============================================================================
 # REVERSE PROXY SETTINGS (Caddy)
 # =============================================================================
@@ -306,6 +320,10 @@ REST_FRAMEWORK = {
         # DfT Street Manager pushes the roadworks feed here; see
         # SnsWebhookThrottle in api/views.py for why this is deliberately high.
         'sns_webhook': '600/min',
+        # Vaccination certificate uploads, per user. Generous for a staff
+        # member filing a kennel's worth on day one; tight enough that a
+        # stolen owner token can't fill the disk with 10 MB files overnight.
+        'certificate_upload': '60/hour',
     },
     # One reverse proxy (Caddy) in front of gunicorn — throttle the real
     # client IP from X-Forwarded-For, not the proxy's.

@@ -39,6 +39,12 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 - **Media:** bind-mounted `./media` (= `/root/p4td/media`) → `/app/media`.
   Caddy serves `/media/*` from `/srv/p4td-media`, which is that **same host
   directory** (`/root/p4td/media`) mounted into the Caddy container.
+- **Private media:** bind-mounted `./private-media` (= `/root/p4td/private-media`)
+  → `/app/private-media`. Vaccination certificates. **Not** mounted into Caddy
+  and must never be: nothing serves this directory, the API's gated download
+  view is the only way to a file (`api/certificates.py`). Created by the
+  container on first upload; `chown 1000:1000` it if you create it by hand.
+  `scripts/backup-db.sh` archives it alongside every database dump.
 - **Runtime config:** from `.env` (via `env_file`) — `DJANGO_SECRET_KEY`,
   `DJANGO_DEBUG=False`, `RDS_*`, etc. `DJANGO_DEBUG` is **not** baked into the
   image, so prod is `DEBUG=False` unless `.env` says otherwise.
@@ -145,6 +151,10 @@ docker logs p4td-web-1 --tail 20
 3. **Keep media as a host bind-mount** matching Caddy's `/srv/p4td-media`
    (`/root/p4td/media`). A Docker named volume → Caddy serves an empty dir →
    broken images.
+   **Never widen Caddy's root to cover `private-media/`** (or mount it into
+   the Caddy container at all): that would publish every vaccination
+   certificate — vet paperwork with the owner's name and address on it — to
+   anyone with the link.
 4. **`requirements-prod.txt` does `-r requirements.txt`,** so the Dockerfile must
    `COPY` **both** files before `pip install`.
 5. **`SECURE_SSL_REDIRECT=True`** (prod) relies on Caddy sending

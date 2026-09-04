@@ -3,14 +3,26 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
+import '../models/vaccination_certificate.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
+import '../widgets/app_sheets.dart';
+import '../widgets/vaccination_certificate_tile.dart';
+import 'vaccination_certificate_screen.dart';
+
+/// Where a new certificate comes from.
+enum _CertificateSource { camera, gallery, pdf }
+
+/// Client-side mirror of the server's 10 MB cap, so a too-big pick is refused
+/// before it is uploaded rather than after.
+const int _maxCertificateBytes = 10 * 1024 * 1024;
 
 class EditDogScreen extends StatefulWidget {
   final Dog dog;
@@ -56,6 +68,15 @@ class _EditDogScreenState extends State<EditDogScreen> {
   DateTime? _selectedLastVaccination;
   bool _isSpayed = false;
   bool _postcodeLookupEnabled = false;
+  int? _myUserId;
+
+  // Vaccination certificate state. Existing certificates are listed from the
+  // server; a newly picked one is held here and uploaded when the form is
+  // saved, so "nothing changes until Save" holds for the certificate too.
+  List<VaccinationCertificate> _certificates = [];
+  bool _loadingCertificates = true;
+  Uint8List? _newCertificateBytes;
+  String? _newCertificateName;
 
   @override
   void initState() {
@@ -84,6 +105,21 @@ class _EditDogScreenState extends State<EditDogScreen> {
     _selectedLastVaccination = widget.dog.lastVaccinationDate;
     _isSpayed = widget.dog.isSpayed;
     _checkUserRole();
+    _loadCertificates();
+  }
+
+  Future<void> _loadCertificates() async {
+    try {
+      final certificates = await _dataService.getVaccinationCertificates(widget.dog.id);
+      if (!mounted) return;
+      setState(() {
+        _certificates = certificates;
+        _loadingCertificates = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading vaccination certificates: $e');
+      if (mounted) setState(() => _loadingCertificates = false);
+    }
   }
 
   @override
@@ -109,6 +145,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
       setState(() {
         _isStaff = profile.isStaff;
         _postcodeLookupEnabled = profile.postcodeLookupEnabled;
+        _myUserId = profile.userId;
       });
     } catch (e) {
       debugPrint('Error checking user role: $e');
@@ -154,6 +191,104 @@ class _EditDogScreenState extends State<EditDogScreen> {
           SnackBar(content: Text('Failed to pick image: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _pickCertificate() async {
+    final source = await showAppActionSheet<_CertificateSource>(
+      context,
+      title: 'Attach vaccination certificate',
+      message: 'A photo of the card or the PDF from the vet.',
+      actions: const [
+        AppSheetAction(label: 'Take photo', value: _CertificateSource.camera),
+        AppSheetAction(label: 'Choose photo', value: _CertificateSource.gallery),
+        AppSheetAction(label: 'Choose PDF', value: _CertificateSource.pdf),
+      ],
+    );
+    if (source == null || !mounted) return;
+    try {
+      Uint8List? bytes;
+      String? name;
+      if (source == _CertificateSource.pdf) {
+        final result = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: const ['pdf'],
+          withData: true,
+        );
+        final picked = result?.files.singleOrNull;
+        if (picked == null) return;
+        bytes = picked.bytes ?? (picked.path != null ? await XFile(picked.path!).readAsBytes() : null);
+        name = picked.name;
+      } else {
+        // Large enough that the small print on a vet's card survives; the
+        // server re-encodes it anyway.
+        final image = await _picker.pickImage(
+          source: source == _CertificateSource.camera ? ImageSource.camera : ImageSource.gallery,
+          maxWidth: 2400,
+          maxHeight: 2400,
+          imageQuality: 90,
+        );
+        if (image == null) return;
+        bytes = await image.readAsBytes();
+        name = image.name;
+      }
+      if (bytes == null || !mounted) return;
+      if (bytes.length > _maxCertificateBytes) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('That file is over 10 MB. A photo of the certificate is usually much smaller.')),
+        );
+        return;
+      }
+      setState(() {
+        _newCertificateBytes = bytes;
+        _newCertificateName = name;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick certificate: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openCertificate(VaccinationCertificate certificate) async {
+    final removed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VaccinationCertificateScreen(
+          certificate: certificate,
+          canRemove: certificate.canBeRemovedBy(userId: _myUserId, isStaff: _isStaff),
+        ),
+      ),
+    );
+    if (removed == true && mounted) _loadCertificates();
+  }
+
+  /// Uploads the picked certificate, if any. Returns false if it failed, so
+  /// the caller keeps the screen open for a retry — the rest of the form has
+  /// already been saved, and saving again is harmless.
+  Future<bool> _uploadPendingCertificate() async {
+    final bytes = _newCertificateBytes;
+    final name = _newCertificateName;
+    if (bytes == null || name == null) return true;
+    try {
+      await _dataService.uploadVaccinationCertificate(
+        dogId: widget.dog.id,
+        bytes: bytes,
+        filename: name,
+        vaccinationDate: _selectedLastVaccination,
+      );
+      _newCertificateBytes = null;
+      _newCertificateName = null;
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Certificate not saved: ${e.toString().replaceFirst('Exception: ', '')}')),
+        );
+      }
+      return false;
     }
   }
 
@@ -237,6 +372,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
         isSpayed: _isStaff ? _isSpayed : null,
       );
 
+      if (!await _uploadPendingCertificate()) return;
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Dog updated successfully')),
@@ -244,6 +381,9 @@ class _EditDogScreenState extends State<EditDogScreen> {
         Navigator.pop(context, updatedDog);
       }
     } on DogUpdatePendingApprovalException {
+      // The profile edits wait for staff; the certificate is the vet's
+      // paperwork and goes straight on the file, where staff will see it.
+      if (!await _uploadPendingCertificate()) return;
       if (mounted) {
         await showDialog(
           context: context,
@@ -376,6 +516,89 @@ class _EditDogScreenState extends State<EditDogScreen> {
   /// Section header with an optional owner-visibility badge. The badge is only
   /// shown to staff — owners only ever see their own (visible) fields, so the
   /// distinction is meaningless to them.
+  /// The certificate control beside the vaccination date: what is on file,
+  /// what has been picked but not yet saved, and the button to attach one.
+  Widget _buildCertificateSection() {
+    final latest = _certificates.isEmpty ? null : _certificates.first;
+    final earlier = _certificates.length > 1 ? _certificates.length - 1 : 0;
+    Widget body;
+    if (_newCertificateBytes != null) {
+      final name = _newCertificateName ?? 'certificate';
+      final kb = (_newCertificateBytes!.length / 1024).round();
+      body = ListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        leading: Picon(
+          name.toLowerCase().endsWith('.pdf') ? PiconsDuotone.filePdf : PiconsDuotone.fileImage,
+          color: AppColors.primary,
+        ),
+        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text('$kb KB · uploads when you save', style: const TextStyle(fontSize: 12)),
+        trailing: IconButton(
+          tooltip: 'Discard',
+          icon: const Picon(PiconsDuotone.x),
+          onPressed: () => setState(() {
+            _newCertificateBytes = null;
+            _newCertificateName = null;
+          }),
+        ),
+      );
+    } else if (_loadingCertificates) {
+      body = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 10),
+          Text('Checking for a certificate…', style: TextStyle(fontSize: 13)),
+        ]),
+      );
+    } else if (latest != null) {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          VaccinationCertificateTile(certificate: latest, onTap: () => _openCertificate(latest)),
+          if (earlier > 0)
+            Text(
+              'and $earlier earlier certificate${earlier == 1 ? '' : 's'} — see the profile',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+        ],
+      );
+    } else {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text('No certificate on file', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+      );
+    }
+
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Vaccination certificate',
+        prefixIcon: Picon(PiconsDuotone.certificate),
+        helperText: 'PDF or photo, up to 10 MB. Only you and the staff team can see it.',
+        helperMaxLines: 2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          body,
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _isSaving ? null : _pickCertificate,
+              icon: const Picon(PiconsDuotone.paperclip, size: 18),
+              label: Text(
+                _newCertificateBytes != null
+                    ? 'Choose a different file'
+                    : (latest == null ? 'Attach certificate' : 'Attach a new certificate'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _sectionHeader(String title, {double fontSize = 18, bool? visibleToOwner}) {
     return Row(
       children: [
@@ -613,6 +836,8 @@ class _EditDogScreenState extends State<EditDogScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          _buildCertificateSection(),
           const SizedBox(height: 8),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,

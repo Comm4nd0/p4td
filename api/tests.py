@@ -10643,3 +10643,479 @@ class DogVaccinationDateTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.dog.refresh_from_db()
         self.assertEqual(self.dog.last_vaccination_date, today)
+
+
+class VaccinationCertificateTests(TestCase):
+    """Vaccination certificates never touch MEDIA_ROOT (which is served to
+    anyone), the bytes are checked rather than the client's claims about
+    them, images are re-encoded so nothing the uploader embedded survives,
+    and the only way to a file is the owner/staff-gated download view."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        from django.core.cache import cache
+
+        self.private_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.private_dir, True)
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, True)
+        overridden = override_settings(
+            PRIVATE_MEDIA_ROOT=self.private_dir, MEDIA_ROOT=self.media_dir)
+        overridden.enable()
+        self.addCleanup(overridden.disable)
+        # Upload throttle counters live in the (in-process) cache.
+        cache.clear()
+
+        self.owner = User.objects.create_user(username='certowner', password='pw')
+        self.coowner = User.objects.create_user(username='certcoowner', password='pw')
+        self.other = User.objects.create_user(username='certother', password='pw')
+        self.staff = User.objects.create_user(username='certstaff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Biscuit')
+        self.dog.additional_owners.add(self.coowner)
+        self.other_dog = Dog.objects.create(owner=self.other, name='Rex')
+        self.client = APIClient()
+
+    # ── helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _jpeg(name='card.jpg', size=(80, 60), exif=None, fmt='JPEG'):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        buf = BytesIO()
+        img = Image.new('RGB', size, (200, 180, 120))
+        kwargs = {'format': fmt}
+        if exif is not None:
+            kwargs['exif'] = exif
+        img.save(buf, **kwargs)
+        content_type = 'image/png' if fmt == 'PNG' else 'image/jpeg'
+        return SimpleUploadedFile(name, buf.getvalue(), content_type=content_type)
+
+    @staticmethod
+    def _pdf(name='certificate.pdf', extra=b''):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        body = (
+            b'%PDF-1.4\n'
+            b'1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n'
+            b'2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n'
+            b'3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] ' + extra + b' >> endobj\n'
+            b'trailer << /Root 1 0 R >>\n%%EOF\n'
+        )
+        return SimpleUploadedFile(name, body, content_type='application/pdf')
+
+    def _post(self, upload, dog=None, as_user=None, **fields):
+        self.client.force_authenticate(as_user or self.owner)
+        data = {'dog': (dog or self.dog).id, 'file': upload}
+        data.update(fields)
+        return self.client.post('/api/vaccination-certificates/', data, format='multipart')
+
+    def _private_files(self):
+        import os
+        found = []
+        for root, _dirs, files in os.walk(self.private_dir):
+            found.extend(os.path.join(root, f) for f in files)
+        return found
+
+    # ── storage ──────────────────────────────────────────────────────
+
+    def test_upload_is_stored_privately_under_a_random_name(self):
+        import os
+        from .models import VaccinationCertificate
+        resp = self._post(self._pdf('Biscuit Smith vaccination card.pdf'),
+                          vaccination_date='2026-03-12')
+        self.assertEqual(resp.status_code, 201, resp.content)
+        cert = VaccinationCertificate.objects.get()
+
+        # On disk under PRIVATE_MEDIA_ROOT, in the dog's folder, not under the
+        # uploader's name — and nowhere near MEDIA_ROOT.
+        self.assertTrue(cert.file.path.startswith(self.private_dir))
+        self.assertIn(f'vaccination_certificates/{self.dog.id}/', cert.file.name)
+        self.assertNotIn('Biscuit', cert.file.name)
+        self.assertNotIn('Smith', cert.file.name)
+        self.assertTrue(cert.file.name.endswith('.pdf'))
+        self.assertEqual(os.listdir(self.media_dir), [])
+
+        # The row remembers what it was, safely.
+        self.assertEqual(cert.content_type, 'application/pdf')
+        self.assertEqual(cert.original_filename, 'Biscuit Smith vaccination card.pdf')
+        self.assertEqual(cert.size_bytes, os.path.getsize(cert.file.path))
+        self.assertEqual(cert.uploaded_by, self.owner)
+        self.assertEqual(cert.vaccination_date.isoformat(), '2026-03-12')
+
+        # The API never discloses the storage path; only the gated URL.
+        self.assertNotIn('file', resp.data)
+        self.assertTrue(resp.data['download_url'].endswith(
+            f'/api/vaccination-certificates/{cert.id}/download/'))
+        self.assertEqual(resp.data['dog_name'], 'Biscuit')
+
+    def test_private_storage_has_no_url(self):
+        from .models import VaccinationCertificate
+        self._post(self._pdf())
+        cert = VaccinationCertificate.objects.get()
+        with self.assertRaises(ValueError):
+            cert.file.url
+
+    def test_nothing_serves_private_media_over_http(self):
+        from .models import VaccinationCertificate
+        self._post(self._pdf())
+        cert = VaccinationCertificate.objects.get()
+        # Even a caller who somehow learned the stored name gets nothing from
+        # the public media route (the file is not under MEDIA_ROOT) — and the
+        # file's own directory is not routed at all.
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get(f'/media/{cert.file.name}').status_code, 404)
+        self.assertEqual(self.client.get(f'/private-media/{cert.file.name}').status_code, 404)
+
+    def test_image_is_reencoded_and_stripped(self):
+        from PIL import ExifTags, Image
+        from .models import VaccinationCertificate
+        exif = Image.Exif()
+        exif[ExifTags.Base.Make] = 'PhoneMaker'
+        # The one that matters: where the photo was taken.
+        gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
+        gps[ExifTags.GPS.GPSLatitudeRef] = 'N'
+        gps[ExifTags.GPS.GPSLatitude] = (51.0, 24.0, 36.0)
+        upload = self._jpeg('kitchen-table.png', size=(3000, 2000), exif=exif, fmt='PNG')
+        # Sanity: the upload really carries it.
+        with Image.open(upload) as probe:
+            self.assertEqual(probe.getexif().get_ifd(ExifTags.IFD.GPSInfo)[ExifTags.GPS.GPSLatitudeRef], 'N')
+        upload.seek(0)
+        resp = self._post(upload)
+        self.assertEqual(resp.status_code, 201, resp.content)
+        cert = VaccinationCertificate.objects.get()
+
+        # Stored as a JPEG we produced, whatever came in.
+        self.assertEqual(cert.content_type, 'image/jpeg')
+        self.assertTrue(cert.file.name.endswith('.jpg'))
+        with Image.open(cert.file.path) as stored:
+            self.assertEqual(stored.format, 'JPEG')
+            self.assertEqual(dict(stored.getexif()), {})
+            self.assertNotIn('icc_profile', stored.info)
+            self.assertLessEqual(max(stored.size), 2400)
+
+        # Display name keeps the uploader's stem; the download name is honest
+        # about the bytes.
+        self.assertEqual(cert.original_filename, 'kitchen-table.png')
+        resp = self.client.get(resp.data['download_url'])
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('filename="kitchen-table.jpg"', resp['Content-Disposition'])
+
+    # ── access ───────────────────────────────────────────────────────
+
+    def test_owner_cannot_file_against_someone_elses_dog(self):
+        from .models import VaccinationCertificate
+        resp = self._post(self._pdf(), dog=self.other_dog)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(VaccinationCertificate.objects.count(), 0)
+        self.assertEqual(self._private_files(), [])
+
+    def test_co_owner_and_staff_can_list_and_download(self):
+        resp = self._post(self._pdf())
+        url = resp.data['download_url']
+        for user in (self.coowner, self.staff):
+            self.client.force_authenticate(user)
+            listed = self.client.get(f'/api/vaccination-certificates/?dog={self.dog.id}')
+            self.assertEqual(listed.status_code, 200)
+            self.assertEqual([c['id'] for c in listed.data], [resp.data['id']])
+            self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_unrelated_owner_cannot_see_or_download(self):
+        resp = self._post(self._pdf())
+        cert_id = resp.data['id']
+        self.client.force_authenticate(self.other)
+        # Not in the listing, even when asking for that dog by id.
+        listed = self.client.get(f'/api/vaccination-certificates/?dog={self.dog.id}')
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data, [])
+        # And 404 — not 403 — on the row and the file, so the id discloses nothing.
+        self.assertEqual(self.client.get(f'/api/vaccination-certificates/{cert_id}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/vaccination-certificates/{cert_id}/download/').status_code, 404)
+
+    def test_anonymous_is_refused_everywhere(self):
+        resp = self._post(self._pdf())
+        url = resp.data['download_url']
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get('/api/vaccination-certificates/').status_code, 401)
+        self.assertEqual(self.client.get(url).status_code, 401)
+        self.assertEqual(self.client.post('/api/vaccination-certificates/',
+                                          {'dog': self.dog.id, 'file': self._pdf()},
+                                          format='multipart').status_code, 401)
+
+    def test_download_is_an_attachment_with_hardening_headers(self):
+        from .models import VaccinationCertificate
+        resp = self._post(self._pdf('cert.pdf'))
+        cert = VaccinationCertificate.objects.get()
+        resp = self.client.get(resp.data['download_url'])
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+        self.assertIn('attachment', resp['Content-Disposition'])
+        self.assertIn('filename="cert.pdf"', resp['Content-Disposition'])
+        self.assertEqual(resp['X-Content-Type-Options'], 'nosniff')
+        self.assertIn("default-src 'none'", resp['Content-Security-Policy'])
+        self.assertIn('no-store', resp['Cache-Control'])
+        with open(cert.file.path, 'rb') as fh:
+            self.assertEqual(b''.join(resp.streaming_content), fh.read())
+
+    def test_download_filename_falls_back_to_the_dog(self):
+        from .models import VaccinationCertificate
+        resp = self._post(self._pdf('../../etc/passwd.pdf'))
+        cert = VaccinationCertificate.objects.get()
+        # Traversal characters never make it into the stored name.
+        self.assertEqual(cert.original_filename, 'passwd.pdf')
+        cert.original_filename = ''
+        cert.save(update_fields=['original_filename'])
+        resp = self.client.get(resp.data['download_url'])
+        self.assertIn('filename="Biscuit-vaccination-certificate.pdf"', resp['Content-Disposition'])
+
+    # ── validation ───────────────────────────────────────────────────
+
+    def _assert_rejected(self, upload, **fields):
+        from .models import VaccinationCertificate
+        resp = self._post(upload, **fields)
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn('file', resp.data)
+        self.assertEqual(VaccinationCertificate.objects.count(), 0)
+        self.assertEqual(self._private_files(), [])
+        return resp
+
+    def test_rejects_html_dressed_as_a_pdf(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self._assert_rejected(SimpleUploadedFile(
+            'cert.pdf', b'<html><script>alert(document.domain)</script></html>',
+            content_type='application/pdf'))
+
+    def test_rejects_svg_however_it_is_named(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        self._assert_rejected(SimpleUploadedFile('cert.svg', svg, content_type='image/svg+xml'))
+        self._assert_rejected(SimpleUploadedFile('cert.png', svg, content_type='image/png'))
+
+    def test_rejects_disallowed_extensions(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self._assert_rejected(SimpleUploadedFile('cert.exe', b'MZ\x90\x00' * 20, content_type='application/octet-stream'))
+        self._assert_rejected(SimpleUploadedFile('cert', b'%PDF-1.4 no extension', content_type='application/pdf'))
+        # HEIC is not decodable here; say so rather than store an unchecked blob.
+        self._assert_rejected(SimpleUploadedFile('cert.heic', b'\x00\x00\x00\x18ftypheic' + b'\x00' * 40, content_type='image/heic'))
+
+    def test_rejects_an_image_that_is_not_one(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self._assert_rejected(SimpleUploadedFile('cert.jpg', b'\xff\xd8\xff' + b'garbage' * 10, content_type='image/jpeg'))
+        self._assert_rejected(SimpleUploadedFile('cert.jpg', b'<?php system($_GET["c"]); ?>', content_type='image/jpeg'))
+
+    def test_rejects_unsupported_image_formats(self):
+        # A real, decodable image in a format we don't take: right extension,
+        # wrong bytes. Pillow reports the true format, not the name.
+        self._assert_rejected(self._jpeg('cert.png', fmt='BMP'))
+
+    def test_rejects_oversize_and_empty_files(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.conf import settings
+        limit = settings.MAX_VACCINATION_CERTIFICATE_BYTES
+        self._assert_rejected(SimpleUploadedFile(
+            'big.pdf', b'%PDF-1.4\n' + b'0' * limit, content_type='application/pdf'))
+        self._assert_rejected(SimpleUploadedFile('empty.pdf', b'', content_type='application/pdf'))
+
+    def test_rejects_a_decompression_bomb(self):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        # 10000x10000 of one colour compresses to a few KB but is 100 MP.
+        buf = BytesIO()
+        Image.new('L', (10000, 10000), 255).save(buf, format='PNG', optimize=True)
+        self._assert_rejected(SimpleUploadedFile('bomb.png', buf.getvalue(), content_type='image/png'))
+
+    def test_rejects_pdfs_with_active_content(self):
+        self._assert_rejected(self._pdf(extra=b'/AA << /O << /S /JavaScript /JS (app.alert(1)) >> >>'))
+        self._assert_rejected(self._pdf(extra=b'/OpenAction << /S /Launch /F (cmd.exe) >>'))
+        self._assert_rejected(self._pdf(extra=b'/Names << /EmbeddedFiles 9 0 R >>'))
+        # A benign OpenAction (open on page one) is a normal PDF.
+        resp = self._post(self._pdf(extra=b'/OpenAction [3 0 R /Fit]'))
+        self.assertEqual(resp.status_code, 201, resp.content)
+
+    def test_per_dog_cap(self):
+        from django.core.files.base import ContentFile
+        from .certificates import MAX_CERTIFICATES_PER_DOG
+        from .models import VaccinationCertificate
+        for i in range(MAX_CERTIFICATES_PER_DOG):
+            VaccinationCertificate.objects.create(
+                dog=self.dog, file=ContentFile(b'%PDF-1.4', name=f'{i}.pdf'),
+                content_type='application/pdf', size_bytes=8, uploaded_by=self.staff)
+        resp = self._post(self._pdf())
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('file', resp.data)
+        self.assertEqual(VaccinationCertificate.objects.count(), MAX_CERTIFICATES_PER_DOG)
+
+    def test_upload_throttle(self):
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+        # THROTTLE_RATES is bound on the class at import, so override_settings
+        # on REST_FRAMEWORK would not reach it.
+        self.assertEqual(ScopedRateThrottle.THROTTLE_RATES['certificate_upload'], '60/hour')
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES, {'certificate_upload': '2/hour'}):
+            cache.clear()
+            self.assertEqual(self._post(self._pdf()).status_code, 201)
+            self.assertEqual(self._post(self._pdf()).status_code, 201)
+            self.assertEqual(self._post(self._pdf()).status_code, 429)
+            # Reads are not throttled.
+            self.client.force_authenticate(self.owner)
+            self.assertEqual(self.client.get('/api/vaccination-certificates/').status_code, 200)
+            # Nor is anyone else.
+            self.assertEqual(self._post(self._pdf(), as_user=self.staff).status_code, 201)
+        cache.clear()
+
+    # ── deletion ─────────────────────────────────────────────────────
+
+    def test_owner_can_remove_their_own_upload_but_not_staffs(self):
+        import os
+        from .models import VaccinationCertificate
+        mine = self._post(self._pdf()).data['id']
+        theirs = self._post(self._pdf(), as_user=self.staff).data['id']
+        theirs_path = VaccinationCertificate.objects.get(pk=theirs).file.path
+
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self.client.delete(f'/api/vaccination-certificates/{theirs}/').status_code, 403)
+        self.assertTrue(os.path.exists(theirs_path))
+
+        mine_path = VaccinationCertificate.objects.get(pk=mine).file.path
+        self.assertEqual(self.client.delete(f'/api/vaccination-certificates/{mine}/').status_code, 204)
+        self.assertFalse(os.path.exists(mine_path))
+        self.assertFalse(VaccinationCertificate.objects.filter(pk=mine).exists())
+
+        self.client.force_authenticate(self.staff)
+        self.assertEqual(self.client.delete(f'/api/vaccination-certificates/{theirs}/').status_code, 204)
+        self.assertFalse(os.path.exists(theirs_path))
+
+    def test_there_is_no_update(self):
+        cert_id = self._post(self._pdf()).data['id']
+        self.client.force_authenticate(self.staff)
+        resp = self.client.patch(f'/api/vaccination-certificates/{cert_id}/',
+                                 {'vaccination_date': '2020-01-01'}, format='multipart')
+        self.assertEqual(resp.status_code, 405)
+
+    def test_deleting_the_dog_removes_its_certificates_from_disk(self):
+        self._post(self._pdf())
+        self._post(self._jpeg())
+        self.assertEqual(len(self._private_files()), 2)
+        self.client.force_authenticate(self.staff)
+        resp = self.client.delete(f'/api/dogs/{self.dog.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._private_files(), [])
+
+
+class DogHealthFlagsTests(TestCase):
+    """The staff dashboard's single "Dog health to confirm" row: neutered
+    status to confirm and vaccinations over a year old, in one call."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='hfowner', password='pw')
+        self.staff = User.objects.create_user(username='hfstaff', password='pw', is_staff=True)
+        self.client = APIClient()
+
+    def test_staff_get_both_lists_and_a_total(self):
+        today = timezone.localdate()
+        unspayed = Dog.objects.create(
+            owner=self.owner, name='Alfie', sex='M', is_spayed=False,
+            date_of_birth=today - timedelta(days=800))
+        overdue = Dog.objects.create(
+            owner=self.owner, name='Bella',
+            last_vaccination_date=today - timedelta(days=400))
+        both = Dog.objects.create(
+            owner=self.owner, name='Charlie', sex='M', is_spayed=False,
+            date_of_birth=today - timedelta(days=800),
+            last_vaccination_date=today - timedelta(days=366))
+        Dog.objects.create(owner=self.owner, name='Fine',
+                           last_vaccination_date=today - timedelta(days=100))
+        Dog.objects.create(owner=self.owner, name='Exactly a year',
+                           last_vaccination_date=today - timedelta(days=365))
+        Dog.objects.create(owner=self.owner, name='Unknown')  # no date: not flagged
+
+        self.client.force_authenticate(self.staff)
+        resp = self.client.get('/api/dogs/health_flags/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 4)
+        self.assertEqual([d['id'] for d in resp.data['unspayed_males']['dogs']], [unspayed.id, both.id])
+        self.assertEqual(resp.data['unspayed_males']['count'], 2)
+        overdue_rows = resp.data['vaccinations_overdue']['dogs']
+        self.assertEqual([d['id'] for d in overdue_rows], [overdue.id, both.id])
+        self.assertEqual(overdue_rows[0]['last_vaccination_date'],
+                         (today - timedelta(days=400)).isoformat())
+        self.assertIn('profile_image', overdue_rows[0])
+
+    def test_owner_is_refused(self):
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self.client.get('/api/dogs/health_flags/').status_code, 403)
+
+
+class AnnualVaccinationReminderTests(TestCase):
+    """A week before Dog.last_vaccination_date is a year old, the owners get
+    one push. Dogs with detailed records are left to the record reminders."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='avowner', password='pw')
+        self.coowner = User.objects.create_user(username='avcoowner', password='pw')
+        self.today = timezone.localdate()
+
+    def _dog(self, name, days_ago, **extra):
+        return Dog.objects.create(
+            owner=self.owner, name=name,
+            last_vaccination_date=self.today - timedelta(days=days_ago), **extra)
+
+    def _run(self):
+        import io
+        out = io.StringIO()
+        with patch('api.management.commands.send_vaccination_reminders.send_push_notification') as push:
+            call_command('send_vaccination_reminders', stdout=out)
+        return out.getvalue(), push
+
+    def test_reminds_once_a_week_before_the_anniversary(self):
+        due_soon = self._dog('Milo', 360)          # due in 5 days
+        due_soon.additional_owners.add(self.coowner)
+        self._dog('Fresh', 200)                    # nothing to say yet
+        self._dog('Overdue', 370)                  # the dashboard's job, not a push
+        self._dog('Anniversary', 365)              # due today is past the window's end
+        with_records = self._dog('Recorded', 360)
+        from .models import VaccinationRecord
+        VaccinationRecord.objects.create(
+            dog=with_records, name='DHP',
+            date_administered=self.today - timedelta(days=360),
+            expiry_date=self.today + timedelta(days=5),
+            reminder_30_sent=True, reminder_7_sent=True)
+
+        output, push = self._run()
+        self.assertIn('Sent 1 ', output)
+        self.assertEqual(push.call_count, 2)  # owner and co-owner
+        recipients = {call.args[0] for call in push.call_args_list}
+        self.assertEqual(recipients, {self.owner, self.coowner})
+        title, body = push.call_args_list[0].args[1:3]
+        self.assertEqual(title, 'Vaccinations due soon')
+        self.assertIn("Milo's annual vaccinations are due in 5 days", body)
+        self.assertEqual(push.call_args_list[0].args[3]['dog_id'], str(due_soon.id))
+        self.assertEqual(push.call_args_list[0].kwargs.get('category'), 'dog_updates')
+
+        due_soon.refresh_from_db()
+        self.assertEqual(due_soon.annual_vaccination_reminder_sent_for, due_soon.last_vaccination_date)
+
+        # Tomorrow: nothing new.
+        output, push = self._run()
+        self.assertIn('Sent 0 ', output)
+        self.assertEqual(push.call_count, 0)
+
+    def test_window_edges(self):
+        self._dog('SevenDays', 358)   # due in exactly 7 days: first day of the window
+        self._dog('EightDays', 357)   # not yet
+        self._dog('Tomorrow', 364)    # last day of the window
+        output, push = self._run()
+        self.assertIn('Sent 2 ', output)
+        names = sorted(call.args[2].split("'s")[0] for call in push.call_args_list)
+        self.assertEqual(names, ['SevenDays', 'Tomorrow'])
+
+    def test_a_new_date_rearms_the_reminder(self):
+        dog = self._dog('Milo', 360)
+        self._run()
+        # Next year: staff enter the booster date; a year on it comes due again.
+        dog.last_vaccination_date = self.today - timedelta(days=359)
+        dog.save()
+        output, push = self._run()
+        self.assertIn('Sent 1 ', output)
+        self.assertEqual(push.call_count, 1)
