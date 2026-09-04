@@ -36,8 +36,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-# Create staticfiles and media directories with correct permissions
-RUN mkdir -p /app/staticfiles /app/media && chown -R appuser:appuser /app/staticfiles /app/media
+# Create staticfiles, media and private-media directories with correct
+# permissions. private-media/ holds vaccination certificates (api/certificates.py)
+# and is bind-mounted in production like media/.
+RUN mkdir -p /app/staticfiles /app/media /app/private-media \
+    && chown -R appuser:appuser /app/staticfiles /app/media /app/private-media
 
 # Switch to non-root user
 USER appuser

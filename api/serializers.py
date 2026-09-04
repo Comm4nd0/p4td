@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, VaccinationCertificate, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -736,6 +736,60 @@ class VaccinationRecordSerializer(serializers.ModelSerializer):
         if administered and expiry and expiry <= administered:
             raise serializers.ValidationError({'expiry_date': 'Expiry date must be after the date administered.'})
         return attrs
+
+
+class VaccinationCertificateSerializer(serializers.ModelSerializer):
+    dog_name = serializers.CharField(source='dog.name', read_only=True)
+    uploaded_by_name = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VaccinationCertificate
+        fields = [
+            'id', 'dog', 'dog_name', 'file', 'vaccination_date', 'original_filename',
+            'content_type', 'size_bytes', 'uploaded_by', 'uploaded_by_name', 'download_url',
+            'created_at',
+        ]
+        # uploaded_by is read-only and set from the request: the app compares it
+        # with the signed-in user to know whether to offer "Remove".
+        read_only_fields = ['id', 'original_filename', 'content_type', 'size_bytes',
+                            'uploaded_by', 'created_at']
+        # `file` is write-only. Serialising a FileField means calling .url,
+        # and this storage has none (api/certificates.py); even if it did, a
+        # path under private-media/ is a storage layout we never disclose.
+        # The gated download URL is the only way out.
+        extra_kwargs = {'file': {'write_only': True}}
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by:
+            return obj.uploaded_by.first_name or obj.uploaded_by.username
+        return None
+
+    def get_download_url(self, obj):
+        path = f'/api/vaccination-certificates/{obj.pk}/download/'
+        request = self.context.get('request')
+        return request.build_absolute_uri(path) if request else path
+
+    def validate(self, attrs):
+        """Swap the upload for the bytes we are prepared to keep.
+
+        Everything stored is produced by prepare_certificate: a Pillow
+        re-encode for images, inspected original bytes for a PDF. The
+        client's filename and Content-Type are never trusted for anything
+        but the display name, and that is sanitised.
+        """
+        from .certificates import CertificateRejected, prepare_certificate, safe_original_filename
+        upload = attrs.get('file')
+        if upload is not None:
+            try:
+                prepared = prepare_certificate(upload)
+            except CertificateRejected as exc:
+                raise serializers.ValidationError({'file': [str(exc)]})
+            attrs['file'] = prepared.file
+            attrs['content_type'] = prepared.content_type
+            attrs['size_bytes'] = prepared.file.size
+            attrs['original_filename'] = safe_original_filename(getattr(upload, 'name', ''))
+        return super().validate(attrs)
 
 
 class WaitlistEntrySerializer(serializers.ModelSerializer):

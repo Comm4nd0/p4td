@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes as perm_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny, BasePermission, SAFE_METHODS
 from rest_framework.throttling import AnonRateThrottle
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth.models import User
 from django.core.mail import send_mail, EmailMessage
 from django.conf import settings
@@ -758,37 +759,76 @@ class DogViewSet(viewsets.ModelViewSet):
                     weekday__in=dropped,
                 ).delete()
 
-    @action(detail=False, methods=['get'])
-    def unspayed_males(self, request):
-        """Staff-only: list male dogs over 1 year old that are not yet spayed.
-
-        Dogs with no recorded date_of_birth are excluded because their age
-        is unknown. Used by the staff dashboard to prompt asking owners.
-        """
-        if not request.user.is_staff:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Staff only.")
-
-        cutoff = timezone.now().date() - timezone.timedelta(days=365)
-        qs = Dog.objects.filter(
+    @staticmethod
+    def _unspayed_males_queryset():
+        """Male dogs over a year old not yet marked neutered. Dogs with no
+        recorded date_of_birth are excluded because their age is unknown."""
+        cutoff = timezone.localdate() - timezone.timedelta(days=365)
+        return Dog.objects.filter(
             sex='M',
             is_spayed=False,
             date_of_birth__isnull=False,
             date_of_birth__lte=cutoff,
         ).order_by('name')
+
+    @staticmethod
+    def _vaccinations_overdue_queryset():
+        """Dogs whose last vaccination date is more than a year ago. Dogs with
+        no date at all are not flagged — unknown is not the same as overdue."""
+        cutoff = timezone.localdate() - timezone.timedelta(days=Dog.VACCINATION_VALID_DAYS)
+        return Dog.objects.filter(last_vaccination_date__lt=cutoff).order_by('name')
+
+    @staticmethod
+    def _dashboard_dog_summary(request, dog):
+        return {
+            'id': dog.id,
+            'name': dog.name,
+            'profile_image': (
+                request.build_absolute_uri(dog.profile_image.url)
+                if dog.profile_image else None
+            ),
+        }
+
+    @action(detail=False, methods=['get'])
+    def unspayed_males(self, request):
+        """Staff-only: list male dogs over 1 year old that are not yet spayed.
+
+        Superseded by ``health_flags`` (which returns this list and more in one
+        call) but kept for app versions that still ask for it.
+        """
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Staff only.")
+
+        qs = self._unspayed_males_queryset()
         return Response({
             'count': qs.count(),
-            'dogs': [
-                {
-                    'id': d.id,
-                    'name': d.name,
-                    'profile_image': (
-                        request.build_absolute_uri(d.profile_image.url)
-                        if d.profile_image else None
-                    ),
-                }
-                for d in qs
-            ],
+            'dogs': [self._dashboard_dog_summary(request, d) for d in qs],
+        })
+
+    @action(detail=False, methods=['get'])
+    def health_flags(self, request):
+        """Staff-only: every dog whose health paperwork needs a word with the
+        owner, for the dashboard's single "Dog health to confirm" row.
+
+        Two lists today — neutered status to confirm (the old unspayed_males)
+        and vaccinations more than a year old — plus a grand total. Add a
+        list here rather than a dashboard row when the next one comes along.
+        """
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Staff only.")
+
+        unspayed = [self._dashboard_dog_summary(request, d) for d in self._unspayed_males_queryset()]
+        overdue = []
+        for dog in self._vaccinations_overdue_queryset():
+            summary = self._dashboard_dog_summary(request, dog)
+            summary['last_vaccination_date'] = dog.last_vaccination_date.isoformat()
+            overdue.append(summary)
+        return Response({
+            'count': len(unspayed) + len(overdue),
+            'unspayed_males': {'count': len(unspayed), 'dogs': unspayed},
+            'vaccinations_overdue': {'count': len(overdue), 'dogs': overdue},
         })
 
     def destroy(self, request, *args, **kwargs):
@@ -805,6 +845,11 @@ class DogViewSet(viewsets.ModelViewSet):
                 photo.file.delete(save=False)
             if photo.thumbnail:
                 photo.thumbnail.delete(save=False)
+        # Certificates live under private-media/, which no orphan sweep ever
+        # walks — if they don't go here, they stay forever.
+        for certificate in dog.vaccination_certificates.all():
+            if certificate.file:
+                certificate.file.delete(save=False)
 
         dog.delete()
         return Response({'detail': f'{dog_name} has been deleted.', 'id': dog_id}, status=200)
@@ -3386,6 +3431,115 @@ class VaccinationRecordViewSet(viewsets.ModelViewSet):
             instance.reminder_7_sent = False
             instance.expired_notice_sent = False
             instance.save(update_fields=['reminder_30_sent', 'reminder_7_sent', 'expired_notice_sent'])
+
+
+class VaccinationCertificateViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
+                                    mixins.RetrieveModelMixin, mixins.DestroyModelMixin,
+                                    viewsets.GenericViewSet):
+    """Vaccination certificates: the vet's paperwork behind a dog's vaccination date.
+
+    Filter with ?dog=<id>. Owners, co-owners and staff can list, fetch and
+    download a dog's certificates and add new ones; a certificate can be
+    removed by whoever uploaded it or by staff. There is no update — a
+    certificate is replaced, not edited.
+
+    The files are not under MEDIA_ROOT and have no URL. ``download`` is the
+    only way to the bytes, and it runs through the same scoped queryset as
+    everything else here. api/certificates.py explains why.
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    pagination_class = OptInPagination
+    throttle_scope = 'certificate_upload'
+
+    def get_serializer_class(self):
+        from .serializers import VaccinationCertificateSerializer
+        return VaccinationCertificateSerializer
+
+    def get_throttles(self):
+        # Uploads only. Reads keep the project default (anon throttling,
+        # which never touches an authenticated caller).
+        if self.action == 'create':
+            from rest_framework.throttling import ScopedRateThrottle
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
+
+    def get_queryset(self):
+        from .models import VaccinationCertificate
+        from django.db.models import Q
+        base = VaccinationCertificate.objects.select_related('dog', 'uploaded_by')
+        dog_id = self.request.query_params.get('dog')
+        if dog_id:
+            base = base.filter(dog_id=dog_id)
+        if self.request.user.is_staff:
+            return base
+        return base.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
+
+    def perform_create(self, serializer):
+        from .certificates import MAX_CERTIFICATES_PER_DOG
+        dog = serializer.validated_data['dog']
+        # `dog` is any dog by primary key at this point; get_queryset only
+        # scopes reads. Without this an owner could file paperwork against a
+        # stranger's dog.
+        _require_dog_access(
+            self.request.user, dog, "You can only add certificates for your own dogs.")
+        if dog.vaccination_certificates.count() >= MAX_CERTIFICATES_PER_DOG:
+            raise DRFValidationError({'file': [
+                f'{dog.name} already has {MAX_CERTIFICATES_PER_DOG} certificates on file. '
+                'Remove an old one first.'
+            ]})
+        serializer.save(uploaded_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if not user.is_staff and instance.uploaded_by_id != user.id:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                'Only staff can remove a certificate they filed. Ask us to remove it for you.')
+        # The row going without the file would leave paperwork on disk with
+        # nothing pointing at it — and nothing would ever sweep it up, since
+        # the orphan pass (prune_feed_media) deliberately never walks
+        # private-media/.
+        if instance.file:
+            instance.file.delete(save=False)
+        instance.delete()
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """Hand the bytes over, through the scoped queryset like every other read.
+
+        Always an attachment, never inline, with nosniff and a deny-all CSP:
+        the browser (or the app's HTTP client) gets a file to save or pass to
+        a viewer, and nothing in it can run on this origin. The stored
+        content type is the one we assigned at upload, never one echoed from
+        a request.
+
+        One gunicorn worker is held for the transfer. At 10 MB and this
+        traffic that is fine; if it ever isn't, the upgrade is an internal
+        redirect from Caddy, not a public URL.
+        """
+        from django.http import FileResponse
+        from .certificates import download_filename
+
+        certificate = self.get_object()
+        try:
+            handle = certificate.file.open('rb')
+        except (FileNotFoundError, ValueError):
+            logger.error('Vaccination certificate %s is missing its file on disk.', certificate.pk)
+            return Response({'detail': 'That file is missing from the server.'}, status=404)
+
+        response = FileResponse(
+            handle,
+            content_type=certificate.content_type or 'application/octet-stream',
+            as_attachment=True,
+            filename=download_filename(certificate),
+        )
+        response['X-Content-Type-Options'] = 'nosniff'
+        response['Content-Security-Policy'] = "default-src 'none'; sandbox"
+        response['Cache-Control'] = 'private, no-store'
+        return response
 
 
 class WaitlistEntryViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,

@@ -26,7 +26,8 @@ import 'dashboard/add_dog_to_day_dialog.dart';
 import 'dashboard/boarding_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import 'dashboard/dashboard_counts.dart';
-import 'dashboard/unspayed_males_dialog.dart';
+import 'dashboard/dog_health_dialog.dart';
+import '../widgets/app_sheets.dart';
 import 'dashboard/untagged_dogs_sheet.dart';
 import 'all_dogs_today_screen.dart';
 import 'day_board_screen.dart';
@@ -1764,7 +1765,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       unresolvedDefectCount: _counts.unresolvedDefectCount,
       unresolvedVehicleDefectCount: _counts.unresolvedVehicleDefectCount,
       openIncidentCount: _counts.openIncidentCount,
-      unspayedMalesCount: _counts.unspayedMalesCount,
+      dogHealthCount: _counts.dogHealthCount,
       canViewInquiries: widget.canViewInquiries,
       canManageRequests: widget.canManageRequests,
       canManageBoarding: widget.canManageBoarding,
@@ -1800,21 +1801,38 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         ));
         _counts.reloadPendingRequestCount();
       },
-      onOpenSiteDefects: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const FacilityDefectsScreen()));
-        _counts.reloadUnresolvedDefectCount();
-      },
-      onOpenVehicleDefects: () async {
-        await Navigator.push(context, MaterialPageRoute(
-          builder: (_) => FleetScreen(canManageVehicles: widget.canManageVehicles),
-        ));
-        _counts.reloadUnresolvedVehicleDefectCount();
+      onOpenDefects: () async {
+        // One row, two registers: ask which, with the split on the buttons.
+        final which = await showAppActionSheet<_DefectKind>(
+          context,
+          title: 'Defects',
+          actions: [
+            AppSheetAction(
+              label: 'Site defects (${_counts.unresolvedDefectCount})',
+              value: _DefectKind.site,
+            ),
+            AppSheetAction(
+              label: 'Vehicle defects (${_counts.unresolvedVehicleDefectCount})',
+              value: _DefectKind.vehicle,
+            ),
+          ],
+        );
+        if (which == null || !mounted) return;
+        if (which == _DefectKind.site) {
+          await Navigator.push(context, MaterialPageRoute(builder: (_) => const FacilityDefectsScreen()));
+          _counts.reloadUnresolvedDefectCount();
+        } else {
+          await Navigator.push(context, MaterialPageRoute(
+            builder: (_) => FleetScreen(canManageVehicles: widget.canManageVehicles),
+          ));
+          _counts.reloadUnresolvedVehicleDefectCount();
+        }
       },
       onOpenIncidents: () async {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const IncidentsScreen()));
         _counts.reloadOpenIncidentCount();
       },
-      onOpenUnspayedMales: () => showUnspayedMalesDialog(context, _counts.unspayedMales),
+      onOpenDogHealth: () => showDogHealthDialog(context, _counts.dogHealthFlags),
     );
   }
 
@@ -2235,3 +2253,5 @@ class DayData {
     );
   }
 }
+
+enum _DefectKind { site, vehicle }

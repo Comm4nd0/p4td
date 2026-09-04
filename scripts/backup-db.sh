@@ -2,8 +2,9 @@
 # =============================================================================
 # p4td PostgreSQL backup
 # =============================================================================
-# Takes a compressed custom-format pg_dump of the production database and prunes
-# to a rolling retention window (default: keep the 7 most recent dumps).
+# Takes a compressed custom-format pg_dump of the production database, plus a
+# tarball of private-media/ (vaccination certificates), and prunes both to a
+# rolling retention window (default: keep the 7 most recent).
 #
 # MANUAL DEPLOY STEPS (not automated by this script):
 #   1. Wire to host cron, e.g. daily at 02:30:
@@ -63,9 +64,24 @@ fi
 
 echo ">>> Backup complete: $(du -h "$OUTFILE" | cut -f1)"
 
+# Vaccination certificates live in private-media/ (never in the database and
+# never under media/ — see api/certificates.py). They are the vet's paperwork
+# and cannot be recreated, so they travel with every dump.
+PRIVATE_MEDIA_DIR="$REPO_ROOT/private-media"
+if [ -d "$PRIVATE_MEDIA_DIR" ]; then
+    FILES_OUT="$BACKUP_DIR/p4td-private-media-${TIMESTAMP}.tar.gz"
+    echo ">>> Archiving private-media/ to $FILES_OUT"
+    tar -czf "$FILES_OUT" -C "$REPO_ROOT" private-media
+    echo ">>> Archive complete: $(du -h "$FILES_OUT" | cut -f1)"
+fi
+
 # Prune: keep the newest $RETENTION dumps, delete the rest.
 echo ">>> Pruning old backups (keeping $RETENTION)..."
 ls -1t "$BACKUP_DIR"/p4td-*.dump 2>/dev/null | tail -n +$((RETENTION + 1)) | while read -r old; do
+    echo "    removing $old"
+    rm -f "$old"
+done
+ls -1t "$BACKUP_DIR"/p4td-private-media-*.tar.gz 2>/dev/null | tail -n +$((RETENTION + 1)) | while read -r old; do
     echo "    removing $old"
     rm -f "$old"
 done

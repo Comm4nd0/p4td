@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 from django.db.models.signals import post_save, pre_save
+from .certificates import certificate_upload_path, private_storage
 from django.dispatch import receiver
 
 class UserProfile(models.Model):
@@ -156,6 +157,10 @@ class Dog(models.Model):
     # VaccinationRecord system: recording a vaccination automatically advances
     # this to the latest date administered (see sync_dog_last_vaccination).
     last_vaccination_date = models.DateField(null=True, blank=True, help_text='When the dog was last vaccinated. Auto-updated when a vaccination record is added; over a year ago flags the dog as overdue.')
+    # The last_vaccination_date the "due in a week" push was sent for. Comparing
+    # against the current date (rather than a boolean) re-arms the reminder by
+    # itself when a new date is entered — no update path can forget to reset it.
+    annual_vaccination_reminder_sent_for = models.DateField(null=True, blank=True, help_text='Bookkeeping for send_vaccination_reminders: the last_vaccination_date the one-week-before push was sent for.')
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
     daily_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day billing rate override for this dog. Blank = standard day care price from Service Pricing. Staff-only field.')
     boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate override for this dog. Blank = standard boarding price from Service Pricing. Staff-only field.')
@@ -177,12 +182,22 @@ class Dog(models.Model):
     geocoded_address = models.TextField(blank=True, null=True, help_text='The effective postcode the cached coordinates were derived from, used to detect staleness.')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    #: Annual boosters: the simple date is treated as good for a year.
+    VACCINATION_VALID_DAYS = 365
+
+    @property
+    def vaccination_due_date(self):
+        """A year on from the last vaccination, or None when no date is recorded."""
+        if not self.last_vaccination_date:
+            return None
+        return self.last_vaccination_date + timezone.timedelta(days=self.VACCINATION_VALID_DAYS)
+
     @property
     def vaccination_overdue(self):
         """True when the last vaccination was more than a year ago."""
         if not self.last_vaccination_date:
             return False
-        return self.last_vaccination_date < timezone.localdate() - timezone.timedelta(days=365)
+        return self.last_vaccination_date < timezone.localdate() - timezone.timedelta(days=self.VACCINATION_VALID_DAYS)
 
     def __str__(self):
         return self.name
@@ -1061,6 +1076,47 @@ def sync_dog_last_vaccination(sender, instance, **kwargs):
         Dog.objects.filter(pk=instance.dog_id).exclude(
             last_vaccination_date=latest
         ).update(last_vaccination_date=latest)
+
+
+class VaccinationCertificate(models.Model):
+    """The vet's proof of a vaccination, filed against a dog.
+
+    Sits alongside ``Dog.last_vaccination_date``: the date says *when*, this
+    says *show me*. Not a :class:`Photo` — the gallery is public-URL media
+    under ``MEDIA_ROOT``, which Caddy serves to anyone who has the link, and
+    a certificate carries the owner's name and address. The file lives under
+    ``PRIVATE_MEDIA_ROOT`` and is reachable only through the gated download
+    view. ``api/certificates.py`` explains every part of that.
+
+    Owners and staff both upload (an owner photographing the card the vet
+    just handed them is the common case). Deleting is the uploader's or
+    staff's; an owner cannot remove what a staff member filed.
+    """
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='vaccination_certificates')
+    file = models.FileField(
+        upload_to=certificate_upload_path, storage=private_storage, max_length=200,
+    )
+    vaccination_date = models.DateField(
+        null=True, blank=True,
+        help_text='The vaccination date this certificate evidences — the value of the date field when it was attached.',
+    )
+    # Kept with the row so a listing never has to stat a file, and so the
+    # uploader's name for it survives for display and download.
+    original_filename = models.CharField(max_length=255, blank=True)
+    content_type = models.CharField(max_length=100, blank=True)
+    size_bytes = models.PositiveIntegerField(default=0)
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='uploaded_vaccination_certificates',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f"{self.dog.name} - vaccination certificate ({self.created_at:%Y-%m-%d})"
 
 
 class DaycareSettings(models.Model):

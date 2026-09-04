@@ -9,11 +9,21 @@ class DogUpdatePendingApprovalException implements Exception {
   String toString() => message;
 }
 
-class UnspayedMaleSummary {
+/// A dog on the staff dashboard's "Dog health to confirm" list.
+class FlaggedDogSummary {
   final String id;
   final String name;
   final String? imageUrl;
-  UnspayedMaleSummary({required this.id, required this.name, this.imageUrl});
+
+  /// Set for the vaccinations-overdue list: the date that is over a year old.
+  final DateTime? lastVaccinationDate;
+
+  const FlaggedDogSummary({
+    required this.id,
+    required this.name,
+    this.imageUrl,
+    this.lastVaccinationDate,
+  });
 }
 
 /// One page of feed items plus whether more pages follow.
@@ -23,10 +33,23 @@ class FeedPage {
   const FeedPage({required this.items, required this.hasMore});
 }
 
-class UnspayedMalesResult {
+/// `GET /api/dogs/health_flags/`: every dog whose health paperwork needs a
+/// word with the owner, for one dashboard row. [count] is the grand total.
+class DogHealthFlags {
   final int count;
-  final List<UnspayedMaleSummary> dogs;
-  UnspayedMalesResult({required this.count, required this.dogs});
+  final List<FlaggedDogSummary> unspayedMales;
+  final List<FlaggedDogSummary> vaccinationsOverdue;
+
+  const DogHealthFlags({
+    required this.count,
+    required this.unspayedMales,
+    required this.vaccinationsOverdue,
+  });
+
+  const DogHealthFlags.empty()
+      : count = 0,
+        unspayedMales = const [],
+        vaccinationsOverdue = const [];
 }
 
 class CompatibilityConflict {

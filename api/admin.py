@@ -9,7 +9,7 @@ from .models import (
     GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory,
     DailyDogAssignment, DeviceToken, SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
-    VaccinationRecord, WaitlistEntry, DaycareSettings,
+    VaccinationRecord, VaccinationCertificate, WaitlistEntry, DaycareSettings,
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
     FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog,
     Invoice, InvoiceLine, PaymentRecord, XeroConnection, RoadworkIssue,
@@ -872,6 +872,48 @@ class DogProfileChangeRequestAdmin(admin.ModelAdmin):
             obj.get_status_display()
         )
     status_display.short_description = 'Status'
+
+
+@admin.register(VaccinationCertificate)
+class VaccinationCertificateAdmin(admin.ModelAdmin):
+    """Read-mostly. No add: the admin form would store an upload unvalidated,
+    and the file field is excluded because its storage has no URL to render
+    (api/certificates.py). Download goes through the gated API view, which a
+    signed-in staff session satisfies."""
+    list_display = ('dog_name', 'vaccination_date', 'original_filename', 'content_type',
+                    'size_display', 'uploaded_by_name', 'created_at')
+    list_filter = ('content_type', 'created_at')
+    search_fields = ('dog__name', 'original_filename')
+    raw_id_fields = ('dog', 'uploaded_by')
+    list_select_related = ('dog', 'uploaded_by')
+    exclude = ('file',)
+    readonly_fields = ('download_link', 'original_filename', 'content_type', 'size_bytes', 'created_at')
+    ordering = ['-created_at']
+    list_per_page = 30
+
+    def has_add_permission(self, request):
+        return False
+
+    def dog_name(self, obj):
+        return obj.dog.name
+    dog_name.short_description = 'Dog'
+    dog_name.admin_order_field = 'dog__name'
+
+    def size_display(self, obj):
+        return f'{obj.size_bytes / 1024:.0f} KB'
+    size_display.short_description = 'Size'
+
+    def uploaded_by_name(self, obj):
+        if obj.uploaded_by:
+            return obj.uploaded_by.first_name or obj.uploaded_by.username
+        return '-'
+    uploaded_by_name.short_description = 'Uploaded By'
+
+    def download_link(self, obj):
+        if not obj.pk:
+            return '-'
+        return format_html('<a href="{}">Download</a>', f'/api/vaccination-certificates/{obj.pk}/download/')
+    download_link.short_description = 'File'
 
 
 @admin.register(VaccinationRecord)

@@ -8,6 +8,7 @@ import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/incident.dart';
 import '../models/owner_profile.dart';
+import '../models/vaccination_certificate.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
@@ -15,7 +16,9 @@ import '../utils/dog_schedule.dart';
 import '../widgets/dog_address_map.dart';
 import '../widgets/dog_schedule_calendar.dart';
 import '../widgets/quick_actions_fab.dart';
+import '../widgets/vaccination_certificate_tile.dart';
 import 'gallery_screen.dart';
+import 'vaccination_certificate_screen.dart';
 import 'edit_dog_screen.dart';
 import 'owner_details_dialog.dart';
 import 'query_detail_screen.dart';
@@ -48,6 +51,11 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   List<Incident> _incidents = [];
   bool _loadingIncidents = false;
 
+  // The vet's certificates behind the vaccination date. Private files: listed
+  // here, opened through the token-checked viewer, never by URL.
+  List<VaccinationCertificate> _certificates = [];
+  int? _myUserId;
+
   // Payment managers can edit past days (attendance history feeding
   // invoicing); the calendar then scrolls back a year and paints the days the
   // dog actually attended.
@@ -63,10 +71,80 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     // boarding-requests list section below stays staff-only.
     _loadBoardingRequests();
     _loadClosureDays();
+    _loadCertificates();
     if (widget.isStaff) {
       _loadPastEditability();
       _loadIncidents();
     }
+  }
+
+  Future<void> _loadCertificates() async {
+    try {
+      final certificates = await _dataService.getVaccinationCertificates(_dog.id);
+      // Removal is the uploader's or staff's; the viewer needs to know who we are.
+      _myUserId ??= (await _dataService.getProfile()).userId;
+      if (mounted) setState(() => _certificates = certificates);
+    } catch (_) {
+      // Non-fatal: the section just stays hidden.
+    }
+  }
+
+  Future<void> _openCertificate(VaccinationCertificate certificate) async {
+    final removed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VaccinationCertificateScreen(
+          certificate: certificate,
+          canRemove: certificate.canBeRemovedBy(userId: _myUserId, isStaff: widget.isStaff),
+        ),
+      ),
+    );
+    if (removed == true) _loadCertificates();
+  }
+
+  /// Certificates under the vaccination date, newest first. When a date is
+  /// recorded but nothing backs it up, say so — the edit screen is where one
+  /// gets attached.
+  Widget? _buildCertificatesBlock() {
+    if (_certificates.isEmpty && _dog.lastVaccinationDate == null) return null;
+    const color = AppColors.primary;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Picon(PiconsDuotone.certificate, size: 16, color: color),
+              SizedBox(width: 6),
+              Text('Vaccination certificates',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
+          if (_certificates.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              child: Text(
+                'No certificate on file — attach one from Edit.',
+                style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+              ),
+            )
+          else
+            for (final certificate in _certificates)
+              VaccinationCertificateTile(
+                certificate: certificate,
+                onTap: () => _openCertificate(certificate),
+              ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadIncidents() async {
@@ -1767,6 +1845,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   '${_dog.vaccinationOverdue ? ' — over a year ago' : ''}',
               accent: _dog.vaccinationOverdue ? Colors.red[700] : null,
             ),
+          if (_buildCertificatesBlock() case final block?) block,
           if (_dog.contactNumber != null && _dog.contactNumber!.trim().isNotEmpty)
             _infoBlock(
               icon: PiconsDuotone.phone,
@@ -1904,6 +1983,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   _dog = updatedDog;
                 });
               }
+              // A certificate may have been attached or removed either way
+              // (owners' profile edits wait for approval; the file doesn't).
+              _loadCertificates();
             },
           ),
           if (widget.isStaff)

@@ -95,6 +95,10 @@ my_app/macos/Flutter/ephemeral/
 
 # Media / User Generated Content
 media/
+# Vaccination certificates. Deliberately a sibling of media/, not a child, so
+# Caddy can never serve it; reached only via the gated API download view
+# (api/certificates.py). Never committed, and backed up by scripts/backup-db.sh.
+private-media/
 uploads/
 *.jpg
 *.jpeg

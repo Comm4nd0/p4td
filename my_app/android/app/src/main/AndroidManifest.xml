@@ -8,6 +8,16 @@
          a device with no screen lock at all. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:replace="android:maxSdkVersion"/>
+    <!-- open_filex (opens vaccination-certificate PDFs) merges in the
+         READ_MEDIA_* and READ_EXTERNAL_STORAGE permissions for opening files
+         from shared storage. We only ever hand it a file in our own cache
+         directory through its FileProvider, so none of them is needed — and
+         READ_MEDIA_IMAGES/VIDEO would put the app under Play's photo/video
+         permissions policy. Strip them at merge time. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="Paws 4 Thought Dogs"
