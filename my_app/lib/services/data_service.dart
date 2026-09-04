@@ -229,6 +229,7 @@ class ApiDataService implements DataService {
         lastVaccinationDate: parseApiDate(json['last_vaccination_date']),
         vaccinationOverdue: json['vaccination_overdue'] ?? false,
         isSpayed: json['is_spayed'] ?? false,
+        dailyRate: double.tryParse(json['daily_rate']?.toString() ?? ''),
         cancelledDates: parseApiDateList(json['cancelled_dates']),
       );
     }).toList();
@@ -467,7 +468,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false, double? dailyRate, bool clearDailyRate = false}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -502,6 +503,8 @@ class ApiDataService implements DataService {
       if (lastVaccinationDate != null) request.fields['last_vaccination_date'] = formatApiDate(lastVaccinationDate)!;
       if (clearLastVaccinationDate) request.fields['last_vaccination_date'] = '';
       if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
+      if (dailyRate != null) request.fields['daily_rate'] = dailyRate.toStringAsFixed(2);
+      if (clearDailyRate) request.fields['daily_rate'] = '';
 
       if (deletePhoto) {
         request.fields['profile_image'] = '';  // Empty string to clear the image
@@ -551,6 +554,8 @@ class ApiDataService implements DataService {
           if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
           if (clearLastVaccinationDate) 'last_vaccination_date': null,
           if (isSpayed != null) 'is_spayed': isSpayed,
+          if (dailyRate != null) 'daily_rate': dailyRate.toStringAsFixed(2),
+          if (clearDailyRate) 'daily_rate': null,
         }),
       );
     }
@@ -613,6 +618,7 @@ class ApiDataService implements DataService {
       lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
       vaccinationOverdue: data['vaccination_overdue'] ?? false,
       isSpayed: data['is_spayed'] ?? false,
+      dailyRate: double.tryParse(data['daily_rate']?.toString() ?? ''),
     );
   }
 
@@ -3638,13 +3644,16 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount}) async {
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount, double? dayCarePrice1Day, double? dayCarePrice2To4Days, double? dayCarePrice5Days}) async {
     final headers = await _getHeaders();
     final response = await http.patch(
       Uri.parse('${AuthService.baseUrl}/api/billing-settings/'),
       headers: headers,
       body: json.encode({
         if (dayCarePrice != null) 'day_care_price': dayCarePrice.toStringAsFixed(2),
+        if (dayCarePrice1Day != null) 'day_care_price_1_day': dayCarePrice1Day.toStringAsFixed(2),
+        if (dayCarePrice2To4Days != null) 'day_care_price_2_to_4_days': dayCarePrice2To4Days.toStringAsFixed(2),
+        if (dayCarePrice5Days != null) 'day_care_price_5_days': dayCarePrice5Days.toStringAsFixed(2),
         if (boardingPricePerNight != null) 'boarding_price_per_night': boardingPricePerNight.toStringAsFixed(2),
         if (ownerTransportDiscount != null) 'owner_transport_discount': ownerTransportDiscount.toStringAsFixed(2),
       }),

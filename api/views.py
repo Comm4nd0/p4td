@@ -614,6 +614,9 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Staff must assign an owner when creating a dog
         self._handle_image_upload(serializer)
+        if not _user_can_manage_payments(self.request.user):
+            for field in ('daily_rate', 'boarding_rate'):
+                serializer.validated_data.pop(field, None)
         if 'owner' in self.request.data:
             dog = serializer.save()
         else:
@@ -718,12 +721,16 @@ class DogViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._handle_image_upload(serializer)
 
-        # Transport default fields, is_spayed and billing rates are staff-only.
-        # Strip them from validated_data when the caller is not staff.
+        # Transport default fields and is_spayed are staff-only; the per-dog
+        # billing rates are for payment managers only. Strip what the caller
+        # may not set from validated_data.
         if not self.request.user.is_staff:
             for field in ('owner_brings_default', 'owner_collects_default',
                           'owner_brings_default_time', 'owner_collects_default_time',
-                          'is_spayed', 'daily_rate', 'boarding_rate'):
+                          'is_spayed'):
+                serializer.validated_data.pop(field, None)
+        if not _user_can_manage_payments(self.request.user):
+            for field in ('daily_rate', 'boarding_rate'):
                 serializer.validated_data.pop(field, None)
 
         # Attach the requesting user so the care-instructions signal can
@@ -5677,9 +5684,12 @@ def xero_disconnect(request):
 def billing_settings(request):
     """Standard billing prices, editable in-app by payment managers.
 
-    GET/PATCH {"day_care_price": "25.00", "boarding_price_per_night": "35.00"}.
-    Backed by the website ServicePricing singleton, so the public site's
-    pricing page stays in step with what invoicing charges.
+    GET/PATCH the daycare tiers (``day_care_price_1_day``,
+    ``day_care_price_2_to_4_days``, ``day_care_price_5_days`` — chosen by how
+    many days a week a dog is booked in), ``boarding_price_per_night`` and
+    ``owner_transport_discount``. ``day_care_price`` is the legacy flat rate,
+    still accepted for older app versions but no longer used by invoicing.
+    Backed by the website ServicePricing singleton.
     """
     from decimal import Decimal, InvalidOperation
     from website.models import ServicePricing
@@ -5690,7 +5700,8 @@ def billing_settings(request):
     pricing = ServicePricing.load()
     if request.method == 'PATCH':
         updated = False
-        for field in ('day_care_price', 'boarding_price_per_night', 'owner_transport_discount'):
+        for field in ('day_care_price', 'day_care_price_1_day', 'day_care_price_2_to_4_days',
+                      'day_care_price_5_days', 'boarding_price_per_night', 'owner_transport_discount'):
             if field not in request.data:
                 continue
             try:
@@ -5705,6 +5716,9 @@ def billing_settings(request):
             pricing.save()
     return Response({
         'day_care_price': pricing.day_care_price,
+        'day_care_price_1_day': pricing.day_care_price_1_day,
+        'day_care_price_2_to_4_days': pricing.day_care_price_2_to_4_days,
+        'day_care_price_5_days': pricing.day_care_price_5_days,
         'boarding_price_per_night': pricing.boarding_price_per_night,
         'owner_transport_discount': pricing.owner_transport_discount,
     })

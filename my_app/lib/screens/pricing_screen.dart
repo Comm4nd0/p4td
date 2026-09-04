@@ -82,7 +82,9 @@ class _PricingScreenState extends State<PricingScreen> {
 
   Future<void> _editDefaults() async {
     final settings = _settings!;
-    final dayController = TextEditingController(text: settings.dayCarePrice.toStringAsFixed(2));
+    final oneDayController = TextEditingController(text: settings.dayCarePrice1Day.toStringAsFixed(2));
+    final midController = TextEditingController(text: settings.dayCarePrice2To4Days.toStringAsFixed(2));
+    final fiveDayController = TextEditingController(text: settings.dayCarePrice5Days.toStringAsFixed(2));
     final boardingController =
         TextEditingController(text: settings.boardingPricePerNight.toStringAsFixed(2));
     final transportController =
@@ -96,10 +98,29 @@ class _PricingScreenState extends State<PricingScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Text(
+                'Daycare is priced by how many days a week a dog is booked in. '
+                'Extra days are charged at the dog\'s booked tier — a one-day-a-week '
+                'dog that adds a day pays the one-day rate for both.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 12),
               TextField(
-                controller: dayController,
+                controller: oneDayController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Daycare price per day', prefixText: '£'),
+                decoration: const InputDecoration(labelText: 'Daycare: 1 day a week (per day)', prefixText: '£'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: midController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Daycare: 2-4 days a week (per day)', prefixText: '£'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: fiveDayController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Daycare: 5 days a week (per day)', prefixText: '£'),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -139,17 +160,22 @@ class _PricingScreenState extends State<PricingScreen> {
     );
     if (confirmed != true) return;
 
-    final day = double.tryParse(dayController.text.trim());
+    final oneDay = double.tryParse(oneDayController.text.trim());
+    final mid = double.tryParse(midController.text.trim());
+    final fiveDay = double.tryParse(fiveDayController.text.trim());
     final boarding = double.tryParse(boardingController.text.trim());
     final transport = double.tryParse(transportController.text.trim());
-    if (day == null || day < 0 || boarding == null || boarding < 0 || transport == null || transport < 0) {
+    final prices = [oneDay, mid, fiveDay, boarding, transport];
+    if (prices.any((p) => p == null || p < 0)) {
       showError('Enter valid prices');
       return;
     }
     setState(() => _busy = true);
     try {
       final updated = await _dataService.updateBillingSettings(
-        dayCarePrice: day,
+        dayCarePrice1Day: oneDay,
+        dayCarePrice2To4Days: mid,
+        dayCarePrice5Days: fiveDay,
         boardingPricePerNight: boarding,
         ownerTransportDiscount: transport,
       );
@@ -187,7 +213,9 @@ class _PricingScreenState extends State<PricingScreen> {
                   decoration: InputDecoration(
                     labelText: 'Daycare rate per day',
                     prefixText: '£',
-                    hintText: 'Standard (£${_settings!.dayCarePrice.toStringAsFixed(2)})',
+                    hintText: 'Tiered (£${_settings!.dayCarePrice1Day.toStringAsFixed(0)} / '
+                        '£${_settings!.dayCarePrice2To4Days.toStringAsFixed(0)} / '
+                        '£${_settings!.dayCarePrice5Days.toStringAsFixed(0)})',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -366,7 +394,9 @@ class _PricingScreenState extends State<PricingScreen> {
                 ),
               ],
             ),
-            _priceRow('Daycare (per day)', settings.dayCarePrice),
+            _priceRow('Daycare, 1 day a week (per day)', settings.dayCarePrice1Day),
+            _priceRow('Daycare, 2-4 days a week (per day)', settings.dayCarePrice2To4Days),
+            _priceRow('Daycare, 5 days a week (per day)', settings.dayCarePrice5Days),
             _priceRow('Boarding (per night)', settings.boardingPricePerNight,
                 warnIfZero: true),
             _priceRow('Owner transport discount (per day)', settings.ownerTransportDiscount),

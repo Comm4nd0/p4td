@@ -4,8 +4,12 @@ Invoices are generated in arrears from actual attendance: every
 ``DailyDogAssignment`` row in the period whose status is not ``REMOVED``
 counts as an attended day (``UNASSIGNED`` means the dog attended but had no
 staff member — see the model comment). One invoice per customer per month,
-one line per dog, at ``Dog.daily_rate`` falling back to the website's
-``ServicePricing.day_care_price``.
+one line per dog, at ``Dog.daily_rate`` (a payment manager's per-dog
+override), else the customer's per-client rate, else the tier for how many
+days a week the dog is *booked in* (``ServicePricing.day_care_tier``: one
+day, two to four, five). The tier follows the booking, not the month's
+attendance — a one-day-a-week dog that adds an extra day pays the one-day
+rate for both, which the line description spells out.
 
 Approved boarding stays bill separately at a per-night rate
 (``Dog.boarding_rate`` falling back to ``ServicePricing.boarding_price_per_night``):
@@ -81,16 +85,23 @@ def _customer_rate(customer, field):
 
 def get_day_rate(dog, customer=None):
     """The per-day daycare rate: dog override, else the billed customer's
-    per-client rate (their discount), else the standard price."""
+    per-client rate (their discount), else the tier for the dog's booked
+    days a week."""
+    return resolve_day_rate(dog, customer)[0]
+
+
+def resolve_day_rate(dog, customer=None):
+    """``(rate, note)`` where ``note`` says which rate applied — shown on the
+    invoice line so an owner can see why an extra day cost the full amount."""
     if dog.daily_rate is not None:
-        return dog.daily_rate
+        return dog.daily_rate, 'agreed rate'
     client_rate = _customer_rate(customer, 'daycare_rate')
     if client_rate is not None:
-        return client_rate
+        return client_rate, 'agreed rate'
     # Lazy import: website is a separate app and this keeps api importable
     # without it in edge contexts (and avoids app-loading order issues).
     from website.models import ServicePricing
-    return ServicePricing.load().day_care_price
+    return ServicePricing.load().day_care_tier(dog.regular_days_per_week)
 
 
 def get_boarding_rate(dog, customer=None):
@@ -317,7 +328,7 @@ def _build_lines(invoice, dogs):
     discount = ServicePricing.load().owner_transport_discount
     total = Decimal('0.00')
     for dog, days in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
-        rate = get_day_rate(dog, customer=invoice.customer)
+        rate, note = resolve_day_rate(dog, customer=invoice.customer)
         split_discount = discount > 0
         standard = [d for d, owner_transport in days if not (owner_transport and split_discount)]
         discounted = [d for d, owner_transport in days if owner_transport and split_discount]
@@ -326,7 +337,7 @@ def _build_lines(invoice, dogs):
             InvoiceLine.objects.create(
                 invoice=invoice,
                 dog=dog,
-                description=f"Daycare — {dog.name} ({len(standard)} day{'s' if len(standard) != 1 else ''} @ £{rate})",
+                description=f"Daycare — {dog.name} ({len(standard)} day{'s' if len(standard) != 1 else ''} @ £{rate}, {note})",
                 quantity=len(standard),
                 unit_price=rate,
                 line_total=line_total,
@@ -341,7 +352,7 @@ def _build_lines(invoice, dogs):
                 dog=dog,
                 description=(
                     f"Daycare — {dog.name} ({len(discounted)} day{'s' if len(discounted) != 1 else ''} "
-                    f"@ £{discounted_rate}, owner drop-off & pick-up)"
+                    f"@ £{discounted_rate}, {note}, owner drop-off & pick-up)"
                 ),
                 quantity=len(discounted),
                 unit_price=discounted_rate,

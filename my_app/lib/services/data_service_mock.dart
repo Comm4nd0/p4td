@@ -90,7 +90,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false, double? dailyRate, bool clearDailyRate = false}) async {
     await Future.delayed(const Duration(milliseconds: 300)); // Simulate network
     final index = _dogs.indexWhere((d) => d.id == dog.id);
     if (index == -1) {
@@ -698,8 +698,14 @@ class MockDataService implements DataService {
   Future<BillingSettings> getBillingSettings() async =>
       BillingSettings(dayCarePrice: 25, boardingPricePerNight: 30);
   @override
-  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount}) async =>
-      BillingSettings(dayCarePrice: dayCarePrice ?? 25, boardingPricePerNight: boardingPricePerNight ?? 30, ownerTransportDiscount: ownerTransportDiscount ?? 0);
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount, double? dayCarePrice1Day, double? dayCarePrice2To4Days, double? dayCarePrice5Days}) async =>
+      BillingSettings(
+          dayCarePrice: dayCarePrice ?? 25,
+          dayCarePrice1Day: dayCarePrice1Day ?? 40,
+          dayCarePrice2To4Days: dayCarePrice2To4Days ?? 35,
+          dayCarePrice5Days: dayCarePrice5Days ?? 33,
+          boardingPricePerNight: boardingPricePerNight ?? 30,
+          ownerTransportDiscount: ownerTransportDiscount ?? 0);
   @override
   Future<List<CustomerRate>> getCustomerRates() async => [];
   @override

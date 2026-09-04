@@ -6962,8 +6962,13 @@ class BillingTestsBase(TestCase):
         self.other_dog = Dog.objects.create(owner=self.other_owner, name='Rex')
 
         # Known default day rate (save() also refreshes the singleton cache).
+        # Fixture dogs have no booked days, so flatten the per-week tiers to
+        # £25 too; the tier tests (DaycarePriceTierTests) set them apart.
         pricing = ServicePricing.load()
         pricing.day_care_price = 25
+        pricing.day_care_price_1_day = 25
+        pricing.day_care_price_2_to_4_days = 25
+        pricing.day_care_price_5_days = 25
         pricing.save()
 
         self.client = APIClient()
@@ -7974,6 +7979,138 @@ class BillingRateResolutionTests(BillingTestsBase):
         resp = self.client.get('/api/profile/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['daycare_rate'], '20.00')
+
+
+class DaycarePriceTierTests(BillingTestsBase):
+    """The day rate follows how many days a week the dog is *booked in*:
+    one day £40, two to four £35, five £33 — whatever it actually attended.
+    A payment manager's per-dog override beats the tier."""
+
+    def setUp(self):
+        super().setUp()
+        from website.models import ServicePricing
+
+        pricing = ServicePricing.load()
+        pricing.day_care_price_1_day = 40
+        pricing.day_care_price_2_to_4_days = 35
+        pricing.day_care_price_5_days = 33
+        pricing.save()
+
+    def _rate_for(self, days, schedule_type='weekly'):
+        from api import billing
+
+        self.dog.daycare_days = days
+        self.dog.schedule_type = schedule_type
+        self.dog.save()
+        return billing.resolve_day_rate(self.dog)
+
+    def test_tiers_by_booked_days(self):
+        self.assertEqual(self._rate_for([1]), (Decimal('40.00'), '1 day a week rate'))
+        self.assertEqual(self._rate_for([1, 3]), (Decimal('35.00'), '2-4 days a week rate'))
+        self.assertEqual(self._rate_for([1, 2, 3, 4]), (Decimal('35.00'), '2-4 days a week rate'))
+        self.assertEqual(self._rate_for([1, 2, 3, 4, 5]), (Decimal('33.00'), '5 days a week rate'))
+        self.assertEqual(self._rate_for([1, 2, 3, 4, 5, 6]), (Decimal('33.00'), '5 days a week rate'))
+
+    def test_ad_hoc_and_fortnightly_dogs(self):
+        # Ad hoc: no regular booking, so the one-day rate whatever days are listed.
+        self.assertEqual(self._rate_for([1, 2, 3], 'ad_hoc')[0], Decimal('40.00'))
+        # Fortnightly: half the listed days per week, rounded down.
+        self.assertEqual(self._rate_for([1, 2], 'fortnightly')[0], Decimal('40.00'))
+        self.assertEqual(self._rate_for([1, 2, 3, 4], 'fortnightly')[0], Decimal('35.00'))
+        # No booking at all.
+        self.assertEqual(self._rate_for([])[0], Decimal('40.00'))
+
+    def test_extra_day_still_bills_at_booked_tier(self):
+        """A one-day-a-week dog that came in twice pays £40 for both days."""
+        from api import billing
+
+        self.dog.daycare_days = [1]
+        self.dog.save()
+        self._attend(self.dog, 1)   # Monday, the booked day
+        self._attend(self.dog, 2)   # an extra Tuesday
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertEqual(line.quantity, 2)
+        self.assertEqual(line.unit_price, Decimal('40.00'))
+        self.assertEqual(created[0].total, Decimal('80.00'))
+        self.assertIn('1 day a week rate', line.description)
+
+    def test_five_day_dog_missing_days_still_gets_five_day_rate(self):
+        from api import billing
+
+        self.dog.daycare_days = [1, 2, 3, 4, 5]
+        self.dog.save()
+        self._attend(self.dog, 1)
+        self._attend(self.dog, 2)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertEqual(line.unit_price, Decimal('33.00'))
+        self.assertIn('5 days a week rate', line.description)
+
+    def test_per_dog_override_beats_tier(self):
+        from api import billing
+
+        self.dog.daycare_days = [1, 2, 3, 4, 5]
+        self.dog.daily_rate = Decimal('30.00')
+        self.dog.save()
+        self._attend(self.dog, 1)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        line = created[0].lines.get()
+        self.assertEqual(line.unit_price, Decimal('30.00'))
+        self.assertIn('agreed rate', line.description)
+
+    def test_tier_changes_apply_to_new_invoices(self):
+        from api import billing
+        from website.models import ServicePricing
+
+        self.dog.daycare_days = [1]
+        self.dog.save()
+        pricing = ServicePricing.load()
+        pricing.day_care_price_1_day = 42
+        pricing.save()
+        self._attend(self.dog, 1)
+        created, _, _ = billing.generate_invoices_for_month(2026, 6)
+        self.assertEqual(created[0].lines.get().unit_price, Decimal('42.00'))
+
+    def test_only_payment_managers_set_the_dog_override(self):
+        # A staff member without the payments permission: the rate is ignored,
+        # the rest of the edit goes through.
+        self.client.login(username='plainstaff', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'daily_rate': '30.00', 'general_notes': 'hi'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertIsNone(self.dog.daily_rate)
+        self.assertEqual(self.dog.general_notes, 'hi')
+
+        self.client.login(username='manager', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'daily_rate': '30.00'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.daily_rate, Decimal('30.00'))
+        # And cleared again.
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'daily_rate': None}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertIsNone(self.dog.daily_rate)
+
+    def test_settings_endpoint_exposes_and_updates_tiers(self):
+        from website.models import ServicePricing
+
+        self.client.login(username='manager', password='pw')
+        resp = self.client.get('/api/billing-settings/')
+        self.assertEqual(resp.data['day_care_price_1_day'], Decimal('40.00'))
+        self.assertEqual(resp.data['day_care_price_2_to_4_days'], Decimal('35.00'))
+        self.assertEqual(resp.data['day_care_price_5_days'], Decimal('33.00'))
+        resp = self.client.patch('/api/billing-settings/', {
+            'day_care_price_1_day': '41', 'day_care_price_2_to_4_days': '36', 'day_care_price_5_days': '34',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        pricing = ServicePricing.objects.get(pk=1)
+        self.assertEqual(pricing.day_care_price_1_day, Decimal('41.00'))
+        self.assertEqual(pricing.day_care_price_2_to_4_days, Decimal('36.00'))
+        self.assertEqual(pricing.day_care_price_5_days, Decimal('34.00'))
+        resp = self.client.patch('/api/billing-settings/', {'day_care_price_5_days': '-1'}, format='json')
+        self.assertEqual(resp.status_code, 400)
 
 
 class BillingSettingsEndpointTests(BillingTestsBase):

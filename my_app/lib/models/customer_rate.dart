@@ -63,7 +63,15 @@ class CustomerRate {
 
 /// Standard prices from /api/billing-settings/.
 class BillingSettings {
+  /// Legacy flat daycare rate (older servers); invoicing uses the tiers.
   final double dayCarePrice;
+
+  /// Daycare per-day tiers by how many days a week the dog is booked in.
+  /// The tier follows the booking, not attendance: a one-day-a-week dog
+  /// that adds a day pays [dayCarePrice1Day] for both.
+  final double dayCarePrice1Day;
+  final double dayCarePrice2To4Days;
+  final double dayCarePrice5Days;
   final double boardingPricePerNight;
 
   /// £ off the day rate when the owner does both drop-off and pick-up.
@@ -71,13 +79,21 @@ class BillingSettings {
 
   BillingSettings({
     required this.dayCarePrice,
+    double? dayCarePrice1Day,
+    double? dayCarePrice2To4Days,
+    double? dayCarePrice5Days,
     required this.boardingPricePerNight,
     this.ownerTransportDiscount = 0,
-  });
+  })  : dayCarePrice1Day = dayCarePrice1Day ?? dayCarePrice,
+        dayCarePrice2To4Days = dayCarePrice2To4Days ?? dayCarePrice,
+        dayCarePrice5Days = dayCarePrice5Days ?? dayCarePrice;
 
   factory BillingSettings.fromJson(Map<String, dynamic> json) {
     return BillingSettings(
       dayCarePrice: CustomerRate._parseRate(json['day_care_price']) ?? 0,
+      dayCarePrice1Day: CustomerRate._parseRate(json['day_care_price_1_day']),
+      dayCarePrice2To4Days: CustomerRate._parseRate(json['day_care_price_2_to_4_days']),
+      dayCarePrice5Days: CustomerRate._parseRate(json['day_care_price_5_days']),
       boardingPricePerNight:
           CustomerRate._parseRate(json['boarding_price_per_night']) ?? 0,
       ownerTransportDiscount:

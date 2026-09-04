@@ -279,7 +279,28 @@ class ServicePricing(models.Model):
         max_digits=6,
         decimal_places=2,
         default=25.00,
-        help_text='Day care price per day (e.g. 25.00).',
+        help_text='Legacy flat day care price. Invoicing now uses the per-week tiers below; kept for older app versions.',
+    )
+    # Daycare bills by how many days a week the dog is *booked in for*, not
+    # by how many days it turned up: a one-day-a-week dog that adds an extra
+    # day pays the one-day rate for both.
+    day_care_price_1_day = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=40.00,
+        help_text='Day care price per day for dogs booked in one day a week (also ad hoc dogs).',
+    )
+    day_care_price_2_to_4_days = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=35.00,
+        help_text='Day care price per day for dogs booked in two to four days a week.',
+    )
+    day_care_price_5_days = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=33.00,
+        help_text='Day care price per day for dogs booked in five days a week.',
     )
     day_care_bundle_price = models.DecimalField(
         max_digits=6,
@@ -324,6 +345,14 @@ class ServicePricing(models.Model):
 
     def __str__(self):
         return 'Service Pricing'
+
+    def day_care_tier(self, days_per_week):
+        """``(rate, label)`` for a dog booked in ``days_per_week`` days."""
+        if days_per_week >= 5:
+            return self.day_care_price_5_days, '5 days a week rate'
+        if days_per_week >= 2:
+            return self.day_care_price_2_to_4_days, '2-4 days a week rate'
+        return self.day_care_price_1_day, '1 day a week rate'
 
     def save(self, *args, **kwargs):
         self.pk = 1

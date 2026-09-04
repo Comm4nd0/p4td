@@ -30,7 +30,7 @@ abstract class DataService {
   Future<UserProfile> deleteProfilePhoto();
   Future<OwnerProfile> getOwnerProfile(int userId);
   Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions});
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false});
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false, double? dailyRate, bool clearDailyRate = false});
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, DateTime? lastVaccinationDate});
   /// Staff dashboard: neutered status to confirm + vaccinations over a year old.
   Future<DogHealthFlags> getDogHealthFlags();
@@ -305,7 +305,7 @@ abstract class DataService {
   Future<String> getInvoicePayUrl(int id);
   Future<InvoiceSummary> getInvoiceSummary({int? year, int? month});
   Future<BillingSettings> getBillingSettings();
-  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount});
+  Future<BillingSettings> updateBillingSettings({double? dayCarePrice, double? boardingPricePerNight, double? ownerTransportDiscount, double? dayCarePrice1Day, double? dayCarePrice2To4Days, double? dayCarePrice5Days});
   Future<List<CustomerRate>> getCustomerRates();
   Future<CustomerRate> updateCustomerRates(int userId, {required double? daycareRate, required double? boardingRate, String? billingMode});
 

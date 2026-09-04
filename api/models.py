@@ -147,6 +147,19 @@ class Dog(models.Model):
     general_notes = models.TextField(blank=True, null=True, help_text="General notes about the dog (behaviour, handling, misc).")
     daycare_days = models.JSONField(default=list, blank=True, help_text='List of day numbers (1-7) for daycare attendance')
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='weekly', help_text='How often the dog attends: weekly, fortnightly, or ad hoc')
+
+    @property
+    def regular_days_per_week(self):
+        """How many days a week the dog is booked in for — what the daycare
+        price tier is chosen on. A fortnightly dog counts half its days
+        (rounded down); an ad hoc dog counts none, so it pays the one-day rate.
+        """
+        days = len({int(d) for d in (self.daycare_days or []) if str(d).isdigit()})
+        if self.schedule_type == 'ad_hoc':
+            return 0
+        if self.schedule_type == 'fortnightly':
+            return days // 2
+        return days
     owner_brings_default = models.BooleanField(default=False, help_text='Owner usually drops this dog off at daycare (no staff pickup).')
     owner_collects_default = models.BooleanField(default=False, help_text='Owner usually collects this dog from daycare (no staff drop-off home).')
     owner_brings_default_time = models.TimeField(null=True, blank=True, help_text='Expected default drop-off time when owner brings the dog.')
