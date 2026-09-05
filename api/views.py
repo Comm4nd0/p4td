@@ -7,7 +7,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth.models import User
 from django.core.mail import send_mail, EmailMessage
 from django.conf import settings
-from django.db.models import Prefetch, Sum
+from django.db.models import Prefetch, Q, Sum
 from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
@@ -1557,14 +1557,26 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self._feed_queryset()
+        # The feed is shared by every client, but sign-up is self-service, so
+        # without this anyone who downloads the app can browse every dog's
+        # photos before the business has ever heard of them. An account sees
+        # the feed once it owns (or co-owns) a dog — i.e. once staff have
+        # approved its booking form. Empty rather than 403 so the app's normal
+        # "No posts yet" state covers it; get_object() inherits the gate, so
+        # detail, react, comment and reaction_details close with it.
+        if not self.request.user.is_staff and not Dog.objects.filter(
+            Q(owner=self.request.user) | Q(additional_owners=self.request.user)
+        ).exists():
+            return qs.none()
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
             qs = qs.filter(tagged_dogs__id=dog_id).distinct()
         return qs
 
     def get_permissions(self):
-        # Only staff can create, update, or delete
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+        # Only staff can create, update, or delete; today_stats feeds the
+        # staff dashboard and has no owner-facing use.
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'today_stats']:
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
@@ -1593,6 +1605,12 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             traceback.print_exc()
             raise e
 
+        try:
+            from .notifications import notify_feed_post_tags
+            notify_feed_post_tags(instance)
+        except Exception as e:
+            print(f"Failed to send feed post notification: {e}")
+
     @action(detail=True, methods=['get'])
     def reaction_details(self, request, pk=None):
         media = self.get_object()
@@ -1600,7 +1618,8 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
         
         data = []
         for reaction in reactions:
-            user_name = reaction.user.first_name if reaction.user.first_name else reaction.user.username
+            from .notifications import public_display_name
+            user_name = public_display_name(reaction.user)
             data.append({
                 'user_id': reaction.user.id,
                 'user_name': user_name,
@@ -2389,8 +2408,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             and not _user_can_manage_payments(request.user)
         ):
             return Response({'detail': 'Only staff who can manage payments can change whether a past day is billed.'}, status=403)
+        previous_status = assignment.status
         assignment.status = new_status
         assignment.save()
+        try:
+            from .notifications import notify_dog_status
+            notify_dog_status(assignment, previous_status)
+        except Exception as e:
+            print(f"Failed to send dog status notification: {e}")
         return Response(self.get_serializer(assignment).data)
 
     @action(detail=True, methods=['patch'], url_path='transport')
@@ -3302,6 +3327,11 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         if not self.request.user.is_staff:
             query.staff_has_unread = True
             query.save()
+            try:
+                from .notifications import notify_new_support_query
+                notify_new_support_query(query)
+            except Exception as e:
+                print(f"Failed to send new query notification: {e}")
 
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):
@@ -3331,6 +3361,11 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
             query.has_unread_reply = False
             query.staff_has_unread = True
         query.save()  # Update updated_at timestamp
+        try:
+            from .notifications import notify_support_message
+            notify_support_message(query, user)
+        except Exception as e:
+            print(f"Failed to send support message notification: {e}")
         # Refresh from DB to clear prefetch cache and include the new message
         query.refresh_from_db()
         query = SupportQuery.objects.prefetch_related('messages').get(pk=query.pk)

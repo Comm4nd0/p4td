@@ -50,6 +50,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _notifyTraffic = true;
   bool _notifyBookings = true;
   bool _notifyDogUpdates = true;
+  bool _notifyMessages = true;
 
   // Staff identity colour ('#RRGGBB', '' = automatic palette colour).
   String _staffColor = '';
@@ -140,6 +141,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _notifyTraffic = profile.notifyTraffic;
         _notifyBookings = profile.notifyBookings;
         _notifyDogUpdates = profile.notifyDogUpdates;
+        _notifyMessages = profile.notifyMessages;
         _staffColor = profile.staffColor;
         _accounts = accounts;
         _activeAccountId = activeId;
@@ -277,6 +279,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         notifyTraffic: _notifyTraffic,
         notifyBookings: _notifyBookings,
         notifyDogUpdates: _notifyDogUpdates,
+        notifyMessages: _notifyMessages,
       );
 
       await _dataService.updateProfile(updatedProfile);
@@ -803,6 +806,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           secondary: Picon(PiconsDuotone.rss),
                           value: _notifyFeed,
                           onChanged: (val) => setState(() => _notifyFeed = val),
+                        ),
+                        SwitchListTile.adaptive(
+                          title: const Text('Messages'),
+                          subtitle: Text(_profile!.isStaff
+                              ? 'New client messages and replies'
+                              : 'Replies from the Paws 4 Thought team'),
+                          secondary: Picon(PiconsDuotone.chatCircle),
+                          value: _notifyMessages,
+                          onChanged: (val) => setState(() => _notifyMessages = val),
                         ),
                         if (!_profile!.isStaff) ...[
                           SwitchListTile.adaptive(

@@ -184,8 +184,10 @@ class NotificationService {
     if (context == null) return;
 
     switch (type) {
-      // Feed comments — scroll to the specific post
+      // Feed comments, and new posts tagged with one of your dogs — scroll
+      // to the specific post
       case 'post_comment':
+      case 'feed_post':
         final postId = data['post_id'] as String?;
         if (postId != null) {
           _navigateToHome(scrollToPostId: postId);

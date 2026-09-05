@@ -2208,7 +2208,7 @@ class ApiDataService implements DataService {
 
   @override
   Future<Map<String, int>> getFeedTodayStats() async {
-    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/group-media/today_stats/'));
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/feed/today_stats/'));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return {

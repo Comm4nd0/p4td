@@ -133,15 +133,15 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | Endpoint | Resource |
 |---|---|
 | `api/profile/` | User profiles |
-| `api/dogs/` | Dog profiles |
+| `api/dogs/` | Dog profiles. `general_notes` and `van_placement` are staff-written and are stripped from every non-staff read (`DogSerializer.STAFF_ONLY_READ_FIELDS`); owners may propose changes only to `OWNER_EDITABLE_DOG_FIELDS`, which go through `api/dog-profile-changes/` |
 | `api/photos/` | Dog photos/videos. Owners view and upload to their own dogs' galleries; **deleting a photo is staff-only** — the gallery holds medical paperwork staff have photographed |
 | `api/date-change-requests/` | Schedule change requests |
-| `api/feed/` | Activity feed / group media |
+| `api/feed/` | Activity feed / group media. Shared by every client, so it opens only once an account owns or co-owns a dog (i.e. after staff approve the booking form) — sign-up is self-service and a stranger must not be able to browse every dog's photos. Accounts with no dog get an empty page, not a 403, so the app's normal empty state covers it; the detail/react/comment routes inherit the gate through `get_object()`. `today_stats/` is staff-only. |
 | `api/comments/` | Feed comments |
 | `api/boarding-requests/` | Boarding requests |
 | `api/device-tokens/` | Push notification tokens |
 | `api/daily-assignments/` | Staff-dog daily assignments |
-| `api/support-queries/` | Support tickets |
+| `api/support-queries/` | Support tickets. Creating one pushes staff with `can_reply_queries`; `add_message/` pushes the other side of the thread (category `messages`) |
 | `api/closure-days/` | Facility closures |
 | `api/dog-notes/` | Behavioral/compatibility notes |
 | `api/staff-availability/` | Staff coverage |
@@ -155,7 +155,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
 | `api/facility-defects/` | Facility defect reports |
 | `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs) |
-| `api/invoices/` | Monthly customer invoices (owners view/pay their own; staff with `can_manage_payments` generate/send/record payments/sync Xero). **Billed in advance:** a month's invoice charges every day the dog is *booked in* that month as the roster stands (`billing.booked_days_for_month` via `ScheduleIndex`: regular days + approved additions − cancellations − removals − closures − boarding days) plus last month's unbilled extras (attended days no invoice has charged). A date is charged once, ever — `_billed_dates_by_dog` reads every non-VOID line's `attendance_dates` — so extras added after an invoice went out land on the next month's invoice as their own "extra days in <month>" line. Booked days are charged whether or not the dog turns up. `generate/` takes the month plus optionally one `customer` **or one `dog`** — the per-dog form raises the month in the dog's name whatever its owner status, because most of the client book isn't on the app. **Every generated draft is also raised in Xero as a DRAFT** (against the dog's pinned contact, else a shared "Unassigned (Paws 4 Thought app)" placeholder) so the business can reassign the contact, amend and approve it inside Xero; the 30-minute `sync_xero_invoices` turns that approval into SENT here (adopting Xero's total/due date, booking any difference as an "Amended in Xero" line) and pins the contact the draft ended up on to the dog for next month. Sending from the app approves the same Xero draft. A dog on any active invoice line for a period is never billed again for it, whichever invoice (its own or its owner's) carries it. |
+| `api/invoices/` | Monthly customer invoices (owners view their own — the app shows no Pay button; they pay by bank transfer from the Xero-emailed invoice, and `pay_url/` stays available for a later online-payment switch-on; staff with `can_manage_payments` generate/send/record payments/sync Xero). **Billed in advance:** a month's invoice charges every day the dog is *booked in* that month as the roster stands (`billing.booked_days_for_month` via `ScheduleIndex`: regular days + approved additions − cancellations − removals − closures − boarding days) plus last month's unbilled extras (attended days no invoice has charged). A date is charged once, ever — `_billed_dates_by_dog` reads every non-VOID line's `attendance_dates` — so extras added after an invoice went out land on the next month's invoice as their own "extra days in <month>" line. Booked days are charged whether or not the dog turns up. `generate/` takes the month plus optionally one `customer` **or one `dog`** — the per-dog form raises the month in the dog's name whatever its owner status, because most of the client book isn't on the app. **Every generated draft is also raised in Xero as a DRAFT** (against the dog's pinned contact, else a shared "Unassigned (Paws 4 Thought app)" placeholder) so the business can reassign the contact, amend and approve it inside Xero; the 30-minute `sync_xero_invoices` turns that approval into SENT here (adopting Xero's total/due date, booking any difference as an "Amended in Xero" line) and pins the contact the draft ended up on to the dog for next month. Sending from the app approves the same Xero draft. A dog on any active invoice line for a period is never billed again for it, whichever invoice (its own or its owner's) carries it. |
 | `api/incidents/` | **Staff-only** incident log — scuffles, bites, injuries, escapes. Tied to the dogs involved (per-dog role/injuries/owner-told), with photos *and* video, follow-up comments and a status. Owners get 403 on every route, including `?dog=<id>` for their own dog. |
 | `api/staff-hr/` | **Manager-only** (`can_manage_staff`) employment records: job title, employment dates, holiday allowance, emergency contact, private manager notes. Records are created lazily via `for_staff/?staff_member=<id>` (no create/destroy routes); `team_overview/` returns one summary row per staff member (pay, holiday used/remaining from approved day-off requests, sickness/training/appraisal flags) and excludes the P4TD house account. |
 | `api/staff-pay-rates/` | **Manager-only** pay history (hourly or salary, effective-from dated); the latest effective row is a staff member's current pay. |
@@ -196,7 +196,7 @@ Additional non-router endpoints:
 
 - **ViewSets + DefaultRouter** for REST endpoints
 - **Custom permissions** via `UserProfile` flags: `can_assign_dogs`, `can_add_feed_media`, `can_manage_requests`, `can_reply_queries`, `can_manage_staff`, `can_view_inquiries`, `can_manage_vehicles`, `can_manage_payments`, `can_manage_boarding`, `can_manage_compliance`. `can_manage_staff` gates the whole Staff Management (HR) section — pay, employment details, meetings, appraisals, sickness and training — as well as working days and day-off approvals. All of these flags (plus `receives_business_alerts`) are toggleable in-app on the superuser-only Staff Permissions screen. The related `receives_business_alerts` flag routes business-owner oversight pushes (e.g. a driver sending a traffic alert) to whoever holds it — normally the business owner; these bypass the staff working-day filter so they arrive even on a day off.
-- **Token + Session auth** via djoser
+- **Token + Session auth** via djoser — but only two djoser routes are mounted (`p4td_backend/urls.py`): `POST /auth/users/` (sign-up) and `/auth/token/login|logout/`. Do not re-add `include('djoser.urls')`: it brings `/auth/users/me/` (PATCH/DELETE the account, bypassing `delete_account`'s safeguards), `set_username`, and an email-link `reset_password` that 500s because `PASSWORD_RESET_CONFIRM_URL` is unset. Password reset is the OTP flow under `api/password/reset/`.
 - **Signals** auto-create `UserProfile` on `User` creation and notify staff on contact inquiries
 - **Boarding dogs attend daycare**: approving a stay books its dogs into daycare
   for every weekday it covers — arrival and departure days included — under the
@@ -214,7 +214,20 @@ Additional non-router endpoints:
   the stay starts at a weekend (by its first weekday the dog is already with the
   carer), or when it runs straight on from another approved stay.
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
-- **Push notifications** via Firebase Admin SDK
+- **Push notifications** via Firebase Admin SDK. Every owner-facing push carries a
+  `category` matched to a `UserProfile.notify_*` switch the person can flip on the
+  Profile screen: `feed` (new posts tagged with their dog, comments), `bookings`
+  (request decisions), `dog_updates` (collected/arrived and home, sent from
+  `daily-assignments/<id>/update_status/` via `notifications.notify_dog_status`),
+  `messages` (support-thread replies both ways, plus new-thread alerts to staff with
+  `can_reply_queries`), `traffic`. A push with no category cannot be silenced, so
+  give new ones a category.
+- **Clients see each other by first name only.** Anything rendered to another
+  client (feed comments, reactions, post uploader, push bodies) goes through
+  `notifications.public_display_name`, which never falls back to the username —
+  usernames are email addresses. Sign-up therefore requires `first_name` and forces
+  `username = email`; `api/auth_backends.py` additionally lets an account created
+  outside the app sign in with its email.
 
 ### Mobile (Flutter)
 

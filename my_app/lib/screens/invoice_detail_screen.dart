@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:picons/picons.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../utils/snacks.dart';
 import '../models/invoice.dart';
@@ -13,8 +12,9 @@ import '../widgets/page_body.dart';
 
 /// One invoice, shared between owners and payments managers.
 ///
-/// Owners see the period breakdown, payment history and a "Pay now" button
-/// (Xero online invoice). Staff opened with [canManagePayments] additionally
+/// Owners see the period breakdown and payment history; they pay by bank
+/// transfer using the details on the invoice Xero emails them, so there is no
+/// in-app payment button. Staff opened with [canManagePayments] additionally
 /// get the workflow actions: send/regenerate drafts, record manual payments,
 /// re-push to Xero and void.
 class InvoiceDetailScreen extends StatefulWidget {
@@ -70,21 +70,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       if (mounted) {
         setState(() => _invoice = updated);
         showSuccess(successMessage);
-      }
-    } catch (e) {
-      if (mounted) showError(e);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _payNow() async {
-    setState(() => _busy = true);
-    try {
-      final url = await _dataService.getInvoicePayUrl(widget.invoiceId);
-      final uri = Uri.parse(url);
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        if (mounted) showError('Could not open the payment page');
       }
     } catch (e) {
       if (mounted) showError(e);
@@ -321,6 +306,16 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       _buildHeaderCard(invoice),
+                      if (!widget.canManagePayments && invoice.isPayable) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'To pay, use the bank details on the invoice we emailed you. '
+                          'Payments show here once the daycare has recorded them.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       _buildLinesCard(invoice),
                       if (invoice.payments.isNotEmpty) ...[
@@ -335,25 +330,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                     ],
                   ),
                 )),
-      bottomNavigationBar: (invoice != null &&
-              !widget.canManagePayments &&
-              invoice.isPayable)
-          ? SafeArea(
-              // Same width cap as the body, so the button doesn't span a
-              // desktop window edge-to-edge.
-              child: PageBody(
-                child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: FilledButton.icon(
-                  onPressed: _busy ? null : _payNow,
-                  icon: Picon(PiconsDuotone.currencyGbp, size: 20),
-                  label: Text(
-                      'Pay now — £${invoice.balance.toStringAsFixed(2)}'),
-                ),
-              ),
-              ),
-            )
-          : null,
     );
   }
 

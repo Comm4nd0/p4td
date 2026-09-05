@@ -235,7 +235,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     obscureText: _obscurePassword,
-                    validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
+                    validator: (v) => (v?.length ?? 0) < 10 ? 'Min 10 characters' : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(

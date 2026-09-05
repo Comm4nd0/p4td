@@ -52,7 +52,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'postcode_lookup_enabled', 'staff_color']
+        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'notify_messages', 'postcode_lookup_enabled', 'staff_color']
         # Capability flags are assignable ONLY by a superuser via
         # update_staff_permissions. They must never be writable through this
         # self-service endpoint, or any authenticated user could PATCH their own
@@ -138,6 +138,22 @@ class DogSerializer(serializers.ModelSerializer):
     additional_owners_details = serializers.SerializerMethodField()
     vaccination_summary = serializers.SerializerMethodField()
     cancelled_dates = serializers.SerializerMethodField()
+
+    #: Written by staff, about the dog, for staff: where it sits in the van and
+    #: candid handling notes. The app already hides them from owners; the API
+    #: must too, or anyone with their own token can read what staff wrote.
+    #: Not in this list on purpose — daily_rate/boarding_rate (owners may see
+    #: their own price; tested), is_spayed and access_instructions (owners
+    #: supply both on the booking form).
+    STAFF_ONLY_READ_FIELDS = ('general_notes', 'van_placement')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request is not None and not request.user.is_staff:
+            for field in self.STAFF_ONLY_READ_FIELDS:
+                data.pop(field, None)
+        return data
 
     class Meta:
         model = Dog
@@ -235,9 +251,10 @@ class CommentSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'created_at']
 
     def get_user_name(self, obj):
-        if obj.user.first_name:
-            return obj.user.first_name
-        return obj.user.username
+        # Other clients see this: first name or a neutral label, never the
+        # username (which is an email address).
+        from .notifications import public_display_name
+        return public_display_name(obj.user)
 
 class PhotoSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
@@ -335,9 +352,8 @@ class GroupMediaSerializer(serializers.ModelSerializer):
         return super().validate(attrs)
 
     def get_uploaded_by_name(self, obj):
-        if obj.uploaded_by.first_name:
-            return obj.uploaded_by.first_name
-        return obj.uploaded_by.username
+        from .notifications import public_display_name
+        return public_display_name(obj.uploaded_by)
 
     def get_uploaded_by_profile_photo(self, obj):
         try:
@@ -949,6 +965,9 @@ class UserCreateWithPrivacySerializer(DjoserUserCreateSerializer):
         fields = tuple(DjoserUserCreateSerializer.Meta.fields) + (
             'first_name', 'last_name', 'accept_privacy',
         )
+        # Other clients see each other by first name only (feed comments,
+        # reactions), so an account needs one.
+        extra_kwargs = {'first_name': {'required': True, 'allow_blank': False}}
 
     def validate_email(self, value):
         # Django's User.email has no unique constraint. Duplicates break the
@@ -969,6 +988,11 @@ class UserCreateWithPrivacySerializer(DjoserUserCreateSerializer):
             raise serializers.ValidationError({
                 'accept_privacy': 'You must accept the Privacy Policy to create an account.'
             })
+        # People sign in with their email address, so the email *is* the
+        # username. The app already sends them equal; make the server hold
+        # the line for any other client.
+        if attrs.get('email'):
+            attrs['username'] = attrs['email']
         return super().validate(attrs)
 
     def create(self, validated_data):
