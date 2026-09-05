@@ -78,10 +78,27 @@ def _is_staff_working_today(user):
     return True
 
 
+def public_display_name(user):
+    """The name one client may see for another (or for a staff member).
+
+    Usernames are email addresses (the app signs people up that way), so the
+    old ``first_name or username`` fallback put a client's email in front of
+    every other client the moment their first name was blank. First names are
+    all clients see of each other; anything else gets a neutral label.
+    """
+    if user is None:
+        return 'Dog owner'
+    first = (user.first_name or '').strip()
+    if first:
+        return first
+    return 'Paws 4 Thought team' if user.is_staff else 'Dog owner'
+
+
 def _user_has_preference(user, category):
     """Check whether the user has the given notification category enabled.
 
-    category must be one of: 'feed', 'traffic', 'bookings', 'dog_updates'.
+    category must be one of: 'feed', 'traffic', 'bookings', 'dog_updates',
+    'messages'.
     Returns True when no profile exists (default to sending).
     """
     if category is None:
@@ -293,7 +310,7 @@ def notify_post_comment(comment, post):
     from django.contrib.auth.models import User
 
     commenter = comment.user
-    commenter_name = commenter.first_name or commenter.username
+    commenter_name = public_display_name(commenter)
     post_label = post.caption[:50] if post.caption else f"{post.media_type.lower()} post"
 
     # Collect user IDs to notify (avoid duplicates)
@@ -341,6 +358,134 @@ def notify_post_comment(comment, post):
             title = "New Reply"
             body = f"{commenter_name} also replied to a post you commented on."
         send_push_notification(user, title, body, data, category='feed')
+
+
+def _dog_household(dog):
+    """Everyone who should hear about a dog: the owner plus co-owners."""
+    people = []
+    if dog.owner_id:
+        people.append(dog.owner)
+    people.extend(dog.additional_owners.all())
+    return people
+
+
+def notify_dog_status(assignment, previous_status):
+    """Tell the household when their dog is collected or back home.
+
+    Fires when a driver moves a day's assignment to PICKED_UP or DROPPED_OFF.
+    The wording follows who does the transport for that day: when the owner
+    brings the dog in, PICKED_UP means "arrived at daycare" rather than
+    "collected"; when the owner collects, DROPPED_OFF is their own hand-over
+    and nothing is sent. Governed by the 'dog_updates' preference, which the
+    app has offered ("Picked up, at daycare, dropped off") since before the
+    server sent anything for it. Tapping opens the dog in the app.
+    """
+    new_status = assignment.status
+    if new_status == previous_status or new_status not in ('PICKED_UP', 'DROPPED_OFF'):
+        return
+    dog = assignment.dog
+    owner_brings = assignment.owner_brings if assignment.owner_brings is not None else dog.owner_brings_default
+    owner_collects = assignment.owner_collects if assignment.owner_collects is not None else dog.owner_collects_default
+
+    if new_status == 'PICKED_UP':
+        if owner_brings:
+            title = f"{dog.name} has arrived"
+            body = f"{dog.name} is checked in with the Paws 4 Thought team."
+        else:
+            title = f"{dog.name} has been collected"
+            body = f"{dog.name} is on board with the Paws 4 Thought team."
+    else:
+        if owner_collects:
+            return
+        title = f"{dog.name} is home"
+        body = f"{dog.name} has been dropped off at home."
+
+    data = {
+        'type': 'dog_status_update',
+        'dog_id': str(dog.id),
+        'assignment_id': str(assignment.id),
+        'status': new_status,
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+    for person in _dog_household(dog):
+        send_push_notification(person, title, body, data, category='dog_updates')
+
+
+def notify_feed_post_tags(post):
+    """Tell each tagged dog's household about a new feed post.
+
+    One push per person however many of their dogs are tagged; the uploader is
+    skipped. Governed by the 'feed' preference. Typed 'feed_post' so tapping
+    opens the feed scrolled to this post.
+    """
+    poster = public_display_name(post.uploaded_by)
+    kind = 'video' if post.media_type == 'VIDEO' else 'photo'
+    recipients = {}
+    for dog in post.tagged_dogs.all():
+        for person in _dog_household(dog):
+            if person.id == post.uploaded_by_id:
+                continue
+            recipients.setdefault(person.id, (person, []))[1].append(dog.name)
+    if not recipients:
+        return
+    data = {
+        'type': 'feed_post',
+        'post_id': str(post.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+    for person, dog_names in recipients.values():
+        names = ' and '.join(dog_names) if len(dog_names) <= 2 else f"{dog_names[0]} and {len(dog_names) - 1} others"
+        title = f"New {kind} of {names}"
+        body = post.caption.strip()[:120] if post.caption and post.caption.strip() else f"{poster} posted a new {kind} of {names}."
+        send_push_notification(person, title, body, data, category='feed')
+
+
+def notify_support_message(query, sender):
+    """Push the other side of a support thread when a message lands.
+
+    A staff reply goes to the client (typed 'support_query_reply'); a client's
+    message goes to every staff member who can reply to queries (typed
+    'support_query_update'). Both open the queries screen in the app and both
+    honour the 'messages' preference — a client can silence replies, and a
+    staff member who is not on queries that day can silence the inbox.
+    """
+    from django.contrib.auth.models import User
+
+    subject = query.subject[:60]
+    if sender.is_staff:
+        if query.owner_id and query.owner_id != sender.id:
+            send_push_notification(
+                query.owner,
+                'New reply from Paws 4 Thought',
+                f"{public_display_name(sender)} replied to '{subject}'.",
+                {'type': 'support_query_reply', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+                category='messages',
+            )
+        return
+    owner_name = public_display_name(sender)
+    for staff in User.objects.filter(is_staff=True, profile__can_reply_queries=True).exclude(id=sender.id):
+        send_push_notification(
+            staff,
+            f"Message from {owner_name}",
+            f"'{subject}' has a new message.",
+            {'type': 'support_query_update', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+            category='messages',
+        )
+
+
+def notify_new_support_query(query):
+    """Tell staff who can reply that a client has opened a new thread."""
+    from django.contrib.auth.models import User
+
+    owner_name = public_display_name(query.owner)
+    for staff in User.objects.filter(is_staff=True, profile__can_reply_queries=True).exclude(id=query.owner_id):
+        send_push_notification(
+            staff,
+            f"New message from {owner_name}",
+            query.subject[:100],
+            {'type': 'support_query', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+            category='messages',
+        )
 
 
 def notify_defect_comment(comment, defect, defect_type='vehicle'):

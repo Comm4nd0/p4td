@@ -57,6 +57,7 @@ class UserProfile(models.Model):
     notify_traffic = models.BooleanField(default=True, help_text='Receive traffic delay alerts for pickups and drop-offs.')
     notify_bookings = models.BooleanField(default=True, help_text='Receive updates on date change and boarding requests.')
     notify_dog_updates = models.BooleanField(default=True, help_text='Receive updates when your dog is picked up, at daycare, or dropped off.')
+    notify_messages = models.BooleanField(default=True, help_text='Receive a push when a message thread with the daycare gets a reply (staff: when a client writes in).')
 
     # Legal acceptance — recorded when the user agrees to the Privacy Policy at
     # sign-up. Null for accounts created before this was required (e.g. staff).

@@ -16,6 +16,7 @@ from .models import (
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
     GroupMedia, IntakeRequest, Invoice, XeroConnection, PasswordResetOTP,
+    Comment, MediaReaction,
 )
 from django.utils import timezone
 
@@ -3371,6 +3372,9 @@ class FeedTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # The feed opens once an account has an enrolled dog (see
+        # ClientAccessTests for the gate itself).
+        Dog.objects.create(owner=self.owner, name='Rex')
         self.client = APIClient()
 
     def test_owner_cannot_upload_to_feed(self):
@@ -11959,3 +11963,312 @@ class AnnualVaccinationReminderTests(TestCase):
         output, push = self._run()
         self.assertIn('Sent 1 ', output)
         self.assertEqual(push.call_count, 1)
+
+
+class ClientAccessTests(TestCase):
+    """What a client (a non-staff account) can and cannot reach.
+
+    Companion to the per-feature permission tests: these pin the cross-cutting
+    rules that matter once real customers are on the app — the shared feed is
+    only for enrolled accounts, staff notes never leave the server, and the
+    login system exposes just sign-up and token login.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='cstaff', password='pw', is_staff=True)
+        self.enrolled = User.objects.create_user(username='enrolled', password='pw')
+        self.coowner = User.objects.create_user(username='coowner', password='pw')
+        self.stranger = User.objects.create_user(username='stranger', password='pw')
+        self.dog = Dog.objects.create(
+            owner=self.enrolled, name='Rex',
+            general_notes='Nips when overexcited — staff eyes only',
+            van_placement='Back left, away from Bella',
+            access_instructions='Key safe 1234', is_spayed=True,
+        )
+        self.dog.additional_owners.add(self.coowner)
+        self.post = GroupMedia.objects.create(uploaded_by=self.staff, media_type='PHOTO', caption='Paddock fun')
+        self.post.tagged_dogs.add(self.dog)
+        self.client = APIClient()
+
+    def _as(self, user):
+        self.client.force_authenticate(user)
+
+    # ---- feed: enrolled accounts only ----
+
+    def test_enrolled_owner_sees_the_feed(self):
+        self._as(self.enrolled)
+        resp = self.client.get('/api/feed/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 1)
+
+    def test_co_owner_sees_the_feed(self):
+        self._as(self.coowner)
+        self.assertEqual(self.client.get('/api/feed/').data['count'], 1)
+
+    def test_account_without_a_dog_gets_an_empty_feed(self):
+        self._as(self.stranger)
+        resp = self.client.get('/api/feed/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 0)
+        # The gate covers the detail routes too, not just the listing.
+        self.assertEqual(self.client.get(f'/api/feed/{self.post.id}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/feed/?dog_id={self.dog.id}').data['count'], 0)
+        self.assertEqual(
+            self.client.post(f'/api/feed/{self.post.id}/react/', {'emoji': '❤️'}, format='json').status_code, 404)
+        self.assertEqual(
+            self.client.post(f'/api/feed/{self.post.id}/comment/', {'text': 'hi'}, format='json').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/feed/{self.post.id}/reaction_details/').status_code, 404)
+
+    def test_feed_opens_once_the_booking_form_is_approved(self):
+        self._as(self.stranger)
+        self.assertEqual(self.client.get('/api/feed/').data['count'], 0)
+        Dog.objects.create(owner=self.stranger, name='Newcomer')
+        self.assertEqual(self.client.get('/api/feed/').data['count'], 1)
+
+    def test_today_stats_is_staff_only(self):
+        self._as(self.enrolled)
+        self.assertEqual(self.client.get('/api/feed/today_stats/').status_code, 403)
+        self._as(self.staff)
+        self.assertEqual(self.client.get('/api/feed/today_stats/').status_code, 200)
+
+    # ---- dog record: staff notes stay on the server ----
+
+    def test_owner_does_not_receive_staff_only_dog_fields(self):
+        self._as(self.enrolled)
+        for url in (f'/api/dogs/{self.dog.id}/', '/api/dogs/'):
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200)
+            body = json.dumps(resp.json())
+            self.assertNotIn('general_notes', body)
+            self.assertNotIn('van_placement', body)
+            self.assertNotIn('staff eyes only', body)
+            self.assertNotIn('away from Bella', body)
+        # Fields the owner supplied themselves are still theirs to see.
+        data = self.client.get(f'/api/dogs/{self.dog.id}/').json()
+        self.assertEqual(data['access_instructions'], 'Key safe 1234')
+        self.assertTrue(data['is_spayed'])
+
+    def test_co_owner_does_not_receive_staff_only_dog_fields(self):
+        self._as(self.coowner)
+        data = self.client.get(f'/api/dogs/{self.dog.id}/').json()
+        self.assertNotIn('general_notes', data)
+        self.assertNotIn('van_placement', data)
+
+    def test_staff_still_receive_the_full_dog_record(self):
+        self._as(self.staff)
+        data = self.client.get(f'/api/dogs/{self.dog.id}/').json()
+        self.assertEqual(data['general_notes'], 'Nips when overexcited — staff eyes only')
+        self.assertEqual(data['van_placement'], 'Back left, away from Bella')
+
+    def test_owner_cannot_propose_changes_to_staff_only_fields(self):
+        self._as(self.enrolled)
+        resp = self.client.patch(
+            f'/api/dogs/{self.dog.id}/',
+            {'general_notes': 'lovely', 'van_placement': 'front', 'name': 'Rexy'}, format='json')
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.data['change_request']['proposed_changes'], {'name': 'Rexy'})
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.general_notes, 'Nips when overexcited — staff eyes only')
+
+    # ---- auth: only sign-up and token login are mounted ----
+
+    def test_signup_and_token_login_still_work(self):
+        resp = self.client.post('/auth/users/', {
+            'username': 'new@example.com', 'email': 'new@example.com', 'first_name': 'Nia',
+            'password': 'BrandNewPass123!', 'accept_privacy': True,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        resp = self.client.post('/auth/token/login/', {'username': 'new@example.com', 'password': 'BrandNewPass123!'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('auth_token', resp.data)
+
+    def test_unused_djoser_routes_are_not_mounted(self):
+        self._as(self.enrolled)
+        # Listing/retrieving users, and the /me/ account editor.
+        self.assertEqual(self.client.get('/auth/users/').status_code, 405)
+        self.assertEqual(self.client.get(f'/auth/users/{self.staff.id}/').status_code, 404)
+        self.assertEqual(self.client.get('/auth/users/me/').status_code, 404)
+        self.assertEqual(self.client.delete('/auth/users/me/', {'current_password': 'pw'}, format='json').status_code, 404)
+        # Email-link reset (misconfigured, used to 500) and username changes.
+        self.client.force_authenticate(None)
+        self.assertEqual(
+            self.client.post('/auth/users/reset_password/', {'email': 'enrolled@example.com'}, format='json').status_code, 404)
+        self.assertEqual(self.client.post('/auth/users/set_username/', {}, format='json').status_code, 404)
+        self.assertEqual(self.client.post('/auth/users/set_password/', {}, format='json').status_code, 404)
+
+
+class OwnerPushNotificationTests(TestCase):
+    """The three pushes a client actually waits for: their dog collected and
+    home, a reply to their message, and a new post of their dog — plus the
+    per-user switches that silence each of them."""
+
+    def setUp(self):
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True, first_name='Dee')
+        self.driver.profile.can_reply_queries = True
+        self.driver.profile.save()
+        self.owner = User.objects.create_user(username='owner@example.com', email='owner@example.com', password='pw', first_name='Olivia')
+        self.coowner = User.objects.create_user(username='co@example.com', email='co@example.com', password='pw', first_name='Cal')
+        self.dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.dog.additional_owners.add(self.coowner)
+        self.client = APIClient()
+
+    def _pushes(self, mock_push):
+        return [(c.args[0].username, c.args[1], c.args[3].get('type'), c.kwargs.get('category')) for c in mock_push.call_args_list]
+
+    # ---- collected / home ----
+
+    @patch('api.notifications.send_push_notification')
+    def test_collected_and_home_push_the_household(self, mock_push):
+        assignment = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.driver, date=timezone.localdate())
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(f'/api/daily-assignments/{assignment.id}/update_status/', {'status': 'PICKED_UP'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        pushes = self._pushes(mock_push)
+        self.assertEqual(len(pushes), 2)
+        self.assertEqual({p[0] for p in pushes}, {'owner@example.com', 'co@example.com'})
+        self.assertEqual(pushes[0][1], 'Rex has been collected')
+        self.assertEqual(pushes[0][2], 'dog_status_update')
+        self.assertEqual(pushes[0][3], 'dog_updates')
+        self.assertEqual(mock_push.call_args_list[0].args[3]['dog_id'], str(self.dog.id))
+
+        mock_push.reset_mock()
+        self.client.post(f'/api/daily-assignments/{assignment.id}/update_status/', {'status': 'DROPPED_OFF'}, format='json')
+        self.assertEqual([p[1] for p in self._pushes(mock_push)], ['Rex is home', 'Rex is home'])
+
+    @patch('api.notifications.send_push_notification')
+    def test_owner_transport_changes_the_wording_or_skips(self, mock_push):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=timezone.localdate(),
+            owner_brings=True, owner_collects=True)
+        self.client.force_authenticate(self.driver)
+        self.client.post(f'/api/daily-assignments/{assignment.id}/update_status/', {'status': 'PICKED_UP'}, format='json')
+        self.assertEqual(self._pushes(mock_push)[0][1], 'Rex has arrived')
+        mock_push.reset_mock()
+        self.client.post(f'/api/daily-assignments/{assignment.id}/update_status/', {'status': 'DROPPED_OFF'}, format='json')
+        self.assertEqual(mock_push.call_count, 0)
+
+    @patch('api.notifications.send_push_notification')
+    def test_repeating_or_other_statuses_do_not_push(self, mock_push):
+        assignment = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.driver, date=timezone.localdate(), status='PICKED_UP')
+        self.client.force_authenticate(self.driver)
+        self.client.post(f'/api/daily-assignments/{assignment.id}/update_status/', {'status': 'PICKED_UP'}, format='json')
+        self.client.post(f'/api/daily-assignments/{assignment.id}/update_status/', {'status': 'ASSIGNED'}, format='json')
+        self.assertEqual(mock_push.call_count, 0)
+
+    # ---- support thread ----
+
+    @patch('api.notifications.send_push_notification')
+    def test_new_query_alerts_staff_who_can_reply(self, mock_push):
+        User.objects.create_user(username='nonreplier', password='pw', is_staff=True)
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/support-queries/', {'subject': 'Rex lost his lead', 'initial_message': 'Blue one'}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        pushes = self._pushes(mock_push)
+        self.assertEqual(pushes, [('driver', 'New message from Olivia', 'support_query', 'messages')])
+
+    @patch('api.notifications.send_push_notification')
+    def test_staff_reply_pushes_the_owner_and_owner_reply_pushes_staff(self, mock_push):
+        query = SupportQuery.objects.create(owner=self.owner, subject='Rex lost his lead')
+        self.client.force_authenticate(self.driver)
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Found it!'}, format='json')
+        self.assertEqual(self._pushes(mock_push), [('owner@example.com', 'New reply from Paws 4 Thought', 'support_query_reply', 'messages')])
+        self.assertIn("Dee replied to 'Rex lost his lead'", mock_push.call_args.args[2])
+
+        mock_push.reset_mock()
+        self.client.force_authenticate(self.owner)
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Thank you'}, format='json')
+        self.assertEqual(self._pushes(mock_push), [('driver', 'Message from Olivia', 'support_query_update', 'messages')])
+
+    def test_messages_preference_silences_the_thread_pushes(self):
+        from api.notifications import _user_has_preference
+        self.assertTrue(_user_has_preference(self.owner, 'messages'))
+        self.owner.profile.notify_messages = False
+        self.owner.profile.save()
+        self.assertFalse(_user_has_preference(self.owner, 'messages'))
+        # And the switch is the owner's to flip from the profile screen.
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/profile/', {'notify_messages': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['notify_messages'])
+
+    # ---- feed post tagged with my dog ----
+
+    @patch('api.notifications.send_push_notification')
+    def test_tagged_feed_post_pushes_each_household_once(self, mock_push):
+        from api.notifications import notify_feed_post_tags
+        other = Dog.objects.create(owner=self.owner, name='Bella')
+        post = GroupMedia.objects.create(uploaded_by=self.driver, media_type='PHOTO', caption='Muddy paddock fun')
+        post.tagged_dogs.add(self.dog, other)
+        notify_feed_post_tags(post)
+        pushes = self._pushes(mock_push)
+        self.assertEqual(len(pushes), 2)  # owner once (two dogs), co-owner once
+        by_user = {p[0]: p for p in pushes}
+        self.assertEqual(by_user['owner@example.com'][1], 'New photo of Rex and Bella')
+        self.assertEqual(by_user['co@example.com'][1], 'New photo of Rex')
+        self.assertEqual(by_user['owner@example.com'][2], 'feed_post')
+        self.assertEqual(by_user['owner@example.com'][3], 'feed')
+        self.assertEqual(mock_push.call_args.args[2], 'Muddy paddock fun')
+        self.assertEqual(mock_push.call_args.args[3]['post_id'], str(post.id))
+
+
+class PublicNameTests(TestCase):
+    """Clients see each other by first name only — never the username, which
+    is an email address."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='s@p4td.com', email='s@p4td.com', password='pw', is_staff=True)
+        self.nameless = User.objects.create_user(username='shy@example.com', email='shy@example.com', password='pw')
+        self.named = User.objects.create_user(username='amy@example.com', email='amy@example.com', password='pw', first_name='Amy')
+        Dog.objects.create(owner=self.named, name='Rex')
+        Dog.objects.create(owner=self.nameless, name='Shadow')
+        self.post = GroupMedia.objects.create(uploaded_by=self.staff, media_type='PHOTO', caption='hi')
+        Comment.objects.create(user=self.nameless, text='lovely', group_media=self.post)
+        MediaReaction.objects.create(media=self.post, user=self.nameless, emoji='❤️')
+        self.client = APIClient()
+        self.client.force_authenticate(self.named)
+
+    def test_feed_never_shows_another_clients_email(self):
+        body = json.dumps(self.client.get('/api/feed/').json())
+        details = json.dumps(self.client.get(f'/api/feed/{self.post.id}/reaction_details/').json())
+        for text in (body, details):
+            self.assertNotIn('shy@example.com', text)
+            self.assertNotIn('s@p4td.com', text)
+        item = self.client.get('/api/feed/').json()['results'][0]
+        self.assertEqual(item['uploaded_by_name'], 'Paws 4 Thought team')
+        self.assertEqual(item['comments'][0]['user_name'], 'Dog owner')
+        self.assertEqual(self.client.get(f'/api/feed/{self.post.id}/reaction_details/').json()[0]['user_name'], 'Dog owner')
+
+    def test_first_names_are_shown_when_present(self):
+        Comment.objects.create(user=self.named, text='so cute', group_media=self.post)
+        item = self.client.get('/api/feed/').json()['results'][0]
+        self.assertIn('Amy', [c['user_name'] for c in item['comments']])
+
+    def test_signup_requires_a_first_name_and_uses_the_email_as_username(self):
+        anon = APIClient()
+        payload = {'username': 'ignored', 'email': 'New@Example.com', 'password': 'BrandNewPass123!', 'accept_privacy': True}
+        resp = anon.post('/auth/users/', payload, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('first_name', resp.json())
+        resp = anon.post('/auth/users/', {**payload, 'first_name': 'Nia'}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['username'], 'New@Example.com')
+
+
+class EmailLoginTests(TestCase):
+    """The login screen asks for an email. Accounts created outside the app
+    may carry a different username; the email must still sign them in."""
+
+    def test_email_signs_in_an_account_with_a_different_username(self):
+        User.objects.create_user(username='legacy_marco', email='Marco@Example.com', password='Str0ngPass!23')
+        resp = APIClient().post('/auth/token/login/', {'username': 'marco@example.com', 'password': 'Str0ngPass!23'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('auth_token', resp.data)
+
+    def test_wrong_password_and_ambiguous_email_are_refused(self):
+        User.objects.create_user(username='a1', email='dup@example.com', password='Str0ngPass!23')
+        User.objects.create_user(username='a2', email='dup@example.com', password='Str0ngPass!23')
+        anon = APIClient()
+        self.assertEqual(anon.post('/auth/token/login/', {'username': 'dup@example.com', 'password': 'Str0ngPass!23'}).status_code, 400)
+        User.objects.create_user(username='legacy', email='one@example.com', password='Str0ngPass!23')
+        self.assertEqual(anon.post('/auth/token/login/', {'username': 'one@example.com', 'password': 'nope'}).status_code, 400)

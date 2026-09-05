@@ -189,6 +189,13 @@ if 'test' in sys.argv:
 # PASSWORD VALIDATION
 # =============================================================================
 
+# Username first (the normal path), then the email fallback for accounts
+# created outside the app — see api/auth_backends.py.
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'api.auth_backends.EmailOrUsernameBackend',
+]
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 10}},

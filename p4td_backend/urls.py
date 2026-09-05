@@ -4,6 +4,7 @@ from django.http import HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from djoser.views import UserViewSet as DjoserUserViewSet
 
 from website.sitemaps import BlogPostSitemap, StaticPagesSitemap
 
@@ -27,7 +28,13 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('summernote/', include('django_summernote.urls')),
     path('api/', include('api.urls')),
-    path('auth/', include('djoser.urls')),
+    # Only the two djoser surfaces the app uses: sign-up and token login/logout.
+    # The full `djoser.urls` router also mounted /auth/users/me/ (PATCH/DELETE
+    # the account without the safeguards in api.views.delete_account),
+    # set_username, set_password and an email-link reset_password flow that
+    # 500s here because PASSWORD_RESET_CONFIRM_URL was never configured — the
+    # app's password reset is the OTP flow under /api/password/reset/.
+    path('auth/users/', DjoserUserViewSet.as_view({'post': 'create'}), name='user-create'),
     path('auth/', include('djoser.urls.authtoken')),
     path('sitemap.xml', sitemap, {'sitemaps': sitemaps},
          name='django.contrib.sitemaps.views.sitemap'),
