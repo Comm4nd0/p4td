@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
+import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/intake_request.dart';
@@ -134,6 +135,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (_isOffline) _refresh();
+      _refreshPermissionsOnResume();
       // Re-warm the offline caches on foreground (throttled inside the
       // service), e.g. a staff member checking the app before setting off.
       if (_isStaff) getIt<OfflinePrefetchService>().prefetchForToday();
@@ -239,25 +241,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }).toList();
   }
 
+  /// Copies the server's permission flags into state. Menu entries and
+  /// action buttons are gated on these, so they must mirror the profile.
+  void _applyPermissions(UserProfile profile) {
+    setState(() {
+      _isStaff = profile.isStaff;
+      _isSuperuser = profile.isSuperuser;
+      _myUserId = profile.userId;
+      _canAssignDogs = profile.canAssignDogs;
+      _canAddFeedMedia = profile.canAddFeedMedia;
+      _canManageRequests = profile.canManageRequests;
+      _canReplyQueries = profile.canReplyQueries;
+      _canManageStaff = profile.canManageStaff;
+      _canViewInquiries = profile.canViewInquiries;
+      _canManageVehicles = profile.canManageVehicles;
+      _canManagePayments = profile.canManagePayments;
+      _canManageBoarding = profile.canManageBoarding;
+      _canManageCompliance = profile.canManageCompliance;
+    });
+  }
+
+  /// Re-read permissions when the app comes back to the foreground, so a
+  /// flag a manager has just revoked (e.g. `can_manage_staff`, which shows
+  /// pay) disappears from the menu without a restart or re-login. The
+  /// server enforces every flag per request regardless; this only keeps
+  /// the UI honest. Quiet on failure: the startup path already handles the
+  /// offline state, and a stale menu is not worth a snackbar.
+  Future<void> _refreshPermissionsOnResume() async {
+    try {
+      final profile = await _dataService.getProfile();
+      if (mounted) _applyPermissions(profile);
+    } catch (_) {
+      // Offline or transient error: keep the last known flags.
+    }
+  }
+
   Future<void> _checkStaffStatus() async {
     try {
       final profile = await _dataService.getProfile();
       if (mounted) {
-        setState(() {
-          _isStaff = profile.isStaff;
-          _isSuperuser = profile.isSuperuser;
-          _myUserId = profile.userId;
-          _canAssignDogs = profile.canAssignDogs;
-          _canAddFeedMedia = profile.canAddFeedMedia;
-          _canManageRequests = profile.canManageRequests;
-          _canReplyQueries = profile.canReplyQueries;
-          _canManageStaff = profile.canManageStaff;
-          _canViewInquiries = profile.canViewInquiries;
-          _canManageVehicles = profile.canManageVehicles;
-          _canManagePayments = profile.canManagePayments;
-          _canManageBoarding = profile.canManageBoarding;
-          _canManageCompliance = profile.canManageCompliance;
-        });
+        _applyPermissions(profile);
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
           // Default to Dashboard tab for staff (unless deep-link overrides)
