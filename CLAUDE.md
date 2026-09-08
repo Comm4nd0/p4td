@@ -282,6 +282,24 @@ Additional non-router endpoints:
 
 ### Releasing iOS
 
+> **What's live — update this when a version is released, not when it is submitted.**
+>
+> | | Version | pubspec commit | Note |
+> |---|---|---|---|
+> | Live on the App Store | **1.11.28** | `c22da1b` | Released through the web UI on 2026-08-31 |
+> | Submitted, in review | 1.12.9 | `2c70979` | Tag `v1.12.9`, build 592, submitted 2026-09-08 |
+>
+> **Release notes must be diffed from the live row, never from memory or from
+> the last notes file.** Two releases in a row had What's New written against
+> a version that was no longer live, re-announcing features customers already
+> had. Before touching `my_app/fastlane/metadata/en-GB/release_notes.txt`, list
+> what actually changed with
+> `git log --no-merges --format='%h %s' <live pubspec commit>..HEAD -- my_app`
+> and cover only that. When Apple approves and the version is pressed live in
+> App Store Connect, move it into the live row here in the same sitting.
+> This table lives in `CLAUDE.md` rather than under `my_app/` because any
+> `my_app/**` commit triggers a Play Store upload and needs a version bump.
+
 `pubspec.yaml` is the source of the iOS **marketing version** (the Xcode project
 takes `MARKETING_VERSION` from `$(FLUTTER_BUILD_NAME)` via
 `ios/Flutter/Generated.xcconfig`, written by `flutter pub get`). It is *not* the
