@@ -243,7 +243,8 @@ platform :ios do
   # it.
   #
   #   SUBMIT=0        attach the build and stop (dry run — nothing sent to Apple)
-  #   WAIT_MINUTES=n  how long to wait for a build to finish processing (30)
+  #   WAIT_MINUTES=n  how long to wait, per phase, for a build to appear, to finish
+  #                   processing, and for a newer one after a refusal (30)
   #   APP_BUILD=n     attach this exact build instead of resolving one
   lane :submit_for_review do
     version = marketing_version
@@ -257,20 +258,26 @@ platform :ios do
 
     wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
 
-    build = ENV["APP_BUILD"].to_s
-    if build.empty?
+    # Highest build number App Store Connect holds in this version's train, or
+    # 0 while there is none yet.
+    newest_build = lambda do
+      latest_testflight_build_number(
+        api_key:              api_key,
+        app_identifier:       IOS_BUNDLE_ID,
+        version:              version,
+        initial_build_number: 0,
+      ).to_i
+    end
+
+    build  = ENV["APP_BUILD"].to_s
+    pinned = !build.empty?
+    unless pinned
       # The archive for this commit normally exists well before anyone tags it,
       # but it can still be processing. Wait rather than fail immediately — and
       # fail readably rather than hanging.
       deadline = Time.now + (wait_minutes * 60)
       loop do
-        latest = latest_testflight_build_number(
-          api_key:              api_key,
-          app_identifier:       IOS_BUNDLE_ID,
-          version:              version,
-          initial_build_number: 0,
-        ).to_i
-
+        latest = newest_build.call
         if latest.positive?
           build = latest.to_s
           break
@@ -288,49 +295,94 @@ platform :ios do
       end
     end
 
-    # Having a build *number* only means the upload landed — App Store Connect
-    # still has to process it, and attaching one mid-processing fails with
-    # "The specified pre-release build could not be added" (v1.10.1 died here,
-    # one second after resolving its build). Wait for the build itself, not just
-    # its number. Same watcher pilot uses when it waits after an upload.
     app = Spaceship::ConnectAPI::App.find(IOS_BUNDLE_ID)
-    UI.message("Waiting for build #{build} of #{version} to finish processing…")
-    FastlaneCore::BuildWatcher.wait_for_build_processing_to_be_complete(
-      app_id:            app.id,
-      platform:          Spaceship::ConnectAPI::Platform::IOS,
-      train_version:     version,
-      build_version:     build,
-      poll_interval:     30,
-      timeout_duration:  wait_minutes * 60,
-      return_spaceship_testflight_build: false,
-    )
+    refused = []
 
-    UI.message("Attaching build #{build} to #{version} (submit for review: #{submit})")
+    loop do
+      # Having a build *number* only means the upload landed — App Store Connect
+      # still has to process it, and attaching one mid-processing fails with
+      # "The specified pre-release build could not be added". Wait for the build
+      # itself, not just its number. Same watcher pilot uses after an upload.
+      UI.message("Waiting for build #{build} of #{version} to finish processing…")
+      FastlaneCore::BuildWatcher.wait_for_build_processing_to_be_complete(
+        app_id:            app.id,
+        platform:          Spaceship::ConnectAPI::Platform::IOS,
+        train_version:     version,
+        build_version:     build,
+        poll_interval:     30,
+        timeout_duration:  wait_minutes * 60,
+        return_spaceship_testflight_build: false,
+      )
 
-    deliver(
-      api_key_path:            asc_api_key_file,
-      app_identifier:          IOS_BUNDLE_ID,
-      app_version:             version,
-      build_number:            build,
-      # The listing was pushed by `upload_metadata`; don't re-send it here.
-      skip_metadata:           true,
-      skip_screenshots:        true,
-      skip_binary_upload:      true,
-      skip_app_version_update: false,
-      submit_for_review:       submit,
-      # Apple's approval doesn't put it in front of customers — releasing stays a
-      # deliberate press in App Store Connect.
-      automatic_release:       false,
-      run_precheck_before_submit: false,
-      force:                   true, # no interactive HTML preview
-      submission_information: {
-        # Info.plist already declares ITSAppUsesNonExemptEncryption=false, and
-        # the app ships no ad or attribution SDK. Answering both here keeps the
-        # submission from stopping on a prompt no one is there to answer.
-        export_compliance_uses_encryption: false,
-        add_id_info_uses_idfa:             false,
-      },
-    )
+      UI.message("Attaching build #{build} to #{version} (submit for review: #{submit})")
+
+      begin
+        deliver(
+          api_key_path:            asc_api_key_file,
+          app_identifier:          IOS_BUNDLE_ID,
+          app_version:             version,
+          build_number:            build,
+          # The listing was pushed by `upload_metadata`; don't re-send it here.
+          skip_metadata:           true,
+          skip_screenshots:        true,
+          skip_binary_upload:      true,
+          skip_app_version_update: false,
+          submit_for_review:       submit,
+          # Apple's approval doesn't put it in front of customers — releasing stays a
+          # deliberate press in App Store Connect.
+          automatic_release:       false,
+          run_precheck_before_submit: false,
+          force:                   true, # no interactive HTML preview
+          submission_information: {
+            # Info.plist already declares ITSAppUsesNonExemptEncryption=false, and
+            # the app ships no ad or attribution SDK. Answering both here keeps the
+            # submission from stopping on a prompt no one is there to answer.
+            export_compliance_uses_encryption: false,
+            add_id_info_uses_idfa:             false,
+          },
+        )
+        break
+      rescue StandardError => e
+        # A fully processed build can still be refused with the same message.
+        # Every tag-push run so far (1.10.1, 1.11.3, 1.11.6, 1.12.8) hit it on
+        # the newest build present at tag time, and the one release that went
+        # through (1.10.1) was a re-run an hour later that picked up the *next*
+        # build number — the archive the tag push itself had queued. Both Xcode
+        # Cloud workflows build every commit (development and main move
+        # together) and their counters interleave, so the newest build in the
+        # train at tag time is as likely the Development workflow's, which
+        # distributes to internal testers only, as the Production one. Rather
+        # than guess which, wait for a build newer than any that was refused:
+        # the tag's own Production archive is always newer than everything that
+        # existed when it was pushed, and it has attached every time.
+        raise unless e.message.include?("pre-release build could not be added")
+        raise if pinned # APP_BUILD named this build on purpose; don't second-guess it
+
+        refused << build.to_i
+        UI.important(
+          "App Store Connect refused build #{build} for #{version}. Waiting up to " \
+          "#{wait_minutes} min for a newer build of #{version} to arrive (the one this " \
+          "tag queued in Xcode Cloud), then trying again."
+        )
+        retry_deadline = Time.now + (wait_minutes * 60)
+        loop do
+          latest = newest_build.call
+          if latest > refused.max
+            build = latest.to_s
+            break
+          end
+          if Time.now > retry_deadline
+            UI.user_error!(
+              "App Store Connect refused build(s) #{refused.join(', ')} for #{version} and no " \
+              "newer build arrived within #{wait_minutes} min. Check the Production workflow " \
+              "run for tag v#{version} in Xcode Cloud; once its build is in TestFlight, " \
+              "re-run this workflow on the tag (or pass APP_BUILD=<number>)."
+            )
+          end
+          sleep(60)
+        end
+      end
+    end
   end
 end
 
