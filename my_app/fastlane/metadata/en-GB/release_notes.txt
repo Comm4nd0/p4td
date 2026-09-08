@@ -2,14 +2,26 @@ Now on iPad and Mac
 
 The app now runs properly on iPad — and through it on Apple silicon Macs — rather than as a scaled-up phone screen. On a big screen the menu stays open at the side wherever you go, pages open beside it, dogs are laid out as photo tiles, the staff dashboard shows the day's roster and action list side by side, and the day board opens with every staff column fitted on screen. Nothing changes on the phone.
 
-Vaccination records
+Vaccinations
 
-A dog's vaccinations now live on its profile, and owners get a reminder when one is close to expiring — no more finding out at check-in.
+A dog's vaccinations now live on its profile, and you can attach the vet's certificate — a PDF or a photo — behind each date. Certificates are kept private and shown only to the dog's owners and the team. You'll get a reminder a week before a vaccination is due, so it isn't a surprise at check-in.
+
+Notifications you were missing
+
+The app now tells you when your dog has been collected and when they're home, when the team replies to one of your messages, and when a new photo of your dog lands on the feed. Each has its own switch on your Profile page.
+
+Privacy
+
+Other clients see you by your first name only, and the feed opens once your dog's booking form has been approved.
+
+Invoices
+
+Invoices are paid by bank transfer from the invoice Xero emails you, so the Pay Now button has gone and the invoice screen says so instead.
 
 For the team
 
 A new staff management section brings employment details, meetings, appraisals, sickness and training records together for managers, and a safety & compliance register keeps track of the recurring checks — fire alarm tests, extinguisher servicing, first aid kits, renewals — with reminders when one falls due.
 
-Also in this release
+Invoicing now bills in advance: a month's invoice charges the days a dog is booked in, plus any extra days from last month that weren't billed. Daycare is priced by how many days a week the dog comes, with a per-dog override for payment managers. An invoice can be raised for a single dog and lands in Xero as a draft to finish there, and the dog picker shows each dog's photo.
 
-The staff overview's status lines no longer overflow on smaller phones.
+The dashboard's incompatible-dogs warning now covers every pair in on the same day, not only two dogs in the same van. The unspayed-males row has become a single "Dog health to confirm" row that also lists dogs whose vaccination date is over a year old. Staff permissions are re-checked whenever the app comes back to the foreground, and the staff overview's status lines no longer overflow on smaller phones.
