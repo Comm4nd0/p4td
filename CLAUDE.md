@@ -304,8 +304,11 @@ git tag v1.9.26 && git push origin v1.9.26
 
 The workflow verifies the tag matches pubspec and is an ancestor of `main`,
 pushes the listing from `my_app/fastlane/metadata/`, waits for a build of that
-version to finish processing, attaches the newest one, and submits for review. It
-never builds or uploads a binary itself. Full detail — including the dry-run mode
+version to finish processing, attaches the newest one, and submits for review. If
+App Store Connect refuses that build ("pre-release build could not be added" —
+every tag push so far has hit it on the build that was newest at tag time), the
+lane waits for the newer build the tag itself queued in Xcode Cloud and retries.
+It never builds or uploads a binary itself. Full detail — including the dry-run mode
 and what still needs the web UI — is in `my_app/STORE_METADATA.md`.
 
 ## Environment Variables

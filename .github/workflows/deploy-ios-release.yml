@@ -46,8 +46,10 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # The lane waits up to 30 min for a build that is still processing.
-    timeout-minutes: 60
+    # The lane waits up to 30 min for a build to appear, 30 for it to finish
+    # processing, and — if App Store Connect refuses it — 30 more for the build
+    # the tag itself queued in Xcode Cloud. Leave headroom for all three.
+    timeout-minutes: 100
     defaults:
       run:
         working-directory: my_app

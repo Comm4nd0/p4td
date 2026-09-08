@@ -117,6 +117,19 @@ keyed on the marketing version, which is why the version bump `CLAUDE.md` alread
 requires matters here: skip it and the release shares a train with the previous
 one, and the wrong binary can be attached.
 
+**The newest build in the train is not always attachable.** Every tag-push run
+so far was refused with "The specified pre-release build could not be added" on
+the build that was newest when the tag landed, and the one release that went
+through (1.10.1) was a re-run an hour later that picked up the *next* build —
+the archive the tag push itself had queued. Both Xcode Cloud workflows build
+every commit (development and main move together) and their counters
+interleave, so the newest build at tag time may well be the Development one,
+which distributes to internal testers only. The lane therefore treats that
+refusal as "not yet": it waits (up to `WAIT_MINUTES`, default 30) for a build
+newer than any it was refused, then attaches that. If nothing newer arrives,
+check the Production workflow's run for the tag in Xcode Cloud, and once its
+build is in TestFlight re-run the workflow on the tag or pass `APP_BUILD`.
+
 Don't try to force `CFBundleVersion` to match pubspec, and in particular don't
 pass `--build-number="$CI_BUILD_NUMBER"` in `ci_post_clone.sh` — Xcode Cloud
 counts that **per workflow** in some configurations, and a second workflow
