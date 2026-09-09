@@ -54,7 +54,26 @@ else
     docker compose -f "$COMPOSE_FILE" build
 fi
 
-# 3. Start the new containers.
+# 3. Make sure the private-media bind mount is writable by the app.
+#
+# The image runs as `appuser` (uid 1000). When a bind-mount source is missing,
+# the Docker daemon creates it as root:root 755, and the container can then
+# never write into it. That is exactly how vaccination-certificate uploads
+# 500'd with "Permission denied: /app/private-media/vaccination_certificates"
+# after the feature first shipped — private-media/ was born root-owned on the
+# first `up`. Create it here, before `up -d`, with the uid the container
+# actually uses. Only the top-level directory is touched: files already inside
+# are the app's own and must be left alone. (media/ predates this and is
+# world-writable, so it needs no help.)
+echo ""
+echo ">>> Ensuring private-media/ is writable by the app (uid 1000)..."
+mkdir -p private-media
+if [ "$(stat -c '%u' private-media)" != "1000" ]; then
+    chown 1000:1000 private-media
+fi
+chmod 770 private-media
+
+# 4. Start the new containers.
 #
 # `up -d` recreates only what changed. The previous `down` first stopped every
 # service — Postgres included — taking the whole site offline for the length of
@@ -63,7 +82,7 @@ echo ""
 echo ">>> Starting new containers..."
 docker compose -f "$COMPOSE_FILE" up -d
 
-# 4. Health gate.
+# 5. Health gate.
 #
 # Poll the dependency-free liveness endpoint rather than sleeping blindly, so a
 # container that crash-loops on a bad migration fails the deploy instead of
@@ -98,12 +117,12 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-# 5. Show status
+# 6. Show status
 echo ""
 echo ">>> Service status:"
 docker compose -f "$COMPOSE_FILE" ps
 
-# 6. Show recent logs
+# 7. Show recent logs
 echo ""
 echo ">>> Recent web logs:"
 docker compose -f "$COMPOSE_FILE" logs --tail=20 web
