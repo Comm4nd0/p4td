@@ -19,12 +19,17 @@ echo "=================================================="
 # meant an automated deploy (see .github/workflows/deploy-backend.yml) had no
 # recorded target to roll back to when it failed. Written before the pull so the
 # commit captured is the one currently serving traffic.
-PREV_COMMIT="$(git rev-parse HEAD)"
-PREV_IMAGE="$(docker compose -f "$COMPOSE_FILE" images -q web 2>/dev/null || echo '')"
-printf '%s\t%s\t%s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PREV_COMMIT" "$PREV_IMAGE" >> .deploy-history
-echo ""
-echo ">>> Rollback point: $PREV_COMMIT (web image ${PREV_IMAGE:-none})"
+#
+# Skipped when this is the re-exec below: the point was already recorded by
+# the first pass, before the pull moved HEAD.
+if [ -z "${P4TD_DEPLOY_REEXEC:-}" ]; then
+    PREV_COMMIT="$(git rev-parse HEAD)"
+    PREV_IMAGE="$(docker compose -f "$COMPOSE_FILE" images -q web 2>/dev/null || echo '')"
+    printf '%s\t%s\t%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PREV_COMMIT" "$PREV_IMAGE" >> .deploy-history
+    echo ""
+    echo ">>> Rollback point: $PREV_COMMIT (web image ${PREV_IMAGE:-none})"
+fi
 
 # 1. Pull latest code.
 #
@@ -35,8 +40,20 @@ echo ">>> Rollback point: $PREV_COMMIT (web image ${PREV_IMAGE:-none})"
 if [[ "$*" != *"--skip-pull"* ]]; then
     echo ""
     echo ">>> Pulling latest code from main..."
+    SELF_BEFORE="$(git rev-parse HEAD:deploy.sh)"
     git fetch origin main
     git pull --ff-only origin main
+    # If the pull changed this very script, run the new one instead of
+    # carrying on with the old. bash executes the copy it opened at start —
+    # git replaces the file with a new inode — so without this a change to
+    # deploy.sh only takes effect on the deploy *after* the one that shipped
+    # it. That is how the private-media ownership step below shipped without
+    # running. --skip-pull: the code is already current.
+    if [ "$(git rev-parse HEAD:deploy.sh)" != "$SELF_BEFORE" ]; then
+        echo ""
+        echo ">>> deploy.sh changed in this pull; re-running the new version..."
+        P4TD_DEPLOY_REEXEC=1 exec ./deploy.sh --skip-pull "$@"
+    fi
 else
     echo ""
     echo ">>> Skipping git pull (--skip-pull)"
