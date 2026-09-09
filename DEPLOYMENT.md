@@ -42,8 +42,12 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 - **Private media:** bind-mounted `./private-media` (= `/root/p4td/private-media`)
   → `/app/private-media`. Vaccination certificates. **Not** mounted into Caddy
   and must never be: nothing serves this directory, the API's gated download
-  view is the only way to a file (`api/certificates.py`). Created by the
-  container on first upload; `chown 1000:1000` it if you create it by hand.
+  view is the only way to a file (`api/certificates.py`). The container runs
+  as uid 1000 and cannot create this directory itself: if it is missing when
+  the container starts, the Docker daemon creates it as root:root 755 and
+  every upload then 500s with "Permission denied". `deploy.sh` therefore
+  creates it and `chown 1000:1000`s it before `up -d`; do the same if you ever
+  create it by hand.
   `scripts/backup-db.sh` archives it alongside every database dump.
 - **Runtime config:** from `.env` (via `env_file`) — `DJANGO_SECRET_KEY`,
   `DJANGO_DEBUG=False`, `RDS_*`, etc. `DJANGO_DEBUG` is **not** baked into the
