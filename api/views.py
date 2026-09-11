@@ -4595,6 +4595,17 @@ def submit_contact_inquiry(request):
             status=drf_status.HTTP_201_CREATED,
         )
 
+    # A repeat of an enquiry already on file (the Send button pressed again
+    # while the first was in flight) was received the first time: same reply,
+    # nothing saved or sent. See ContactInquiry.DUPLICATE_WINDOW_MINUTES.
+    if ContactInquiry.recent_duplicate(
+        serializer.validated_data.get('email'), serializer.validated_data.get('message')
+    ):
+        return Response(
+            {'detail': 'Thank you! Your message has been received.'},
+            status=drf_status.HTTP_201_CREATED,
+        )
+
     inquiry = serializer.save()
     recipient = getattr(settings, 'CONTACT_INQUIRY_EMAIL', settings.DEFAULT_FROM_EMAIL)
     try:

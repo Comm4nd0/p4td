@@ -9972,6 +9972,18 @@ class PublicContactInquiryTests(TestCase):
         self.assertIn('Daycare', mail.outbox[0].subject)
         self.assertEqual(mail.outbox[0].reply_to, ['jane@example.com'])
 
+    def test_repeat_submission_is_received_once(self):
+        # Send pressed again while the first request is in flight.
+        from django.core import mail
+        from website.models import ContactInquiry
+        self.assertEqual(self._post().status_code, 201)
+        self.assertEqual(self._post(email='JANE@example.com').status_code, 201)
+        self.assertEqual(ContactInquiry.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        # A different message is a new enquiry.
+        self.assertEqual(self._post(message='And Thursdays?').status_code, 201)
+        self.assertEqual(ContactInquiry.objects.count(), 2)
+
     def test_missing_fields_rejected(self):
         from website.models import ContactInquiry
         for field in ('name', 'email', 'service', 'message'):

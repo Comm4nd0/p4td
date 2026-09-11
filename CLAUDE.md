@@ -146,7 +146,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/dog-notes/` | Behavioral/compatibility notes |
 | `api/staff-availability/` | Staff coverage |
 | `api/day-off-requests/` | Staff day-off requests |
-| `api/contact-inquiries/` | Website contact form |
+| `api/contact-inquiries/` | Website contact form. Both public submit paths (the website view and `api/public/contact-inquiry/`) treat an identical email + message inside `ContactInquiry.DUPLICATE_WINDOW_MINUTES` as the same enquiry: success reply, nothing saved, no second email or push. Sending takes seconds (reCAPTCHA plus a synchronous SMTP send) and people pressed Submit again, so the website button also disables itself on the first press |
 | `api/dog-profile-changes/` | Owner-requested dog profile change requests |
 | `api/vaccinations/` | Dog vaccination records |
 | `api/vaccination-certificates/` | The vet's certificate behind a dog's vaccination date (PDF or photo). Owners, co-owners and staff list/upload/download for their dogs; removal is the uploader's or staff's; no update. **Files live under `PRIVATE_MEDIA_ROOT`, not `MEDIA_ROOT`, and have no URL** — `<id>/download/` is the only way to the bytes (attachment + nosniff, through the scoped queryset). Images are re-encoded through Pillow (EXIF/GPS stripped, polyglots neutralised); PDFs are sniffed and refused if they carry JavaScript/launch actions/embedded files. 10 MB cap, 25 per dog, uploads throttled 60/hour/user. All of it in `api/certificates.py`. |

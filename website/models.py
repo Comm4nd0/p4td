@@ -394,6 +394,30 @@ class ContactInquiry(models.Model):
     def __str__(self):
         return f"{self.name} - {self.get_service_display()} ({self.created_at:%Y-%m-%d})"
 
+    #: How long after an enquiry an identical one from the same address is
+    #: treated as the same enquiry. Sending takes a few seconds (reCAPTCHA
+    #: check, then a synchronous SMTP send to the notification inbox) and the
+    #: website button used to give no feedback, so people pressed Submit again:
+    #: 6 of the 41 enquiries in the 90 days to 2026-09-11 arrived two to four
+    #: times, every repeat 1-6 seconds after the first. Ten minutes also covers
+    #: a browser retrying a slow POST.
+    DUPLICATE_WINDOW_MINUTES = 10
+
+    @classmethod
+    def recent_duplicate(cls, email, message):
+        """The enquiry already on file that `email`/`message` repeats, if any.
+
+        Whitespace and letter case in the address are ignored, the message
+        body is compared exactly after trimming.
+        """
+        from django.utils import timezone
+        since = timezone.now() - timezone.timedelta(minutes=cls.DUPLICATE_WINDOW_MINUTES)
+        return cls.objects.filter(
+            email__iexact=(email or '').strip(),
+            message=(message or '').strip(),
+            created_at__gte=since,
+        ).order_by('-created_at').first()
+
 
 @receiver(post_save, sender=ContactInquiry)
 def notify_staff_new_inquiry(sender, instance, created, **kwargs):
