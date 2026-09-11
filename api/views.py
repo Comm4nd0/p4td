@@ -380,7 +380,10 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can view owner list")
 
-        profiles = UserProfile.objects.select_related('user').all()
+        # Name order, so the app's owner search reads naturally before anything
+        # is typed; accounts with no name sort by their username (the email).
+        profiles = UserProfile.objects.select_related('user').order_by(
+            'user__first_name', 'user__last_name', 'user__username')
         from .serializers import UserSummarySerializer
         serializer = UserSummarySerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)

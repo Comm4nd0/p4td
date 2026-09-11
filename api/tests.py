@@ -11411,6 +11411,28 @@ class ComplianceTests(TestCase):
         self.assertIn('Animal welfare licence renewal', names)
 
 
+class OwnerListTests(TestCase):
+    """The staff owner list behind the app's owner picker: searchable by
+    name, so it carries the surname and comes back in name order."""
+
+    def test_owner_list_has_names_in_name_order(self):
+        staff = User.objects.create_user(username='ownerlist_staff', password='pw', is_staff=True)
+        User.objects.create_user(username='zed@example.com', password='pw', first_name='Zed', last_name='Young')
+        User.objects.create_user(username='amy@example.com', password='pw', first_name='Amy', last_name='Best')
+        User.objects.create_user(username='amy2@example.com', password='pw', first_name='Amy', last_name='Adams')
+        client = APIClient()
+        client.force_authenticate(user=staff)
+        resp = client.get('/api/profile/get_owners/')
+        self.assertEqual(resp.status_code, 200)
+        named = [(r['first_name'], r['last_name']) for r in resp.data if r['first_name']]
+        self.assertEqual(named, [('Amy', 'Adams'), ('Amy', 'Best'), ('Zed', 'Young')])
+        # No-name accounts (the staff user here) come first, sorted by username.
+        self.assertEqual(resp.data[0]['username'], 'ownerlist_staff')
+
+        client.force_authenticate(user=User.objects.get(username='amy@example.com'))
+        self.assertEqual(client.get('/api/profile/get_owners/').status_code, 403)
+
+
 class DogContactNumberTests(TestCase):
     """The dog-level contact and emergency contact numbers round-trip through
     the API and the owner change-request flow."""

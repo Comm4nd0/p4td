@@ -11,6 +11,7 @@ import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
 import '../widgets/dog_contact_rules.dart';
+import '../widgets/owner_picker.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -315,20 +316,14 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         if (_isLoadingOwners)
                           const Center(child: CircularProgressIndicator())
                         else
-                          DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(
-                              labelText: 'Assign Owner',                              prefixIcon: Picon(PiconsDuotone.userFocus),
-                            ),
-                            value: _selectedOwnerId,
-                            items: _owners.map((owner) {
-                              return DropdownMenuItem(
-                                value: owner.userId.toString(),
-                                child: Text('${owner.username} (${owner.email})'),
-                              );
-                            }).toList(),
+                          OwnerPickerField(
+                            labelText: 'Assign Owner',
+                            prefixIcon: const Picon(PiconsDuotone.userFocus),
+                            owners: _owners,
+                            value: int.tryParse(_selectedOwnerId ?? ''),
                             onChanged: (value) {
                               setState(() {
-                                _selectedOwnerId = value;
+                                _selectedOwnerId = value?.toString();
                               });
                             },
                             validator: (value) => value == null ? 'Required for staff' : null,

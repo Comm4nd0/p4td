@@ -102,12 +102,13 @@ class OwnerDetailSerializer(serializers.ModelSerializer):
 class UserSummarySerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email']
+        fields = ['user_id', 'username', 'first_name', 'last_name', 'email']
 
 
 class StaffPermissionsSerializer(serializers.ModelSerializer):
