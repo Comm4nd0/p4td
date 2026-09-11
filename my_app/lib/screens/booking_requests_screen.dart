@@ -302,6 +302,7 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
           if (widget.isStaff) ...[
             _detailRow('Owner', '${request.ownerName} (${request.ownerEmail})'),
             _detailRow('Phone', request.phoneNumber),
+            _detailRow('Emergency contact', request.emergencyContactNumber),
             _detailRow('Address', request.address),
             _detailRow('Postcode', request.postcode),
             _detailRow('Pickup instructions', request.pickupInstructions),

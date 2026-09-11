@@ -13,6 +13,7 @@ import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
+import '../widgets/dog_contact_rules.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/vaccination_certificate_tile.dart';
 import 'vaccination_certificate_screen.dart';
@@ -59,6 +60,9 @@ class _EditDogScreenState extends State<EditDogScreen> {
   DropoffTime? _selectedDropoffTime;
   ScheduleType _selectedScheduleType = ScheduleType.weekly;
   bool _isStaff = false;
+  /// Set once a client tries to save with a contact number blank, so the
+  /// fields show their errors (this screen has no Form to validate).
+  bool _showContactErrors = false;
   bool _ownerBringsDefault = false;
   bool _ownerCollectsDefault = false;
   TimeOfDay? _ownerBringsDefaultTime;
@@ -166,6 +170,13 @@ class _EditDogScreenState extends State<EditDogScreen> {
     } catch (e) {
       debugPrint('Error checking user role: $e');
     }
+  }
+
+  /// Client-only "Required" under a blank contact field once they've tried
+  /// to save; staff never see it.
+  String? _contactErrorText(TextEditingController controller) {
+    if (!_showContactErrors) return null;
+    return dogContactValidator(controller.text, isStaff: _isStaff);
   }
 
   Future<void> _lookUpVetPostcode() async {
@@ -351,6 +362,25 @@ class _EditDogScreenState extends State<EditDogScreen> {
   }
 
   Future<void> _saveDog() async {
+    final missingContacts = missingDogContactFields(
+      contactNumber: _contactNumberController.text,
+      emergencyContactNumber: _emergencyContactController.text,
+    );
+    if (missingContacts.isNotEmpty) {
+      if (_isStaff) {
+        // Staff are warned, never blocked.
+        if (!await confirmSaveWithoutContacts(context, missingContacts) || !mounted) return;
+      } else {
+        // Clients must keep both numbers on file.
+        setState(() => _showContactErrors = true);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Please add a ${missingContacts.join(' and ').toLowerCase()}.'),
+          backgroundColor: AppColors.error,
+        ));
+        return;
+      }
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -761,22 +791,26 @@ class _EditDogScreenState extends State<EditDogScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _contactNumberController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Contact Number',
               hintText: 'Best number to reach you on daycare days',
-              prefixIcon: Picon(PiconsDuotone.phone),
+              prefixIcon: const Picon(PiconsDuotone.phone),
+              errorText: _contactErrorText(_contactNumberController),
             ),
             keyboardType: TextInputType.phone,
+            onChanged: _showContactErrors ? (_) => setState(() {}) : null,
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _emergencyContactController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Emergency Contact Number',
               hintText: "If we can't reach you — e.g. 07700 900123 (Sue, neighbour)",
-              prefixIcon: Picon(PiconsDuotone.firstAidKit),
+              prefixIcon: const Picon(PiconsDuotone.firstAidKit),
+              errorText: _contactErrorText(_emergencyContactController),
             ),
             keyboardType: TextInputType.phone,
+            onChanged: _showContactErrors ? (_) => setState(() {}) : null,
           ),
           const SizedBox(height: 24),
           _sectionHeader('About', visibleToOwner: true),

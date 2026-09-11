@@ -2772,6 +2772,7 @@ class ApiDataService implements DataService {
   @override
   Future<IntakeRequest> submitIntakeRequest({
     String? phoneNumber,
+    String? emergencyContactNumber,
     String? address,
     String? postcode,
     String? pickupInstructions,
@@ -2784,6 +2785,7 @@ class ApiDataService implements DataService {
       headers: headers,
       body: json.encode({
         'phone_number': phoneNumber ?? '',
+        'emergency_contact_number': emergencyContactNumber ?? '',
         'address': address ?? '',
         'postcode': postcode ?? '',
         'pickup_instructions': pickupInstructions ?? '',

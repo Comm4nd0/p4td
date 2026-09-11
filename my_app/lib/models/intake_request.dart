@@ -98,6 +98,7 @@ class IntakeRequest {
   final String ownerName;
   final String ownerEmail;
   final String? phoneNumber;
+  final String? emergencyContactNumber;
   final String? address;
   final String? postcode;
   final String? pickupInstructions;
@@ -115,6 +116,7 @@ class IntakeRequest {
     this.ownerName = '',
     this.ownerEmail = '',
     this.phoneNumber,
+    this.emergencyContactNumber,
     this.address,
     this.postcode,
     this.pickupInstructions,
@@ -134,6 +136,7 @@ class IntakeRequest {
       ownerName: json['owner_name'] ?? '',
       ownerEmail: json['owner_email'] ?? '',
       phoneNumber: json['phone_number'],
+      emergencyContactNumber: json['emergency_contact_number'],
       address: json['address'],
       postcode: json['postcode'],
       pickupInstructions: json['pickup_instructions'],
