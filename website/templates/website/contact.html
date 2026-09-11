@@ -30,7 +30,7 @@
         </div>
 
         <div>
-            <form method="post" novalidate>
+            <form method="post" novalidate id="contact-form">
                 {% csrf_token %}
 
                 <div class="form-group">
@@ -77,9 +77,42 @@
                 {% endif %}
                 {% endif %}
 
-                <button type="submit" class="btn btn-primary">Submit</button>
+                <button type="submit" class="btn btn-primary" id="contact-submit">Submit</button>
             </form>
         </div>
     </div>
 </section>
+<script>
+    // Sending takes a few seconds (reCAPTCHA check plus the notification
+    // email), and with no feedback people pressed Submit again and the same
+    // enquiry arrived two or three times. Accept the first press only and
+    // show that it's on its way. The server also drops a repeat within ten
+    // minutes, so this is the first line, not the only one.
+    (function () {
+        var form = document.getElementById('contact-form');
+        var button = document.getElementById('contact-submit');
+        if (!form || !button) return;
+        var sending = false;
+        form.addEventListener('submit', function (event) {
+            if (sending) {
+                event.preventDefault();
+                return;
+            }
+            sending = true;
+            button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
+            button.textContent = 'Sending\u2026';
+        });
+        // Back/forward cache restores the page with the button still
+        // disabled; re-arm it so the form can be used again.
+        window.addEventListener('pageshow', function (event) {
+            if (event.persisted) {
+                sending = false;
+                button.disabled = false;
+                button.removeAttribute('aria-busy');
+                button.textContent = 'Submit';
+            }
+        });
+    })();
+</script>
 {% endblock %}

@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 # both when building the request and when applying it on approval, so the
 # approval step can re-enforce the whitelist (defense in depth — B19).
 OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth', 'last_vaccination_date']
+#: Of those, the ones a client must keep filled in: when a dog is hurt or a
+#: pickup goes wrong, staff can only act if a number is on file. Enforced on
+#: owner edits here (a change request may not blank them) and on the booking
+#: form (IntakeRequestSerializer). Staff are deliberately exempt — a dog moved
+#: over from the paper book often arrives without them, so the app warns a
+#: staff member instead of refusing the save.
+CLIENT_REQUIRED_DOG_FIELDS = ('contact_number', 'emergency_contact_number')
 
 
 def dog_listing_queryset():
@@ -373,7 +380,10 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can view owner list")
 
-        profiles = UserProfile.objects.select_related('user').all()
+        # Name order, so the app's owner search reads naturally before anything
+        # is typed; accounts with no name sort by their username (the email).
+        profiles = UserProfile.objects.select_related('user').order_by(
+            'user__first_name', 'user__last_name', 'user__username')
         from .serializers import UserSummarySerializer
         serializer = UserSummarySerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)
@@ -678,6 +688,16 @@ class DogViewSet(viewsets.ModelViewSet):
             proposed_image = process_image(proposed_image, max_size=(800, 800))
         elif 'profile_image' in request.data and request.data['profile_image'] == '':
             delete_image = True
+
+        # A client may change a contact number but never clear one.
+        missing = {
+            field: 'This is required.'
+            for field in CLIENT_REQUIRED_DOG_FIELDS
+            if field in proposed_changes and not str(proposed_changes[field] or '').strip()
+        }
+        if missing:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(missing)
 
         # Don't create a request if nothing actually changed
         if not proposed_changes and not proposed_image and not delete_image:
@@ -4578,6 +4598,17 @@ def submit_contact_inquiry(request):
             status=drf_status.HTTP_201_CREATED,
         )
 
+    # A repeat of an enquiry already on file (the Send button pressed again
+    # while the first was in flight) was received the first time: same reply,
+    # nothing saved or sent. See ContactInquiry.DUPLICATE_WINDOW_MINUTES.
+    if ContactInquiry.recent_duplicate(
+        serializer.validated_data.get('email'), serializer.validated_data.get('message')
+    ):
+        return Response(
+            {'detail': 'Thank you! Your message has been received.'},
+            status=drf_status.HTTP_201_CREATED,
+        )
+
     inquiry = serializer.save()
     recipient = getattr(settings, 'CONTACT_INQUIRY_EMAIL', settings.DEFAULT_FROM_EMAIL)
     try:
@@ -5260,6 +5291,8 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
                 registered_vet=intake_dog.registered_vet or None,
                 address=instance.address or None,
                 postcode=instance.postcode,
+                contact_number=instance.phone_number,
+                emergency_contact_number=instance.emergency_contact_number,
                 daycare_days=intake_dog.daycare_days,
                 schedule_type=intake_dog.schedule_type,
             )

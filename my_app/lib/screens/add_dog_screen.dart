@@ -10,6 +10,8 @@ import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
+import '../widgets/dog_contact_rules.dart';
+import '../widgets/owner_picker.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -182,6 +184,17 @@ class _AddDogScreenState extends State<AddDogScreen> {
 
   Future<void> _saveDog() async {
     if (!_formKey.currentState!.validate()) return;
+    // Clients are stopped by the validators above; staff are asked once.
+    if (_isStaff) {
+      final ok = await confirmSaveWithoutContacts(
+        context,
+        missingDogContactFields(
+          contactNumber: _contactNumberController.text,
+          emergencyContactNumber: _emergencyContactController.text,
+        ),
+      );
+      if (!ok || !mounted) return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -303,20 +316,14 @@ class _AddDogScreenState extends State<AddDogScreen> {
                         if (_isLoadingOwners)
                           const Center(child: CircularProgressIndicator())
                         else
-                          DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(
-                              labelText: 'Assign Owner',                              prefixIcon: Picon(PiconsDuotone.userFocus),
-                            ),
-                            value: _selectedOwnerId,
-                            items: _owners.map((owner) {
-                              return DropdownMenuItem(
-                                value: owner.userId.toString(),
-                                child: Text('${owner.username} (${owner.email})'),
-                              );
-                            }).toList(),
+                          OwnerPickerField(
+                            labelText: 'Assign Owner',
+                            prefixIcon: const Picon(PiconsDuotone.userFocus),
+                            owners: _owners,
+                            value: int.tryParse(_selectedOwnerId ?? ''),
                             onChanged: (value) {
                               setState(() {
-                                _selectedOwnerId = value;
+                                _selectedOwnerId = value?.toString();
                               });
                             },
                             validator: (value) => value == null ? 'Required for staff' : null,
@@ -406,21 +413,23 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       TextFormField(
                         controller: _contactNumberController,
                         decoration: const InputDecoration(
-                          labelText: 'Contact Number (Optional)',
+                          labelText: 'Contact Number',
                           hintText: 'Best number to reach the owner on daycare days',
                           prefixIcon: Picon(PiconsDuotone.phone),
                         ),
                         keyboardType: TextInputType.phone,
+                        validator: (v) => dogContactValidator(v, isStaff: _isStaff),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _emergencyContactController,
                         decoration: const InputDecoration(
-                          labelText: 'Emergency Contact Number (Optional)',
+                          labelText: 'Emergency Contact Number',
                           hintText: "If the owner can't be reached — e.g. 07700 900123 (Sue, neighbour)",
                           prefixIcon: Picon(PiconsDuotone.firstAidKit),
                         ),
                         keyboardType: TextInputType.phone,
+                        validator: (v) => dogContactValidator(v, isStaff: _isStaff),
                       ),
                       const SizedBox(height: 24),
                       const Text(

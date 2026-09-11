@@ -219,6 +219,7 @@ abstract class DataService {
   Future<List<IntakeRequest>> getIntakeRequests();
   Future<IntakeRequest> submitIntakeRequest({
     String? phoneNumber,
+    String? emergencyContactNumber,
     String? address,
     String? postcode,
     String? pickupInstructions,

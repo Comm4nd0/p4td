@@ -133,7 +133,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | Endpoint | Resource |
 |---|---|
 | `api/profile/` | User profiles |
-| `api/dogs/` | Dog profiles. `general_notes` and `van_placement` are staff-written and are stripped from every non-staff read (`DogSerializer.STAFF_ONLY_READ_FIELDS`); owners may propose changes only to `OWNER_EDITABLE_DOG_FIELDS`, which go through `api/dog-profile-changes/` |
+| `api/dogs/` | Dog profiles. `general_notes` and `van_placement` are staff-written and are stripped from every non-staff read (`DogSerializer.STAFF_ONLY_READ_FIELDS`); owners may propose changes only to `OWNER_EDITABLE_DOG_FIELDS`, which go through `api/dog-profile-changes/`. **Contact numbers are client-required, staff-warned:** `contact_number` and `emergency_contact_number` (`CLIENT_REQUIRED_DOG_FIELDS` in `api/views.py`) must be given on the booking form and can never be blanked by an owner edit, while staff may leave them empty — the app asks a staff member once (`my_app/lib/widgets/dog_contact_rules.dart`) and the API never refuses. Put the next field that clients must supply but staff may skip under the same constant and helper. |
 | `api/photos/` | Dog photos/videos. Owners view and upload to their own dogs' galleries; **deleting a photo is staff-only** — the gallery holds medical paperwork staff have photographed |
 | `api/date-change-requests/` | Schedule change requests |
 | `api/feed/` | Activity feed / group media. Shared by every client, so it opens only once an account owns or co-owns a dog (i.e. after staff approve the booking form) — sign-up is self-service and a stranger must not be able to browse every dog's photos. Accounts with no dog get an empty page, not a 403, so the app's normal empty state covers it; the detail/react/comment routes inherit the gate through `get_object()`. `today_stats/` is staff-only. |
@@ -146,7 +146,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/dog-notes/` | Behavioral/compatibility notes |
 | `api/staff-availability/` | Staff coverage |
 | `api/day-off-requests/` | Staff day-off requests |
-| `api/contact-inquiries/` | Website contact form |
+| `api/contact-inquiries/` | Website contact form. Both public submit paths (the website view and `api/public/contact-inquiry/`) treat an identical email + message inside `ContactInquiry.DUPLICATE_WINDOW_MINUTES` as the same enquiry: success reply, nothing saved, no second email or push. Sending takes seconds (reCAPTCHA plus a synchronous SMTP send) and people pressed Submit again, so the website button also disables itself on the first press |
 | `api/dog-profile-changes/` | Owner-requested dog profile change requests |
 | `api/vaccinations/` | Dog vaccination records |
 | `api/vaccination-certificates/` | The vet's certificate behind a dog's vaccination date (PDF or photo). Owners, co-owners and staff list/upload/download for their dogs; removal is the uploader's or staff's; no update. **Files live under `PRIVATE_MEDIA_ROOT`, not `MEDIA_ROOT`, and have no URL** — `<id>/download/` is the only way to the bytes (attachment + nosniff, through the scoped queryset). Images are re-encoded through Pillow (EXIF/GPS stripped, polyglots neutralised); PDFs are sniffed and refused if they carry JavaScript/launch actions/embedded files. 10 MB cap, 25 per dog, uploads throttled 60/hour/user. All of it in `api/certificates.py`. |
@@ -154,7 +154,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/vehicles/` | Fleet vehicles (MOT/service tracking) |
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
 | `api/facility-defects/` | Facility defect reports |
-| `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs) |
+| `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs). The only way a client creates a dog, so `phone_number` and `emergency_contact_number` are required here and copied onto every dog the approval creates |
 | `api/invoices/` | Monthly customer invoices (owners view their own — the app shows no Pay button; they pay by bank transfer from the Xero-emailed invoice, and `pay_url/` stays available for a later online-payment switch-on; staff with `can_manage_payments` generate/send/record payments/sync Xero). **Billed in advance:** a month's invoice charges every day the dog is *booked in* that month as the roster stands (`billing.booked_days_for_month` via `ScheduleIndex`: regular days + approved additions − cancellations − removals − closures − boarding days) plus last month's unbilled extras (attended days no invoice has charged). A date is charged once, ever — `_billed_dates_by_dog` reads every non-VOID line's `attendance_dates` — so extras added after an invoice went out land on the next month's invoice as their own "extra days in <month>" line. Booked days are charged whether or not the dog turns up. `generate/` takes the month plus optionally one `customer` **or one `dog`** — the per-dog form raises the month in the dog's name whatever its owner status, because most of the client book isn't on the app. **Every generated draft is also raised in Xero as a DRAFT** (against the dog's pinned contact, else a shared "Unassigned (Paws 4 Thought app)" placeholder) so the business can reassign the contact, amend and approve it inside Xero; the 30-minute `sync_xero_invoices` turns that approval into SENT here (adopting Xero's total/due date, booking any difference as an "Amended in Xero" line) and pins the contact the draft ended up on to the dog for next month. Sending from the app approves the same Xero draft. A dog on any active invoice line for a period is never billed again for it, whichever invoice (its own or its owner's) carries it. |
 | `api/incidents/` | **Staff-only** incident log — scuffles, bites, injuries, escapes. Tied to the dogs involved (per-dog role/injuries/owner-told), with photos *and* video, follow-up comments and a status. Owners get 403 on every route, including `?dog=<id>` for their own dog. |
 | `api/staff-hr/` | **Manager-only** (`can_manage_staff`) employment records: job title, employment dates, holiday allowance, emergency contact, private manager notes. Records are created lazily via `for_staff/?staff_member=<id>` (no create/destroy routes); `team_overview/` returns one summary row per staff member (pay, holiday used/remaining from approved day-off requests, sickness/training/appraisal flags) and excludes the P4TD house account. |
@@ -255,6 +255,19 @@ Additional non-router endpoints:
 > reaches p4td via the host port `172.17.0.1:8000` (not the Docker network), and media
 > is a host bind-mount Caddy serves directly. The committed `Caddyfile` is reference
 > only; the live one is `/root/caddy/Caddyfile` on the server.
+
+> **Production changes only between 22:00 and 06:00 UK time, unless given
+> explicit permission.** The site and app have real customers and staff on them
+> from 2026-09, and the business day runs well beyond opening hours, so the
+> safe window is overnight, every day of the week. Outside it, do not do
+> anything that changes what production serves unless Marco has explicitly said
+> so for that specific change: no push or merge to `main` that touches the
+> backend or website (a green `Backend CI` on `main` deploys on its own), no
+> `deploy.sh` or `scripts/deploy-to-hetzner.sh`, no edits, restarts or
+> migrations on the server over SSH. Read-only work on the server (logs,
+> queries) is fine. Commit and get everything ready during the day, and push
+> inside the window or when told to. A permission given for one change does not
+> carry over to the next.
 
 - **Infrastructure**: Hetzner CX22, Docker Compose, Caddy reverse proxy
 - **Backend deploy**: automatic — a successful `Backend CI` run on `main` triggers

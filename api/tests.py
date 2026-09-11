@@ -6634,6 +6634,7 @@ class IntakeRequestTests(TestCase):
     def _payload(self, **overrides):
         payload = {
             'phone_number': '07700 900123',
+            'emergency_contact_number': '07700 900456 (Sue, neighbour)',
             'address': '1 Kennel Lane, Marlow',
             'postcode': 'sl7 2he',
             'pickup_instructions': 'Side gate, key under the pot',
@@ -6682,6 +6683,25 @@ class IntakeRequestTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(IntakeRequest.objects.count(), 0)
 
+    def test_booking_form_requires_both_contact_numbers(self):
+        # A client creates dogs only through this form, so this is where the
+        # "clients must give a contact and an emergency contact" rule bites.
+        self.client.login(username='newowner', password='pw')
+        for overrides in (
+            {'phone_number': ''},
+            {'emergency_contact_number': ''},
+            {'emergency_contact_number': '   '},
+        ):
+            resp = self.client.post('/api/intake-requests/', self._payload(**overrides), format='json')
+            self.assertEqual(resp.status_code, 400, overrides)
+            self.assertIn(next(iter(overrides)), resp.data)
+        payload = self._payload()
+        del payload['emergency_contact_number']
+        resp = self.client.post('/api/intake-requests/', payload, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('emergency_contact_number', resp.data)
+        self.assertEqual(IntakeRequest.objects.count(), 0)
+
     def test_invalid_daycare_days_rejected(self):
         self.client.login(username='newowner', password='pw')
         payload = self._payload(dogs=[{'name': 'Biscuit', 'daycare_days': [0, 9]}])
@@ -6728,6 +6748,10 @@ class IntakeRequestTests(TestCase):
         self.assertEqual(biscuit.postcode, 'SL7 2HE')
         rolo = dogs.get(name='Rolo')
         self.assertEqual(rolo.schedule_type, 'ad_hoc')
+        # So are both contact numbers — every dog a client creates has them.
+        for dog in (biscuit, rolo):
+            self.assertEqual(dog.contact_number, '07700 900123')
+            self.assertEqual(dog.emergency_contact_number, '07700 900456 (Sue, neighbour)')
 
         req = IntakeRequest.objects.get(pk=request_id)
         self.assertEqual(req.reviewed_by, self.staff)
@@ -9948,6 +9972,18 @@ class PublicContactInquiryTests(TestCase):
         self.assertIn('Daycare', mail.outbox[0].subject)
         self.assertEqual(mail.outbox[0].reply_to, ['jane@example.com'])
 
+    def test_repeat_submission_is_received_once(self):
+        # Send pressed again while the first request is in flight.
+        from django.core import mail
+        from website.models import ContactInquiry
+        self.assertEqual(self._post().status_code, 201)
+        self.assertEqual(self._post(email='JANE@example.com').status_code, 201)
+        self.assertEqual(ContactInquiry.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        # A different message is a new enquiry.
+        self.assertEqual(self._post(message='And Thursdays?').status_code, 201)
+        self.assertEqual(ContactInquiry.objects.count(), 2)
+
     def test_missing_fields_rejected(self):
         from website.models import ContactInquiry
         for field in ('name', 'email', 'service', 'message'):
@@ -11375,6 +11411,28 @@ class ComplianceTests(TestCase):
         self.assertIn('Animal welfare licence renewal', names)
 
 
+class OwnerListTests(TestCase):
+    """The staff owner list behind the app's owner picker: searchable by
+    name, so it carries the surname and comes back in name order."""
+
+    def test_owner_list_has_names_in_name_order(self):
+        staff = User.objects.create_user(username='ownerlist_staff', password='pw', is_staff=True)
+        User.objects.create_user(username='zed@example.com', password='pw', first_name='Zed', last_name='Young')
+        User.objects.create_user(username='amy@example.com', password='pw', first_name='Amy', last_name='Best')
+        User.objects.create_user(username='amy2@example.com', password='pw', first_name='Amy', last_name='Adams')
+        client = APIClient()
+        client.force_authenticate(user=staff)
+        resp = client.get('/api/profile/get_owners/')
+        self.assertEqual(resp.status_code, 200)
+        named = [(r['first_name'], r['last_name']) for r in resp.data if r['first_name']]
+        self.assertEqual(named, [('Amy', 'Adams'), ('Amy', 'Best'), ('Zed', 'Young')])
+        # No-name accounts (the staff user here) come first, sorted by username.
+        self.assertEqual(resp.data[0]['username'], 'ownerlist_staff')
+
+        client.force_authenticate(user=User.objects.get(username='amy@example.com'))
+        self.assertEqual(client.get('/api/profile/get_owners/').status_code, 403)
+
+
 class DogContactNumberTests(TestCase):
     """The dog-level contact and emergency contact numbers round-trip through
     the API and the owner change-request flow."""
@@ -11416,6 +11474,59 @@ class DogContactNumberTests(TestCase):
         self.dog.refresh_from_db()
         self.assertEqual(self.dog.contact_number, '07700 900010')
         self.assertEqual(self.dog.emergency_contact_number, '07700 900011')
+
+    def test_owner_cannot_clear_a_contact_number(self):
+        # Required for clients: an owner may change a number but never blank
+        # one, and the refused edit leaves no change request behind.
+        from .models import DogProfileChangeRequest
+        self.dog.contact_number = '07700 900010'
+        self.dog.emergency_contact_number = '07700 900011'
+        self.dog.save()
+        self.client.force_authenticate(user=self.owner)
+        for field in ('contact_number', 'emergency_contact_number'):
+            for blank in ('', '   '):
+                resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {field: blank}, format='json')
+                self.assertEqual(resp.status_code, 400, (field, blank))
+                self.assertIn(field, resp.data)
+        self.assertFalse(DogProfileChangeRequest.objects.filter(dog=self.dog).exists())
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.contact_number, '07700 900010')
+
+        # Changing it to another number is still fine.
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'contact_number': '07700 900099',
+            'food_instructions': 'Less kibble',
+        }, format='json')
+        self.assertEqual(resp.status_code, 202)
+
+    def test_owner_edit_of_other_fields_not_blocked_by_legacy_blank_numbers(self):
+        # A dog from the paper book with no numbers: an owner editing something
+        # else (an older app build resends the blanks unchanged) isn't refused.
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'contact_number': '',
+            'emergency_contact_number': '',
+            'food_instructions': 'Less kibble',
+        }, format='json')
+        self.assertEqual(resp.status_code, 202)
+
+    def test_staff_may_leave_contact_numbers_blank(self):
+        # Warned in the app, never refused by the API.
+        self.dog.contact_number = '07700 900010'
+        self.dog.emergency_contact_number = '07700 900011'
+        self.dog.save()
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'contact_number': '',
+            'emergency_contact_number': '',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.contact_number, '')
+        self.assertEqual(self.dog.emergency_contact_number, '')
+        resp = self.client.post('/api/dogs/', {'name': 'Walk-in', 'owner': self.owner.id}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['contact_number'], '')
 
 
 class DogVaccinationDateTests(TestCase):

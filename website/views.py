@@ -8,6 +8,7 @@ from django.views.decorators.cache import cache_control
 
 from .models import BlogPost, ServicePricing, SiteSettings, Testimonial
 from .forms import ContactForm
+from .models import ContactInquiry
 
 # Per-IP throttle on the contact form: at most CONTACT_RATE_LIMIT submissions
 # per CONTACT_RATE_WINDOW seconds.
@@ -85,18 +86,34 @@ def contact(request):
 
         form = ContactForm(request.POST)
         if form.is_valid():
-            # Count every valid submission attempt against the throttle.
-            cache.set(cache_key, attempts + 1, CONTACT_RATE_WINDOW)
-
             # Honeypot tripped -> silently drop as spam (look successful, but
             # don't save or email).
             if form.is_spam():
+                cache.set(cache_key, attempts + 1, CONTACT_RATE_WINDOW)
                 messages.success(
                     request,
                     'Thank you! Your message has been received. '
                     'We will be in touch soon.'
                 )
                 return redirect('website:contact')
+
+            # The same enquiry again within minutes is the Submit button being
+            # pressed twice (see ContactInquiry.DUPLICATE_WINDOW_MINUTES): it
+            # was received the first time, so say so and send nothing more.
+            # Not counted against the throttle either — three presses on one
+            # message shouldn't use up three of the hour's five.
+            if ContactInquiry.recent_duplicate(
+                form.cleaned_data['email'], form.cleaned_data['message']
+            ):
+                messages.success(
+                    request,
+                    'Thank you! Your message has been received. '
+                    'We will be in touch soon.'
+                )
+                return redirect('website:contact')
+
+            # Count every valid submission attempt against the throttle.
+            cache.set(cache_key, attempts + 1, CONTACT_RATE_WINDOW)
 
             inquiry = form.save()
             recipient = getattr(

@@ -61,6 +61,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   bool _postcodeLookupEnabled = false;
 
   final _phoneController = TextEditingController();
+  final _emergencyContactController = TextEditingController();
   final _addressController = TextEditingController();
   final _postcodeController = TextEditingController();
   final _pickupController = TextEditingController();
@@ -77,6 +78,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   @override
   void dispose() {
     _phoneController.dispose();
+    _emergencyContactController.dispose();
     _addressController.dispose();
     _postcodeController.dispose();
     _pickupController.dispose();
@@ -141,6 +143,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     try {
       await _dataService.submitIntakeRequest(
         phoneNumber: _phoneController.text.trim(),
+        emergencyContactNumber: _emergencyContactController.text.trim(),
         address: _addressController.text.trim(),
         postcode: _postcodeController.text.trim().toUpperCase(),
         pickupInstructions: _pickupController.text.trim(),
@@ -211,6 +214,17 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
               decoration: const InputDecoration(
                 labelText: 'Phone Number',
                 prefixIcon: Picon(PiconsDuotone.phone),
+              ),
+              keyboardType: TextInputType.phone,
+              validator: (v) => (v?.trim().isEmpty ?? true) ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _emergencyContactController,
+              decoration: const InputDecoration(
+                labelText: 'Emergency Contact Number',
+                hintText: "If we can't reach you — e.g. 07700 900123 (Sue, neighbour)",
+                prefixIcon: Picon(PiconsDuotone.firstAidKit),
               ),
               keyboardType: TextInputType.phone,
               validator: (v) => (v?.trim().isEmpty ?? true) ? 'Required' : null,

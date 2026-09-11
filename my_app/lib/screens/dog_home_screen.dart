@@ -27,6 +27,7 @@ import 'vaccinations_screen.dart';
 import 'incidents_screen.dart';
 import '../constants/app_colors.dart';
 import '../widgets/page_body.dart';
+import '../widgets/owner_picker.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -461,6 +462,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     final currentAdditionalIds = _dog.additionalOwners.map((o) => o.userId).toSet();
     int? selectedOwnerId = currentOwnerId;
     Set<int> selectedAdditionalIds = Set.from(currentAdditionalIds);
+    var additionalQuery = '';
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -476,21 +478,11 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 children: [
                   Text('Primary Owner', style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<int?>(
+                  OwnerPickerField(
+                    labelText: 'Primary owner',
+                    owners: owners,
                     value: selectedOwnerId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('No owner', style: TextStyle(color: Colors.grey)),
-                      ),
-                      ...owners.map((o) => DropdownMenuItem<int?>(
-                        value: o.userId,
-                        child: Text(o.username),
-                      )),
-                    ],
+                    allowNone: true,
                     onChanged: (value) {
                       setDialogState(() {
                         selectedOwnerId = value;
@@ -501,10 +493,22 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   const SizedBox(height: 16),
                   Text('Additional Owners', style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 8),
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Search by name or email',
+                      prefixIcon: Picon(PiconsDuotone.magnifyingGlass),
+                      isDense: true,
+                    ),
+                    onChanged: (value) => setDialogState(() => additionalQuery = value),
+                  ),
+                  const SizedBox(height: 4),
+                  // Ticked people stay visible whatever is typed, so they can
+                  // always be unticked.
                   ...owners
                     .where((o) => o.userId != selectedOwnerId)
+                    .where((o) => selectedAdditionalIds.contains(o.userId) || o.matches(additionalQuery))
                     .map((o) => CheckboxListTile(
-                      title: Text(o.username),
+                      title: Text(o.displayName),
                       subtitle: Text(o.email, style: const TextStyle(fontSize: 12)),
                       value: selectedAdditionalIds.contains(o.userId),
                       dense: true,

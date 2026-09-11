@@ -102,12 +102,13 @@ class OwnerDetailSerializer(serializers.ModelSerializer):
 class UserSummarySerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email']
+        fields = ['user_id', 'username', 'first_name', 'last_name', 'email']
 
 
 class StaffPermissionsSerializer(serializers.ModelSerializer):
@@ -1192,6 +1193,7 @@ class IntakeRequestSerializer(serializers.ModelSerializer):
         model = IntakeRequest
         fields = [
             'id', 'owner', 'owner_name', 'owner_email', 'phone_number',
+            'emergency_contact_number',
             'address', 'postcode', 'pickup_instructions', 'additional_info',
             'status', 'denial_reason', 'reviewed_by_name', 'reviewed_at',
             'created_at', 'dogs',
@@ -1200,6 +1202,14 @@ class IntakeRequestSerializer(serializers.ModelSerializer):
             'id', 'owner', 'status', 'denial_reason', 'reviewed_by_name',
             'reviewed_at', 'created_at',
         ]
+        # Only clients submit this form, and both numbers are copied onto
+        # every dog it creates — the one place a client-required rule can be
+        # enforced at creation, since clients never POST /api/dogs/ directly
+        # (see views.CLIENT_REQUIRED_DOG_FIELDS).
+        extra_kwargs = {
+            'phone_number': {'required': True, 'allow_blank': False},
+            'emergency_contact_number': {'required': True, 'allow_blank': False},
+        }
 
     def get_owner_name(self, obj):
         full = f"{obj.owner.first_name} {obj.owner.last_name}".strip()

@@ -102,6 +102,33 @@ class ContactViewTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].reply_to, ['alice@example.com'])
 
+    def test_repeat_submission_is_received_once(self):
+        # Submit pressed again while the first send is in flight: the second
+        # POST looks successful but saves nothing and sends nothing more.
+        with _patch_recaptcha(), _patch_push():
+            first = self.client.post(self.url, _valid_payload())
+            again = self.client.post(self.url, _valid_payload(email='Alice@Example.com '))
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(again.status_code, 302)
+        self.assertEqual(ContactInquiry.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        # The repeat isn't charged against the hourly throttle.
+        self.assertEqual(cache.get('contact-rl:127.0.0.1'), 1)
+
+        # A different message from the same person is a new enquiry...
+        with _patch_recaptcha(), _patch_push():
+            self.client.post(self.url, _valid_payload(message='Also, do you do boarding?'))
+        self.assertEqual(ContactInquiry.objects.count(), 2)
+
+        # ...and so is the same message once the window has passed.
+        from datetime import timedelta
+        from django.utils import timezone
+        ContactInquiry.objects.update(
+            created_at=timezone.now() - timedelta(minutes=ContactInquiry.DUPLICATE_WINDOW_MINUTES + 1))
+        with _patch_recaptcha(), _patch_push():
+            self.client.post(self.url, _valid_payload())
+        self.assertEqual(ContactInquiry.objects.count(), 3)
+
     def test_honeypot_drops_submission(self):
         with _patch_recaptcha(), _patch_push():
             resp = self.client.post(

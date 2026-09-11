@@ -1437,7 +1437,8 @@ class IntakeRequest(models.Model):
     ]
 
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='intake_requests')
-    phone_number = models.CharField(max_length=20, blank=True)
+    phone_number = models.CharField(max_length=20, blank=True, help_text="Day-to-day number; becomes each dog's contact_number on approval.")
+    emergency_contact_number = models.CharField(max_length=50, blank=True, help_text="Someone to call if the owner doesn't answer; becomes each dog's emergency_contact_number on approval.")
     address = models.TextField(blank=True, help_text='Home address used for pickups/drop-offs; copied to each dog on approval.')
     postcode = models.CharField(max_length=10, blank=True, help_text='UK postcode of the pickup address; copied to each dog on approval.')
     pickup_instructions = models.TextField(blank=True, help_text='How staff should collect the dog(s) — keys, gates, where the dog waits.')
