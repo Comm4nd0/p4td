@@ -256,6 +256,19 @@ Additional non-router endpoints:
 > is a host bind-mount Caddy serves directly. The committed `Caddyfile` is reference
 > only; the live one is `/root/caddy/Caddyfile` on the server.
 
+> **Production changes only between 22:00 and 06:00 UK time, unless given
+> explicit permission.** The site and app have real customers and staff on them
+> from 2026-09, and the business day runs well beyond opening hours, so the
+> safe window is overnight, every day of the week. Outside it, do not do
+> anything that changes what production serves unless Marco has explicitly said
+> so for that specific change: no push or merge to `main` that touches the
+> backend or website (a green `Backend CI` on `main` deploys on its own), no
+> `deploy.sh` or `scripts/deploy-to-hetzner.sh`, no edits, restarts or
+> migrations on the server over SSH. Read-only work on the server (logs,
+> queries) is fine. Commit and get everything ready during the day, and push
+> inside the window or when told to. A permission given for one change does not
+> carry over to the next.
+
 - **Infrastructure**: Hetzner CX22, Docker Compose, Caddy reverse proxy
 - **Backend deploy**: automatic — a successful `Backend CI` run on `main` triggers
   `.github/workflows/deploy-backend.yml`, which SSHes to the server, runs `./deploy.sh`,
