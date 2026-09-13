@@ -508,7 +508,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     if (imageUrl == null || imageUrl.isEmpty) {
       return const CircleAvatar(radius: radius, child: Picon(PiconsDuotone.pawPrint));
     }
-    final size = radius * 2;
+    const size = radius * 2;
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: CachedNetworkImage(
@@ -522,7 +522,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
           width: size,
           height: size,
           color: Colors.grey[200],
-          child: Picon(PiconsDuotone.pawPrint),
+          child: const Picon(PiconsDuotone.pawPrint),
         ),
         errorWidget: (context, url, error) =>
             const CircleAvatar(radius: radius, child: Picon(PiconsDuotone.pawPrint)),
