@@ -281,13 +281,15 @@ class PhotoSerializer(serializers.ModelSerializer):
 
 class DateChangeRequestSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
+    dog_profile_image = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
     approved_by_name = serializers.CharField(source='approved_by.username', read_only=True)
     approved_at = serializers.DateTimeField(read_only=True)
+    new_date_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = DateChangeRequest
-        fields = ['id', 'dog', 'dog_name', 'owner_name', 'request_type', 'original_date', 'new_date', 'status', 'is_charged', 'approved_by_name', 'approved_at', 'created_at']
+        fields = ['id', 'dog', 'dog_name', 'dog_profile_image', 'owner_name', 'request_type', 'original_date', 'new_date', 'status', 'is_charged', 'approved_by_name', 'approved_at', 'created_at', 'new_date_summary']
         read_only_fields = ['created_at', 'approved_by_name', 'approved_at', 'status']
 
     def get_owner_name(self, obj):
@@ -297,6 +299,37 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
         if user.first_name:
             return user.first_name
         return user.username
+
+    def get_dog_profile_image(self, obj):
+        image = obj.dog.profile_image
+        if not image:
+            return None
+        request = self.context.get('request')
+        return request.build_absolute_uri(image.url) if request else image.url
+
+    def get_new_date_summary(self, obj):
+        """Staff-only snapshot of the day the dog is asking to be added to:
+        dogs already booked in (and the capacity) plus the staff due to work
+        it, minus the P4TD house account. This is what decides whether an
+        additional day gets approved, so it rides along with every pending
+        ADD_DAY/CHANGE request. Owners never see it (staffing is internal),
+        and resolved requests skip it — the day has moved on since the
+        decision, so the numbers would no longer mean anything.
+
+        One ScheduleIndex per distinct date per response, cached on the
+        serializer context so a list of requests for the same day costs one
+        set of queries.
+        """
+        request = self.context.get('request')
+        if request is None or not request.user.is_staff:
+            return None
+        if obj.status != 'PENDING' or obj.request_type not in ('ADD_DAY', 'CHANGE') or not obj.new_date:
+            return None
+        cache = self.context.setdefault('_new_date_summaries', {})
+        if obj.new_date not in cache:
+            from .scheduling import day_booking_summary
+            cache[obj.new_date] = day_booking_summary(obj.new_date)
+        return cache[obj.new_date]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

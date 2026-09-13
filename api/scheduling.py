@@ -296,6 +296,58 @@ def house_staff_account():
     )
 
 
+def working_staff_for_date(day):
+    """Staff members due to work on ``day``, as a list of ``User`` rows.
+
+    Someone is due in unless their weekly pattern marks that weekday as not
+    available for daycare or they have an APPROVED day-off request for the
+    date. The ``P4TD`` house account is never a person on shift, so it is
+    left out. Inactive accounts are ignored.
+    """
+    from django.contrib.auth.models import User
+    from .models import DayOffRequest, StaffAvailability
+
+    off_by_pattern = set(
+        StaffAvailability.objects.filter(
+            day_of_week=day.isoweekday(), is_available_daycare=False,
+        ).values_list('staff_member_id', flat=True)
+    )
+    off_by_request = set(
+        DayOffRequest.objects.filter(date=day, status='APPROVED')
+        .values_list('staff_member_id', flat=True)
+    )
+    staff = (
+        User.objects.filter(is_staff=True, is_active=True)
+        .exclude(username__iexact=HOUSE_STAFF_USERNAME)
+        .exclude(first_name__iexact=HOUSE_STAFF_USERNAME)
+        .order_by('first_name', 'username')
+    )
+    return [
+        s for s in staff
+        if s.id not in off_by_pattern and s.id not in off_by_request
+    ]
+
+
+def day_booking_summary(day):
+    """What a staff member weighs up before approving a dog onto ``day``:
+    how many dogs are already booked in (and the day's capacity) and how
+    many staff are due to work it.
+
+    Returns ``{'date', 'dogs_booked', 'capacity', 'staff_working',
+    'staff_names'}``; ``capacity`` is None when unlimited.
+    """
+    index = ScheduleIndex(day, day)
+    info = index.capacity_info(day)
+    staff = working_staff_for_date(day)
+    return {
+        'date': day.isoformat(),
+        'dogs_booked': info['booked'],
+        'capacity': info['capacity'],
+        'staff_working': len(staff),
+        'staff_names': [s.first_name or s.username for s in staff],
+    }
+
+
 def boarding_arrival_dog_ids(dog_ids, arrival_date):
     """Of ``dog_ids``, the ones whose stay genuinely begins on ``arrival_date``.
 
