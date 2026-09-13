@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/app_colors.dart';
 import '../utils/snacks.dart';
 import '../utils/date_formats.dart';
@@ -339,8 +340,8 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Header
             Row(
               children: [
-                Picon(PiconsDuotone.pawPrint, size: 20),
-                const SizedBox(width: 8),
+                _buildDogAvatar(request.dogProfileImage),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -438,7 +439,11 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
                   ),
                 ],
               ),
-             if (request.isCharged) ...[
+            if (request.newDateSummary != null) ...[
+              const SizedBox(height: 8),
+              _buildDaySummary(request.newDateSummary!),
+            ],
+            if (request.isCharged) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(8),
@@ -492,6 +497,85 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// The dog's profile picture, falling back to the paw icon the header used
+  /// to show when the dog has no photo (or it fails to load).
+  Widget _buildDogAvatar(String? imageUrl) {
+    const radius = 22.0;
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return const CircleAvatar(radius: radius, child: Picon(PiconsDuotone.pawPrint));
+    }
+    final size = radius * 2;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: CachedNetworkImage(
+        imageUrl: imageUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        memCacheWidth: (size * MediaQuery.of(context).devicePixelRatio).round(),
+        memCacheHeight: (size * MediaQuery.of(context).devicePixelRatio).round(),
+        placeholder: (context, url) => Container(
+          width: size,
+          height: size,
+          color: Colors.grey[200],
+          child: Picon(PiconsDuotone.pawPrint),
+        ),
+        errorWidget: (context, url, error) =>
+            const CircleAvatar(radius: radius, child: Picon(PiconsDuotone.pawPrint)),
+      ),
+    );
+  }
+
+  /// The deciding factor for an additional day: how many dogs are already in
+  /// that day and how many staff (P4TD excluded) are due to work it.
+  Widget _buildDaySummary(DayBookingSummary summary) {
+    final dogsColor = summary.isFull ? Colors.red[800] : Colors.grey[800];
+    final staffColor = summary.staffWorking == 0 ? Colors.red[800] : Colors.grey[800];
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'On ${ukDateWithDay(summary.date)}',
+            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Picon(PiconsDuotone.pawPrint, size: 16, color: dogsColor),
+              const SizedBox(width: 6),
+              Text(
+                summary.isFull ? '${summary.dogsLabel} (full)' : summary.dogsLabel,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: dogsColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Picon(PiconsDuotone.users, size: 16, color: staffColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  summary.staffNames.isEmpty
+                      ? summary.staffLabel
+                      : '${summary.staffLabel}: ${summary.staffNames.join(', ')}',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: staffColor),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
