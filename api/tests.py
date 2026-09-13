@@ -453,6 +453,108 @@ class PastAssignmentTests(TestCase):
         self.assertFalse(DailyDogAssignment.objects.exists())
 
 
+class DateChangeRequestNewDateSummaryTests(TestCase):
+    """Pending additional-day requests carry what staff weigh up before
+    approving: dogs already booked that day, capacity, and the staff due in
+    (never the P4TD house account). Staff-only, pending-only."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(
+            username='staff', password='pw', is_staff=True, first_name='Alice')
+        self.bob = User.objects.create_user(
+            username='bob', password='pw', is_staff=True, first_name='Bob')
+        self.carol = User.objects.create_user(
+            username='carol', password='pw', is_staff=True, first_name='Carol')
+        self.dave = User.objects.create_user(
+            username='dave', password='pw', is_staff=True, first_name='Dave')
+        self.house = User.objects.create_user(
+            username='P4TD', password='pw', is_staff=True, first_name='P4TD')
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        # A future Monday, so the weekday-pattern exclusion is deterministic.
+        today = date.today()
+        self.day = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+        self.assertEqual(self.day.isoweekday(), 1)
+        # Two other dogs already on that Monday: one by weekly pattern, one
+        # via an assignment row.
+        Dog.objects.create(owner=self.owner, name='Rex', daycare_days=[1])
+        extra = Dog.objects.create(owner=self.owner, name='Max')
+        DailyDogAssignment.objects.create(
+            dog=extra, staff_member=self.bob, date=self.day, status='ASSIGNED')
+        # Carol doesn't do Mondays; Dave has that day booked off.
+        StaffAvailability.objects.create(
+            staff_member=self.carol, day_of_week=1,
+            is_available=False, is_available_daycare=False)
+        DayOffRequest.objects.create(staff_member=self.dave, date=self.day, status='APPROVED')
+        self.req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=self.day)
+        self.client = APIClient()
+
+    def _get(self):
+        resp = self.client.get(f'/api/date-change-requests/{self.req.id}/')
+        self.assertEqual(resp.status_code, 200)
+        return resp.data
+
+    def test_staff_see_dogs_booked_and_staff_working(self):
+        self.client.login(username='staff', password='pw')
+        summary = self._get()['new_date_summary']
+        self.assertEqual(summary['date'], self.day.isoformat())
+        self.assertEqual(summary['dogs_booked'], 2)
+        # Alice and Bob work Mondays; Carol's pattern and Dave's day off
+        # exclude them, and P4TD is not a person.
+        self.assertEqual(summary['staff_working'], 2)
+        self.assertEqual(summary['staff_names'], ['Alice', 'Bob'])
+        self.assertIn('capacity', summary)
+
+    def test_owner_never_sees_summary(self):
+        self.client.login(username='owner', password='pw')
+        data = self._get()
+        self.assertIn('new_date_summary', data)
+        self.assertIsNone(data['new_date_summary'])
+
+    def test_resolved_and_cancel_requests_have_no_summary(self):
+        self.client.login(username='staff', password='pw')
+        self.req.status = 'APPROVED'
+        self.req.save()
+        self.assertIsNone(self._get()['new_date_summary'])
+        cancel = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL', original_date=self.day)
+        resp = self.client.get(f'/api/date-change-requests/{cancel.id}/')
+        self.assertIsNone(resp.data['new_date_summary'])
+
+    def test_change_request_summarises_its_new_date(self):
+        self.client.login(username='staff', password='pw')
+        self.req.request_type = 'CHANGE'
+        self.req.original_date = self.day + timedelta(days=1)
+        self.req.save()
+        self.assertEqual(self._get()['new_date_summary']['date'], self.day.isoformat())
+
+    def test_list_builds_one_index_per_distinct_date(self):
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=self.day)
+        self.client.login(username='staff', password='pw')
+        with CaptureQueriesContext(connection) as one_date:
+            resp = self.client.get('/api/date-change-requests/')
+        self.assertEqual(resp.status_code, 200)
+        summaries = [r['new_date_summary'] for r in resp.data]
+        self.assertEqual(len(summaries), 2)
+        self.assertTrue(all(s and s['dogs_booked'] == 2 for s in summaries))
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=self.day + timedelta(days=7))
+        with CaptureQueriesContext(connection) as two_dates:
+            self.client.get('/api/date-change-requests/')
+        # A second request on the same day adds no queries; a new date does.
+        self.assertGreater(len(two_dates), len(one_date))
+
+    def test_dog_profile_image_is_absolute_url(self):
+        self.client.login(username='staff', password='pw')
+        self.assertIsNone(self._get()['dog_profile_image'])
+        self.dog.profile_image = 'dog_profiles/fido.jpg'
+        self.dog.save()
+        self.assertTrue(self._get()['dog_profile_image'].startswith('http://testserver/'))
+        self.assertTrue(self._get()['dog_profile_image'].endswith('dog_profiles/fido.jpg'))
+
+
 class DateChangeMoveTests(TestCase):
     """Approving a CHANGE frees the old day and surfaces the dog in the
     unassigned list for the new day (staff pick the driver). A move must never
