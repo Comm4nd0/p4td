@@ -2846,6 +2846,16 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
+        self._reassign_assignment(assignment, new_staff, scope, request.user)
+
+        return Response(self.get_serializer(assignment).data)
+
+    @staticmethod
+    def _reassign_assignment(assignment, new_staff, scope, changed_by):
+        """Point one assignment at ``new_staff``; the single- and bulk-reassign
+        actions share this so a multi-dog move behaves exactly like doing each
+        dog by hand. ``from_now_on`` also rewrites the dog's weekday roster
+        entry and cascades to its future same-weekday rows still ASSIGNED."""
         assignment.staff_member = new_staff
         assignment.save()
 
@@ -2856,7 +2866,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 DogWeekdayPickup.objects.update_or_create(
                     dog=dog,
                     weekday=weekday,
-                    defaults={'staff_member': new_staff, 'created_by': request.user},
+                    defaults={'staff_member': new_staff, 'created_by': changed_by},
                 )
             DailyDogAssignment.objects.filter(
                 dog=dog,
@@ -2865,7 +2875,77 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 status='ASSIGNED',
             ).update(staff_member=new_staff)
 
-        return Response(self.get_serializer(assignment).data)
+    @action(detail=False, methods=['post'])
+    def bulk_reassign(self, request):
+        """Reassign several dogs to one staff member in a single call.
+
+        Body:
+          assignment_ids:  [int, ...] (required, non-empty)
+          staff_member_id: int (required)
+          scope:           'just_this_day' | 'from_now_on' (optional, default 'just_this_day')
+
+        Backs the dashboard's "Reassign Dogs" quick action, where a manager
+        picks any number of the day's dogs and hands them to another driver.
+        Each row is moved exactly as ``reassign`` would move it (same scope
+        semantics), all inside one transaction: an unknown assignment id
+        fails the whole request with 404 rather than moving half the list.
+        Rows already with the target staff member are left alone and
+        reported under ``skipped`` so the app can say so.
+
+        Requires can_assign_dogs permission.
+        """
+        try:
+            if not request.user.profile.can_assign_dogs:
+                return Response({'detail': 'You do not have permission to reassign dogs.'}, status=403)
+        except Exception:
+            return Response({'detail': 'Permission check failed.'}, status=403)
+
+        assignment_ids = request.data.get('assignment_ids')
+        if not isinstance(assignment_ids, list) or not assignment_ids:
+            return Response({'detail': 'assignment_ids must be a non-empty list'}, status=400)
+        try:
+            assignment_ids = sorted({int(a) for a in assignment_ids})
+        except (TypeError, ValueError):
+            return Response({'detail': 'assignment_ids must be integers'}, status=400)
+
+        staff_member_id = request.data.get('staff_member_id')
+        if not staff_member_id:
+            return Response({'detail': 'staff_member_id is required'}, status=400)
+
+        scope = request.data.get('scope', 'just_this_day')
+        if scope not in ('just_this_day', 'from_now_on'):
+            return Response({'detail': 'Invalid scope. Use just_this_day or from_now_on.'}, status=400)
+
+        from django.contrib.auth.models import User
+        try:
+            new_staff = User.objects.get(id=staff_member_id, is_staff=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'Staff member not found'}, status=404)
+
+        from django.db import transaction
+        updated = []
+        skipped = []
+        with transaction.atomic():
+            assignments = list(self.get_queryset().filter(id__in=assignment_ids))
+            found_ids = {a.id for a in assignments}
+            missing = [a for a in assignment_ids if a not in found_ids]
+            if missing:
+                return Response({'detail': f'Assignment(s) not found: {missing}'}, status=404)
+            for assignment in assignments:
+                if assignment.staff_member_id == new_staff.id:
+                    skipped.append({
+                        'assignment_id': assignment.id,
+                        'dog': assignment.dog.name,
+                        'reason': f'Already with {new_staff.first_name or new_staff.username}',
+                    })
+                    continue
+                self._reassign_assignment(assignment, new_staff, scope, request.user)
+                updated.append(assignment)
+
+        return Response({
+            'updated': self.get_serializer(updated, many=True).data,
+            'skipped': skipped,
+        })
 
     @action(detail=True, methods=['post'])
     def unassign(self, request, pk=None):

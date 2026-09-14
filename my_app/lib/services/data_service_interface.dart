@@ -116,6 +116,11 @@ abstract class DataService {
     int newStaffMemberId, {
     AssignmentScope scope = AssignmentScope.justThisDay,
   });
+  Future<BulkReassignResult> bulkReassignDogs(
+    List<int> assignmentIds,
+    int newStaffMemberId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  });
   Future<void> unassignDog(
     int assignmentId, {
     AssignmentScope scope = AssignmentScope.justThisDay,

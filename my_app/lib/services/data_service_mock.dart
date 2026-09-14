@@ -395,6 +395,14 @@ class MockDataService implements DataService {
   }
 
   @override
+  Future<BulkReassignResult> bulkReassignDogs(
+    List<int> assignmentIds,
+    int newStaffMemberId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  }) async =>
+      BulkReassignResult(updated: const []);
+
+  @override
   Future<void> unassignDog(
     int assignmentId, {
     AssignmentScope scope = AssignmentScope.justThisDay,

@@ -251,6 +251,18 @@ class AssignDogsResult {
   bool get hasSkipped => skipped.isNotEmpty;
 }
 
+/// Result of a bulk reassign (`/daily-assignments/bulk_reassign/`): the rows
+/// that moved, plus any left alone because they were already with the
+/// target staff member.
+class BulkReassignResult {
+  final List<DailyDogAssignment> updated;
+  final List<SkippedDog> skipped;
+
+  BulkReassignResult({required this.updated, this.skipped = const []});
+
+  bool get hasSkipped => skipped.isNotEmpty;
+}
+
 class SkippedDog {
   final String dogName;
   final String reason;
