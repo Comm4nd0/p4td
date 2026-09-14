@@ -27,6 +27,7 @@ import 'dashboard/boarding_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import 'dashboard/dashboard_counts.dart';
 import 'dashboard/dog_health_dialog.dart';
+import 'dashboard/reassign_dogs_dialog.dart';
 import '../widgets/app_sheets.dart';
 import 'dashboard/untagged_dogs_sheet.dart';
 import 'all_dogs_today_screen.dart';
@@ -981,6 +982,73 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add dog: $e')));
       }
+    }
+  }
+
+  // ─── Reassign dogs dialog ─────────────────────────────────────────
+
+  /// "Reassign Dogs" quick action: tick any of the selected day's dogs and
+  /// hand them to another staff member in one go. Unlike Swap Staff, which
+  /// moves a whole run, this is for the everyday case of shuffling a few dogs
+  /// between drivers.
+  Future<void> _showReassignDogsDialog() async {
+    if (!widget.canAssignDogs) return;
+
+    List<DailyDogAssignment> assignments;
+    var staffMembers = _staffMembers;
+    try {
+      // Fetch fresh from the API — never rely on the local cache here
+      assignments = await _dataService.getTodayAssignments(date: _selectedDate);
+      if (staffMembers.isEmpty) staffMembers = await _dataService.getStaffMembers();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load dogs: $e')));
+      return;
+    }
+    if (!mounted) return;
+
+    final dateLabel = ukDateWithDay(_selectedDate);
+    if (assignments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No dogs are assigned on $dateLabel yet.')),
+      );
+      return;
+    }
+
+    final selection = await showReassignDogsDialog(
+      context: context,
+      dateLabel: dateLabel,
+      weekdayLabel: DateFormat('EEEE').format(_selectedDate),
+      assignments: assignments,
+      staffMembers: staffMembers,
+      availableStaffIds: _availableStaffIds,
+    );
+    if (selection == null || !mounted) return;
+
+    final target = staffMembers.where((s) => s['id'] == selection.staffId);
+    final targetName = target.isEmpty ? 'staff member' : staffDisplayName(target.first);
+    try {
+      final result = await _dataService.bulkReassignDogs(
+        selection.assignmentIds,
+        selection.staffId,
+        scope: selection.scope,
+      );
+      if (mounted) {
+        final moved = result.updated.length;
+        final skippedNote = result.hasSkipped
+            ? ' ${result.skipped.length} already with $targetName.'
+            : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(moved == 0
+                ? 'Nothing to reassign —$skippedNote'
+                : 'Reassigned $moved dog${moved == 1 ? '' : 's'} to $targetName.$skippedNote'),
+            backgroundColor: moved == 0 ? AppColors.warning : AppColors.success,
+          ),
+        );
+      }
+      await _reloadSelectedDay();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to reassign dogs: $e')));
     }
   }
 
@@ -2086,8 +2154,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   /// screen itself, where the post lands and where the permission that gates
   /// it (`can_add_feed_media`) is already applied.
   Widget _buildQuickActionsFab() {
-    // "Add Dog to Day" and "Swap Staff" both act on the selected date's roster,
-    // which doesn't exist at the weekend.
+    // "Add Dog to Day", "Reassign Dogs" and "Swap Staff" all act on the
+    // selected date's roster, which doesn't exist at the weekend.
     final daycareDay = _isDaycareDay(_selectedDate);
     return QuickActionsFab(
       actions: [
@@ -2110,6 +2178,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             icon: PiconsDuotone.plusCircle,
             label: 'Add Dog to Day',
             onPressed: _showAddDogToDayDialog,
+          ),
+        if (widget.canAssignDogs && daycareDay)
+          QuickFabAction(
+            icon: PiconsDuotone.userSwitch,
+            label: 'Reassign Dogs',
+            onPressed: _showReassignDogsDialog,
           ),
         if (widget.canAssignDogs && daycareDay)
           QuickFabAction(

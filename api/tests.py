@@ -1586,6 +1586,132 @@ class WeekdayRosterTests(TestCase):
         }, format='json')
         self.assertEqual(resp.status_code, 400)
 
+    # --- bulk reassign (dashboard "Reassign Dogs" quick action) ---
+
+    def _second_dog(self, name='Fido'):
+        return Dog.objects.create(
+            owner=self.owner, name=name,
+            daycare_days=[self.today_weekday], schedule_type='weekly',
+        )
+
+    def test_bulk_reassign_moves_every_row_just_this_day(self):
+        dog2 = self._second_dog()
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a)
+        a1 = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=self.today)
+        a2 = DailyDogAssignment.objects.create(dog=dog2, staff_member=self.staff_a, date=self.today, status='PICKED_UP')
+        future = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(weeks=1))
+
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id, a2.id],
+            'staff_member_id': self.staff_b.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r['id'] for r in resp.data['updated']}, {a1.id, a2.id})
+        self.assertEqual(resp.data['skipped'], [])
+
+        a1.refresh_from_db(); a2.refresh_from_db(); future.refresh_from_db()
+        self.assertEqual(a1.staff_member, self.staff_b)
+        self.assertEqual(a2.staff_member, self.staff_b)
+        # A mid-day move keeps the dog's status — it is still out with the team.
+        self.assertEqual(a2.status, 'PICKED_UP')
+        # just_this_day leaves the roster and next week alone.
+        self.assertEqual(future.staff_member, self.staff_a)
+        self.assertEqual(
+            DogWeekdayPickup.objects.get(dog=self.dog, weekday=self.today_weekday).staff_member,
+            self.staff_a)
+
+    def test_bulk_reassign_from_now_on_updates_roster_and_future(self):
+        dog2 = self._second_dog()
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=self.today_weekday, staff_member=self.staff_a)
+        a1 = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=self.today)
+        a2 = DailyDogAssignment.objects.create(dog=dog2, staff_member=self.staff_a, date=self.today)
+        future1 = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(weeks=1))
+        future2 = DailyDogAssignment.objects.create(
+            dog=dog2, staff_member=self.staff_a, date=self.today + timedelta(weeks=1))
+
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id, a2.id],
+            'staff_member_id': self.staff_b.id,
+            'scope': 'from_now_on',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+        for row in (future1, future2):
+            row.refresh_from_db()
+            self.assertEqual(row.staff_member, self.staff_b)
+        for dog in (self.dog, dog2):
+            self.assertEqual(
+                DogWeekdayPickup.objects.get(dog=dog, weekday=self.today_weekday).staff_member,
+                self.staff_b)
+
+    def test_bulk_reassign_skips_rows_already_with_target(self):
+        dog2 = self._second_dog()
+        a1 = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=self.today)
+        a2 = DailyDogAssignment.objects.create(dog=dog2, staff_member=self.staff_b, date=self.today)
+
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id, a2.id],
+            'staff_member_id': self.staff_b.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([r['id'] for r in resp.data['updated']], [a1.id])
+        self.assertEqual(len(resp.data['skipped']), 1)
+        self.assertEqual(resp.data['skipped'][0]['assignment_id'], a2.id)
+        self.assertEqual(resp.data['skipped'][0]['dog'], 'Fido')
+        self.assertIn('Bob', resp.data['skipped'][0]['reason'])
+
+    def test_bulk_reassign_unknown_id_moves_nothing(self):
+        a1 = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=self.today)
+
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id, 999999],
+            'staff_member_id': self.staff_b.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 404)
+        a1.refresh_from_db()
+        self.assertEqual(a1.staff_member, self.staff_a)
+
+    def test_bulk_reassign_validates_input(self):
+        a1 = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=self.today)
+        self.client.login(username='staffa', password='pw')
+
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [], 'staff_member_id': self.staff_b.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id], 'staff_member_id': self.staff_b.id, 'scope': 'forever',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id], 'staff_member_id': self.owner.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_bulk_reassign_requires_can_assign_dogs(self):
+        a1 = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=self.today)
+        plain = User.objects.create_user(username='plain', password='pw', is_staff=True)
+        self.client.login(username='plain', password='pw')
+        resp = self.client.post('/api/daily-assignments/bulk_reassign/', {
+            'assignment_ids': [a1.id], 'staff_member_id': self.staff_b.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        a1.refresh_from_db()
+        self.assertEqual(a1.staff_member, self.staff_a)
+
     # --- unassign scope ---
 
     def test_unassign_just_this_day_keeps_roster(self):

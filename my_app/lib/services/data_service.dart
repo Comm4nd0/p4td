@@ -1826,6 +1826,42 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<BulkReassignResult> bulkReassignDogs(
+    List<int> assignmentIds,
+    int newStaffMemberId, {
+    AssignmentScope scope = AssignmentScope.justThisDay,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/bulk_reassign/'),
+      headers: headers,
+      body: json.encode({
+        'assignment_ids': assignmentIds,
+        'staff_member_id': newStaffMemberId,
+        'scope': scope.apiValue,
+      }),
+    );
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> result = json.decode(response.body);
+      final updated = (result['updated'] as List<dynamic>? ?? [])
+          .map((j) => DailyDogAssignment.fromJson(j as Map<String, dynamic>))
+          .toList();
+      final skipped = (result['skipped'] as List<dynamic>? ?? [])
+          .map((j) => SkippedDog.fromJson(j as Map<String, dynamic>))
+          .toList();
+      return BulkReassignResult(updated: updated, skipped: skipped);
+    }
+    String errorMessage = 'Failed to reassign dogs';
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map && errorData['detail'] != null) {
+        errorMessage = errorData['detail'];
+      }
+    } catch (_) {}
+    throw Exception(errorMessage);
+  }
+
+  @override
   Future<void> unassignDog(
     int assignmentId, {
     AssignmentScope scope = AssignmentScope.justThisDay,
