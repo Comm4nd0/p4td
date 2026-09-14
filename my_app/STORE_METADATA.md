@@ -169,9 +169,41 @@ APP_VERSION=1.9.14 fastlane ios upload_metadata     # target a specific version
 
 ## Android
 
-The Play listing has the same mechanism (`supply` reads
-`fastlane/metadata/android/<locale>/`), but that tree is currently generated
-per-run for screenshots only and the alpha uploads skip metadata entirely. If
-per-release Play changelogs become a chore too, commit
-`metadata/android/en-GB/changelogs/<versionCode>.txt` and drop
-`skip_upload_changelogs` from the `upload_android` lane.
+The same `v*` tag runs `Release Android to Google Play`
+(`.github/workflows/deploy-android-release.yml`). It builds nothing:
+`Deploy Android to Play Store (Alpha)` already built the bundle for every
+`my_app/` commit that reached `main` and put it on the alpha track. The release
+workflow finds that bundle by **version code** — pubspec's `+<buildNumber>`,
+which is why every `my_app/` commit must bump it — waits for the alpha upload
+if the tag arrived first, and promotes it to production as a full rollout.
+
+Unlike iOS there is nothing left to press: once Google's review of the update
+passes, the release is live.
+
+**What's New** on Play comes from
+`fastlane/metadata/android/en-GB/changelogs/default.txt` (or
+`<versionCode>.txt` when a specific build needs its own). Google allows 500
+characters, so it is a separate, shorter file than the App Store notes — Flutter
+CI fails if it grows past the limit, and the lane checks again before touching
+Google Play. The rest of `metadata/android/` stays generated and gitignored.
+
+Alpha holds only the most recent upload. If another `my_app/` commit lands on
+`main` after the one you tagged, its bundle replaces the tagged one on alpha and
+the workflow times out after `WAIT_MINUTES` (30) with the version codes it
+found — tag the newer version, or promote by hand in Play Console.
+
+### Dry run
+
+Actions → **Release Android to Google Play** → Run workflow (pick the tag)
+with **promote** left off. That validates the promotion with Google and commits
+nothing.
+
+### Local run
+
+```bash
+cd my_app/fastlane
+export PLAY_JSON_KEY_DATA="$(cat /path/to/play-service-account.json)"
+PROMOTE=0 fastlane android promote_to_production   # validate only
+fastlane android promote_to_production             # promote for real
+VERSION_CODE=460 fastlane android promote_to_production
+```

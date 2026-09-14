@@ -10,6 +10,10 @@
 #   fastlane download_metadata        # pull the live listing down into those files (once)
 #   fastlane upload_metadata          # push the committed files back up (every release)
 #
+# Shipping (both driven by the `v*` tag workflows, never run by hand in anger):
+#   fastlane ios submit_for_review          # attach the Xcode Cloud build, submit to Apple
+#   fastlane android promote_to_production  # promote this version's alpha bundle to production
+#
 # Screenshots are uploaded plain (no device frames / no burned-in captions):
 # frameit has no bezels for the captured emulator/simulator resolutions, so
 # framing was removed. captions.strings is kept only as suggested store-listing
@@ -17,7 +21,8 @@
 #
 # Credentials (never commit these):
 #   iOS:     App Store Connect API key — set via the env vars below.
-#   Android: Play service-account JSON — path in SUPPLY_JSON_KEY.
+#   Android: Play service-account JSON — path in SUPPLY_JSON_KEY (screenshots),
+#            or the JSON itself in PLAY_JSON_KEY_DATA (promote_to_production).
 
 IOS_BUNDLE_ID     = "uk.co.paws4thoughtdogs.paws4thoughtdogs"
 ANDROID_PACKAGE   = "uk.co.paws4thoughtdogs.app"
@@ -55,6 +60,21 @@ def marketing_version
   UI.user_error!("Could not read `version:` from my_app/pubspec.yaml") unless match
   match[1]
 end
+
+# Build number from pubspec.yaml ("1.9.25+400" -> 400). On Android this is the
+# version code the Play Store knows the bundle by — the alpha upload stamped it
+# into the bundle it built for this commit. Override with VERSION_CODE.
+def android_version_code
+  return ENV["VERSION_CODE"].to_i unless ENV["VERSION_CODE"].to_s.empty?
+
+  pubspec = File.read(File.expand_path("../pubspec.yaml", __dir__))
+  match = pubspec.match(/^version:\s*\d+\.\d+\.\d+\+(\d+)/)
+  UI.user_error!("Could not read the build number from `version:` in my_app/pubspec.yaml") unless match
+  match[1].to_i
+end
+
+# Google Play's What's New limit, per language.
+PLAY_RELEASE_NOTES_LIMIT = 500
 
 # The App Review demo login. App Review signs in with this, so `deliver` has to
 # send it — but this repo is public, so the password can't be committed. The two
@@ -387,6 +407,100 @@ platform :ios do
 end
 
 platform :android do
+  # ---------------------------------------------------------------------------
+  # Shipping: promote the bundle the alpha upload already built for this version
+  # to the production track. Driven by the `Release Android to Google Play`
+  # workflow on a `v*` tag — the same tag that ships iOS.
+  # ---------------------------------------------------------------------------
+
+  # This lane never builds or uploads a binary. `Deploy Android to Play Store
+  # (Alpha)` builds every `my_app/` commit that reaches `main` and puts the
+  # bundle on the alpha track; this finds that bundle by its version code
+  # (pubspec's build number, bumped on every `my_app/` commit, so it names this
+  # release alone), waits for it if the alpha upload is still running, and
+  # promotes it to production as a full rollout. What's New comes from
+  # metadata/android/<locale>/changelogs/default.txt (or <version_code>.txt).
+  #
+  # Alpha holds only the most recent upload, so if a newer `my_app/` commit has
+  # landed on `main` since the tagged one, this version's bundle is gone from
+  # alpha and the wait times out: tag the newer version instead.
+  #
+  #   PROMOTE=0        validate the promotion with Google, commit nothing (dry run)
+  #   WAIT_MINUTES=n   how long to wait for the bundle to reach alpha (30)
+  #   VERSION_CODE=n   promote this exact version code instead of pubspec's
+  lane :promote_to_production do
+    version_code = android_version_code
+    promote      = ENV["PROMOTE"] != "0"
+    wait_minutes = (ENV["WAIT_MINUTES"] || "30").to_i
+
+    json_key_data = ENV["PLAY_JSON_KEY_DATA"].to_s
+    if json_key_data.empty?
+      UI.user_error!("PLAY_JSON_KEY_DATA must hold the Play service-account JSON (the PLAY_STORE_SERVICE_ACCOUNT_JSON secret).")
+    end
+
+    # What's New is checked before anything is touched: Google rejects the
+    # whole edit over a long note, which would be a confusing place to learn it.
+    play_metadata = File.join(METADATA_PATH, "android")
+    notes_dir     = File.join(play_metadata, LOCALE, "changelogs")
+    notes_path    = File.join(notes_dir, "#{version_code}.txt")
+    notes_path    = File.join(notes_dir, "default.txt") unless File.exist?(notes_path)
+    unless File.exist?(notes_path)
+      UI.user_error!("No Play What's New at fastlane/metadata/android/#{LOCALE}/changelogs/default.txt — see my_app/STORE_METADATA.md.")
+    end
+    notes = File.read(notes_path).strip
+    if notes.length > PLAY_RELEASE_NOTES_LIMIT
+      UI.user_error!(
+        "#{File.basename(notes_path)} is #{notes.length} characters; Google Play allows " \
+        "#{PLAY_RELEASE_NOTES_LIMIT}. Trim it — the App Store notes are separate and may be longer."
+      )
+    end
+
+    # The alpha upload starts when the commit reaches main and takes about ten
+    # minutes; a tag pushed straight after the merge gets here first. Wait
+    # rather than fail — and fail readably rather than hang.
+    deadline = Time.now + (wait_minutes * 60)
+    loop do
+      codes = google_play_track_version_codes(
+        package_name:  ANDROID_PACKAGE,
+        track:         "alpha",
+        json_key_data: json_key_data,
+      )
+      break if codes.include?(version_code)
+
+      if Time.now > deadline
+        UI.user_error!(
+          "Build #{version_code} did not reach the alpha track within #{wait_minutes} min " \
+          "(alpha holds #{codes.inspect}). Check the `Deploy Android to Play Store (Alpha)` " \
+          "run for this commit. If a newer version has since replaced it on alpha, tag that " \
+          "version instead — or promote build #{version_code} by hand in Play Console."
+        )
+      end
+      UI.message("Build #{version_code} is not on the alpha track yet (alpha holds #{codes.inspect}); waiting…")
+      sleep(60)
+    end
+
+    UI.message("Promoting build #{version_code} from alpha to production (#{promote ? 'live' : 'validate only'})")
+    upload_to_play_store(
+      package_name:                 ANDROID_PACKAGE,
+      json_key_data:                json_key_data,
+      track:                        "alpha",
+      track_promote_to:             "production",
+      version_code:                 version_code,
+      # Full rollout: the tag means "make it live".
+      track_promote_release_status: "completed",
+      metadata_path:                play_metadata,
+      skip_upload_apk:              true,
+      skip_upload_aab:              true,
+      skip_upload_metadata:         true,
+      skip_upload_images:           true,
+      skip_upload_screenshots:      true,
+      # Sets What's New on the promoted release from the changelog checked above.
+      skip_upload_changelogs:       false,
+      validate_only:                !promote,
+    )
+    UI.success(promote ? "Build #{version_code} is on production." : "Promotion of build #{version_code} validated; nothing changed.")
+  end
+
   lane :upload_android do
     supply(
       package_name:           ANDROID_PACKAGE,
