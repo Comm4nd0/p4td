@@ -97,7 +97,6 @@ class OwnerDetails {
   final String? firstName;
   final String? lastName;
   final String? phoneNumber;
-  final String? pickupInstructions;
 
   OwnerDetails({
     required this.userId,
@@ -106,7 +105,6 @@ class OwnerDetails {
     this.firstName,
     this.lastName,
     this.phoneNumber,
-    this.pickupInstructions,
   });
 
   /// What staff know the person as: "First Last" (or whichever half we
@@ -129,7 +127,6 @@ class OwnerDetails {
       firstName: json['first_name'],
       lastName: json['last_name'],
       phoneNumber: json['phone_number'],
-      pickupInstructions: json['pickup_instructions'],
     );
   }
 }

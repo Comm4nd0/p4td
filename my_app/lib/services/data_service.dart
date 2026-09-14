@@ -438,12 +438,11 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions}) async {
+  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber}) async {
     final headers = await _getHeaders();
     final body = <String, dynamic>{};
     if (address != null) body['address'] = address;
     if (phoneNumber != null) body['phone_number'] = phoneNumber;
-    if (pickupInstructions != null) body['pickup_instructions'] = pickupInstructions;
 
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/profile/update_owner/?user_id=$userId'),

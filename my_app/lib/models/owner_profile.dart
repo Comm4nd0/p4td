@@ -6,7 +6,6 @@ class OwnerProfile {
   final String email;
   final String? address;
   final String? phoneNumber;
-  final String? pickupInstructions;
 
   OwnerProfile({
     required this.userId,
@@ -16,7 +15,6 @@ class OwnerProfile {
     required this.email,
     this.address,
     this.phoneNumber,
-    this.pickupInstructions,
   });
 
   /// What staff know the person as: their name, else the username (which
@@ -46,7 +44,6 @@ class OwnerProfile {
       email: json['email'] ?? '',
       address: json['address'],
       phoneNumber: json['phone_number'],
-      pickupInstructions: json['pickup_instructions'],
     );
   }
 
@@ -54,7 +51,6 @@ class OwnerProfile {
     return {
       'address': address,
       'phone_number': phoneNumber,
-      'pickup_instructions': pickupInstructions,
     };
   }
 }

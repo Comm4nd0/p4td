@@ -210,7 +210,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         emergencyContactNumber: _emergencyContactController.text.trim().isEmpty ? null : _emergencyContactController.text.trim(),
         address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
         postcode: _postcodeController.text.trim().isEmpty ? null : _postcodeController.text.trim().toUpperCase(),
-        accessInstructions: _isStaff && _accessController.text.trim().isNotEmpty ? _accessController.text.trim() : null,
+        accessInstructions: _accessController.text.trim().isNotEmpty ? _accessController.text.trim() : null,
         vanPlacement: _isStaff && _vanPlacementController.text.trim().isNotEmpty ? _vanPlacementController.text.trim() : null,
         generalNotes: _isStaff && _generalNotesController.text.trim().isNotEmpty ? _generalNotesController.text.trim() : null,
         imageBytes: _imageBytes,
@@ -411,6 +411,16 @@ class _AddDogScreenState extends State<AddDogScreen> {
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
+                        controller: _accessController,
+                        decoration: const InputDecoration(
+                          labelText: 'Pickup Instructions (Optional)',
+                          hintText: 'Keys, codes, gates, where this dog waits',
+                          prefixIcon: Picon(PiconsDuotone.key),
+                        ),
+                        maxLines: 4,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
                         controller: _contactNumberController,
                         decoration: const InputDecoration(
                           labelText: 'Contact Number',
@@ -532,16 +542,6 @@ class _AddDogScreenState extends State<AddDogScreen> {
                           style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _accessController,
-                          decoration: const InputDecoration(
-                            labelText: 'Home Access',
-                            hintText: 'Keys, codes, gates, where the dog is kept',
-                            prefixIcon: Picon(PiconsDuotone.key),
-                          ),
-                          maxLines: 4,
-                        ),
-                        const SizedBox(height: 16),
                         TextFormField(
                           controller: _vanPlacementController,
                           decoration: const InputDecoration(
