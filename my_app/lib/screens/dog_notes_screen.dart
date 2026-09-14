@@ -486,7 +486,7 @@ class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
                     title: Text(dog.name),
                     subtitle: dog.ownerDetails != null
                         ? Text(
-                            dog.ownerDetails!.username,
+                            dog.ownerDetails!.displayName,
                             style: const TextStyle(fontSize: 12),
                           )
                         : null,

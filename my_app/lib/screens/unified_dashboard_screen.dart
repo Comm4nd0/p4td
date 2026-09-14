@@ -720,7 +720,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (dog.ownerDetails != null) Text('Owner: ${dog.ownerDetails!.username}'),
+                      if (dog.ownerDetails != null) Text('Owner: ${dog.ownerDetails!.displayName}'),
                       if (suggestedName != null)
                         Text('$suggestedLabel: $suggestedName',
                             style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12, fontStyle: FontStyle.italic)),
@@ -1600,7 +1600,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                 Text(dog.name,
                     style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                 if (dog.ownerDetails != null)
-                  Text(dog.ownerDetails!.username,
+                  Text(dog.ownerDetails!.displayName,
                       style: TextStyle(fontSize: 12, color: Colors.grey[600])),
               ],
             ),

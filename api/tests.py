@@ -12611,3 +12611,42 @@ class EmailLoginTests(TestCase):
         self.assertEqual(anon.post('/auth/token/login/', {'username': 'dup@example.com', 'password': 'Str0ngPass!23'}).status_code, 400)
         User.objects.create_user(username='legacy', email='one@example.com', password='Str0ngPass!23')
         self.assertEqual(anon.post('/auth/token/login/', {'username': 'one@example.com', 'password': 'nope'}).status_code, 400)
+
+
+class OwnerDisplayNameTests(TestCase):
+    """Staff see a client by their full name; the username (an email) is only
+    the fallback when no name was ever recorded."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(username='staff@p4td.com', email='staff@p4td.com', password='pw', is_staff=True)
+        self.owner = User.objects.create_user(
+            username='sue@example.com', email='sue@example.com', password='pw',
+            first_name='Sue', last_name='Penney')
+        self.nameless = User.objects.create_user(username='shy@example.com', email='shy@example.com', password='pw')
+        self.dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.dog.additional_owners.add(self.nameless)
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def test_owner_display_name_helper(self):
+        from .serializers import owner_display_name
+        self.assertEqual(owner_display_name(self.owner), 'Sue Penney')
+        self.assertEqual(owner_display_name(User(username='x@example.com', first_name='Sue')), 'Sue')
+        self.assertEqual(owner_display_name(User(username='x@example.com', last_name='Penney')), 'Penney')
+        self.assertEqual(owner_display_name(self.nameless), 'shy@example.com')
+        self.assertIsNone(owner_display_name(None))
+
+    def test_dog_owner_details_carry_the_last_name(self):
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['owner_details']['first_name'], 'Sue')
+        self.assertEqual(resp.data['owner_details']['last_name'], 'Penney')
+        extra = resp.data['additional_owners_details'][0]
+        self.assertEqual((extra['first_name'], extra['last_name'], extra['username']), ('', '', 'shy@example.com'))
+
+    def test_assignment_owner_name_is_the_full_name(self):
+        DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff, date=date.today())
+        resp = self.client.get('/api/daily-assignments/')
+        self.assertEqual(resp.status_code, 200)
+        record = next(a for a in resp.data if a['dog'] == self.dog.id)
+        self.assertEqual(record['owner_name'], 'Sue Penney')

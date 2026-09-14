@@ -227,7 +227,11 @@ Additional non-router endpoints:
   `notifications.public_display_name`, which never falls back to the username —
   usernames are email addresses. Sign-up therefore requires `first_name` and forces
   `username = email`; `api/auth_backends.py` additionally lets an account created
-  outside the app sign in with its email.
+  outside the app sign in with its email. **Staff see clients by full name:** every
+  staff-facing `owner_name` field goes through `serializers.owner_display_name`
+  ("First Last", else the username), and `owner_details` carries `last_name` so the
+  app's `OwnerDetails.displayName` does the same. Never show a bare `username` for
+  an owner in the app — it is their email.
 
 ### Mobile (Flutter)
 
