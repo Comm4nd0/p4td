@@ -140,7 +140,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/comments/` | Feed comments |
 | `api/boarding-requests/` | Boarding requests |
 | `api/device-tokens/` | Push notification tokens |
-| `api/daily-assignments/` | Staff-dog daily assignments |
+| `api/daily-assignments/` | Staff-dog daily assignments. `<id>/reassign/` moves one dog; `bulk_reassign/` (`assignment_ids`, `staff_member_id`, `scope`) moves several to one staff member in one transaction with the same `just_this_day`/`from_now_on` semantics — it backs the dashboard's **Reassign Dogs** quick action, next to Add Dog to Day. Rows already with the target are reported under `skipped`, not moved |
 | `api/support-queries/` | Support tickets. Creating one pushes staff with `can_reply_queries`; `add_message/` pushes the other side of the thread (category `messages`) |
 | `api/closure-days/` | Facility closures |
 | `api/dog-notes/` | Behavioral/compatibility notes |
@@ -227,7 +227,11 @@ Additional non-router endpoints:
   `notifications.public_display_name`, which never falls back to the username —
   usernames are email addresses. Sign-up therefore requires `first_name` and forces
   `username = email`; `api/auth_backends.py` additionally lets an account created
-  outside the app sign in with its email.
+  outside the app sign in with its email. **Staff see clients by full name:** every
+  staff-facing `owner_name` field goes through `serializers.owner_display_name`
+  ("First Last", else the username), and `owner_details` carries `last_name` so the
+  app's `OwnerDetails.displayName` does the same. Never show a bare `username` for
+  an owner in the app — it is their email.
 
 ### Mobile (Flutter)
 

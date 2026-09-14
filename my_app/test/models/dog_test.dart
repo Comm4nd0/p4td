@@ -112,6 +112,29 @@ void main() {
       expect(buildDog(sex: DogSex.male, dob: null).needsSpayPrompt, isFalse);
     });
 
+    test('OwnerDetails.displayName prefers the full name over the username', () {
+      OwnerDetails owner({String? first, String? last}) => OwnerDetails(
+          userId: 1, username: 'sue@example.com', email: 'sue@example.com',
+          firstName: first, lastName: last);
+      expect(owner(first: 'Sue', last: 'Penney').displayName, 'Sue Penney');
+      expect(owner(first: 'Sue').displayName, 'Sue');
+      expect(owner(last: 'Penney').displayName, 'Penney');
+      expect(owner().displayName, 'sue@example.com');
+      expect(owner(first: '', last: '').displayName, 'sue@example.com');
+      expect(OwnerDetails.fromJson({'user_id': 1, 'username': 'u', 'email': 'e',
+        'first_name': 'Sue', 'last_name': 'Penney'}).displayName, 'Sue Penney');
+    });
+
+    test('OwnerDetails.matches searches name, username and email', () {
+      final owner = OwnerDetails(
+          userId: 1, username: 'sue@example.com', email: 'sue@example.com',
+          firstName: 'Sue', lastName: 'Penney');
+      expect(owner.matches('penney'), isTrue);
+      expect(owner.matches('sue pen'), isTrue);
+      expect(owner.matches('sue@'), isTrue);
+      expect(owner.matches('bob'), isFalse);
+    });
+
     test('allOwners combines primary and additional owners in order', () {
       final primary = OwnerDetails(userId: 1, username: 'a', email: 'a@x.com');
       final extra = OwnerDetails(userId: 2, username: 'b', email: 'b@x.com');

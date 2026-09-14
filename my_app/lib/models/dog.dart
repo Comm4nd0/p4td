@@ -95,6 +95,7 @@ class OwnerDetails {
   final String username;
   final String email;
   final String? firstName;
+  final String? lastName;
   final String? phoneNumber;
   final String? pickupInstructions;
 
@@ -103,13 +104,22 @@ class OwnerDetails {
     required this.username,
     required this.email,
     this.firstName,
+    this.lastName,
     this.phoneNumber,
     this.pickupInstructions,
   });
 
-  /// Friendly display name: first name when set, otherwise username.
-  String get displayName =>
-      (firstName != null && firstName!.isNotEmpty) ? firstName! : username;
+  /// What staff know the person as: "First Last" (or whichever half we
+  /// have), else the username — which for app sign-ups is their email.
+  String get displayName {
+    final name = '${firstName ?? ''} ${lastName ?? ''}'.trim();
+    return name.isNotEmpty ? name : username;
+  }
+
+  /// True when [query] (already lower-cased) appears in the name, username
+  /// or email, so a staff search finds "sue penney" and "sue@" alike.
+  bool matches(String query) =>
+      '$displayName $username $email'.toLowerCase().contains(query);
 
   factory OwnerDetails.fromJson(Map<String, dynamic> json) {
     return OwnerDetails(
@@ -117,6 +127,7 @@ class OwnerDetails {
       username: json['username'] ?? '',
       email: json['email'] ?? '',
       firstName: json['first_name'],
+      lastName: json['last_name'],
       phoneNumber: json['phone_number'],
       pickupInstructions: json['pickup_instructions'],
     );

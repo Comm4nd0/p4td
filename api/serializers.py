@@ -37,6 +37,19 @@ class DeviceTokenSerializer(serializers.ModelSerializer):
         fields = ['id', 'token', 'device_type', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+def owner_display_name(user):
+    """How staff see a client: full name when we have it, else the username.
+
+    Usernames are email addresses, so this is what every staff-facing
+    ``owner_name`` field carries. Never use it for anything one client sees of
+    another — that is ``notifications.public_display_name`` (first name only).
+    """
+    if user is None:
+        return None
+    full = f"{user.first_name} {user.last_name}".strip()
+    return full or user.username
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
@@ -91,13 +104,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class OwnerDetailSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions']
-        read_only_fields = ['user_id', 'username', 'first_name', 'email']
+        fields = ['user_id', 'username', 'first_name', 'last_name', 'email', 'address', 'phone_number', 'pickup_instructions']
+        read_only_fields = ['user_id', 'username', 'first_name', 'last_name', 'email']
 
 class UserSummarySerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -293,12 +307,7 @@ class DateChangeRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'approved_by_name', 'approved_at', 'status']
 
     def get_owner_name(self, obj):
-        user = obj.dog.owner
-        if user is None:
-            return None
-        if user.first_name:
-            return user.first_name
-        return user.username
+        return owner_display_name(obj.dog.owner)
 
     def get_dog_profile_image(self, obj):
         image = obj.dog.profile_image
@@ -473,9 +482,7 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
         return s.first_name or s.username
 
     def get_owner_name(self, obj):
-        if obj.owner.first_name:
-            return obj.owner.first_name
-        return obj.owner.username
+        return owner_display_name(obj.owner)
 
     def validate(self, data):
         # Fall back to the instance on partial updates so a PATCH that omits the
@@ -588,12 +595,7 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
         return user.username
 
     def get_owner_name(self, obj):
-        user = obj.dog.owner
-        if user is None:
-            return None
-        if user.first_name:
-            return user.first_name
-        return user.username
+        return owner_display_name(obj.dog.owner)
 
     def get_owner_address(self, obj):
         # Pickup address lives on the dog, not the owner profile.
@@ -707,9 +709,7 @@ class SupportQuerySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'staff_has_unread', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
-        if obj.owner.first_name:
-            return obj.owner.first_name
-        return obj.owner.username
+        return owner_display_name(obj.owner)
 
     def get_last_message_at(self, obj):
         # Read from the prefetched messages cache instead of a fresh query/row (B29).
@@ -736,9 +736,7 @@ class SupportQueryListSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'staff_has_unread', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
-        if obj.owner.first_name:
-            return obj.owner.first_name
-        return obj.owner.username
+        return owner_display_name(obj.owner)
 
     def get_last_message_at(self, obj):
         # Read from the prefetched messages cache instead of a fresh query/row (B29).
@@ -1245,8 +1243,7 @@ class IntakeRequestSerializer(serializers.ModelSerializer):
         }
 
     def get_owner_name(self, obj):
-        full = f"{obj.owner.first_name} {obj.owner.last_name}".strip()
-        return full or obj.owner.username
+        return owner_display_name(obj.owner)
 
     def get_owner_email(self, obj):
         return obj.owner.email
@@ -1400,10 +1397,7 @@ class IncidentDogSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'dog_name', 'role_display', 'owner_name', 'owner_notified_at']
 
     def get_owner_name(self, obj):
-        owner = obj.dog.owner
-        if owner is None:
-            return None
-        return owner.first_name or owner.username
+        return owner_display_name(obj.dog.owner)
 
 
 class IncidentDogEntriesField(serializers.Field):

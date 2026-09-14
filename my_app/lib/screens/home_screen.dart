@@ -231,12 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final lowerQuery = query.toLowerCase();
     return _allDogs.where((dog) {
       if (dog.name.toLowerCase().contains(lowerQuery)) return true;
-      if (dog.ownerDetails != null) {
-        if (dog.ownerDetails!.username.toLowerCase().contains(lowerQuery)) return true;
-      }
-      for (final owner in dog.additionalOwners) {
-        if (owner.username.toLowerCase().contains(lowerQuery)) return true;
-      }
+      if (dog.allOwners.any((owner) => owner.matches(lowerQuery))) return true;
       return false;
     }).toList();
   }

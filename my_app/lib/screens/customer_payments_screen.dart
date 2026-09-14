@@ -664,8 +664,7 @@ class _DogPickerSheetState extends State<_DogPickerSheet> {
   static String _ownerLabel(Dog dog) {
     final owner = dog.ownerDetails;
     if (owner == null) return 'No client on the app';
-    final first = owner.firstName?.trim();
-    return (first != null && first.isNotEmpty) ? first : owner.username;
+    return owner.displayName;
   }
 
   @override

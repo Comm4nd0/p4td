@@ -144,7 +144,7 @@ Future<AddDogSelection?> showAddDogToDayDialog({
                                     setDialogState(() => selectedDogId = v),
                                 title: Text(dog.name),
                                 subtitle: dog.ownerDetails != null
-                                    ? Text('Owner: ${dog.ownerDetails!.username}')
+                                    ? Text('Owner: ${dog.ownerDetails!.displayName}')
                                     : null,
                                 secondary: dog.profileImageUrl != null
                                     ? ClipRRect(

@@ -245,8 +245,10 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             onPressed: () => Navigator.pop(context, owner.userId),
             child: ListTile(
               leading: Picon(PiconsDuotone.user),
-              title: Text(owner.username),
-              subtitle: Text(owner.email),
+              title: Text(owner.displayName),
+              subtitle: owner.email.isEmpty || owner.email == owner.displayName
+                  ? null
+                  : Text(owner.email),
               dense: true,
             ),
           )).toList(),
@@ -299,8 +301,10 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             onPressed: () => Navigator.pop(context, owner),
             child: ListTile(
               leading: Picon(PiconsDuotone.user),
-              title: Text(owner.username),
-              subtitle: Text(owner.email),
+              title: Text(owner.displayName),
+              subtitle: owner.email.isEmpty || owner.email == owner.displayName
+                  ? null
+                  : Text(owner.email),
               dense: true,
             ),
           )).toList(),

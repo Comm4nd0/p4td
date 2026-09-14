@@ -199,7 +199,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                       value: selectedOwner,
                       items: owners.map((owner) => DropdownMenuItem(
                         value: owner,
-                        child: Text(owner.username),
+                        child: Text(owner.displayName),
                       )).toList(),
                       onChanged: (value) => setDialogState(() => selectedOwner = value),
                       validator: (v) => v == null ? 'Please select an owner' : null,
@@ -208,7 +208,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Text(
-                        'To: ${preselectedOwner.username}',
+                        'To: ${preselectedOwner.displayName}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),

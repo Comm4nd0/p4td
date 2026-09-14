@@ -125,7 +125,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     final query = _searchQuery.toLowerCase();
     return _unassignedDogs.where((d) =>
       d.name.toLowerCase().contains(query) ||
-      (d.ownerDetails?.username.toLowerCase().contains(query) ?? false)
+      (d.ownerDetails?.matches(query) ?? false)
     ).toList();
   }
 
@@ -792,7 +792,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
                   Text(dog.name,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                   if (dog.ownerDetails != null)
-                    Text('Owner: ${dog.ownerDetails!.username}',
+                    Text('Owner: ${dog.ownerDetails!.displayName}',
                         style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
