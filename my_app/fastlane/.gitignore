@@ -2,7 +2,12 @@
 # NOTE: metadata/<locale>/ (the App Store listing text) IS committed — that's the
 # source of truth deliver uploads from. Only the Android tree is generated.
 screenshots/
-metadata/android/
+# The Android tree is generated per run — except the Play What's New, which is
+# committed and read by the `Release Android to Google Play` workflow.
+metadata/android/*
+!metadata/android/en-GB/
+metadata/android/en-GB/*
+!metadata/android/en-GB/changelogs/
 fonts/
 # The App Review demo login. This repo is public, so the password must not be
 # committed: the Fastfile writes both files from DEMO_EMAIL / DEMO_PASSWORD at

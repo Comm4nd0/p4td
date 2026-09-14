@@ -73,6 +73,27 @@ jobs:
       - name: Every build surface installs the pinned Flutter
         run: ./scripts/check-flutter-pin.sh
 
+  # The Android release workflow sets Play's What's New from this file, and
+  # Google refuses the whole release over 500 characters. Finding that out on
+  # the tag means another version bump and another tag, so say so here.
+  play-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Play What's New fits Google's 500-character limit
+        run: |
+          notes=my_app/fastlane/metadata/android/en-GB/changelogs/default.txt
+          if [ ! -f "$notes" ]; then
+            echo "::error::$notes is missing — the Android release workflow reads Play's What's New from it."
+            exit 1
+          fi
+          length="$(wc -m < "$notes")"
+          echo "$notes: $length characters"
+          if [ "$length" -gt 500 ]; then
+            echo "::error::$notes is $length characters; Google Play allows 500. The App Store notes are a separate file and may be longer."
+            exit 1
+          fi
+
   # CLAUDE.md requires every commit touching my_app/ to bump the pubspec build
   # number, because the Play Store rejects a re-used one. That was only
   # discovered at upload time, after review and merge; this says so on the PR.

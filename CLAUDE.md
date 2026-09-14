@@ -285,11 +285,16 @@ Additional non-router endpoints:
   pull `main` only, with `--ff-only`, and gate on `/healthz/` before reporting success.
   Because the deploy is gated on `Backend CI`, anything that changes production
   behaviour must appear in that workflow's path filters or it will never ship.
-- **Mobile deploy (Android)**: GitHub Actions workflow (`.github/workflows/deploy-android-alpha.yml`) — builds AAB and uploads to Google Play alpha track on push to `main` with `my_app/` changes
+- **Mobile deploy (Android)**: `.github/workflows/deploy-android-alpha.yml` builds
+  the AAB and uploads it to the Google Play **alpha** track on every push to `main`
+  with `my_app/` changes. Customers get it when a `v*` tag runs
+  `.github/workflows/deploy-android-release.yml`, which promotes that same bundle
+  (found by pubspec's build number) to production — see
+  [Releasing to the stores](#releasing-to-the-stores) below.
 - **Mobile deploy (iOS)**: Xcode Cloud archives and uploads to TestFlight on push
   to `main` (bootstrapped by `my_app/ios/ci_scripts/ci_post_clone.sh`). Shipping to
-  the App Store is a `v*` tag, which runs `.github/workflows/deploy-ios-release.yml`
-  — see [Releasing iOS](#releasing-ios) below.
+  the App Store is the same `v*` tag, which runs `.github/workflows/deploy-ios-release.yml`
+  — see [Releasing to the stores](#releasing-to-the-stores) below.
 - **Production server**: Gunicorn (2 workers, 2 threads, 120s timeout)
 
 ### Mobile version bumps (required)
@@ -301,7 +306,20 @@ Additional non-router endpoints:
 - Bump major/minor only when the change warrants it.
 - Make the bump part of the same commit as the feature change (or as an immediate follow-up commit before pushing).
 
-### Releasing iOS
+### Releasing to the stores
+
+One `v*` tag ships both platforms. Android goes **live on its own**: the tag
+promotes the alpha bundle to production, and once Google's review of the update
+passes it is in front of every customer — there is no release button to press
+afterwards. iOS still needs Apple's approval and then a press in App Store
+Connect. So a tag is a release, not a submission: don't tag until the version
+is meant to reach customers.
+
+Google Play's What's New is its own file,
+`my_app/fastlane/metadata/android/en-GB/changelogs/default.txt`, capped at 500
+characters (Flutter CI checks it). Rewrite it from the same diff as the App
+Store notes below; the App Store text is far longer than Play allows, so it
+cannot simply be copied.
 
 > **What's live — update this when a version is released, not when it is submitted.**
 >
@@ -458,4 +476,6 @@ database check taken after the directory walk.
   `my_app/fastlane/metadata/`; see `my_app/STORE_METADATA.md`),
   `deploy-ios-release.yml` (on a `v*` tag — pushes the listing, attaches the
   Xcode Cloud build for that commit, and submits it for App Review),
+  `deploy-android-release.yml` (on the same `v*` tag — promotes that version's
+  alpha bundle to the Google Play production track),
   `deploy-backend.yml` (production deploy, triggered by a green `Backend CI` on `main`).
