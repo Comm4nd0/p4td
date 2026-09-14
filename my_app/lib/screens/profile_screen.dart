@@ -19,6 +19,7 @@ import '../widgets/grouped_section.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 import 'change_password_screen.dart';
+import 'change_email_screen.dart';
 import '../widgets/page_body.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -42,8 +43,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int? _activeAccountId;
 
   final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _pickupController = TextEditingController();
 
   // Notification preferences
   bool _notifyFeed = true;
@@ -111,8 +112,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void dispose() {
     _firstNameController.dispose();
+    _lastNameController.dispose();
     _phoneController.dispose();
-    _pickupController.dispose();
     super.dispose();
   }
 
@@ -135,8 +136,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _profile = profile;
         _firstNameController.text = profile.firstName ?? '';
+        _lastNameController.text = profile.lastName ?? '';
         _phoneController.text = profile.phoneNumber ?? '';
-        _pickupController.text = profile.pickupInstructions ?? '';
         _notifyFeed = profile.notifyFeed;
         _notifyTraffic = profile.notifyTraffic;
         _notifyBookings = profile.notifyBookings;
@@ -252,6 +253,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _changeEmail() async {
+    final current = _profile?.email ?? '';
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => ChangeEmailScreen(currentEmail: current)),
+    );
+    if (changed == true && mounted) {
+      // Reloading re-records the account in the device switcher under the
+      // new address.
+      await _loadProfile();
+    }
+  }
+
   Future<void> _addAccount() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const LoginScreen(addingAccount: true)),
@@ -270,11 +283,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         username: _profile!.username,
         email: _profile!.email,
         firstName: _firstNameController.text,
-        // The dog profile now owns the pickup address; round-trip the stored
-        // profile value so saving here never wipes what older app builds use.
+        lastName: _lastNameController.text,
+        // The dog profile now owns the pickup address and instructions;
+        // round-trip the stored address so saving here never wipes what older
+        // app builds use.
         address: _profile!.address,
         phoneNumber: _phoneController.text,
-        pickupInstructions: _pickupController.text,
         notifyFeed: _notifyFeed,
         notifyTraffic: _notifyTraffic,
         notifyBookings: _notifyBookings,
@@ -762,6 +776,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               const SizedBox(height: 12),
                               TextField(
+                                controller: _lastNameController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Last Name',
+                                  prefixIcon: Picon(PiconsDuotone.identificationCard),
+                                ),
+                                textCapitalization: TextCapitalization.words,
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
                                 controller: _phoneController,
                                 decoration: const InputDecoration(
                                   labelText: 'Phone Number',
@@ -769,21 +792,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 keyboardType: TextInputType.phone,
                               ),
-                              if (!_profile!.isStaff) ...[
-                                const SizedBox(height: 12),
-                                TextField(
-                                  controller: _pickupController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Pickup Instructions',
-                                    hintText: 'e.g., Key under the mat, Gate code 1234...',
-                                    prefixIcon: Picon(PiconsDuotone.info),
-                                  ),
-                                  maxLines: 4,
-                                ),
-                              ],
                             ],
                           ),
                         ),
+                        // Email is the sign-in address, so it changes on its own
+                        // screen with a password check rather than with Save.
+                        ListTile(
+                          leading: const Picon(PiconsDuotone.envelope),
+                          title: const Text('Email Address'),
+                          subtitle: Text(_profile!.email),
+                          trailing: Picon(
+                            PiconsDuotone.caretRight,
+                            size: 16,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                          onTap: _changeEmail,
+                        ),
+                        if (!_profile!.isStaff)
+                          ListTile(
+                            leading: const Picon(PiconsDuotone.key),
+                            title: const Text('Pickup instructions'),
+                            subtitle: const Text(
+                              'Keys, gates and where each dog waits are on the dog\'s profile, so two dogs at one address can differ.',
+                            ),
+                          ),
                       ],
                     ),
                     GroupedSection(

@@ -396,7 +396,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         emergencyContactNumber: _emergencyContactController.text.trim(),
         address: _addressController.text,
         postcode: _postcodeController.text.trim().toUpperCase(),
-        accessInstructions: _isStaff ? _accessController.text : null,
+        accessInstructions: _accessController.text,
         vanPlacement: _isStaff ? _vanPlacementController.text : null,
         generalNotes: _isStaff ? _generalNotesController.text : null,
         imageBytes: _newImageBytes,
@@ -790,6 +790,16 @@ class _EditDogScreenState extends State<EditDogScreen> {
           ),
           const SizedBox(height: 16),
           TextField(
+            controller: _accessController,
+            decoration: const InputDecoration(
+              labelText: 'Pickup Instructions',
+              hintText: 'Keys, codes, gates, where this dog waits',
+              prefixIcon: Picon(PiconsDuotone.key),
+            ),
+            maxLines: 4,
+          ),
+          const SizedBox(height: 16),
+          TextField(
             controller: _contactNumberController,
             decoration: InputDecoration(
               labelText: 'Contact Number',
@@ -933,20 +943,10 @@ class _EditDogScreenState extends State<EditDogScreen> {
             _sectionHeader('Staff Notes', fontSize: 16, visibleToOwner: false),
             const SizedBox(height: 4),
             Text(
-              'Access details, van placement and handling notes. The owner never sees these.',
+              'Van placement and handling notes. The owner never sees these.',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _accessController,
-              decoration: const InputDecoration(
-                labelText: 'Home Access',
-                hintText: 'Keys, codes, gates, where the dog is kept',
-                prefixIcon: Picon(PiconsDuotone.key),
-              ),
-              maxLines: 4,
-            ),
-            const SizedBox(height: 16),
             TextField(
               controller: _vanPlacementController,
               decoration: const InputDecoration(

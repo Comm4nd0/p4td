@@ -1094,6 +1094,50 @@ class DogAddressTests(TestCase):
         record = next(a for a in resp.data if a['dog'] == dog.id)
         self.assertEqual(record['owner_address'], 'Dog Addr')
 
+    def test_assignment_pickup_instructions_are_the_dogs(self):
+        """Two dogs at one address can need collecting differently, so the
+        pickup list reads each dog's own instructions."""
+        rex = Dog.objects.create(owner=self.owner, name='Rex', access_instructions='Side gate, he waits in the porch')
+        bella = Dog.objects.create(owner=self.owner, name='Bella')
+        for dog in (rex, bella):
+            DailyDogAssignment.objects.create(dog=dog, staff_member=self.staff, date=date.today())
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/daily-assignments/')
+        self.assertEqual(resp.status_code, 200)
+        by_dog = {a['dog']: a for a in resp.data}
+        self.assertEqual(by_dog[rex.id]['pickup_instructions'], 'Side gate, he waits in the porch')
+        self.assertIsNone(by_dog[bella.id]['pickup_instructions'])
+
+    def test_owner_pickup_instructions_change_requires_approval(self):
+        dog = Dog.objects.create(owner=self.owner, name='Rex', access_instructions='Front door')
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(
+            f'/api/dogs/{dog.id}/', {'access_instructions': 'Key safe 4321, she waits in the kitchen'}, format='json')
+        self.assertEqual(resp.status_code, 202)
+        dog.refresh_from_db()
+        self.assertEqual(dog.access_instructions, 'Front door')
+        from .models import DogProfileChangeRequest
+        cr = DogProfileChangeRequest.objects.get(dog=dog, status='PENDING')
+        self.assertEqual(cr.proposed_changes, {'access_instructions': 'Key safe 4321, she waits in the kitchen'})
+
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        self.assertEqual(self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/').status_code, 200)
+        dog.refresh_from_db()
+        self.assertEqual(dog.access_instructions, 'Key safe 4321, she waits in the kitchen')
+
+    def test_profile_has_no_pickup_instructions(self):
+        """Pickup instructions are per dog; the profile neither shows nor
+        accepts them (an older app build sending the field is ignored)."""
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/profile/', {'pickup_instructions': 'Side gate', 'phone_number': '07700 1'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('pickup_instructions', resp.data)
+        self.assertEqual(resp.data['phone_number'], '07700 1')
+        dog = Dog.objects.create(owner=self.owner, name='Rex')
+        resp = self.client.get(f'/api/dogs/{dog.id}/')
+        self.assertNotIn('pickup_instructions', resp.data['owner_details'])
+
     def test_assignment_owner_address_no_profile_fallback(self):
         """A dog without an address yields no address, even if the owner profile has one."""
         self.owner.profile.address = 'Profile Addr'
@@ -5483,6 +5527,83 @@ class PasswordAndAccountSecurityTests(TestCase):
         fresh.credentials(HTTP_AUTHORIZATION=f'Token {new_token}')
         self.assertEqual(fresh.get('/api/profile/').status_code, 200)
 
+    # ── own details: name via the profile, email via account/email/ ────
+
+    def test_profile_updates_own_names(self):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Token {self._token_for(self.user)}')
+        resp = client.post('/api/profile/', {'first_name': 'Margarita', 'last_name': 'Reyes'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['first_name'], 'Margarita')
+        self.assertEqual(resp.data['last_name'], 'Reyes')
+        self.user.refresh_from_db()
+        self.assertEqual((self.user.first_name, self.user.last_name), ('Margarita', 'Reyes'))
+        # Email is not editable through the profile — it needs the password.
+        resp = client.post('/api/profile/', {'email': 'other@example.com'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'resetme@example.com')
+
+    def _email_client(self):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Token {self._token_for(self.user)}')
+        return client
+
+    def test_change_email_needs_current_password(self):
+        client = self._email_client()
+        for body in (
+            {'new_email': 'rita.new@example.com'},
+            {'new_email': 'rita.new@example.com', 'password': 'wrong'},
+            {'new_email': 'not-an-email', 'password': 'OldPass123!'},
+        ):
+            resp = client.post('/api/account/email/', body, format='json')
+            self.assertEqual(resp.status_code, 400, body)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'resetme@example.com')
+        self.assertEqual(self.client.post('/api/account/email/', {'new_email': 'x@example.com', 'password': 'OldPass123!'}, format='json').status_code, 401)
+
+    def test_change_email_moves_username_with_it_for_app_accounts(self):
+        # Accounts created in the app sign in with their email (username == email).
+        self.user.username = 'resetme@example.com'
+        self.user.save(update_fields=['username'])
+        client = self._email_client()
+        resp = client.post('/api/account/email/', {'new_email': 'Rita.New@example.com', 'password': 'OldPass123!'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['email'], 'Rita.New@example.com')
+        self.assertEqual(resp.data['username'], 'Rita.New@example.com')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'Rita.New@example.com')
+        # She signs in with the new address; the old one no longer works.
+        self.assertEqual(self.client.post('/auth/token/login/', {'username': 'Rita.New@example.com', 'password': 'OldPass123!'}).status_code, 200)
+        self.assertEqual(self.client.post('/auth/token/login/', {'username': 'resetme@example.com', 'password': 'OldPass123!'}).status_code, 400)
+        # The session token is untouched — only the address changed.
+        self.assertEqual(client.get('/api/profile/').status_code, 200)
+
+    def test_change_email_keeps_a_distinct_username(self):
+        # An account made outside the app (username 'resetme') keeps signing in
+        # by that name; only the mailbox moves.
+        client = self._email_client()
+        resp = client.post('/api/account/email/', {'new_email': 'rita.new@example.com', 'password': 'OldPass123!'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'resetme')
+        self.assertEqual(self.user.email, 'rita.new@example.com')
+
+    def test_change_email_refuses_an_address_in_use(self):
+        User.objects.create_user(username='taken@example.com', email='Taken@example.com', password='pw')
+        User.objects.create_user(username='legacy', email='', password='pw')
+        client = self._email_client()
+        for new_email in ('taken@example.com', 'TAKEN@example.com', 'resetme@example.com'):
+            resp = client.post('/api/account/email/', {'new_email': new_email, 'password': 'OldPass123!'}, format='json')
+            self.assertEqual(resp.status_code, 400, new_email)
+            self.assertIn('new_email', resp.data)
+        # A username that is an email is a login identity too.
+        User.objects.create_user(username='byname@example.com', email='', password='pw')
+        resp = client.post('/api/account/email/', {'new_email': 'byname@example.com', 'password': 'OldPass123!'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'resetme@example.com')
+
     # ── delete account (password gate + dog ownership handling) ─────────
 
     def test_delete_account_wrong_password_keeps_user(self):
@@ -6903,7 +7024,6 @@ class IntakeRequestTests(TestCase):
         self.owner.profile.refresh_from_db()
         self.assertEqual(self.owner.profile.phone_number, '07700 900123')
         self.assertEqual(self.owner.profile.address, '1 Kennel Lane, Marlow')
-        self.assertEqual(self.owner.profile.pickup_instructions, 'Side gate, key under the pot')
 
     def test_booking_form_requires_a_dog(self):
         self.client.login(username='newowner', password='pw')
@@ -6976,10 +7096,12 @@ class IntakeRequestTests(TestCase):
         self.assertEqual(biscuit.postcode, 'SL7 2HE')
         rolo = dogs.get(name='Rolo')
         self.assertEqual(rolo.schedule_type, 'ad_hoc')
-        # So are both contact numbers — every dog a client creates has them.
+        # So are both contact numbers — every dog a client creates has them —
+        # and the pickup instructions, which live on the dog, not the person.
         for dog in (biscuit, rolo):
             self.assertEqual(dog.contact_number, '07700 900123')
             self.assertEqual(dog.emergency_contact_number, '07700 900456 (Sue, neighbour)')
+            self.assertEqual(dog.access_instructions, 'Side gate, key under the pot')
 
         req = IntakeRequest.objects.get(pk=request_id)
         self.assertEqual(req.reviewed_by, self.staff)

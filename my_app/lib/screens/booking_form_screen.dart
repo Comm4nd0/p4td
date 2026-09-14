@@ -101,9 +101,6 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
         if (_addressController.text.isEmpty) {
           _addressController.text = profile.address ?? '';
         }
-        if (_pickupController.text.isEmpty) {
-          _pickupController.text = profile.pickupInstructions ?? '';
-        }
       });
     } catch (e) {
       debugPrint('Failed to prefill booking form: $e');
@@ -266,7 +263,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
               controller: _pickupController,
               decoration: const InputDecoration(
                 labelText: 'Pickup Instructions (Optional)',
-                hintText: 'Keys, gates, where the dog waits',
+                hintText: 'Keys, gates, where the dog waits — saved to each dog, editable later',
                 prefixIcon: Picon(PiconsDuotone.key),
               ),
               maxLines: 3,

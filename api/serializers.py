@@ -31,6 +31,11 @@ class ChangePasswordSerializer(serializers.Serializer):
         validate_password(value)
         return value
 
+class ChangeEmailSerializer(serializers.Serializer):
+    new_email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+
 class DeviceTokenSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceToken
@@ -54,6 +59,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name = serializers.CharField(source='user.last_name', required=False, allow_blank=True)
     is_staff = serializers.BooleanField(source='user.is_staff', read_only=True)
     is_superuser = serializers.BooleanField(source='user.is_superuser', read_only=True)
     user_id = serializers.IntegerField(source='user.id', read_only=True)
@@ -65,7 +71,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'email', 'address', 'phone_number', 'pickup_instructions', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'notify_messages', 'postcode_lookup_enabled', 'staff_color']
+        fields = ['user_id', 'username', 'first_name', 'last_name', 'email', 'address', 'phone_number', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'notify_messages', 'postcode_lookup_enabled', 'staff_color']
         # Capability flags are assignable ONLY by a superuser via
         # update_staff_permissions. They must never be writable through this
         # self-service endpoint, or any authenticated user could PATCH their own
@@ -92,13 +98,18 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return value.upper()
 
     def update(self, instance, validated_data):
+        # Email (and therefore the username) is changed through
+        # views.change_email, which asks for the password first.
         user_data = validated_data.pop('user', {})
-        first_name = user_data.get('first_name')
-        
-        if first_name is not None:
-            instance.user.first_name = first_name
-            instance.user.save()
-            
+        changed = []
+        for field in ('first_name', 'last_name'):
+            value = user_data.get(field)
+            if value is not None:
+                setattr(instance.user, field, value)
+                changed.append(field)
+        if changed:
+            instance.user.save(update_fields=changed)
+
         return super().update(instance, validated_data)
 
 class OwnerDetailSerializer(serializers.ModelSerializer):
@@ -110,7 +121,7 @@ class OwnerDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'last_name', 'email', 'address', 'phone_number', 'pickup_instructions']
+        fields = ['user_id', 'username', 'first_name', 'last_name', 'email', 'address', 'phone_number']
         read_only_fields = ['user_id', 'username', 'first_name', 'last_name', 'email']
 
 class UserSummarySerializer(serializers.ModelSerializer):
@@ -158,8 +169,9 @@ class DogSerializer(serializers.ModelSerializer):
     #: candid handling notes. The app already hides them from owners; the API
     #: must too, or anyone with their own token can read what staff wrote.
     #: Not in this list on purpose — daily_rate/boarding_rate (owners may see
-    #: their own price; tested), is_spayed and access_instructions (owners
-    #: supply both on the booking form).
+    #: their own price; tested), is_spayed (owners supply it on the booking
+    #: form) and access_instructions (the dog's pickup instructions, which the
+    #: owner writes).
     STAFF_ONLY_READ_FIELDS = ('general_notes', 'van_placement')
 
     def to_representation(self, instance):
@@ -608,10 +620,8 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             return None
 
     def get_pickup_instructions(self, obj):
-        try:
-            return obj.dog.owner.profile.pickup_instructions
-        except Exception:
-            return None
+        # Per dog: the field name is kept for app builds that read it here.
+        return obj.dog.access_instructions or None
 
     def _boarding_on(self, obj, context_key, target_date):
         # When the view supplies the per-date boarding sets (computed once for

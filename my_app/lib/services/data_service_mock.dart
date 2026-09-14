@@ -73,19 +73,17 @@ class MockDataService implements DataService {
       email: 'john@example.com',
       address: '123 Main St',
       phoneNumber: '555-1234',
-      pickupInstructions: 'Ring doorbell twice',
     );
   }
 
   @override
-  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber, String? pickupInstructions}) async {
+  Future<OwnerProfile> updateOwnerProfile(int userId, {String? address, String? phoneNumber}) async {
     return OwnerProfile(
       userId: userId,
       username: 'john_doe',
       email: 'john@example.com',
       address: address ?? '123 Main St',
       phoneNumber: phoneNumber ?? '555-1234',
-      pickupInstructions: pickupInstructions ?? 'Ring doorbell twice',
     );
   }
 

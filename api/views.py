@@ -11,7 +11,7 @@ from django.db.models import Prefetch, Q, Sum
 from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
 from website.models import ContactInquiry
 
 import logging
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Dog fields an owner may propose to change via a profile-change request. Used
 # both when building the request and when applying it on approval, so the
 # approval step can re-enforce the whitelist (defense in depth — B19).
-OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth', 'last_vaccination_date']
+OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'contact_number', 'emergency_contact_number', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth', 'last_vaccination_date']
 #: Of those, the ones a client must keep filled in: when a dog is hurt or a
 #: pickup goes wrong, staff can only act if a number is on file. Enforced on
 #: owner edits here (a change request may not blank them) and on the booking
@@ -4435,6 +4435,58 @@ def change_password(request):
 
 @api_view(['POST'])
 @perm_classes([IsAuthenticated])
+def change_email(request):
+    """Change the signed-in user's email address.
+
+    The email is the login identifier and where password-reset codes go, so
+    like change_password it needs the current password — a borrowed session
+    must not be able to point the account at someone else's mailbox. The
+    username follows the email when the two match (every account created in
+    the app), so the person keeps signing in with the address they know;
+    an account whose username is something else keeps it.
+    """
+    serializer = ChangeEmailSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    user = request.user
+    if not user.check_password(serializer.validated_data['password']):
+        return Response(
+            {'detail': 'Current password is incorrect.'},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    new_email = serializer.validated_data['new_email'].strip()
+    if new_email.lower() == (user.email or '').lower():
+        return Response(
+            {'new_email': ['This is already your email address.']},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+    # Same rule as sign-up: one mailbox, one account, or the reset flow has
+    # two candidates for a code. Usernames are emails too, so check both.
+    taken = User.objects.exclude(pk=user.pk).filter(
+        Q(email__iexact=new_email) | Q(username__iexact=new_email)
+    ).exists()
+    if taken:
+        return Response(
+            {'new_email': ['An account with this email address already exists.']},
+            status=drf_status.HTTP_400_BAD_REQUEST,
+        )
+
+    update_fields = ['email']
+    if user.username.lower() == (user.email or '').lower():
+        user.username = new_email
+        update_fields.append('username')
+    user.email = new_email
+    user.save(update_fields=update_fields)
+
+    return Response(
+        {'detail': 'Email address changed.', 'email': user.email, 'username': user.username},
+        status=drf_status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@perm_classes([IsAuthenticated])
 def delete_account(request):
     """Permanently delete the currently authenticated user's account.
 
@@ -4525,12 +4577,9 @@ def _anonymise_user(user):
     if profile is not None:
         profile.address = ''
         profile.phone_number = ''
-        profile.pickup_instructions = ''
         if profile.profile_photo:
             profile.profile_photo.delete(save=False)
-        profile.save(update_fields=[
-            'address', 'phone_number', 'pickup_instructions', 'profile_photo',
-        ])
+        profile.save(update_fields=['address', 'phone_number', 'profile_photo'])
 
 
 # =============================================================================
@@ -5283,14 +5332,15 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         instance = serializer.save(owner=self.request.user)
 
         # The form doubles as the owner's contact details, so mirror them onto
-        # the profile — the profile is what staff screens read from.
+        # the profile — the profile is what staff screens read from. Pickup
+        # instructions are not mirrored: they belong to the dogs the approval
+        # creates (Dog.access_instructions).
         try:
             profile = instance.owner.profile
             changed = False
             for src, dest in (
                 ('phone_number', 'phone_number'),
                 ('address', 'address'),
-                ('pickup_instructions', 'pickup_instructions'),
             ):
                 value = getattr(instance, src)
                 if value and getattr(profile, dest) != value:
@@ -5371,6 +5421,7 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
                 registered_vet=intake_dog.registered_vet or None,
                 address=instance.address or None,
                 postcode=instance.postcode,
+                access_instructions=instance.pickup_instructions or None,
                 contact_number=instance.phone_number,
                 emergency_contact_number=instance.emergency_contact_number,
                 daycare_days=intake_dog.daycare_days,

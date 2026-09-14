@@ -11,7 +11,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     address = models.TextField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
-    pickup_instructions = models.TextField(blank=True, null=True)
+    # Pickup instructions are per dog, not per person: Dog.access_instructions.
     profile_photo = models.ImageField(upload_to='staff_photos/', null=True, blank=True)
     can_manage_requests = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny requests.')
     can_add_feed_media = models.BooleanField(default=False, help_text='Designates whether this user can upload media to the feed.')
@@ -143,7 +143,7 @@ class Dog(models.Model):
     postcode = models.CharField(max_length=10, blank=True, help_text="UK postcode of the pickup address; drives placement on the staff map (preferred over parsing the free-text address).")
     contact_number = models.CharField(max_length=50, blank=True, default='', help_text="Day-to-day contact number for this dog's household.")
     emergency_contact_number = models.CharField(max_length=50, blank=True, default='', help_text="Emergency contact if the main number doesn't answer — a name can be included, e.g. '07700 900123 (Sue, neighbour)'.")
-    access_instructions = models.TextField(blank=True, null=True, help_text="How to access the home — keys, codes, gates, where the dog is kept.")
+    access_instructions = models.TextField(blank=True, null=True, help_text="Pickup instructions for this dog — keys, codes, gates, where the dog waits. Per dog (two dogs at one address can differ); owners propose changes through dog-profile-changes like the address.")
     van_placement = models.TextField(blank=True, null=True, help_text="Where the dog should sit in the van and any companion/seating notes.")
     general_notes = models.TextField(blank=True, null=True, help_text="General notes about the dog (behaviour, handling, misc).")
     daycare_days = models.JSONField(default=list, blank=True, help_text='List of day numbers (1-7) for daycare attendance')

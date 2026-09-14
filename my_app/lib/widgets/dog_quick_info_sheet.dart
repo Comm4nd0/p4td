@@ -94,7 +94,7 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
   String? get _emergencyPhone => _firstNonEmpty(_dog?.emergencyContactNumber);
   String? get _address => _firstNonEmpty(widget.assignment?.ownerAddress, _dog?.address);
   String? get _pickupInstructions =>
-      _firstNonEmpty(widget.assignment?.pickupInstructions, _dog?.ownerDetails?.pickupInstructions);
+      _firstNonEmpty(widget.assignment?.pickupInstructions, _dog?.accessInstructions);
 
   static String? _firstNonEmpty(String? a, [String? b, String? c]) {
     for (final value in [a, b, c]) {
@@ -369,11 +369,7 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
       rows.add(_infoRow(context, PiconsDuotone.houseLine, line, color: Colors.teal));
     }
     if (_pickupInstructions != null) {
-      rows.add(_infoRow(context, PiconsDuotone.info, _pickupInstructions!));
-    }
-    final access = _dog?.accessInstructions;
-    if (access != null && access.trim().isNotEmpty) {
-      rows.add(_infoRow(context, PiconsDuotone.key, access));
+      rows.add(_infoRow(context, PiconsDuotone.key, _pickupInstructions!));
     }
     final van = _dog?.vanPlacement;
     if (van != null && van.trim().isNotEmpty) {

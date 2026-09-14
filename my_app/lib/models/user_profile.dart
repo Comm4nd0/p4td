@@ -4,8 +4,8 @@ class UserProfile {
   final String email;
   final String? address;
   final String? phoneNumber;
-  final String? pickupInstructions;
   final String? firstName;
+  final String? lastName;
   final String? profilePhotoUrl;
   final bool isStaff;
   final bool isSuperuser;
@@ -40,8 +40,8 @@ class UserProfile {
     required this.email,
     this.address,
     this.phoneNumber,
-    this.pickupInstructions,
     this.firstName,
+    this.lastName,
     this.profilePhotoUrl,
     this.isStaff = false,
     this.isSuperuser = false,
@@ -71,8 +71,8 @@ class UserProfile {
       email: json['email'],
       address: json['address'],
       phoneNumber: json['phone_number'],
-      pickupInstructions: json['pickup_instructions'],
       firstName: json['first_name'],
+      lastName: json['last_name'],
       profilePhotoUrl: json['profile_photo'],
       isStaff: json['is_staff'] ?? false,
       isSuperuser: json['is_superuser'] ?? false,
@@ -99,9 +99,9 @@ class UserProfile {
   Map<String, dynamic> toJson() {
     return {
       'first_name': firstName,
+      'last_name': lastName,
       'address': address,
       'phone_number': phoneNumber,
-      'pickup_instructions': pickupInstructions,
       'notify_feed': notifyFeed,
       'notify_traffic': notifyTraffic,
       'notify_bookings': notifyBookings,

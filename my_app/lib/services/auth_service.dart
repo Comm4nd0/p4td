@@ -432,6 +432,42 @@ class AuthService {
     }
   }
 
+  /// Change the signed-in user's email address. The server asks for the
+  /// current password (the email is the sign-in address) and moves the
+  /// username with it, so the person keeps signing in with the address they
+  /// know. Returns null on success, an error message otherwise.
+  Future<String?> changeEmail(String newEmail, String password) async {
+    try {
+      final token = await getToken();
+      if (token == null) return 'Not authenticated';
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/account/email/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+        body: json.encode({'new_email': newEmail, 'password': password}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) return null;
+      final data = json.decode(response.body);
+      if (data is Map) {
+        final fieldError = data['new_email'];
+        if (fieldError is List && fieldError.isNotEmpty) return fieldError.join('\n');
+        if (fieldError != null) return fieldError.toString();
+        return data['detail']?.toString() ?? 'Could not change your email address.';
+      }
+      return 'Could not change your email address.';
+    } catch (e) {
+      if (NoConnectionException.isNetworkError(e)) {
+        throw const NoConnectionException();
+      }
+      _logError('changeEmail', e);
+      return 'Could not change your email address. Please try again.';
+    }
+  }
+
   /// Change password for the currently logged-in user. The server requires the
   /// current password and rotates the auth token (B3), so we send old_password
   /// and persist the new token it returns.

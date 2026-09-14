@@ -23,7 +23,6 @@ class OwnerDetailsDialog extends StatefulWidget {
 
 class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
   late TextEditingController _phoneController;
-  late TextEditingController _pickupController;
   bool _isEditing = false;
   bool _isSaving = false;
   final DataService _dataService = getIt<DataService>();
@@ -32,13 +31,11 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.ownerProfile.phoneNumber ?? '');
-    _pickupController = TextEditingController(text: widget.ownerProfile.pickupInstructions ?? '');
   }
 
   @override
   void dispose() {
     _phoneController.dispose();
-    _pickupController.dispose();
     super.dispose();
   }
 
@@ -48,7 +45,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
       await _dataService.updateOwnerProfile(
         widget.ownerId,
         phoneNumber: _phoneController.text.isEmpty ? null : _phoneController.text,
-        pickupInstructions: _pickupController.text.isEmpty ? null : _pickupController.text,
       );
 
       if (mounted) {
@@ -103,14 +99,6 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
                     labelText: 'Phone Number',
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _pickupController,
-                  decoration: const InputDecoration(
-                    labelText: 'Pickup Instructions',
-                  ),
-                  maxLines: 3,
-                ),
               ]
             else
               ...[
@@ -121,10 +109,9 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
                 Text(widget.ownerProfile.phoneNumber ?? 'Not provided'),
                 const SizedBox(height: 12),
                 Text(
-                  'Pickup Instructions',
-                  style: Theme.of(context).textTheme.labelMedium,
+                  'Pickup instructions are on each dog\'s profile.',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-                Text(widget.ownerProfile.pickupInstructions ?? 'Not provided'),
               ],
           ],
         ),

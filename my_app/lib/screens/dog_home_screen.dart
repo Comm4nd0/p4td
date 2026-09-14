@@ -1879,10 +1879,10 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               latitude: _dog.latitude!,
               longitude: _dog.longitude!,
             ),
-          if (widget.isStaff && _dog.accessInstructions != null && _dog.accessInstructions!.trim().isNotEmpty)
+          if (_dog.accessInstructions != null && _dog.accessInstructions!.trim().isNotEmpty)
             _infoBlock(
               icon: PiconsDuotone.key,
-              title: 'Home Access',
+              title: 'Pickup Instructions',
               body: _dog.accessInstructions!,
             ),
           if (widget.isStaff && _dog.vanPlacement != null && _dog.vanPlacement!.trim().isNotEmpty)
