@@ -440,6 +440,31 @@ def notify_feed_post_tags(post):
         send_push_notification(person, title, body, data, category='feed')
 
 
+def notify_staff_inbox(permission, title, body, data, category=None, exclude_user=None):
+    """Push a client communication to every staff member holding *permission*.
+
+    This is the one path for the three inbox pushes — a Contact Staff message
+    (``can_reply_queries``), a booking form (``can_manage_requests``) and a
+    website enquiry (``can_view_inquiries``) — which the app also counts in
+    the badges beside the bell. They are the pushes a manager must not miss,
+    so the working-day filter is lifted for anyone with
+    ``receives_business_alerts``: the business owner hears about a Sunday
+    enquiry on Sunday. Other staff keep their days off quiet as usual.
+    """
+    from django.contrib.auth.models import User
+
+    recipients = User.objects.filter(
+        is_staff=True, **{f'profile__{permission}': True}
+    ).select_related('profile')
+    if exclude_user is not None:
+        recipients = recipients.exclude(pk=exclude_user.pk)
+    for staff in recipients:
+        send_push_notification(
+            staff, title, body, data, category=category,
+            ignore_working_hours=bool(staff.profile.receives_business_alerts),
+        )
+
+
 def notify_support_message(query, sender):
     """Push the other side of a support thread when a message lands.
 
@@ -449,8 +474,6 @@ def notify_support_message(query, sender):
     honour the 'messages' preference — a client can silence replies, and a
     staff member who is not on queries that day can silence the inbox.
     """
-    from django.contrib.auth.models import User
-
     subject = query.subject[:60]
     if sender.is_staff:
         if query.owner_id and query.owner_id != sender.id:
@@ -462,30 +485,49 @@ def notify_support_message(query, sender):
                 category='messages',
             )
         return
-    owner_name = public_display_name(sender)
-    for staff in User.objects.filter(is_staff=True, profile__can_reply_queries=True).exclude(id=sender.id):
-        send_push_notification(
-            staff,
-            f"Message from {owner_name}",
-            f"'{subject}' has a new message.",
-            {'type': 'support_query_update', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
-            category='messages',
-        )
+    notify_staff_inbox(
+        'can_reply_queries',
+        f"Message from {public_display_name(sender)}",
+        f"'{subject}' has a new message.",
+        {'type': 'support_query_update', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        category='messages',
+        exclude_user=sender,
+    )
 
 
 def notify_new_support_query(query):
     """Tell staff who can reply that a client has opened a new thread."""
-    from django.contrib.auth.models import User
+    notify_staff_inbox(
+        'can_reply_queries',
+        f"New message from {public_display_name(query.owner)}",
+        query.subject[:100],
+        {'type': 'support_query', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        category='messages',
+        exclude_user=query.owner,
+    )
 
-    owner_name = public_display_name(query.owner)
-    for staff in User.objects.filter(is_staff=True, profile__can_reply_queries=True).exclude(id=query.owner_id):
-        send_push_notification(
-            staff,
-            f"New message from {owner_name}",
-            query.subject[:100],
-            {'type': 'support_query', 'id': str(query.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
-            category='messages',
-        )
+
+def notify_new_intake_request(intake_request):
+    """Tell request managers a client has submitted a booking form."""
+    dog_names = ', '.join(d.name for d in intake_request.dogs.all())
+    owner_name = intake_request.owner.first_name or intake_request.owner.username
+    notify_staff_inbox(
+        'can_manage_requests',
+        'New Booking Form',
+        f"{owner_name} submitted a booking form for {dog_names}.",
+        {'type': 'intake_request', 'id': str(intake_request.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+    )
+
+
+def notify_new_contact_inquiry(inquiry):
+    """Tell enquiry viewers the website (or the app's logged-out form) has a
+    new contact enquiry."""
+    notify_staff_inbox(
+        'can_view_inquiries',
+        'New Website Inquiry',
+        f'{inquiry.name} — {inquiry.get_service_display()}',
+        {'type': 'contact_inquiry', 'id': str(inquiry.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+    )
 
 
 def notify_defect_comment(comment, defect, defect_type='vehicle'):

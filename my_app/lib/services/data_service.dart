@@ -2805,6 +2805,16 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<int> getPendingIntakeRequestCount() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/intake-requests/pending_count/'));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['count'] ?? 0;
+    }
+    return 0;
+  }
+
+  @override
   Future<IntakeRequest> submitIntakeRequest({
     String? phoneNumber,
     String? emergencyContactNumber,

@@ -12772,3 +12772,98 @@ class OwnerDisplayNameTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         record = next(a for a in resp.data if a['dog'] == self.dog.id)
         self.assertEqual(record['owner_name'], 'Sue Penney')
+
+
+class StaffInboxPushTests(TestCase):
+    """The three client communications staff must not miss — Contact Staff
+    messages, booking forms and website enquiries — each push exactly once to
+    the staff holding the matching permission, and reach a
+    ``receives_business_alerts`` holder even on their day off."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='olivia@example.com', password='pw', first_name='Olivia')
+        self.replier = User.objects.create_user(username='replier', password='pw', is_staff=True)
+        self.replier.profile.can_reply_queries = True
+        self.replier.profile.can_manage_requests = True
+        self.replier.profile.can_view_inquiries = True
+        self.replier.profile.save()
+        self.boss = User.objects.create_user(username='boss', password='pw', is_staff=True)
+        self.boss.profile.can_reply_queries = True
+        self.boss.profile.can_manage_requests = True
+        self.boss.profile.can_view_inquiries = True
+        self.boss.profile.receives_business_alerts = True
+        self.boss.profile.save()
+        # Staff with none of the flags: never pushed.
+        self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
+        # The public enquiry endpoint's anon throttle counter lives in the
+        # in-process cache and survives between tests.
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+
+    @staticmethod
+    def _by_user(mock_push):
+        return {c.args[0].username: c for c in mock_push.call_args_list}
+
+    def _assert_inbox_push(self, mock_push, push_type):
+        calls = self._by_user(mock_push)
+        self.assertEqual(set(calls), {'replier', 'boss'}, calls)
+        for c in calls.values():
+            self.assertEqual(c.args[3]['type'], push_type)
+        self.assertFalse(calls['replier'].kwargs.get('ignore_working_hours'))
+        self.assertTrue(calls['boss'].kwargs.get('ignore_working_hours'))
+        # One push per recipient — the models.py signal pair used to double it.
+        self.assertEqual(mock_push.call_count, 2)
+
+    @patch('api.models.send_push_notification')
+    @patch('api.notifications.send_push_notification')
+    def test_new_query_pushes_repliers_once(self, mock_push, mock_model_push):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/support-queries/', {'subject': 'Lead?', 'initial_message': 'Blue one'}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self._assert_inbox_push(mock_push, 'support_query')
+        self.assertEqual(mock_model_push.call_count, 0)
+
+    @patch('api.models.send_push_notification')
+    @patch('api.notifications.send_push_notification')
+    def test_owner_message_pushes_repliers_once(self, mock_push, mock_model_push):
+        query = SupportQuery.objects.create(owner=self.owner, subject='Lead?')
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Hello?'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self._assert_inbox_push(mock_push, 'support_query_update')
+        self.assertEqual(mock_model_push.call_count, 0)
+
+    @patch('api.notifications.send_push_notification')
+    def test_booking_form_pushes_request_managers(self, mock_push):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/intake-requests/', {
+            'phone_number': '07700 900123',
+            'emergency_contact_number': '07700 900456',
+            'address': '1 Kennel Lane', 'postcode': 'SL7 2HE',
+            'dogs': [{'name': 'Biscuit'}],
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self._assert_inbox_push(mock_push, 'intake_request')
+        self.assertIn('Biscuit', mock_push.call_args.args[2])
+
+    @patch('api.notifications.send_push_notification')
+    def test_website_enquiry_pushes_inquiry_viewers(self, mock_push):
+        resp = self.client.post('/api/public/contact-inquiry/', {
+            'name': 'Sam', 'email': 'sam@example.com', 'service': 'daycare', 'message': 'Any spaces?',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self._assert_inbox_push(mock_push, 'contact_inquiry')
+
+    def test_booking_form_pending_count(self):
+        from .models import IntakeRequest
+        IntakeRequest.objects.create(owner=self.owner, status='PENDING')
+        IntakeRequest.objects.create(owner=self.owner, status='PENDING')
+        IntakeRequest.objects.create(owner=self.owner, status='APPROVED')
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get('/api/intake-requests/pending_count/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 2)
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self.client.get('/api/intake-requests/pending_count/').data['count'], 0)

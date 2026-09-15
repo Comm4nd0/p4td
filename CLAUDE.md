@@ -154,7 +154,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/vehicles/` | Fleet vehicles (MOT/service tracking) |
 | `api/vehicle-defects/` | Vehicle defect reports with photos |
 | `api/facility-defects/` | Facility defect reports |
-| `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs). The only way a client creates a dog, so `phone_number` and `emergency_contact_number` are required here and copied onto every dog the approval creates |
+| `api/intake-requests/` | Booking forms (owner dog-intake requests; staff approve to create dogs). The only way a client creates a dog, so `phone_number` and `emergency_contact_number` are required here and copied onto every dog the approval creates. `pending_count/` backs the Booking Forms badge beside the bell (owners get 0) |
 | `api/invoices/` | Monthly customer invoices (owners view their own — the app shows no Pay button; they pay by bank transfer from the Xero-emailed invoice, and `pay_url/` stays available for a later online-payment switch-on; staff with `can_manage_payments` generate/send/record payments/sync Xero). **Billed in advance:** a month's invoice charges every day the dog is *booked in* that month as the roster stands (`billing.booked_days_for_month` via `ScheduleIndex`: regular days + approved additions − cancellations − removals − closures − boarding days) plus last month's unbilled extras (attended days no invoice has charged). A date is charged once, ever — `_billed_dates_by_dog` reads every non-VOID line's `attendance_dates` — so extras added after an invoice went out land on the next month's invoice as their own "extra days in <month>" line. Booked days are charged whether or not the dog turns up. `generate/` takes the month plus optionally one `customer` **or one `dog`** — the per-dog form raises the month in the dog's name whatever its owner status, because most of the client book isn't on the app. **Every generated draft is also raised in Xero as a DRAFT** (against the dog's pinned contact, else a shared "Unassigned (Paws 4 Thought app)" placeholder) so the business can reassign the contact, amend and approve it inside Xero; the 30-minute `sync_xero_invoices` turns that approval into SENT here (adopting Xero's total/due date, booking any difference as an "Amended in Xero" line) and pins the contact the draft ended up on to the dog for next month. Sending from the app approves the same Xero draft. A dog on any active invoice line for a period is never billed again for it, whichever invoice (its own or its owner's) carries it. |
 | `api/incidents/` | **Staff-only** incident log — scuffles, bites, injuries, escapes. Tied to the dogs involved (per-dog role/injuries/owner-told), with photos *and* video, follow-up comments and a status. Owners get 403 on every route, including `?dog=<id>` for their own dog. |
 | `api/staff-hr/` | **Manager-only** (`can_manage_staff`) employment records: job title, employment dates, holiday allowance, emergency contact, private manager notes. Records are created lazily via `for_staff/?staff_member=<id>` (no create/destroy routes); `team_overview/` returns one summary row per staff member (pay, holiday used/remaining from approved day-off requests, sickness/training/appraisal flags) and excludes the P4TD house account. |
@@ -226,6 +226,15 @@ Additional non-router endpoints:
   `messages` (support-thread replies both ways, plus new-thread alerts to staff with
   `can_reply_queries`), `traffic`. A push with no category cannot be silenced, so
   give new ones a category.
+- **Staff inbox pushes** — a Contact Staff message, a booking form, a website
+  enquiry — all go through `notifications.notify_staff_inbox`, which pushes the
+  staff holding the matching flag (`can_reply_queries` / `can_manage_requests` /
+  `can_view_inquiries`) and lifts the working-day filter for anyone with
+  `receives_business_alerts`, so the owner hears about a Sunday enquiry on Sunday.
+  These are the three counts the app shows beside the bell; route the next
+  client-to-business channel through the same helper. Contact Staff pushes are
+  sent from `SupportQueryViewSet` only — do not re-add a `post_save` receiver for
+  `SupportQuery`/`SupportMessage`, that pair doubled every push.
 - **Clients see each other by first name only.** Anything rendered to another
   client (feed comments, reactions, post uploader, push bodies) goes through
   `notifications.public_display_name`, which never falls back to the username —
@@ -244,6 +253,13 @@ Additional non-router endpoints:
   already-persisted session. Rendered as an overlay in `MaterialApp.builder` so it covers
   every route and leaves the Navigator mounted underneath. Android needs
   `FlutterFragmentActivity` for `local_auth`'s BiometricPrompt.
+- **Staff inbox badges**: the home AppBar shows Contact Staff, Booking Forms,
+  Website Inquiries (with `can_view_inquiries`) and the bell, each a
+  `BadgedActionIcon` (`widgets/badged_action_icon.dart`) with its unread count.
+  The counts reload on resume and on every push that arrives in the foreground
+  (`NotificationService.foregroundMessages`), so a badge is never staler than
+  the last time the phone was looked at. The same counts feed the drawer and
+  the dashboard's Action Items.
 - **StatefulWidget** patterns with service-layer data management
 - **Hive** for local offline caching
 - **Firebase Messaging** + local notifications

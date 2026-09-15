@@ -549,6 +549,8 @@ class MockDataService implements DataService {
   @override
   Future<List<IntakeRequest>> getIntakeRequests() async => [];
   @override
+  Future<int> getPendingIntakeRequestCount() async => 0;
+  @override
   Future<IntakeRequest> submitIntakeRequest({String? phoneNumber, String? emergencyContactNumber, String? address, String? postcode, String? pickupInstructions, String? additionalInfo, required List<IntakeDog> dogs}) async =>
       IntakeRequest(id: 1, dogs: dogs, createdAt: DateTime.now());
   @override

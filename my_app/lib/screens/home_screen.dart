@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -14,6 +16,7 @@ import '../services/service_locator.dart';
 import '../services/no_connection_exception.dart';
 import '../services/notification_service.dart';
 import '../services/offline_prefetch_service.dart';
+import '../widgets/badged_action_icon.dart';
 import '../widgets/grouped_section.dart';
 import '../widgets/no_connection_widget.dart';
 import '../widgets/skeleton_loaders.dart';
@@ -85,6 +88,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _pendingRequestCount = 0;
   int _unresolvedQueryCount = 0;
   int _unreadInquiryCount = 0;
+  int _pendingBookingFormCount = 0;
+  StreamSubscription<Map<String, dynamic>>? _pushSubscription;
   String _appVersion = '';
   final GlobalKey<UnifiedDashboardScreenState> _dashboardKey = GlobalKey();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
@@ -122,11 +127,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadDogs();
     _checkStaffStatus();
     _loadAppVersion();
+    // A push arriving while the app is open means a badge is stale: recount
+    // rather than wait for the next resume.
+    _pushSubscription = _notificationService.foregroundMessages.listen((_) => _loadInboxCounts());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pushSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -136,6 +145,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       if (_isOffline) _refresh();
       _refreshPermissionsOnResume();
+      // The inbox badges must be right the moment the app is picked up.
+      _loadInboxCounts();
       // Re-warm the offline caches on foreground (throttled inside the
       // service), e.g. a staff member checking the app before setting off.
       if (_isStaff) getIt<OfflinePrefetchService>().prefetchForToday();
@@ -291,6 +302,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
         await _loadUnresolvedQueryCount();
+        if (profile.isStaff) await _loadPendingBookingFormCount();
         if (profile.isStaff && profile.canViewInquiries) {
           await _loadUnreadInquiryCount();
         }
@@ -351,11 +363,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  Future<void> _loadPendingBookingFormCount() async {
+    if (!_isStaff) return;
+    try {
+      final count = await _dataService.getPendingIntakeRequestCount();
+      if (mounted) {
+        setState(() => _pendingBookingFormCount = count);
+      }
+    } catch (_) {}
+  }
+
+  /// Every count shown beside the bell, in parallel. Called on resume and
+  /// whenever a push lands in the foreground, so the badges are never older
+  /// than the last time the phone was looked at.
+  Future<void> _loadInboxCounts() async {
+    await Future.wait([
+      _loadPendingRequestCount(),
+      _loadUnresolvedQueryCount(),
+      _loadPendingBookingFormCount(),
+      if (_canViewInquiries) _loadUnreadInquiryCount(),
+    ]);
+  }
+
   void _refresh() {
     _loadDogs();
-    _loadPendingRequestCount();
-    _loadUnresolvedQueryCount();
-    if (_canViewInquiries) _loadUnreadInquiryCount();
+    _loadInboxCounts();
   }
 
   /// Navigate to the deep-link target screen after profile/permissions are loaded.
@@ -487,7 +519,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final changed = await _push<bool>(
       MaterialPageRoute(builder: (_) => BookingRequestsScreen(isStaff: _isStaff)),
     );
-    if (changed == true) _refresh();
+    if (changed == true) {
+      _refresh();
+    } else {
+      _loadPendingBookingFormCount();
+    }
+  }
+
+  Future<void> _openQueries() async {
+    await _push(
+      MaterialPageRoute(
+        builder: (_) => QueryListScreen(
+          isStaff: _isStaff,
+          canReplyQueries: _canReplyQueries,
+        ),
+      ),
+    );
+    _loadUnresolvedQueryCount();
+  }
+
+  Future<void> _openInquiries() async {
+    await _push(
+      MaterialPageRoute(builder: (_) => const InquiryListScreen()),
+    );
+    _loadUnreadInquiryCount();
+  }
+
+  Future<void> _openPendingRequests() async {
+    await _push(
+      MaterialPageRoute(
+        builder: (_) => StaffNotificationsScreen(
+          canManageRequests: _canManageRequests,
+          canManageBoarding: _canManageBoarding,
+        ),
+      ),
+    );
+    _loadPendingRequestCount();
   }
 
   Future<void> _onNavTap(int index) async {
@@ -548,45 +615,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onTap: () => setState(() => _currentIndex = 1),
           child: Image.asset('assets/logo.png', height: 32),
         ),
+        // Staff inbox: every way a client reaches the business sits beside
+        // the bell with its own unread count, so nothing waits in a drawer.
         actions: [
-          if (_isStaff)
-            Stack(
-              children: [
-                IconButton(
-                  icon: Picon(PiconsDuotone.bell),
-                  tooltip: 'Date Change Requests',
-                  onPressed: () async {
-                    await _push(
-                      MaterialPageRoute(builder: (_) => StaffNotificationsScreen(canManageRequests: _canManageRequests, canManageBoarding: _canManageBoarding)),
-                    );
-                    _loadPendingRequestCount();
-                  },
-                ),
-                if (_pendingRequestCount > 0)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                      child: Center(
-                        child: Text(
-                          '$_pendingRequestCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+          if (_isStaff) ...[
+            BadgedActionIcon(
+              icon: PiconsDuotone.chats,
+              count: _unresolvedQueryCount,
+              tooltip: 'Contact Staff',
+              onPressed: _openQueries,
             ),
+            BadgedActionIcon(
+              icon: PiconsDuotone.clipboardText,
+              count: _pendingBookingFormCount,
+              tooltip: 'Booking Forms',
+              onPressed: _openBookingForms,
+            ),
+            if (_canViewInquiries)
+              BadgedActionIcon(
+                icon: PiconsDuotone.envelope,
+                count: _unreadInquiryCount,
+                tooltip: 'Website Inquiries',
+                onPressed: _openInquiries,
+              ),
+            BadgedActionIcon(
+              icon: PiconsDuotone.bell,
+              count: _pendingRequestCount,
+              tooltip: 'Requests',
+              onPressed: _openPendingRequests,
+            ),
+            const SizedBox(width: 4),
+          ],
         ],
       ),
       drawer: isWide ? null : _buildDrawer(),
@@ -758,21 +817,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 title: const Text('Contact Staff'),
                 trailing: _drawerChevron(),
-                onTap: () async {
+                onTap: () {
                   _closeDrawer();
-                  await _push(
-                    MaterialPageRoute(
-                      builder: (_) => QueryListScreen(
-                        isStaff: _isStaff,
-                        canReplyQueries: _canReplyQueries,
-                      ),
-                    ),
-                  );
-                  _loadUnresolvedQueryCount();
+                  _openQueries();
                 },
               ),
               ListTile(
-                leading: Picon(PiconsDuotone.clipboardText),
+                leading: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Picon(PiconsDuotone.clipboardText),
+                    if (_pendingBookingFormCount > 0)
+                      Positioned(
+                        right: -6,
+                        top: -6,
+                        child: _drawerBadge(_pendingBookingFormCount),
+                      ),
+                  ],
+                ),
                 title: const Text('Booking Forms'),
                 trailing: _drawerChevron(),
                 onTap: () {
@@ -796,14 +858,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   title: const Text('Website Inquiries'),
                   trailing: _drawerChevron(),
-                  onTap: () async {
+                  onTap: () {
                     _closeDrawer();
-                    await _push(
-                      MaterialPageRoute(
-                        builder: (_) => const InquiryListScreen(),
-                      ),
-                    );
-                    _loadUnreadInquiryCount();
+                    _openInquiries();
                   },
                 ),
               if (_isStaff)

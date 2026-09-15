@@ -222,6 +222,8 @@ abstract class DataService {
 
   // Booking Forms (intake requests)
   Future<List<IntakeRequest>> getIntakeRequests();
+  /// Booking forms awaiting review — the Booking Forms badge. Owners get 0.
+  Future<int> getPendingIntakeRequestCount();
   Future<IntakeRequest> submitIntakeRequest({
     String? phoneNumber,
     String? emergencyContactNumber,

@@ -421,20 +421,12 @@ class ContactInquiry(models.Model):
 
 @receiver(post_save, sender=ContactInquiry)
 def notify_staff_new_inquiry(sender, instance, created, **kwargs):
+    """Both submit paths (the website form and api/public/contact-inquiry/)
+    save a row, so this is the one place the push is sent from."""
     if not created:
         return
     try:
-        from django.contrib.auth.models import User
-        from api.notifications import send_push_notification
-
-        staff_with_permission = User.objects.filter(
-            is_staff=True,
-            profile__can_view_inquiries=True,
-        )
-        title = 'New Website Inquiry'
-        body = f'{instance.name} — {instance.get_service_display()}'
-        data = {'type': 'contact_inquiry', 'id': str(instance.id)}
-        for user in staff_with_permission:
-            send_push_notification(user, title, body, data)
+        from api.notifications import notify_new_contact_inquiry
+        notify_new_contact_inquiry(instance)
     except Exception:
         pass

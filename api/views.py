@@ -5353,18 +5353,8 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
 
         # Tell managers there's a new booking form to review.
         try:
-            from .notifications import send_push_notification
-            dog_names = ', '.join(d.name for d in instance.dogs.all())
-            owner_name = instance.owner.first_name or instance.owner.username
-            title = 'New Booking Form'
-            body = f"{owner_name} submitted a booking form for {dog_names}."
-            data = {
-                'type': 'intake_request',
-                'id': str(instance.id),
-                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-            }
-            for user in User.objects.filter(is_staff=True, profile__can_manage_requests=True):
-                send_push_notification(user, title, body, data)
+            from .notifications import notify_new_intake_request
+            notify_new_intake_request(instance)
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
@@ -5375,6 +5365,15 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can delete a booking form that has been reviewed.')
         instance.delete()
+
+    @action(detail=False, methods=['get'])
+    def pending_count(self, request):
+        """How many booking forms await review — the app's Booking Forms
+        badge beside the bell. Owners get 0 rather than a 403 so the one
+        call serves everyone."""
+        if not request.user.is_staff:
+            return Response({'count': 0})
+        return Response({'count': IntakeRequest.objects.filter(status='PENDING').count()})
 
     def _notify_owner_status(self, instance, approved):
         try:
