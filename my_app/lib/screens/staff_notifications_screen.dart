@@ -183,7 +183,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Staff Dashboard'),
+          title: const Text('Requests'),
           bottom: TabBar(
             tabs: [
               Tab(

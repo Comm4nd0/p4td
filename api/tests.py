@@ -5173,13 +5173,20 @@ class SupportStaffUnreadTests(TestCase):
         query.refresh_from_db()
         self.assertTrue(query.has_unread_reply)  # owner-side flag unaffected
 
-    def test_staff_mark_read_clears_badge(self):
+    def test_staff_viewing_does_not_clear_badge_but_replying_or_resolving_does(self):
+        # A thread opened and closed without a reply must stay on the count,
+        # or it goes unanswered.
         from .models import SupportQuery
         query = SupportQuery.objects.create(owner=self.owner, subject='Help', staff_has_unread=True)
         self.client.login(username='qustaff', password='pw')
         self.assertEqual(self._unresolved_count(), 1)
         resp = self.client.post(f'/api/support-queries/{query.id}/mark_read/')
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._unresolved_count(), 1)
+        self.client.post(f'/api/support-queries/{query.id}/resolve/', {}, format='json')
+        self.assertEqual(self._unresolved_count(), 0)
+        other = SupportQuery.objects.create(owner=self.owner, subject='Again', staff_has_unread=True)
+        self.client.post(f'/api/support-queries/{other.id}/add_message/', {'text': 'On it'}, format='json')
         self.assertEqual(self._unresolved_count(), 0)
 
     def test_owner_unread_behaviour_unchanged(self):
@@ -6284,6 +6291,19 @@ class ContactInquiryEndpointTests(TestCase):
         resp = self.client.get('/api/contact-inquiries/unread_count/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['count'], 0)
+
+    def test_count_clears_on_replied_not_on_read(self):
+        # Opening an enquiry marks it read; the badge must outlive that and
+        # only drop once someone has actually replied.
+        from website.models import ContactInquiry
+        inquiry = ContactInquiry.objects.create(name='Pat', email='pat@example.com', service='daycare', message='Spaces?')
+        self.client.force_authenticate(self.viewer)
+        count = lambda: self.client.get('/api/contact-inquiries/unread_count/').data['count']
+        self.assertEqual(count(), 1)
+        self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_read/')
+        self.assertEqual(count(), 1)
+        self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_replied/')
+        self.assertEqual(count(), 0)
 
 
 class PhotoUploadValidationTests(TestCase):
