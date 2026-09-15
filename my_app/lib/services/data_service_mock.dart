@@ -638,6 +638,8 @@ class MockDataService implements DataService {
   @override
   Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false}) async => [];
   @override
+  Future<List<DogChangeLog>> getDogChangeLogs({String? dogId, int? limit}) async => [];
+  @override
   Future<Incident> getIncident(int id) async =>
       Incident(id: id, title: 'Test', occurredAt: DateTime.now());
   @override

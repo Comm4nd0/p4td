@@ -7,6 +7,7 @@ import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/incident.dart';
+import '../models/dog_change_log.dart';
 import '../models/owner_profile.dart';
 import '../models/vaccination_certificate.dart';
 import '../services/data_service.dart';
@@ -25,6 +26,7 @@ import 'query_detail_screen.dart';
 import 'dog_notes_screen.dart';
 import 'vaccinations_screen.dart';
 import 'incidents_screen.dart';
+import 'dog_change_log_screen.dart';
 import '../constants/app_colors.dart';
 import '../widgets/page_body.dart';
 import '../widgets/owner_picker.dart';
@@ -51,6 +53,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   // this section and the endpoint refuses them anyway.
   List<Incident> _incidents = [];
   bool _loadingIncidents = false;
+  // Staff-only: the newest entry of this dog's change log, for the tile.
+  DogChangeLog? _lastChange;
+  bool _loadingLastChange = false;
 
   // The vet's certificates behind the vaccination date. Private files: listed
   // here, opened through the token-checked viewer, never by URL.
@@ -76,6 +81,22 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     if (widget.isStaff) {
       _loadPastEditability();
       _loadIncidents();
+      _loadLastChange();
+    }
+  }
+
+  Future<void> _loadLastChange() async {
+    setState(() => _loadingLastChange = true);
+    try {
+      final entries = await _dataService.getDogChangeLogs(dogId: _dog.id, limit: 1);
+      if (mounted) {
+        setState(() {
+          _lastChange = entries.firstOrNull;
+          _loadingLastChange = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingLastChange = false);
     }
   }
 
@@ -1377,6 +1398,48 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     );
   }
 
+  /// Staff-only: who last changed this dog's record, opening the full trail.
+  Widget _buildChangeLogSection() {
+    final last = _lastChange;
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      color: Colors.white.withValues(alpha: 0.5),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        dense: true,
+        leading: Picon(PiconsDuotone.clockCounterClockwise, color: Theme.of(context).primaryColor),
+        title: Text(
+          'Change Log',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).primaryColor,
+            fontSize: 14,
+          ),
+        ),
+        subtitle: Text(
+          _loadingLastChange
+              ? 'Loading…'
+              : last == null
+                  ? 'No changes recorded — staff only'
+                  : '${last.summary} · ${last.actorName}, ${ukDateTime(last.createdAt.toLocal())}',
+          style: const TextStyle(fontSize: 12),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Picon(PiconsDuotone.caretRight, size: 16),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DogChangeLogScreen(dogId: _dog.id, dogName: _dog.name),
+            ),
+          );
+          _loadLastChange();
+        },
+      ),
+    );
+  }
+
   Widget _buildBoardingRequestsSection() {
     if (_loadingBoardingRequests) {
       return const Padding(
@@ -2167,6 +2230,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   _buildRequestsSection(),
                   if (widget.isStaff) _buildBoardingRequestsSection(),
                   if (widget.isStaff) _buildIncidentsSection(),
+                if (widget.isStaff) _buildChangeLogSection(),
                 ],
               ),
             ),

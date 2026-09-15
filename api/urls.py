@@ -4,7 +4,7 @@ from .views import (
     DogViewSet, PhotoViewSet, UserProfileViewSet, DateChangeRequestViewSet,
     GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet,
     DailyDogAssignmentViewSet, SupportQueryViewSet, ContactInquiryViewSet,
-    ClosureDayViewSet, DogNoteViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
+    ClosureDayViewSet, DogNoteViewSet, DogChangeLogViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     DogProfileChangeRequestViewSet, VaccinationRecordViewSet, VaccinationCertificateViewSet,
     WaitlistEntryViewSet,
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
@@ -33,6 +33,7 @@ router.register(r'daily-assignments', DailyDogAssignmentViewSet, basename='daily
 router.register(r'support-queries', SupportQueryViewSet, basename='support-queries')
 router.register(r'closure-days', ClosureDayViewSet, basename='closure-days')
 router.register(r'dog-notes', DogNoteViewSet, basename='dog-notes')
+router.register(r'dog-change-logs', DogChangeLogViewSet, basename='dog-change-logs')
 router.register(r'staff-availability', StaffAvailabilityViewSet, basename='staff-availability')
 router.register(r'day-off-requests', DayOffRequestViewSet, basename='day-off-requests')
 router.register(r'contact-inquiries', ContactInquiryViewSet, basename='contact-inquiries')

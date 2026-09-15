@@ -1894,3 +1894,32 @@ class ComplianceCheckTypeSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj):
         return obj.status(last_done=self.get_last_done(obj))
+
+
+class DogChangeLogSerializer(serializers.ModelSerializer):
+    """One row of a dog's change log. Staff-facing, so names are full names."""
+    actor_name = serializers.SerializerMethodField()
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    dog_profile_image = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import DogChangeLog
+        model = DogChangeLog
+        fields = [
+            'id', 'dog', 'dog_name', 'dog_profile_image', 'actor', 'actor_name',
+            'action', 'action_display', 'source', 'source_display',
+            'summary', 'changes', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_actor_name(self, obj):
+        # The snapshot first (it survives anonymisation), then the live user.
+        return obj.actor_name or owner_display_name(obj.actor) or 'System'
+
+    def get_dog_profile_image(self, obj):
+        if obj.dog is None or not obj.dog.profile_image:
+            return None
+        url = obj.dog.profile_image.url
+        request = self.context.get('request')
+        return request.build_absolute_uri(url) if request else url

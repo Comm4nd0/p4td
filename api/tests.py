@@ -12867,3 +12867,152 @@ class StaffInboxPushTests(TestCase):
         self.assertEqual(resp.data['count'], 2)
         self.client.force_authenticate(self.owner)
         self.assertEqual(self.client.get('/api/intake-requests/pending_count/').data['count'], 0)
+
+
+class DogChangeLogTests(TestCase):
+    """Every way a dog's record changes leaves a who/what/when entry."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='alex@example.com', password='pw', first_name='Alex', last_name='Smith')
+        self.staff = User.objects.create_user(username='sam@example.com', password='pw', first_name='Sam', last_name='Jones', is_staff=True)
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def _logs(self, **filters):
+        from .models import DogChangeLog
+        return list(DogChangeLog.objects.filter(**filters).order_by('created_at', 'id'))
+
+    def test_staff_edit_logs_a_field_diff_with_the_editor(self):
+        dog = Dog.objects.create(owner=self.owner, name='Buddy', food_instructions='1 cup')
+        resp = self.client.patch(f'/api/dogs/{dog.id}/', {'name': 'Buddy Jr', 'food_instructions': '2 cups'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+        created, updated = self._logs(dog=dog)
+        self.assertEqual(created.action, 'CREATED')
+        self.assertEqual(updated.action, 'UPDATED')
+        self.assertEqual(updated.actor, self.staff)
+        self.assertEqual(updated.actor_name, 'Sam Jones')
+        self.assertEqual(updated.dog_name, 'Buddy Jr')
+        self.assertEqual(updated.summary, 'Updated name, food instructions')
+        self.assertEqual(updated.changes, [
+            {'field': 'name', 'label': 'Name', 'old': 'Buddy', 'new': 'Buddy Jr'},
+            {'field': 'food_instructions', 'label': 'Food instructions', 'old': '1 cup', 'new': '2 cups'},
+        ])
+
+    def test_a_save_that_changes_nothing_tracked_writes_nothing(self):
+        dog = Dog.objects.create(owner=self.owner, name='Buddy')
+        # Geocode-style bookkeeping saves must not spam the log.
+        dog.latitude, dog.longitude = 51.4, -0.9
+        dog.save(update_fields=['latitude', 'longitude'])
+        dog.save()
+        self.assertEqual([l.action for l in self._logs(dog=dog)], ['CREATED'])
+
+    def test_creation_is_credited_to_the_signed_in_staff(self):
+        resp = self.client.post('/api/dogs/', {'name': 'Luna', 'owner': self.owner.id}, format='json')
+        self.assertEqual(resp.status_code, 201)
+        (log,) = self._logs(dog_id=resp.data['id'])
+        self.assertEqual(log.action, 'CREATED')
+        self.assertEqual(log.actor, self.staff)
+        self.assertEqual(log.summary, 'Added Luna for Alex Smith')
+
+    def test_approved_owner_request_credits_the_approver_and_names_the_owner(self):
+        dog = Dog.objects.create(owner=self.owner, name='Buddy', contact_number='1', emergency_contact_number='2')
+        owner_client = APIClient()
+        owner_client.force_authenticate(self.owner)
+        resp = owner_client.patch(f'/api/dogs/{dog.id}/', {'medical_notes': 'Allergic to chicken'}, format='json')
+        self.assertEqual(resp.status_code, 202)
+        from .models import DogProfileChangeRequest
+        cr = DogProfileChangeRequest.objects.get(dog=dog, status='PENDING')
+
+        resp = self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        log = self._logs(dog=dog)[-1]
+        self.assertEqual(log.action, 'UPDATED')
+        self.assertEqual(log.source, 'OWNER_REQUEST')
+        self.assertEqual(log.actor, self.staff)
+        self.assertEqual(log.summary, "Approved Alex Smith's request: medical notes")
+        self.assertEqual(log.changes[0]['new'], 'Allergic to chicken')
+
+    def test_booking_form_approval_logs_the_new_dog(self):
+        intake = IntakeRequest.objects.create(
+            owner=self.owner, phone_number='0123', emergency_contact_number='0456',
+            address='1 High St', postcode='RG1 1AA',
+        )
+        from .models import IntakeDog
+        IntakeDog.objects.create(request=intake, name='Rex', daycare_days=[1, 3], schedule_type='weekly')
+        resp = self.client.post(f'/api/intake-requests/{intake.id}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        (log,) = self._logs(dog_name='Rex')
+        self.assertEqual(log.action, 'CREATED')
+        self.assertEqual(log.source, 'BOOKING_FORM')
+        self.assertEqual(log.actor, self.staff)
+
+    def test_vaccination_is_logged_with_the_date_it_moved(self):
+        dog = Dog.objects.create(owner=self.owner, name='Buddy')
+        resp = self.client.post('/api/vaccinations/', {
+            'dog': dog.id, 'name': 'DHP',
+            'date_administered': '2026-09-01', 'expiry_date': '2027-09-01',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        log = self._logs(dog=dog)[-1]
+        self.assertEqual(log.action, 'VACCINATION')
+        self.assertEqual(log.actor, self.staff)
+        self.assertEqual(log.summary, 'Added vaccination: DHP (given 01/09/2026, expires 01/09/2027)')
+        self.assertEqual(log.changes, [
+            {'field': 'last_vaccination_date', 'label': 'Last vaccination', 'old': '', 'new': '2026-09-01'},
+        ])
+
+        resp = self.client.delete(f'/api/vaccinations/{resp.data["id"]}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(self._logs(dog=dog)[-1].summary, 'Removed vaccination: DHP (given 01/09/2026, expires 01/09/2027)')
+
+    def test_owner_reassignment_and_co_owners(self):
+        other = User.objects.create_user(username='jo@example.com', password='pw', first_name='Jo')
+        dog = Dog.objects.create(owner=self.owner, name='Buddy')
+        resp = self.client.post(f'/api/dogs/{dog.id}/assign/', {'owner': other.id, 'additional_owners': [self.owner.id]}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        owner_log, co_owner_log = self._logs(dog=dog)[1:]
+        self.assertEqual(owner_log.action, 'OWNER_CHANGED')
+        self.assertEqual(owner_log.changes[0], {'field': 'owner', 'label': 'Owner', 'old': 'Alex Smith', 'new': 'Jo'})
+        self.assertEqual(co_owner_log.summary, 'Updated co-owners')
+        self.assertEqual(co_owner_log.changes[0]['new'], 'Alex Smith')
+
+    def test_deletion_keeps_the_name_and_the_deleter(self):
+        dog = Dog.objects.create(owner=self.owner, name='Buddy')
+        resp = self.client.delete(f'/api/dogs/{dog.id}/')
+        self.assertEqual(resp.status_code, 200)
+        (log,) = self._logs(action='DELETED')
+        self.assertIsNone(log.dog)
+        self.assertEqual(log.dog_name, 'Buddy')
+        self.assertEqual(log.actor, self.staff)
+        # The creation entry survives the dog, detached.
+        self.assertEqual(self._logs(dog_name='Buddy', action='CREATED')[0].dog, None)
+
+    def test_endpoint_is_staff_only_filters_by_dog_and_limits(self):
+        buddy = Dog.objects.create(owner=self.owner, name='Buddy')
+        luna = Dog.objects.create(owner=self.owner, name='Luna')
+        for i in range(6):
+            self.client.patch(f'/api/dogs/{buddy.id}/', {'general_notes': f'note {i}'}, format='json')
+
+        owner_client = APIClient()
+        owner_client.force_authenticate(self.owner)
+        self.assertEqual(owner_client.get('/api/dog-change-logs/').status_code, 403)
+        self.assertEqual(owner_client.get(f'/api/dog-change-logs/?dog={buddy.id}').status_code, 403)
+
+        resp = self.client.get(f'/api/dog-change-logs/?dog={luna.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([r['summary'] for r in resp.data], ['Added Luna for Alex Smith'])
+
+        resp = self.client.get('/api/dog-change-logs/?limit=5')
+        self.assertEqual(len(resp.data), 5)
+        # Newest first, and the row carries what the app renders.
+        row = resp.data[0]
+        self.assertEqual(row['dog_name'], 'Buddy')
+        self.assertEqual(row['actor_name'], 'Sam Jones')
+        self.assertEqual(row['action_display'], 'Updated')
+        self.assertEqual(row['summary'], 'Updated general notes')
+        self.assertEqual(row['changes'][0]['new'], 'note 5')
+
+        resp = self.client.get('/api/dog-change-logs/?page=1&page_size=3')
+        self.assertEqual(resp.data['count'], 8)
+        self.assertEqual(len(resp.data['results']), 3)

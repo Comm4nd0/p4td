@@ -11,7 +11,9 @@ import '../models/photo_tagging_status.dart';
 import '../models/roadwork_issue.dart';
 import '../widgets/roadwork_banner.dart';
 import '../models/dog.dart';
+import '../models/dog_change_log.dart';
 import '../services/connectivity_status.dart';
+import 'dog_change_log_screen.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
@@ -24,6 +26,7 @@ import '../widgets/quick_actions_fab.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
 import 'dashboard/boarding_section.dart';
+import 'dashboard/change_log_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import 'dashboard/dashboard_counts.dart';
 import 'dashboard/dog_health_dialog.dart';
@@ -129,6 +132,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // used to live here; the screen listens and rebuilds (see [_onCountsChanged]).
   late final DashboardCounts _counts;
 
+  // The master change log's newest few, for the Recent Changes section.
+  List<DogChangeLog> _recentChanges = const [];
+  bool _recentChangesLoading = true;
+  bool _recentChangesFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -148,6 +156,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadDay(_selectedDate);
     _loadClosureDays();
     _counts.refresh();
+    _loadRecentChanges();
     // Refresh automatically when signal returns mid-route, so stale
     // cache-served data clears without a manual pull.
     ConnectivityStatus().isOnline.addListener(_onConnectivityChanged);
@@ -180,6 +189,39 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   void _onCountsChanged() {
     if (mounted) setState(() {});
   }
+
+  Future<void> _loadRecentChanges() async {
+    try {
+      final entries = await _dataService.getDogChangeLogs(limit: ChangeLogSection.summaryCount);
+      if (!mounted) return;
+      setState(() {
+        _recentChanges = entries;
+        _recentChangesLoading = false;
+        _recentChangesFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _recentChangesLoading = false;
+        _recentChangesFailed = true;
+      });
+    }
+  }
+
+  Future<void> _openChangeLog() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DogChangeLogScreen()),
+    );
+    _loadRecentChanges();
+  }
+
+  Widget _buildChangeLogSection() => ChangeLogSection(
+        entries: _recentChanges,
+        loading: _recentChangesLoading,
+        failed: _recentChangesFailed,
+        onViewAll: _openChangeLog,
+      );
 
   // ─── Date generation ──────────────────────────────────────────────
 
@@ -1118,7 +1160,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
     Future<void> refresh() async {
       await _loadDay(_selectedDate, force: true);
-      await _counts.refresh();
+      await Future.wait([_counts.refresh(), _loadRecentChanges()]);
     }
 
     // Date-dependent content — swipe left/right to change date
@@ -1223,6 +1265,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         _buildActionItems(),
                         const SizedBox(height: 16),
                         _buildBoardingSection(),
+                        const SizedBox(height: 16),
+                        _buildChangeLogSection(),
                         const SizedBox(height: 80), // space for the quick-actions FAB
                       ],
                     ),
@@ -1255,6 +1299,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                           _buildActionItems(),
                           const SizedBox(height: 16),
                           _buildBoardingSection(),
+                          const SizedBox(height: 16),
+                          _buildChangeLogSection(),
                           const SizedBox(height: 80),
                         ],
                       ),

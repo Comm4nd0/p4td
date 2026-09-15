@@ -144,6 +144,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/support-queries/` | Support tickets. Creating one pushes staff with `can_reply_queries`; `add_message/` pushes the other side of the thread (category `messages`) |
 | `api/closure-days/` | Facility closures |
 | `api/dog-notes/` | Behavioral/compatibility notes |
+| `api/dog-change-logs/` | **Staff-only** audit trail of who changed what on a dog, and when (`DogChangeLog`). Written by the `Dog` save/delete signals (a field diff over `dog_changes.TRACKED_FIELDS` — so a staff PATCH, an approved owner request, a booking-form approval and an admin-site edit all log without the view remembering to) plus explicit `log_change` calls for vaccinations (which move `last_vaccination_date` through a queryset update the signals can't see), gallery photos, notes and co-owners. Attribution: `dog._audit_actor`/`_audit_source` on the instance, else the `dog_changes.acting_as(user)` context, else `_changed_by`; nothing = "System". `?dog=<id>` is one dog's trail (the profile's Change Log tile), no filter is the master log, `?limit=N` is the dashboard's newest-N summary. `dog` is SET_NULL and names are snapshots, so the trail outlives the dog and an anonymised account. Add the next tracked field to `TRACKED_FIELDS`; the next non-field change gets a `log_change` call beside the write. |
 | `api/staff-availability/` | Staff coverage |
 | `api/day-off-requests/` | Staff day-off requests |
 | `api/contact-inquiries/` | Website contact form. Both public submit paths (the website view and `api/public/contact-inquiry/`) treat an identical email + message inside `ContactInquiry.DUPLICATE_WINDOW_MINUTES` as the same enquiry: success reply, nothing saved, no second email or push. Sending takes seconds (reCAPTCHA plus a synchronous SMTP send) and people pressed Submit again, so the website button also disables itself on the first press |
@@ -260,6 +261,15 @@ Additional non-router endpoints:
   (`NotificationService.foregroundMessages`), so a badge is never staler than
   the last time the phone was looked at. The same counts feed the drawer and
   the dashboard's Action Items.
+- **Client Dashboard tab** (`screens/client_dashboard_screen.dart`): owners get
+  the third tab too, and land on it like staff. Built only from owner-permitted
+  calls (`dogs/calendar/`, `boarding-requests/`, `invoices/`,
+  `date-change-requests/`, `support-queries/`, `closure-days/`, `feed/?dog=`),
+  one section per file under `screens/dashboard/client_*`. The calendar is the
+  page; any other fetch failing only degrades its own section. "Needs Your
+  Attention" (`ClientAttention.compute`) lists only items with a count — add
+  the next owner-facing nag there, not as a new section. Never surface
+  incidents or live pickup status here: both are staff-only over the API.
 - **StatefulWidget** patterns with service-layer data management
 - **Hive** for local offline caching
 - **Firebase Messaging** + local notifications

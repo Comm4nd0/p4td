@@ -3,7 +3,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, pre_delete, pre_save
 from .certificates import certificate_upload_path, private_storage
 from django.dispatch import receiver
 
@@ -863,21 +863,87 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
         for additional_owner in instance.dog.additional_owners.all():
             send_push_notification(additional_owner, title, body, data, category='dog_updates')
 
+class DogChangeLog(models.Model):
+    """One change to a dog's record: who, what, when.
+
+    Written by the ``Dog`` save/delete signals below (field diffs, creation,
+    deletion) and explicitly by the views for things that don't touch a
+    tracked field — vaccinations, gallery photos, notes, co-owners. See
+    ``api/dog_changes.py`` for the tracked fields and attribution rules.
+
+    Staff-only over the API (``dog-change-logs/``): the diffs carry
+    staff-written fields such as general notes and van placement.
+
+    ``dog`` is SET_NULL and ``dog_name``/``actor_name`` are snapshots, so the
+    trail outlives both the dog and an anonymised account.
+    """
+    ACTION_CHOICES = [
+        ('CREATED', 'Added'),
+        ('UPDATED', 'Updated'),
+        ('DELETED', 'Deleted'),
+        ('OWNER_CHANGED', 'Owner changed'),
+        ('VACCINATION', 'Vaccination'),
+        ('PHOTO', 'Gallery'),
+        ('NOTE', 'Note'),
+    ]
+    SOURCE_CHOICES = [
+        ('APP', 'App'),
+        ('OWNER_REQUEST', 'Approved owner request'),
+        ('BOOKING_FORM', 'Booking form'),
+        ('ADMIN', 'Admin site'),
+        ('SYSTEM', 'System'),
+    ]
+
+    dog = models.ForeignKey(Dog, on_delete=models.SET_NULL, null=True, blank=True, related_name='change_logs')
+    dog_name = models.CharField(max_length=100)
+    actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='dog_changes')
+    actor_name = models.CharField(max_length=150, blank=True, help_text='Display name at the time; blank = system.')
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='APP')
+    summary = models.CharField(max_length=255)
+    changes = models.JSONField(default=list, blank=True, help_text='[{field, label, old, new}, ...]')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f"{self.dog_name}: {self.summary} ({self.actor_name or 'System'})"
+
+
+@receiver(post_save, sender=Dog)
+def record_dog_change_log(sender, instance, created, **kwargs):
+    from .dog_changes import record_save
+    record_save(instance, created)
+
+
+@receiver(pre_delete, sender=Dog)
+def record_dog_deletion_log(sender, instance, **kwargs):
+    from .dog_changes import record_delete
+    record_delete(instance)
+
+
 # --- Care Instructions Change Notifications ---
 
 @receiver(pre_save, sender=Dog)
 def store_old_care_instructions(sender, instance, **kwargs):
+    # Also snapshots the audit-tracked fields for record_dog_change_log, so
+    # one pre-save query serves both.
+    from .dog_changes import snapshot
     if instance.pk:
         try:
             old_instance = Dog.objects.get(pk=instance.pk)
             instance._old_food_instructions = old_instance.food_instructions
             instance._old_medical_notes = old_instance.medical_notes
+            instance._audit_before = snapshot(old_instance)
         except Dog.DoesNotExist:
             instance._old_food_instructions = None
             instance._old_medical_notes = None
+            instance._audit_before = None
     else:
         instance._old_food_instructions = None
         instance._old_medical_notes = None
+        instance._audit_before = None
 
 @receiver(post_save, sender=Dog)
 def notify_staff_care_instructions_changed(sender, instance, created, **kwargs):

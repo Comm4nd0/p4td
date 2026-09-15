@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db.models import Prefetch, Q, Sum
 from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
+from .dog_changes import acting_as, log_change, snapshot as dog_snapshot, diff as dog_diff
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
 from website.models import ContactInquiry
@@ -613,7 +614,8 @@ class DogViewSet(viewsets.ModelViewSet):
             if existing.exists():
                 skipped.append(name)
                 continue
-            dog = Dog.objects.create(name=name, owner=owner)
+            with acting_as(request.user):
+                dog = Dog.objects.create(name=name, owner=owner)
             created.append({'id': dog.id, 'name': dog.name})
 
         return Response({
@@ -627,10 +629,12 @@ class DogViewSet(viewsets.ModelViewSet):
         if not _user_can_manage_payments(self.request.user):
             for field in ('daily_rate', 'boarding_rate'):
                 serializer.validated_data.pop(field, None)
-        if 'owner' in self.request.data:
-            dog = serializer.save()
-        else:
-            dog = serializer.save(owner=self.request.user)
+        # The change log credits the creation to whoever is signed in.
+        with acting_as(self.request.user):
+            if 'owner' in self.request.data:
+                dog = serializer.save()
+            else:
+                dog = serializer.save(owner=self.request.user)
         self._maybe_geocode(dog)
 
     def update(self, request, *args, **kwargs):
@@ -878,6 +882,7 @@ class DogViewSet(viewsets.ModelViewSet):
             if certificate.file:
                 certificate.file.delete(save=False)
 
+        dog._audit_actor = request.user  # names the deleter in the change log
         dog.delete()
         return Response({'detail': f'{dog_name} has been deleted.', 'id': dog_id}, status=200)
 
@@ -904,6 +909,7 @@ class DogViewSet(viewsets.ModelViewSet):
                 except User.DoesNotExist:
                     return Response({'detail': 'Owner not found.'}, status=404)
                 dog.owner = owner
+            dog._audit_actor = request.user
             dog.save()
 
         if 'additional_owners' in request.data:
@@ -911,7 +917,24 @@ class DogViewSet(viewsets.ModelViewSet):
             additional_owners = User.objects.filter(id__in=additional_owner_ids)
             if len(additional_owners) != len(additional_owner_ids):
                 return Response({'detail': 'One or more additional owners not found.'}, status=404)
+            # M2M writes bypass the Dog save signals, so log this one by hand.
+            from .serializers import owner_display_name
+            before = sorted(owner_display_name(u) for u in dog.additional_owners.all())
             dog.additional_owners.set(additional_owners)
+            after = sorted(owner_display_name(u) for u in dog.additional_owners.all())
+            if before != after:
+                log_change(
+                    dog,
+                    action='OWNER_CHANGED',
+                    actor=request.user,
+                    summary='Updated co-owners',
+                    changes=[{
+                        'field': 'additional_owners',
+                        'label': 'Co-owners',
+                        'old': ', '.join(before),
+                        'new': ', '.join(after),
+                    }],
+                )
 
         serializer = self.get_serializer(dog)
         return Response(serializer.data)
@@ -998,6 +1021,14 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
         # Attribute the change to the owner who requested it so the
         # care-instructions staff notification names them (not "A user").
         dog._changed_by = change_request.requested_by
+        # ...while the change log credits the staff member who approved it,
+        # and says whose request it was.
+        from .serializers import owner_display_name
+        dog._audit_actor = request.user
+        dog._audit_source = 'OWNER_REQUEST'
+        dog._audit_summary_prefix = (
+            f"Approved {owner_display_name(change_request.requested_by)}'s request:"
+        )
         dog.save()
 
         dog.refresh_from_db()
@@ -1130,6 +1161,12 @@ class PhotoViewSet(viewsets.ModelViewSet):
                     serializer.validated_data['thumbnail'] = thumbnail
 
         instance = serializer.save()
+        log_change(
+            instance.dog,
+            action='PHOTO',
+            actor=self.request.user,
+            summary=f"Added a {'video' if media_type == 'VIDEO' else 'photo'} to the gallery",
+        )
         self._notify_owners_of_new_photo(instance)
 
     def perform_update(self, serializer):
@@ -1165,6 +1202,12 @@ class PhotoViewSet(viewsets.ModelViewSet):
         if instance.thumbnail:
             instance.thumbnail.delete(save=False)
         instance.delete()
+        log_change(
+            instance.dog,
+            action='PHOTO',
+            actor=self.request.user,
+            summary=f"Removed a {'video' if instance.media_type == 'VIDEO' else 'photo'} from the gallery",
+        )
 
     def _notify_owners_of_new_photo(self, instance):
         """Notify the dog's owner(s) when a new photo/video is added to their
@@ -3608,11 +3651,33 @@ class VaccinationRecordViewSet(viewsets.ModelViewSet):
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
         ).distinct()
 
+    # Recording a vaccination moves Dog.last_vaccination_date through a
+    # queryset update (sync_dog_last_vaccination), which the Dog save signals
+    # never see — so each write here logs itself, diffing the dog around it.
+    def _log(self, dog, before, summary):
+        dog.refresh_from_db()
+        log_change(
+            dog,
+            action='VACCINATION',
+            actor=self.request.user,
+            summary=summary,
+            changes=dog_diff(before, dog_snapshot(dog)),
+        )
+
+    @staticmethod
+    def _describe(record):
+        return f'{record.name} (given {record.date_administered:%d/%m/%Y}, expires {record.expiry_date:%d/%m/%Y})'
+
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        dog = serializer.validated_data['dog']
+        before = dog_snapshot(dog)
+        instance = serializer.save(created_by=self.request.user)
+        self._log(dog, before, f'Added vaccination: {self._describe(instance)}')
 
     def perform_update(self, serializer):
         old_expiry = serializer.instance.expiry_date
+        dog = serializer.instance.dog
+        before = dog_snapshot(dog)
         instance = serializer.save()
         if instance.expiry_date != old_expiry:
             # Renewal recorded — re-arm the reminder flags.
@@ -3620,6 +3685,14 @@ class VaccinationRecordViewSet(viewsets.ModelViewSet):
             instance.reminder_7_sent = False
             instance.expired_notice_sent = False
             instance.save(update_fields=['reminder_30_sent', 'reminder_7_sent', 'expired_notice_sent'])
+        self._log(dog, before, f'Updated vaccination: {self._describe(instance)}')
+
+    def perform_destroy(self, instance):
+        dog = instance.dog
+        before = dog_snapshot(dog)
+        summary = f'Removed vaccination: {self._describe(instance)}'
+        instance.delete()
+        self._log(dog, before, summary)
 
 
 class VaccinationCertificateViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
@@ -3822,7 +3895,49 @@ class DogNoteViewSet(viewsets.ModelViewSet):
         return DogNoteSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        note = serializer.save(created_by=self.request.user)
+        text = ' '.join(note.text.split())
+        log_change(
+            note.dog,
+            action='NOTE',
+            actor=self.request.user,
+            summary=f'Added a {note.get_note_type_display().lower()} note: {text}',
+        )
+
+
+class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Who changed what on a dog, and when — see ``DogChangeLog``.
+
+    Staff-only: the diffs carry staff-written fields. ``?dog=<id>`` is one
+    dog's trail (the profile's Change Log); no filter is the master log the
+    dashboard shows the latest few of. ``?limit=N`` (max 200) returns just
+    the newest N as a bare list; ``?page=`` opts into the page envelope.
+    """
+    permission_classes = [IsAdminUser]
+    pagination_class = OptInPagination
+
+    def get_serializer_class(self):
+        from .serializers import DogChangeLogSerializer
+        return DogChangeLogSerializer
+
+    def get_queryset(self):
+        from .models import DogChangeLog
+        queryset = DogChangeLog.objects.select_related('dog', 'actor')
+        dog_id = self.request.query_params.get('dog')
+        if dog_id:
+            queryset = queryset.filter(dog_id=dog_id)
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        limit = request.query_params.get('limit')
+        if limit and 'page' not in request.query_params:
+            try:
+                limit = max(1, min(int(limit), 200))
+            except ValueError:
+                return Response({'detail': 'limit must be a number.'}, status=400)
+            rows = self.filter_queryset(self.get_queryset())[:limit]
+            return Response(self.get_serializer(rows, many=True).data)
+        return super().list(request, *args, **kwargs)
 
 
 class StaffAvailabilityViewSet(viewsets.ModelViewSet):
@@ -5409,23 +5524,24 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
 
         from django.utils import timezone
         for intake_dog in instance.dogs.all():
-            dog = Dog.objects.create(
-                owner=instance.owner,
-                name=intake_dog.name,
-                sex=intake_dog.sex,
-                date_of_birth=intake_dog.date_of_birth,
-                is_spayed=intake_dog.is_spayed,
-                food_instructions=intake_dog.food_instructions or None,
-                medical_notes=intake_dog.medical_notes or None,
-                registered_vet=intake_dog.registered_vet or None,
-                address=instance.address or None,
-                postcode=instance.postcode,
-                access_instructions=instance.pickup_instructions or None,
-                contact_number=instance.phone_number,
-                emergency_contact_number=instance.emergency_contact_number,
-                daycare_days=intake_dog.daycare_days,
-                schedule_type=intake_dog.schedule_type,
-            )
+            with acting_as(request.user, 'BOOKING_FORM'):
+                dog = Dog.objects.create(
+                    owner=instance.owner,
+                    name=intake_dog.name,
+                    sex=intake_dog.sex,
+                    date_of_birth=intake_dog.date_of_birth,
+                    is_spayed=intake_dog.is_spayed,
+                    food_instructions=intake_dog.food_instructions or None,
+                    medical_notes=intake_dog.medical_notes or None,
+                    registered_vet=intake_dog.registered_vet or None,
+                    address=instance.address or None,
+                    postcode=instance.postcode,
+                    access_instructions=instance.pickup_instructions or None,
+                    contact_number=instance.phone_number,
+                    emergency_contact_number=instance.emergency_contact_number,
+                    daycare_days=intake_dog.daycare_days,
+                    schedule_type=intake_dog.schedule_type,
+                )
             intake_dog.created_dog = dog
             intake_dog.save(update_fields=['created_dog'])
 

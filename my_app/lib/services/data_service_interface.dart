@@ -269,6 +269,10 @@ abstract class DataService {
   Future<FacilityDefect> addFacilityDefectComment(int defectId, String text);
   Future<int> getUnresolvedFacilityDefectCount();
 
+  // Dog change log (staff only). [dogId] narrows to one dog; [limit] returns
+  // just the newest N — the dashboard's summary — else the whole trail.
+  Future<List<DogChangeLog>> getDogChangeLogs({String? dogId, int? limit});
+
   // Incidents (staff only — the API refuses owners outright)
   Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false});
   Future<Incident> getIncident(int id);

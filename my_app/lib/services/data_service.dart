@@ -14,6 +14,7 @@ import '../models/boarding_request.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/support_query.dart';
 import '../models/closure_day.dart';
+import '../models/dog_change_log.dart';
 import '../models/dog_note.dart';
 import '../models/staff_availability.dart';
 import '../models/day_off_request.dart';
@@ -3389,6 +3390,27 @@ class ApiDataService implements DataService {
             : http_parser.MediaType('image', name.toLowerCase().endsWith('.png') ? 'png' : 'jpeg'),
       ));
     }
+  }
+
+  @override
+  Future<List<DogChangeLog>> getDogChangeLogs({String? dogId, int? limit}) async {
+    final base = Uri.parse('${AuthService.baseUrl}/api/dog-change-logs/');
+    if (limit != null) {
+      // A bare newest-N list, no envelope — the dashboard's summary.
+      final uri = base.replace(queryParameters: {
+        if (dogId != null) 'dog': dogId,
+        'limit': '$limit',
+      });
+      final response = await _get(uri);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load change log: ${response.statusCode}');
+      }
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((e) => DogChangeLog.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    final uri = dogId == null ? base : base.replace(queryParameters: {'dog': dogId});
+    final rows = await _fetchAllPages(uri);
+    return rows.map((e) => DogChangeLog.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   @override

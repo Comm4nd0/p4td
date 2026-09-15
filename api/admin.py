@@ -76,6 +76,12 @@ class DogAdmin(admin.ModelAdmin):
     list_per_page = 30
     ordering = ['name']
     inlines = [PhotoInline, DogAssignmentInline]
+
+    def save_model(self, request, obj, form, change):
+        # Credit admin-site edits in the dog change log like any other.
+        obj._audit_actor = request.user
+        obj._audit_source = 'ADMIN'
+        super().save_model(request, obj, form, change)
     fieldsets = (
         (None, {
             'fields': ('name', 'owner', 'additional_owners', 'profile_image', 'profile_image_preview_large'),
