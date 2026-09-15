@@ -7,6 +7,7 @@ import '../constants/pickup_map.dart';
 import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/owner_handover_status.dart';
 import '../models/photo_tagging_status.dart';
 import '../models/roadwork_issue.dart';
 import '../widgets/roadwork_banner.dart';
@@ -32,6 +33,7 @@ import 'dashboard/dashboard_counts.dart';
 import 'dashboard/dog_health_dialog.dart';
 import 'dashboard/reassign_dogs_dialog.dart';
 import '../widgets/app_sheets.dart';
+import 'dashboard/owner_handover_section.dart';
 import 'dashboard/untagged_dogs_sheet.dart';
 import 'all_dogs_today_screen.dart';
 import 'day_board_screen.dart';
@@ -433,6 +435,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadConflicts(date);
     _loadRoadworks(date);
     _loadPhotoTagging(date);
+    _loadOwnerHandovers(date);
 
     // Pre-cache adjacent dates so swiping is instant.
     if (prefetchAdjacent) _prefetchAdjacentDates(date);
@@ -480,6 +483,38 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Failed to load photo tagging: $e');
+    }
+  }
+
+  /// Owner drop-offs/collections for the day and who is meeting the owners.
+  /// Silent on failure like the loaders above: the cards simply don't render.
+  Future<void> _loadOwnerHandovers(DateTime date) async {
+    try {
+      final handovers = await _dataService.getOwnerHandovers(date: date);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] =
+            _dayData(date).copyWith(handovers: handovers));
+      }
+    } catch (e) {
+      debugPrint('Failed to load owner handovers: $e');
+    }
+  }
+
+  /// Puts [staffId] on one leg of the selected day's owner handovers and
+  /// re-renders the cards from the status the server sends back.
+  Future<void> _assignOwnerHandover(OwnerHandoverLeg leg, int staffId) async {
+    final date = _selectedDate;
+    try {
+      final handovers = await _dataService.assignOwnerHandover(
+          date: date, leg: leg, staffMemberId: staffId);
+      if (!mounted) return;
+      setState(() => _dayCache[_dayKey(date)] =
+          _dayData(date).copyWith(handovers: handovers));
+      _loadRecentChanges();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to assign staff member: $e')));
     }
   }
 
@@ -1213,6 +1248,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         _buildUnassignedBanner(_selectedDate),
                         _buildCompatibilityWarning(_selectedDate),
                         _buildOverviewMetrics(assignments),
+                        OwnerHandoverSection(
+                          status: day.handovers,
+                          staffMembers: _staffMembers,
+                          availableStaffIds: _workingStaffIds,
+                          onAssign: _assignOwnerHandover,
+                        ),
                         _buildPhotoTaggingCard(day),
                         const SizedBox(height: 16),
                         _buildStaffCards(assignments, day.roadworks),
@@ -2313,6 +2354,10 @@ class DayData {
   /// Photo-tagging progress for the day, or null until it loads (or when the
   /// fetch failed — the progress card hides itself either way).
   final PhotoTaggingStatus? tagging;
+
+  /// The day's owner drop-offs and collections and who is meeting the owners,
+  /// or null until it loads (or when the fetch failed — the cards hide).
+  final OwnerHandoverStatus? handovers;
   final ClosureDay? closure;
   final bool loading;
   final Object? error;
@@ -2340,6 +2385,7 @@ class DayData {
     this.conflicts = const [],
     this.roadworks = const [],
     this.tagging,
+    this.handovers,
     this.closure,
     this.loading = false,
     this.error,
@@ -2355,6 +2401,7 @@ class DayData {
     List<CompatibilityConflict>? conflicts,
     List<RoadworkIssue>? roadworks,
     PhotoTaggingStatus? tagging,
+    OwnerHandoverStatus? handovers,
     ClosureDay? closure,
     bool clearClosure = false,
     bool? loading,
@@ -2372,6 +2419,7 @@ class DayData {
       conflicts: conflicts ?? this.conflicts,
       roadworks: roadworks ?? this.roadworks,
       tagging: tagging ?? this.tagging,
+      handovers: handovers ?? this.handovers,
       closure: clearClosure ? null : (closure ?? this.closure),
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),

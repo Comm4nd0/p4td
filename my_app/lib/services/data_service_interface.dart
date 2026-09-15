@@ -147,6 +147,18 @@ abstract class DataService {
   /// tagged in feed media posted that day, and which still need tagging.
   Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date});
 
+  /// The day's owner drop-offs and owner collections — which dogs, and who on
+  /// the team is meeting the owners on each leg.
+  Future<OwnerHandoverStatus> getOwnerHandovers({DateTime? date});
+
+  /// Puts [staffMemberId] (null to clear) on one leg of a day's owner
+  /// handovers. Returns the day's refreshed status.
+  Future<OwnerHandoverStatus> assignOwnerHandover({
+    required DateTime date,
+    required OwnerHandoverLeg leg,
+    required int? staffMemberId,
+  });
+
   // Support Queries
   Future<List<SupportQuery>> getSupportQueries();
   Future<SupportQuery> getSupportQuery(int queryId);
