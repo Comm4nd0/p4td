@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../models/dog_change_log.dart';
 import '../../widgets/dog_change_log_tile.dart';
 
-/// The bottom of the staff dashboard: the newest few changes to any dog —
-/// who, what, when — with "View all" opening the full master log.
+/// The bottom of the staff dashboard: the newest few things anyone did —
+/// a reply, an approval, a defect, a check, a dog's details — with "View
+/// all" opening the full activity log.
 class ChangeLogSection extends StatelessWidget {
   static const int summaryCount = 5;
 
@@ -30,7 +31,7 @@ class ChangeLogSection extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text('Recent Changes',
+              child: Text('Recent Activity',
                   style: Theme.of(context)
                       .textTheme
                       .titleSmall
@@ -42,9 +43,9 @@ class ChangeLogSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         if (failed)
-          _message("Couldn't load recent changes — pull down to retry")
+          _message("Couldn't load recent activity — pull down to retry")
         else if (rows.isEmpty)
-          _message(loading ? 'Loading…' : 'No changes recorded yet')
+          _message(loading ? 'Loading…' : 'No activity recorded yet')
         else
           Card(
             clipBehavior: Clip.antiAlias,

@@ -31,15 +31,52 @@ const Map<String, String> dogChangeActionLabels = {
   'VACCINATION': 'Vaccination',
   'PHOTO': 'Gallery',
   'NOTE': 'Note',
+  'MESSAGE': 'Message',
+  'APPROVED': 'Approved',
+  'DENIED': 'Denied',
+  'STATUS': 'Status changed',
+  'COMMENT': 'Comment',
+  'ASSIGNED': 'Assignment',
+  'COMPLETED': 'Check completed',
   'DELETED': 'Deleted',
 };
 
-/// A row of `/api/dog-change-logs/`: who changed what on a dog, and when.
-/// Staff-only — the diffs carry staff-written fields.
+/// The areas of the business the log covers, in the order the filter lists
+/// them. `STAFF` and `BILLING` only reach managers — the API drops them for
+/// everyone else.
+const Map<String, String> dogChangeCategoryLabels = {
+  'DOG': 'Dogs',
+  'COMMS': 'Client communications',
+  'CLIENTS': 'Client accounts',
+  'BOOKINGS': 'Booking requests',
+  'SCHEDULE': 'Daycare schedule',
+  'FLEET': 'Fleet',
+  'INCIDENT': 'Incidents',
+  'DEFECT': 'Site defects',
+  'STAFF': 'Staff',
+  'COMPLIANCE': 'Safety & compliance',
+  'BILLING': 'Billing',
+  'SETTINGS': 'Settings',
+};
+
+/// A row of `/api/dog-change-logs/`: the business activity log — who did
+/// what, and when. Staff-only — the diffs carry staff-written fields.
+///
+/// Every entry has a [subject]: the dog for a dog entry, otherwise what it is
+/// about (a client, a vehicle, a check, a staff member). Only entries with a
+/// [dogId] belong on that dog's profile.
 class DogChangeLog {
   final int id;
 
-  /// Null once the dog has been deleted; [dogName] still names it.
+  /// One of [dogChangeCategoryLabels]' keys.
+  final String category;
+  final String categoryDisplay;
+
+  /// What the entry is about — the dog's name on a dog entry.
+  final String subject;
+
+  /// Null once the dog has been deleted, and on entries not about a dog;
+  /// [dogName] still names it (the same value as [subject]).
   final String? dogId;
   final String dogName;
   final String? dogProfileImage;
@@ -60,6 +97,9 @@ class DogChangeLog {
 
   const DogChangeLog({
     required this.id,
+    this.category = 'DOG',
+    this.categoryDisplay = 'Dogs',
+    String? subject,
     this.dogId,
     required this.dogName,
     this.dogProfileImage,
@@ -71,12 +111,18 @@ class DogChangeLog {
     required this.summary,
     this.changes = const [],
     required this.createdAt,
-  });
+  }) : subject = subject ?? dogName;
 
   bool get isDeleted => action == 'DELETED';
 
+  /// A dog entry: the profile's trail, and the rows that read "Buddy — …".
+  bool get isAboutDog => category == 'DOG';
+
   factory DogChangeLog.fromJson(Map<String, dynamic> json) => DogChangeLog(
         id: json['id'],
+        category: json['category'] ?? 'DOG',
+        categoryDisplay: json['category_display'] ?? dogChangeCategoryLabels[json['category']] ?? 'Dogs',
+        subject: json['subject'] ?? json['dog_name'],
         dogId: json['dog']?.toString(),
         dogName: json['dog_name'] ?? '',
         dogProfileImage: json['dog_profile_image'],
@@ -122,6 +168,9 @@ class DogChangeLogFilter {
 
   /// One of [dogChangeActionLabels]' keys.
   final String? action;
+
+  /// One of [dogChangeCategoryLabels]' keys.
+  final String? category;
   final DateTime? from;
   final DateTime? to;
 
@@ -131,6 +180,7 @@ class DogChangeLogFilter {
     this.actorId,
     this.actorName,
     this.action,
+    this.category,
     this.from,
     this.to,
   });
@@ -140,13 +190,15 @@ class DogChangeLogFilter {
   bool get hasDog => dogId != null;
   bool get hasActor => actorId != null;
   bool get hasAction => action != null;
+  bool get hasCategory => category != null;
   bool get hasDates => from != null || to != null;
-  bool get isEmpty => !hasDog && !hasActor && !hasAction && !hasDates;
+  bool get isEmpty => !hasDog && !hasActor && !hasAction && !hasCategory && !hasDates;
 
   /// How many filters are set — the badge on the Filters button.
-  int get count => [hasDog, hasActor, hasAction, hasDates].where((b) => b).length;
+  int get count => [hasDog, hasActor, hasAction, hasCategory, hasDates].where((b) => b).length;
 
   String get actionLabel => dogChangeActionLabels[action] ?? action ?? '';
+  String get categoryLabel => dogChangeCategoryLabels[category] ?? category ?? '';
 
   /// "01/09/26 – 15/09/26", "From 01/09/26" or "Until 15/09/26".
   String get datesLabel {
@@ -162,6 +214,7 @@ class DogChangeLogFilter {
     Object? actorId = _unset,
     Object? actorName = _unset,
     Object? action = _unset,
+    Object? category = _unset,
     Object? from = _unset,
     Object? to = _unset,
   }) =>
@@ -171,6 +224,7 @@ class DogChangeLogFilter {
         actorId: identical(actorId, _unset) ? this.actorId : actorId as String?,
         actorName: identical(actorName, _unset) ? this.actorName : actorName as String?,
         action: identical(action, _unset) ? this.action : action as String?,
+        category: identical(category, _unset) ? this.category : category as String?,
         from: identical(from, _unset) ? this.from : from as DateTime?,
         to: identical(to, _unset) ? this.to : to as DateTime?,
       );
@@ -178,5 +232,6 @@ class DogChangeLogFilter {
   DogChangeLogFilter withoutDog() => copyWith(dogId: null, dogName: null);
   DogChangeLogFilter withoutActor() => copyWith(actorId: null, actorName: null);
   DogChangeLogFilter withoutAction() => copyWith(action: null);
+  DogChangeLogFilter withoutCategory() => copyWith(category: null);
   DogChangeLogFilter withoutDates() => copyWith(from: null, to: null);
 }

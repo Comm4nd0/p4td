@@ -13088,3 +13088,150 @@ class DogChangeLogFilterTests(TestCase):
         owner_client = APIClient()
         owner_client.force_authenticate(self.owner)
         self.assertEqual(owner_client.get('/api/dog-change-logs/actors/').status_code, 403)
+
+
+class ActivityLogTests(TestCase):
+    """Everything staff do lands in the activity log under its category; a
+    dog's profile shows only the entries about that dog; the STAFF and
+    BILLING categories are for managers only."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # the public enquiry endpoint's anon throttle
+        self.owner = User.objects.create_user(username='olivia@example.com', password='pw', first_name='Olivia', last_name='Owen')
+        self.staff = User.objects.create_user(username='sam@example.com', password='pw', first_name='Sam', last_name='Jones', is_staff=True)
+        self.staff.profile.can_reply_queries = True
+        self.staff.profile.can_view_inquiries = True
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.can_manage_vehicles = True
+        self.staff.profile.can_manage_compliance = True
+        self.staff.profile.save()
+        self.manager = User.objects.create_user(username='kim@example.com', password='pw', first_name='Kim', is_staff=True)
+        self.manager.profile.can_manage_staff = True
+        self.manager.profile.can_manage_payments = True
+        self.manager.profile.save()
+        self.dog = Dog.objects.create(owner=self.owner, name='Buddy')
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def _entries(self, **filters):
+        from .models import DogChangeLog
+        return list(DogChangeLog.objects.filter(**filters).order_by('created_at', 'id'))
+
+    def _summaries(self, query='', client=None):
+        resp = (client or self.client).get(f'/api/dog-change-logs/?{query}')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        return [r['summary'] for r in resp.data]
+
+    def test_contact_staff_reply_and_resolve_are_logged(self):
+        query = SupportQuery.objects.create(owner=self.owner, subject='Lead lost')
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Found it!'}, format='json')
+        self.client.post(f'/api/support-queries/{query.id}/resolve/', {}, format='json')
+        replied, resolved = self._entries(category='COMMS')
+        self.assertEqual((replied.action, replied.actor, replied.dog_name), ('MESSAGE', self.staff, 'Olivia Owen'))
+        self.assertEqual(replied.summary, "Replied to Olivia Owen: 'Lead lost'")
+        self.assertEqual((resolved.action, resolved.summary), ('STATUS', "Resolved Olivia Owen's message 'Lead lost'"))
+
+    def test_website_enquiry_arrival_and_read_are_logged(self):
+        anon = APIClient()
+        resp = anon.post('/api/public/contact-inquiry/', {
+            'name': 'Pat', 'email': 'pat@example.com', 'service': 'daycare', 'message': 'Any spaces?',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        from website.models import ContactInquiry
+        inquiry = ContactInquiry.objects.get()
+        self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_read/')
+        arrived, read = self._entries(category='COMMS')
+        self.assertEqual((arrived.actor, arrived.source, arrived.dog_name), (None, 'WEBSITE', 'Pat'))
+        self.assertEqual(arrived.summary, 'Website enquiry received from Pat about daycare')
+        self.assertEqual((read.actor, read.summary), (self.staff, 'Marked the website enquiry from Pat as read'))
+
+    def test_booking_form_approval_logs_the_decision_and_only_dog_rows_reach_the_profile(self):
+        from .models import IntakeRequest, IntakeDog
+        form = IntakeRequest.objects.create(owner=self.owner, phone_number='07700 900123', emergency_contact_number='07700 900456')
+        IntakeDog.objects.create(request=form, name='Biscuit')
+        resp = self.client.post(f'/api/intake-requests/{form.id}/approve/', {}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        approved = self._entries(category='COMMS')[-1]
+        self.assertEqual((approved.action, approved.source, approved.dog), ('APPROVED', 'BOOKING_FORM', None))
+        self.assertEqual(approved.summary, "Approved Olivia Owen's booking form for Biscuit")
+        biscuit = Dog.objects.get(name='Biscuit')
+        # The profile's trail is the dog's own rows — the decision about the
+        # form is business activity, not a change to the dog.
+        self.assertEqual(self._summaries(f'dog={biscuit.id}'), ['Added Biscuit for Olivia Owen'])
+        self.assertIn("Approved Olivia Owen's booking form for Biscuit", self._summaries())
+        self.assertEqual(self._summaries('category=COMMS'), ["Approved Olivia Owen's booking form for Biscuit"])
+
+    def test_vehicle_edit_logs_a_field_diff(self):
+        from .models import Vehicle
+        van = Vehicle.objects.create(name='Big Van', registration='KX21 ABC', mot_due_date=date(2026, 10, 1))
+        resp = self.client.patch(f'/api/vehicles/{van.id}/', {'mot_due_date': '2027-10-01', 'notes': 'New tyres'}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        entry = self._entries(category='FLEET')[-1]
+        self.assertEqual(entry.summary, 'Updated vehicle Big Van (KX21 ABC): mot due, notes')
+        self.assertEqual(entry.changes, [
+            {'field': 'mot_due_date', 'label': 'MOT due', 'old': '2026-10-01', 'new': '2027-10-01'},
+            {'field': 'notes', 'label': 'Notes', 'old': '', 'new': 'New tyres'},
+        ])
+
+    def test_site_defect_report_status_and_comment_are_logged(self):
+        resp = self.client.post('/api/facility-defects/', {'title': 'Broken gate', 'location': 'Paddock', 'severity': 'HIGH', 'description': 'Latch gone'}, format='multipart')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        defect_id = resp.data['id']
+        self.client.post(f'/api/facility-defects/{defect_id}/comment/', {'text': 'Ordered a latch'}, format='json')
+        self.client.post(f'/api/facility-defects/{defect_id}/change_status/', {'status': 'RESOLVED'}, format='json')
+        reported, commented, resolved = self._entries(category='DEFECT')
+        self.assertEqual(reported.summary, "Reported site defect 'Broken gate' at Paddock (high severity)")
+        self.assertEqual((commented.action, commented.summary), ('COMMENT', "Commented on defect 'Broken gate' at Paddock: Ordered a latch"))
+        self.assertEqual((resolved.action, resolved.summary), ('STATUS', "Marked defect 'Broken gate' at Paddock as resolved"))
+        self.assertEqual(resolved.changes[0]['old'], 'Reported')
+
+    def test_incident_is_logged_and_linked_to_a_single_dog_only(self):
+        milo = Dog.objects.create(owner=self.owner, name='Milo')
+        resp = self.client.post('/api/incidents/', {
+            'title': 'Scuffle', 'incident_type': 'SCUFFLE', 'severity': 'MEDIUM', 'description': 'Over a ball',
+            'dog_entries': json.dumps([{'dog': self.dog.id, 'role': 'INSTIGATOR'}, {'dog': milo.id, 'role': 'INJURED'}]),
+        }, format='multipart')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        entry = self._entries(category='INCIDENT')[-1]
+        self.assertEqual(entry.summary, "Logged incident 'Scuffle' (moderate) — Buddy, Milo")
+        self.assertIsNone(entry.dog)
+        resp = self.client.post('/api/incidents/', {
+            'title': 'Limp', 'incident_type': 'INJURY', 'severity': 'LOW', 'description': 'Favouring a paw',
+            'dog_entries': json.dumps([{'dog': milo.id, 'role': 'INJURED'}]),
+        }, format='multipart')
+        self.assertEqual(self._entries(category='INCIDENT')[-1].dog, milo)
+
+    def test_compliance_completion_is_logged(self):
+        from .models import ComplianceCheckType
+        check = ComplianceCheckType.objects.create(name='Fire alarm test', category='FIRE', frequency='WEEKLY', created_by=self.staff)
+        resp = self.client.post('/api/compliance-logs/', {'check_type': check.id, 'performed_on': '2026-09-14', 'result': 'PASS', 'notes': 'All zones'}, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        entry = self._entries(category='COMPLIANCE')[-1]
+        self.assertEqual((entry.action, entry.dog_name), ('COMPLETED', "'Fire alarm test'"))
+        self.assertEqual(entry.summary, "Completed 'Fire alarm test' on 14/09/2026: all ok — All zones")
+
+    def test_staff_and_billing_entries_are_for_managers_only(self):
+        manager = APIClient()
+        manager.force_authenticate(self.manager)
+        record = manager.get(f'/api/staff-hr/for_staff/?staff_member={self.staff.id}').data
+        resp = manager.patch(f'/api/staff-hr/{record["id"]}/', {'job_title': 'Driver'}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        resp = manager.patch('/api/billing-settings/', {'day_care_price_5_days': '34.00'}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        staff_entry = self._entries(category='STAFF')[-1]
+        self.assertEqual(staff_entry.summary, 'Updated employment record for Sam Jones: job title')
+        self.assertEqual(self._entries(category='BILLING')[-1].summary, 'Changed standard prices: daycare 5 days/week')
+
+        self.assertEqual(self._summaries('category=STAFF'), [])
+        self.assertEqual(self._summaries('category=BILLING'), [])
+        self.assertNotIn('Updated employment record for Sam Jones: job title', self._summaries())
+        self.assertIn('Updated employment record for Sam Jones: job title', self._summaries(client=manager))
+        self.assertIn('Changed standard prices: daycare 5 days/week', self._summaries('category=BILLING', client=manager))
+
+    def test_serializer_carries_category_and_subject(self):
+        query = SupportQuery.objects.create(owner=self.owner, subject='Hello')
+        self.client.post(f'/api/support-queries/{query.id}/add_message/', {'text': 'Hi'}, format='json')
+        row = self.client.get('/api/dog-change-logs/?category=COMMS').data[0]
+        self.assertEqual((row['category'], row['category_display'], row['subject'], row['dog_name'], row['dog']),
+                         ('COMMS', 'Client communications', 'Olivia Owen', 'Olivia Owen', None))

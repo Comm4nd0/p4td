@@ -12,13 +12,14 @@ import '../widgets/dog_change_log_tile.dart';
 import '../widgets/page_body.dart';
 import '../widgets/skeleton_loaders.dart';
 
-/// The full change log — every entry, newest first, each expanded to show
+/// The full activity log — every entry, newest first, each expanded to show
 /// its field diffs. Staff-only: `/api/dog-change-logs/` refuses owners.
-/// Pass [dogId] for one dog's trail (the profile's Change Log tile); without
-/// it this is the master log the dashboard's Recent Changes opens into.
+/// Pass [dogId] for one dog's trail (the profile's Change Log tile — only
+/// the entries about that dog); without it this is the whole business's log
+/// the dashboard's Recent Activity opens into.
 ///
-/// Filters — dog (master log only), who changed it, the kind of change and
-/// a date range — are applied server-side; the active ones sit as chips
+/// Filters — area and dog (master log only), who did it, the kind of change
+/// and a date range — are applied server-side; the active ones sit as chips
 /// under the app bar, and the Filters button opens the sheet.
 class DogChangeLogScreen extends StatefulWidget {
   final String? dogId;
@@ -64,6 +65,7 @@ class _DogChangeLogScreenState extends State<DogChangeLogScreen> {
         dogId: widget.dogId ?? _filter.dogId,
         actorId: _filter.actorId,
         action: _filter.action,
+        category: _isMasterLog ? _filter.category : null,
         from: _filter.from,
         to: _filter.to,
       );
@@ -117,7 +119,7 @@ class _DogChangeLogScreenState extends State<DogChangeLogScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.dogName != null ? '${widget.dogName} — Change Log' : 'Change Log'),
+        title: Text(widget.dogName != null ? '${widget.dogName} — Change Log' : 'Activity Log'),
         actions: [
           BadgedActionIcon(
             icon: PiconsDuotone.funnelSimple,
@@ -163,10 +165,10 @@ class _DogChangeLogScreenState extends State<DogChangeLogScreen> {
                         const SizedBox(height: 12),
                         Text(
                           !_filter.isEmpty
-                              ? 'No changes match these filters'
+                              ? 'Nothing matches these filters'
                               : widget.dogName != null
                                   ? 'No changes recorded for ${widget.dogName} yet'
-                                  : 'No changes recorded yet',
+                                  : 'No activity recorded yet',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey[600]),
                         ),
@@ -202,6 +204,8 @@ class _FilterBar extends StatelessWidget {
         _chip(PiconsDuotone.dog, filter.dogName ?? 'Dog', () => onChanged(filter.withoutDog())),
       if (filter.hasActor)
         _chip(PiconsDuotone.user, filter.actorName ?? 'Someone', () => onChanged(filter.withoutActor())),
+      if (filter.hasCategory)
+        _chip(PiconsDuotone.squaresFour, filter.categoryLabel, () => onChanged(filter.withoutCategory())),
       if (filter.hasAction)
         _chip(PiconsDuotone.pencilSimple, filter.actionLabel, () => onChanged(filter.withoutAction())),
       if (filter.hasDates)

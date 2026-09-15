@@ -12,23 +12,32 @@ PiconDuotoneData dogChangeIcon(String action) => switch (action) {
       'VACCINATION' => PiconsDuotone.firstAidKit,
       'PHOTO' => PiconsDuotone.images,
       'NOTE' => PiconsDuotone.notePencil,
+      'MESSAGE' => PiconsDuotone.chatCircle,
+      'APPROVED' => PiconsDuotone.checkCircle,
+      'DENIED' => PiconsDuotone.xCircle,
+      'STATUS' => PiconsDuotone.arrowsClockwise,
+      'COMMENT' => PiconsDuotone.chatText,
+      'ASSIGNED' => PiconsDuotone.userSwitch,
+      'COMPLETED' => PiconsDuotone.sealCheck,
       _ => PiconsDuotone.pencilSimple,
     };
 
 Color dogChangeColor(String action) => switch (action) {
-      'CREATED' => AppColors.success,
-      'DELETED' => AppColors.error,
+      'CREATED' || 'APPROVED' || 'COMPLETED' => AppColors.success,
+      'DELETED' || 'DENIED' => AppColors.error,
       'VACCINATION' => AppColors.warning,
       _ => AppColors.primary,
     };
 
-/// One change-log entry. The summary line is always shown; when the entry
+/// One activity-log entry. The summary line is always shown; when the entry
 /// carries field diffs the tile expands to list each as "old → new". Used by
-/// both the full log screen and the dashboard's recent-changes summary.
+/// both the full log screen and the dashboard's recent-activity summary.
 class DogChangeLogTile extends StatelessWidget {
   final DogChangeLog entry;
 
-  /// Name the dog on the tile — the master log; a single dog's log omits it.
+  /// Name the subject (the dog, the client, the vehicle…) on the tile — the
+  /// master log; a single dog's log omits it. Non-dog entries also say which
+  /// area of the business they belong to.
   final bool showDog;
 
   /// Start expanded (the full screen); collapsed on the dashboard.
@@ -47,9 +56,11 @@ class DogChangeLogTile extends StatelessWidget {
     final who = [
       entry.actorName,
       if (entry.source != 'APP') entry.sourceDisplay.toLowerCase(),
+      if (showDog && !entry.isAboutDog) entry.categoryDisplay,
     ].join(' · ');
+    final deleted = entry.isDeleted && entry.isAboutDog ? ' (deleted)' : '';
     final title = Text(
-      showDog ? '${entry.dogName}${entry.isDeleted ? ' (deleted)' : ''} — ${entry.summary}' : entry.summary,
+      showDog ? '${entry.subject}$deleted — ${entry.summary}' : entry.summary,
       style: const TextStyle(fontSize: 14),
     );
     final subtitle = Text(

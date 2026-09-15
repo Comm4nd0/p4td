@@ -864,18 +864,27 @@ def notify_owner_dog_status_change(sender, instance, created, **kwargs):
             send_push_notification(additional_owner, title, body, data, category='dog_updates')
 
 class DogChangeLog(models.Model):
-    """One change to a dog's record: who, what, when.
+    """The business activity log: who did what, and when.
 
-    Written by the ``Dog`` save/delete signals below (field diffs, creation,
-    deletion) and explicitly by the views for things that don't touch a
-    tracked field — vaccinations, gallery photos, notes, co-owners. See
-    ``api/dog_changes.py`` for the tracked fields and attribution rules.
+    Started life as a dog's change trail and keeps that name (the app and its
+    endpoint are ``dog-change-logs/``), but every staff-facing write lands
+    here: client communications, booking decisions, the daycare schedule,
+    fleet, incidents, defects, staff records, compliance and billing, each
+    tagged with a ``category``. ``dog`` is set on the entries that concern one
+    dog, and only those show on that dog's profile; the dashboard shows
+    everything the viewer is allowed to see (``STAFF`` needs
+    ``can_manage_staff``, ``BILLING`` needs ``can_manage_payments``).
 
-    Staff-only over the API (``dog-change-logs/``): the diffs carry
-    staff-written fields such as general notes and van placement.
+    Dog entries are written by the ``Dog`` save/delete signals below (field
+    diffs, creation, deletion) and explicitly by the views for things that
+    don't touch a tracked field; everything else is written by the views
+    through ``activity.ActivityLogMixin`` / ``dog_changes.log_activity``. See
+    ``api/dog_changes.py`` for the tracked dog fields and attribution rules.
 
     ``dog`` is SET_NULL and ``dog_name``/``actor_name`` are snapshots, so the
-    trail outlives both the dog and an anonymised account.
+    trail outlives both the dog and an anonymised account. ``dog_name`` is
+    the entry's *subject* — the dog's name, or for the other categories what
+    the entry is about (a client, a vehicle, a check, a staff member).
     """
     ACTION_CHOICES = [
         ('CREATED', 'Added'),
@@ -885,17 +894,42 @@ class DogChangeLog(models.Model):
         ('VACCINATION', 'Vaccination'),
         ('PHOTO', 'Gallery'),
         ('NOTE', 'Note'),
+        ('MESSAGE', 'Message'),
+        ('APPROVED', 'Approved'),
+        ('DENIED', 'Denied'),
+        ('STATUS', 'Status changed'),
+        ('COMMENT', 'Comment'),
+        ('ASSIGNED', 'Assignment'),
+        ('COMPLETED', 'Check completed'),
     ]
     SOURCE_CHOICES = [
         ('APP', 'App'),
         ('OWNER_REQUEST', 'Approved owner request'),
         ('BOOKING_FORM', 'Booking form'),
+        ('WEBSITE', 'Website'),
         ('ADMIN', 'Admin site'),
         ('SYSTEM', 'System'),
     ]
+    CATEGORY_CHOICES = [
+        ('DOG', 'Dogs'),
+        ('COMMS', 'Client communications'),
+        ('CLIENTS', 'Client accounts'),
+        ('BOOKINGS', 'Booking requests'),
+        ('SCHEDULE', 'Daycare schedule'),
+        ('FLEET', 'Fleet'),
+        ('INCIDENT', 'Incidents'),
+        ('DEFECT', 'Site defects'),
+        ('STAFF', 'Staff'),
+        ('COMPLIANCE', 'Safety & compliance'),
+        ('BILLING', 'Billing'),
+        ('SETTINGS', 'Settings'),
+    ]
+    #: Categories only some staff may read; everything else is open to all staff.
+    RESTRICTED_CATEGORIES = {'STAFF': 'can_manage_staff', 'BILLING': 'can_manage_payments'}
 
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='DOG', db_index=True)
     dog = models.ForeignKey(Dog, on_delete=models.SET_NULL, null=True, blank=True, related_name='change_logs')
-    dog_name = models.CharField(max_length=100)
+    dog_name = models.CharField(max_length=150, help_text="The entry's subject: the dog, or what a non-dog entry is about.")
     actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='dog_changes')
     actor_name = models.CharField(max_length=150, blank=True, help_text='Display name at the time; blank = system.')
     action = models.CharField(max_length=20, choices=ACTION_CHOICES)

@@ -127,7 +127,7 @@ def diff(before, after):
     ]
 
 
-def log_change(dog, *, action, summary, actor=None, source=None, changes=None, dog_name=None):
+def log_change(dog, *, action, summary, actor=None, source=None, changes=None, dog_name=None, category='DOG'):
     """Write one entry. ``dog`` may be None for a deletion (``dog_name`` then
     carries the name)."""
     from .models import DogChangeLog
@@ -137,8 +137,9 @@ def log_change(dog, *, action, summary, actor=None, source=None, changes=None, d
     if actor is not None and not getattr(actor, 'is_authenticated', True):
         actor = None
     return DogChangeLog.objects.create(
+        category=category,
         dog=dog,
-        dog_name=dog_name or (dog.name if dog is not None else ''),
+        dog_name=(dog_name or (dog.name if dog is not None else ''))[:150],
         actor=actor,
         actor_name=actor_display(actor),
         action=action,
@@ -146,6 +147,55 @@ def log_change(dog, *, action, summary, actor=None, source=None, changes=None, d
         summary=summary[:255],
         changes=changes or [],
     )
+
+
+def log_activity(category, subject, *, action, summary, actor=None, dog=None, changes=None, source=None):
+    """Write one non-dog entry (or a dog-linked one in another category —
+    a booking decision, an assignment — when ``dog`` is given). ``subject`` is
+    what the entry is about: a client, a vehicle, a staff member, a check."""
+    return log_change(
+        dog, dog_name=subject, action=action, summary=summary, actor=actor,
+        source=source, changes=changes, category=category,
+    )
+
+
+def display_value(obj, field):
+    """A field's value as the log shows it, for any model: choice labels,
+    people by name, dates as ISO, booleans as Yes/No, decimals to 2dp."""
+    value = getattr(obj, field, None)
+    if hasattr(obj, f'get_{field}_display') and value not in (None, ''):
+        return str(getattr(obj, f'get_{field}_display')())
+    if value is None:
+        return ''
+    if hasattr(value, 'is_authenticated'):  # a User
+        return actor_display(value)
+    if hasattr(value, 'all') and callable(value.all):  # a many-to-many manager
+        return ', '.join(sorted(str(v) for v in value.all()))
+    if isinstance(value, bool):
+        return 'Yes' if value else 'No'
+    if isinstance(value, (date, time)):
+        return value.isoformat()
+    if hasattr(value, 'isoformat'):  # datetime
+        return value.isoformat(timespec='minutes')
+    if isinstance(value, Decimal):
+        return f'{value:.2f}'
+    if hasattr(value, 'name') and hasattr(value, 'url'):  # a FileField
+        return value.name.rsplit('/', 1)[-1] if value else ''
+    return str(value)
+
+
+def snapshot_fields(obj, fields):
+    """``{field: display}`` for the given ``{field: label}`` map — what a
+    generic diff compares before and after a save."""
+    return {field: display_value(obj, field) for field in fields}
+
+
+def diff_fields(before, after, fields):
+    return [
+        {'field': field, 'label': label, 'old': before.get(field, ''), 'new': after.get(field, '')}
+        for field, label in fields.items()
+        if before.get(field, '') != after.get(field, '')
+    ]
 
 
 def _resolve_actor(dog):

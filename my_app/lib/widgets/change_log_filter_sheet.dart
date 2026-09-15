@@ -61,7 +61,7 @@ class _ChangeLogFilterSheetState extends State<_ChangeLogFilterSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Filter changes',
+          Text('Filter activity',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           if (dogs != null) ...[
@@ -78,6 +78,21 @@ class _ChangeLogFilterSheetState extends State<_ChangeLogFilterSheet> {
                     dogId: id,
                     dogName: id == null ? null : dogs.firstWhere((d) => d.id == id).name,
                   )),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (dogs != null) ...[
+            DropdownButtonFormField<String?>(
+              key: const Key('filter-category'),
+              initialValue: _filter.category,
+              decoration: const InputDecoration(labelText: 'Area'),
+              isExpanded: true,
+              items: [
+                const DropdownMenuItem<String?>(value: null, child: Text('Everything')),
+                for (final entry in dogChangeCategoryLabels.entries)
+                  DropdownMenuItem<String?>(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (value) => setState(() => _filter = _filter.copyWith(category: value)),
             ),
             const SizedBox(height: 12),
           ],

@@ -10,7 +10,8 @@ from django.conf import settings
 from django.db.models import Prefetch, Q, Sum
 from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
-from .dog_changes import acting_as, log_change, snapshot as dog_snapshot, diff as dog_diff
+from .dog_changes import acting_as, log_change, log_activity, snapshot as dog_snapshot, diff as dog_diff, snapshot_fields, diff_fields
+from .activity import ActivityLogMixin, person
 from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
 from website.models import ContactInquiry
@@ -79,6 +80,45 @@ def _require_dog_access(user, dog, message):
     if not _user_owns_dog(user, dog):
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied(message)
+
+
+def _uk(d):
+    """A date as the log writes it."""
+    return d.strftime('%d/%m/%Y') if d else ''
+
+
+def _date_request_desc(instance):
+    """'extra day for Buddy on 01/10/2026' — the noun phrase every
+    date-change log line is built on."""
+    dog = instance.dog.name
+    if instance.request_type == 'ADD_DAY':
+        return f'extra day for {dog} on {_uk(instance.new_date)}'
+    if instance.request_type == 'CANCEL':
+        return f'cancellation for {dog} on {_uk(instance.original_date)}'
+    return f'date change for {dog} from {_uk(instance.original_date)} to {_uk(instance.new_date)}'
+
+
+def _log_boarding(instance, actor, action, summary, changes=None):
+    """A boarding entry is about its dogs: linked to the dog when there is
+    exactly one, named after all of them otherwise."""
+    dogs = list(instance.dogs.all())
+    log_activity(
+        'BOOKINGS', ', '.join(d.name for d in dogs) or person(instance.owner),
+        action=action, summary=summary, actor=actor,
+        dog=dogs[0] if len(dogs) == 1 else None, changes=changes,
+    )
+
+
+def _boarding_desc(instance):
+    dogs = ', '.join(d.name for d in instance.dogs.all())
+    return f'boarding {_uk(instance.start_date)}–{_uk(instance.end_date)} for {dogs}'
+
+
+def _log_assignment(assignment, actor, summary, action='ASSIGNED'):
+    log_change(assignment.dog, category='SCHEDULE', action=action, actor=actor, summary=summary)
+
+
+_WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 
 def _compute_date_change_is_charged(request_type, original_date):
@@ -369,9 +409,23 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
         except UserProfile.DoesNotExist:
             return Response({'detail': 'User profile not found'}, status=404)
 
+        client_fields = {'phone_number': 'Phone', 'address': 'Address'}
+        before = snapshot_fields(profile, client_fields)
+        before_name = person(profile.user)
         serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        profile.refresh_from_db()
+        profile.user.refresh_from_db()
+        changes = diff_fields(before, snapshot_fields(profile, client_fields), client_fields)
+        name = person(profile.user)
+        if name != before_name:
+            changes.insert(0, {'field': 'name', 'label': 'Name', 'old': before_name, 'new': name})
+        if changes:
+            log_activity(
+                'CLIENTS', name, action='UPDATED', actor=request.user, changes=changes,
+                summary=f"Updated {name}'s details: " + ', '.join(c['label'].lower() for c in changes),
+            )
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -421,9 +475,26 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             return Response({'detail': 'Target user is not a staff member'}, status=400)
 
         from .serializers import StaffPermissionsSerializer
+        flag_fields = {
+            'can_assign_dogs': 'Assign dogs', 'can_add_feed_media': 'Post to feed',
+            'can_manage_requests': 'Manage requests', 'can_reply_queries': 'Reply to queries',
+            'can_manage_staff': 'Manage staff', 'can_view_inquiries': 'View enquiries',
+            'can_manage_vehicles': 'Manage vehicles', 'can_manage_payments': 'Manage payments',
+            'can_manage_boarding': 'Manage boarding', 'can_manage_compliance': 'Manage compliance',
+            'receives_business_alerts': 'Business alerts',
+        }
+        before = snapshot_fields(profile, flag_fields)
         serializer = StaffPermissionsSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        profile.refresh_from_db()
+        changes = diff_fields(before, snapshot_fields(profile, flag_fields), flag_fields)
+        if changes:
+            name = person(profile.user)
+            log_activity(
+                'STAFF', name, action='UPDATED', actor=request.user, changes=changes,
+                summary=f"Changed {name}'s permissions: " + ', '.join(c['label'].lower() for c in changes),
+            )
         return Response(serializer.data)
 
 class DogViewSet(viewsets.ModelViewSet):
@@ -1091,6 +1162,10 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
         change_request.reviewed_by = request.user
         change_request.reviewed_at = timezone.now()
         change_request.save()
+        log_change(
+            change_request.dog, action='DENIED', actor=request.user, source='OWNER_REQUEST',
+            summary=f"Rejected {person(change_request.requested_by)}'s profile change request",
+        )
 
         # Clean up the proposed image file if any
         if change_request.proposed_image:
@@ -1397,7 +1472,15 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             data.get('original_date', instance.original_date),
             data.get('new_date', instance.new_date),
         )
-        serializer.save()
+        instance = serializer.save()
+        log_change(instance.dog, category='BOOKINGS', action='UPDATED', actor=self.request.user,
+                   summary=f'Updated {_date_request_desc(instance)}')
+
+    def perform_destroy(self, instance):
+        verb = 'Deleted' if self.request.user.is_staff else 'Withdrew'
+        log_change(instance.dog, category='BOOKINGS', action='DELETED', actor=self.request.user,
+                   summary=f'{verb} {_date_request_desc(instance)}')
+        instance.delete()
 
     def perform_create(self, serializer):
         dog = serializer.validated_data['dog']
@@ -1412,10 +1495,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         # requests stay PENDING and go through the normal approval workflow.
         if not self.request.user.is_staff:
             # Compute the late-change fee server-side; never trust the client (B2).
-            serializer.save(is_charged=_compute_date_change_is_charged(
+            instance = serializer.save(is_charged=_compute_date_change_is_charged(
                 serializer.validated_data.get('request_type'),
                 serializer.validated_data.get('original_date'),
             ))
+            log_change(instance.dog, category='BOOKINGS', action='CREATED', actor=self.request.user,
+                       summary=f'Requested {_date_request_desc(instance)}')
             return
 
         # Staff auto-approval puts the dog straight onto new_date. The capacity
@@ -1463,6 +1548,9 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             # it lands in the unassigned list for the new date). Staff-created
             # additions of past days also materialize the attendance row here.
             self._apply_approved_schedule_change(instance, past_added_by=self.request.user)
+
+        log_change(instance.dog, category='BOOKINGS', action='APPROVED', actor=self.request.user,
+                   summary=f'Added {_date_request_desc(instance)}')
 
         # Notify dog owners (best-effort, after the transaction commits — a push
         # failure must never roll back the approval).
@@ -1567,6 +1655,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 from_status=old_status,
                 to_status=new_status,
             )
+
+        log_change(
+            instance.dog, category='BOOKINGS', actor=request.user,
+            action={'APPROVED': 'APPROVED', 'DENIED': 'DENIED'}.get(new_status, 'STATUS'),
+            summary=f'{new_status.title()} {_date_request_desc(instance)}',
+        )
 
         # Send push notification to all owners — after commit, best-effort.
         try:
@@ -1809,6 +1903,8 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                 clear_boarding_daycare_assignments(instance)
             except Exception as e:
                 print(f"Failed to release boarding daycare attendance: {e}")
+        verb = 'Deleted' if self.request.user.is_staff else 'Withdrew'
+        _log_boarding(instance, self.request.user, 'DELETED', f'{verb} {_boarding_desc(instance)}')
         instance.delete()
 
     def perform_update(self, serializer):
@@ -1827,7 +1923,14 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         old_start = serializer.instance.start_date
         old_end = serializer.instance.end_date
         old_dog_ids = set(serializer.instance.dogs.values_list('id', flat=True))
+        boarding_fields = {'start_date': 'Start', 'end_date': 'End', 'dogs': 'Dogs', 'special_instructions': 'Instructions', 'assigned_staff': 'Carer'}
+        before = snapshot_fields(serializer.instance, boarding_fields)
         instance = serializer.save()
+        changes = diff_fields(before, snapshot_fields(instance, boarding_fields), boarding_fields)
+        if changes:
+            _log_boarding(instance, self.request.user, 'UPDATED',
+                          f'Updated {_boarding_desc(instance)}: ' + ', '.join(c['label'].lower() for c in changes),
+                          changes=changes)
 
         # Moving the dates (or the dogs) of an approved stay moves its daycare
         # attendance with it: days the stay no longer covers are released,
@@ -1933,7 +2036,9 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         # flag, e.g. submitting on an owner's behalf) stay PENDING and go
         # through the normal approval workflow.
         if not _user_can_manage_boarding(self.request.user):
-            serializer.save(owner=owner)
+            instance = serializer.save(owner=owner)
+            on_behalf = f' for {person(owner)}' if owner != self.request.user else ''
+            _log_boarding(instance, self.request.user, 'CREATED', f'Requested {_boarding_desc(instance)}{on_behalf}')
             return
 
         from django.utils import timezone
@@ -1952,6 +2057,7 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         )
         self._sync_boarding_attendance(instance)
         self._notify_owner_boarding_status(instance, 'APPROVED')
+        _log_boarding(instance, self.request.user, 'APPROVED', f'Booked {_boarding_desc(instance)} for {person(owner)}')
 
     def _sync_boarding_attendance(self, instance):
         """Book (or un-book) the stay's dogs into daycare for its weekdays.
@@ -2038,6 +2144,11 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             to_status=new_status,
         )
 
+        verb = {'APPROVED': 'Approved', 'DENIED': 'Denied', 'CANCELLED': 'Cancelled', 'PENDING': 'Reopened'}.get(new_status, new_status.title())
+        _log_boarding(instance, request.user,
+                      {'APPROVED': 'APPROVED', 'DENIED': 'DENIED'}.get(new_status, 'STATUS'),
+                      f'{verb} {_boarding_desc(instance)} ({person(instance.owner)})')
+
         return Response(self.get_serializer(instance).data)
 
     @action(detail=True, methods=['post'])
@@ -2062,6 +2173,10 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Invalid staff member'}, status=400)
             instance.assigned_staff = staff
         instance.save(update_fields=['assigned_staff', 'updated_at'])
+        carer = person(instance.assigned_staff) if instance.assigned_staff else None
+        _log_boarding(instance, request.user, 'ASSIGNED',
+                      f'{_boarding_desc(instance).capitalize()} now with {carer}' if carer
+                      else f'Cleared the carer for {_boarding_desc(instance)}')
         return Response(self.get_serializer(instance).data)
 
 
@@ -2091,14 +2206,29 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         new_status = serializer.validated_data.get('status', instance.status)
         self._require_payments_permission_for_past_billing_change(
             instance.date, instance.status, new_status)
-        serializer.save()
+        old_status = instance.status
+        instance = serializer.save()
+        self._log_removed_or_restored(instance, old_status)
 
     def perform_destroy(self, instance):
         # Deleting a past row removes the day from the invoice just as surely as
         # marking it REMOVED does, so it needs the same permission.
         self._require_payments_permission_for_past_billing_change(
             instance.date, instance.status, 'REMOVED')
+        _log_assignment(instance, self.request.user,
+                        f"Deleted {instance.dog.name}'s attendance for {_uk(instance.date)}", action='DELETED')
         instance.delete()
+
+    def _log_removed_or_restored(self, assignment, old_status):
+        """Pickup/drop-off progress is not logged (it happens every day for
+        every dog); whether the dog is on the day at all is."""
+        if old_status == assignment.status or 'REMOVED' not in (old_status, assignment.status):
+            return
+        if assignment.status == 'REMOVED':
+            summary = f'Removed {assignment.dog.name} from {_uk(assignment.date)}'
+        else:
+            summary = f'Put {assignment.dog.name} back on {_uk(assignment.date)}'
+        _log_assignment(assignment, self.request.user, summary, action='STATUS')
 
     def _require_payments_permission_for_past_billing_change(self, when, old_status, new_status):
         from django.utils import timezone
@@ -2474,6 +2604,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         previous_status = assignment.status
         assignment.status = new_status
         assignment.save()
+        self._log_removed_or_restored(assignment, previous_status)
         try:
             from .notifications import notify_dog_status
             notify_dog_status(assignment, previous_status)
@@ -2505,6 +2636,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         bool_fields = ('owner_brings', 'owner_collects')
         time_fields = ('owner_brings_time', 'owner_collects_time')
+        transport_fields = {
+            'owner_brings': 'Owner brings', 'owner_collects': 'Owner collects',
+            'owner_brings_time': 'Drop-off time', 'owner_collects_time': 'Pick-up time',
+        }
+        before = snapshot_fields(assignment, transport_fields)
 
         for field in bool_fields:
             if field in request.data:
@@ -2533,6 +2669,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 setattr(assignment, field, parsed)
 
         assignment.save()
+        changes = diff_fields(before, snapshot_fields(assignment, transport_fields), transport_fields)
+        if changes:
+            log_change(assignment.dog, category='SCHEDULE', action='UPDATED', actor=request.user, changes=changes,
+                       summary=f'Updated transport for {assignment.dog.name} on {_uk(assignment.date)}: '
+                               + ', '.join(c['label'].lower() for c in changes))
         return Response(self.get_serializer(assignment).data)
 
     @action(detail=False, methods=['get'])
@@ -2684,6 +2825,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             else:
                 skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
 
+        for assignment in created:
+            _log_assignment(assignment, request.user,
+                            f'Assigned {assignment.dog.name} to {person(assignment.staff_member)} for {_uk(target_date)}')
         serializer = self.get_serializer(created, many=True)
         data = serializer.data
         if skipped:
@@ -2784,6 +2928,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             else:
                 skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
 
+        for assignment in created:
+            _log_assignment(assignment, request.user,
+                            f'Assigned {assignment.dog.name} to {person(assignment.staff_member)} for {_uk(target_date)}')
         serializer = self.get_serializer(created, many=True)
         data = serializer.data
         if skipped:
@@ -2843,6 +2990,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if assignment.status != 'REMOVED':
             assignment.status = 'REMOVED'
             assignment.save(update_fields=['status', 'updated_at'])
+        _log_assignment(assignment, request.user, f'Removed {dog.name} from {_uk(target_date)}', action='STATUS')
 
         # Removing a dog frees a spot — let the waitlist know. Not for past
         # days: nobody can be offered a spot on a day that already happened.
@@ -2889,9 +3037,19 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
+        previous = assignment.staff_member
         self._reassign_assignment(assignment, new_staff, scope, request.user)
+        self._log_reassign(assignment, previous, new_staff, scope)
 
         return Response(self.get_serializer(assignment).data)
+
+    def _log_reassign(self, assignment, previous, new_staff, scope):
+        tail = f' and every {_WEEKDAY_NAMES[assignment.date.weekday()]} from now on' if scope == 'from_now_on' else ''
+        _log_assignment(
+            assignment, self.request.user,
+            f'Moved {assignment.dog.name} from {person(previous) or "unassigned"} to {person(new_staff)} '
+            f'for {_uk(assignment.date)}{tail}',
+        )
 
     @staticmethod
     def _reassign_assignment(assignment, new_staff, scope, changed_by):
@@ -2982,7 +3140,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                         'reason': f'Already with {new_staff.first_name or new_staff.username}',
                     })
                     continue
+                previous = assignment.staff_member
                 self._reassign_assignment(assignment, new_staff, scope, request.user)
+                self._log_reassign(assignment, previous, new_staff, scope)
                 updated.append(assignment)
 
         return Response({
@@ -3029,6 +3189,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Only staff who can manage payments can delete past attendance.'}, status=403)
 
         if scope == 'from_now_on':
+            _log_assignment(assignment, request.user,
+                            f'Took {dog.name} off {_WEEKDAY_NAMES[assignment_date.weekday()]}s from {_uk(assignment_date)}',
+                            action='DELETED')
             assignment.delete()
             DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).delete()
             DailyDogAssignment.objects.filter(
@@ -3038,6 +3201,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 status='ASSIGNED',
             ).delete()
         else:
+            _log_assignment(assignment, request.user,
+                            f'Unassigned {dog.name} for {_uk(assignment_date)}', action='STATUS')
             # Mark as UNASSIGNED instead of deleting so that
             # _materialize_roster_for_date does not re-create the row. The dog
             # is still attending this day (it surfaces in unassigned_dogs) —
@@ -3220,6 +3385,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             else:
                 skipped.append(dog.id)
 
+        if created:
+            log_activity('SCHEDULE', f'Roster {_uk(target_date)}', action='ASSIGNED', actor=request.user,
+                         summary=f'Auto-assigned {len(created)} dog(s) for {_uk(target_date)}: '
+                                 + ', '.join(a.dog.name for a in created))
         serializer = self.get_serializer(created, many=True)
         return Response({
             'assigned': serializer.data,
@@ -3329,6 +3498,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                     status__in=swappable,
                 ).update(staff_member=to_staff)
 
+        when = {
+            'just_this_day': f'for {_uk(target_date)}',
+            'this_weekday_forever': f'every {_WEEKDAY_NAMES[target_date.weekday()]} from {_uk(target_date)}' if target_date else '',
+            'all_weekdays_forever': 'for every day from now on',
+        }[scope]
+        log_activity('SCHEDULE', person(from_staff), action='ASSIGNED', actor=request.user,
+                     summary=f"Handed {person(from_staff)}'s dogs to {person(to_staff)} {when} "
+                             f'({assignments_updated} assignment(s))')
         return Response({
             'roster_rows_updated': roster_updated,
             'assignment_rows_updated': assignments_updated,
@@ -3426,6 +3603,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         dog_ids = request.data.get('dog_ids')
         from .notifications import send_traffic_alert
         send_traffic_alert(alert_type, target_date, staff_member=request.user, detail=detail_text, dog_ids=dog_ids)
+        log_activity('COMMS', 'Traffic alert', action='MESSAGE', actor=request.user,
+                     summary=f'Sent a {alert_type} traffic alert to owners on their route for {_uk(target_date)}'
+                             + (f': {detail_text}' if detail_text else ''))
         return Response({'detail': 'Traffic alert sent successfully.'})
 
 
@@ -3475,6 +3655,10 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
                 notify_new_support_query(query)
             except Exception as e:
                 print(f"Failed to send new query notification: {e}")
+            summary = f"Sent a new Contact Staff message: '{query.subject}'"
+        else:
+            summary = f"Opened a Contact Staff thread for {person(query.owner)}: '{query.subject}'"
+        log_activity('COMMS', person(query.owner), action='MESSAGE', actor=self.request.user, summary=summary)
 
     @action(detail=True, methods=['post'])
     def add_message(self, request, pk=None):
@@ -3509,6 +3693,11 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
             notify_support_message(query, user)
         except Exception as e:
             print(f"Failed to send support message notification: {e}")
+        log_activity(
+            'COMMS', person(query.owner), action='MESSAGE', actor=user,
+            summary=(f"Replied to {person(query.owner)}: '{query.subject}'" if user.is_staff
+                     else f"Sent a message on '{query.subject}'"),
+        )
         # Refresh from DB to clear prefetch cache and include the new message
         query.refresh_from_db()
         query = SupportQuery.objects.prefetch_related('messages').get(pk=query.pk)
@@ -3544,6 +3733,8 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         query.resolved_by = request.user
         query.resolved_at = timezone.now()
         query.save()
+        log_activity('COMMS', person(query.owner), action='STATUS', actor=request.user,
+                     summary=f"Resolved {person(query.owner)}'s message '{query.subject}'")
 
         from .notifications import send_push_notification
         staff_name = request.user.first_name or request.user.username
@@ -3568,6 +3759,8 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         query.resolved_by = None
         query.resolved_at = None
         query.save()
+        log_activity('COMMS', person(query.owner), action='STATUS', actor=request.user,
+                     summary=f"Reopened {person(query.owner)}'s message '{query.subject}'")
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
@@ -3581,8 +3774,14 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         return Response({'count': count})
 
 
-class ClosureDayViewSet(viewsets.ModelViewSet):
+class ClosureDayViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    activity_category = 'SCHEDULE'
+    activity_noun = 'closure on'
+    activity_fields = {'closure_type': 'Type', 'reason': 'Reason', 'capacity_override': 'Capacity'}
+
+    def activity_subject(self, obj):
+        return _uk(obj.date)
 
     def get_queryset(self):
         from .models import ClosureDay
@@ -3606,10 +3805,13 @@ class ClosureDayViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        closure = serializer.save(created_by=self.request.user)
+        self.log_created(closure, f'Marked {_uk(closure.date)} as {closure.get_closure_type_display().lower()}'
+                                  + (f': {closure.reason}' if closure.reason else ''))
 
     def perform_destroy(self, instance):
         target_date = instance.date
+        self.log_deleted(instance, f'Removed the closure on {_uk(target_date)}')
         instance.delete()
         # Lifting a closure can free spots (or the whole day) — let the
         # waitlist know.
@@ -3752,7 +3954,9 @@ class VaccinationCertificateViewSet(mixins.CreateModelMixin, mixins.ListModelMix
                 f'{dog.name} already has {MAX_CERTIFICATES_PER_DOG} certificates on file. '
                 'Remove an old one first.'
             ]})
-        serializer.save(uploaded_by=self.request.user)
+        certificate = serializer.save(uploaded_by=self.request.user)
+        log_change(dog, action='VACCINATION', actor=self.request.user,
+                   summary='Uploaded a vaccination certificate')
 
     def perform_destroy(self, instance):
         user = self.request.user
@@ -3766,6 +3970,8 @@ class VaccinationCertificateViewSet(mixins.CreateModelMixin, mixins.ListModelMix
         # private-media/.
         if instance.file:
             instance.file.delete(save=False)
+        log_change(instance.dog, action='VACCINATION', actor=user,
+                   summary='Removed a vaccination certificate')
         instance.delete()
 
     @action(detail=True, methods=['get'])
@@ -3906,17 +4112,21 @@ class DogNoteViewSet(viewsets.ModelViewSet):
 
 
 class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
-    """Who changed what on a dog, and when — see ``DogChangeLog``.
+    """The activity log: who did what, and when — see ``DogChangeLog``.
 
     Staff-only: the diffs carry staff-written fields. ``?dog=<id>`` is one
-    dog's trail (the profile's Change Log); no filter is the master log the
-    dashboard shows the latest few of. ``?limit=N`` (max 200) returns just
-    the newest N as a bare list; ``?page=`` opts into the page envelope.
+    dog's trail (the profile's Change Log — only entries about that dog);
+    no filter is the whole business's log the dashboard shows the latest
+    few of, minus the categories the viewer may not read (``STAFF`` without
+    ``can_manage_staff``, ``BILLING`` without ``can_manage_payments``).
+    ``?limit=N`` (max 200) returns just the newest N as a bare list;
+    ``?page=`` opts into the page envelope.
 
-    Further filters, all combinable: ``?actor=<user id>`` (or ``system`` for
-    entries nobody signed in for), ``?action=<ACTION>``, and ``?from=`` /
-    ``?to=`` as inclusive ``YYYY-MM-DD`` local dates. ``actors/`` lists who
-    appears in the log, for the filter picker.
+    Further filters, all combinable: ``?category=<CATEGORY>``,
+    ``?actor=<user id>`` (or ``system`` for entries nobody signed in for),
+    ``?action=<ACTION>``, and ``?from=`` / ``?to=`` as inclusive
+    ``YYYY-MM-DD`` local dates. ``actors/`` lists who appears in the log,
+    for the filter picker.
     """
     permission_classes = [IsAdminUser]
     pagination_class = OptInPagination
@@ -3925,16 +4135,32 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
         from .serializers import DogChangeLogSerializer
         return DogChangeLogSerializer
 
+    def _visible(self, queryset):
+        """Drop the categories this staff member may not read."""
+        from .models import DogChangeLog
+        user = self.request.user
+        if user.is_superuser:
+            return queryset
+        profile = getattr(user, 'profile', None)
+        hidden = [
+            category for category, flag in DogChangeLog.RESTRICTED_CATEGORIES.items()
+            if not (profile and getattr(profile, flag, False))
+        ]
+        return queryset.exclude(category__in=hidden) if hidden else queryset
+
     def get_queryset(self):
         from datetime import date as date_cls
         from rest_framework.exceptions import ValidationError
         from .models import DogChangeLog
 
         params = self.request.query_params
-        queryset = DogChangeLog.objects.select_related('dog', 'actor')
+        queryset = self._visible(DogChangeLog.objects.select_related('dog', 'actor'))
         dog_id = params.get('dog')
         if dog_id:
             queryset = queryset.filter(dog_id=dog_id)
+        category = params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
         actor = params.get('actor')
         if actor == 'system':
             queryset = queryset.filter(actor__isnull=True)
@@ -3959,8 +4185,9 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
         ``[{id, name}]`` by name, with ``{id: null, name: 'System'}`` last
         when unattributed entries exist."""
         from .models import DogChangeLog
+        visible = self._visible(DogChangeLog.objects.all())
         rows = (
-            DogChangeLog.objects.exclude(actor__isnull=True)
+            visible.exclude(actor__isnull=True)
             .values('actor_id', 'actor_name')
             .distinct()
         )
@@ -3973,7 +4200,7 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
             ({'id': actor_id, 'name': name or 'Unknown'} for actor_id, name in latest_name.items()),
             key=lambda p: p['name'].lower(),
         )
-        if DogChangeLog.objects.filter(actor__isnull=True).exists():
+        if visible.filter(actor__isnull=True).exists():
             people.append({'id': None, 'name': 'System'})
         return Response(people)
 
@@ -3989,8 +4216,19 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
         return super().list(request, *args, **kwargs)
 
 
-class StaffAvailabilityViewSet(viewsets.ModelViewSet):
+class StaffAvailabilityViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
+    activity_category = 'STAFF'
+    activity_noun = 'availability for'
+    activity_fields = {'day_of_week': 'Day', 'is_available': 'Available', 'note': 'Note'}
+
+    def activity_subject(self, obj):
+        return person(obj.staff_member)
+
+    def _log_days(self, staff_member, rows):
+        days = ', '.join(_WEEKDAY_NAMES[r.day_of_week - 1][:3] for r in sorted(rows, key=lambda r: r.day_of_week) if r.is_available)
+        log_activity('STAFF', person(staff_member), action='UPDATED', actor=self.request.user,
+                     summary=f"Set {person(staff_member)}'s working days to {days or 'none'}")
 
     def _can_manage_others(self):
         """Only staff managers may edit someone else's availability — the same
@@ -4024,16 +4262,21 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
         # unless they are allowed to manage other people's availability.
         target = serializer.validated_data.get('staff_member')
         if target is None or (target != self.request.user and not self._can_manage_others()):
-            serializer.save(staff_member=self.request.user)
-            return
-        serializer.save()
+            row = serializer.save(staff_member=self.request.user)
+        else:
+            row = serializer.save()
+        self.log_created(row, f"Set {person(row.staff_member)}'s {_WEEKDAY_NAMES[row.day_of_week - 1]} availability to "
+                              f"{'available' if row.is_available else 'not available'}")
 
     def perform_update(self, serializer):
         target = serializer.validated_data.get('staff_member', serializer.instance.staff_member)
         if target != self.request.user and not self._can_manage_others():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff managers can change someone else's availability.")
-        serializer.save()
+        before = self.activity_snapshot(serializer.instance)
+        row = serializer.save()
+        self.log_updated(row, before, f"Set {person(row.staff_member)}'s {_WEEKDAY_NAMES[row.day_of_week - 1]} availability to "
+                                      f"{'available' if row.is_available else 'not available'}")
 
     @staticmethod
     def _apply_availability(staff_member, availability_data):
@@ -4076,6 +4319,7 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'availability list is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         results = self._apply_availability(request.user, availability_data)
+        self._log_days(request.user, results)
         serializer = StaffAvailabilitySerializer(results, many=True)
         return Response(serializer.data)
 
@@ -4106,6 +4350,7 @@ class StaffAvailabilityViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'availability list is required'}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         results = self._apply_availability(staff_member, availability_data)
+        self._log_days(staff_member, results)
         serializer = StaffAvailabilitySerializer(results, many=True)
         return Response(serializer.data)
 
@@ -4314,6 +4559,9 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
                 {'detail': 'You already have an active request for this date.'},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
+        log_activity('STAFF', person(request.user), action='CREATED', actor=request.user,
+                     summary=f'Requested a day off on {_uk(target_date)}'
+                             + (f': {obj.reason}' if obj.reason else ''))
         serializer = DayOffRequestSerializer(obj)
         return Response(serializer.data, status=drf_status.HTTP_201_CREATED)
 
@@ -4331,6 +4579,8 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         if obj.status != 'PENDING':
             return Response({'detail': 'Only pending requests can be cancelled.'}, status=drf_status.HTTP_400_BAD_REQUEST)
 
+        log_activity('STAFF', person(request.user), action='DELETED', actor=request.user,
+                     summary=f'Cancelled their day-off request for {_uk(obj.date)}')
         obj.delete()
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
@@ -4372,6 +4622,8 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         obj.reviewed_by = request.user
         obj.reviewed_at = timezone.now()
         obj.save()
+        log_activity('STAFF', person(obj.staff_member), action=new_status, actor=request.user,
+                     summary=f"{new_status.title()} {person(obj.staff_member)}'s day off on {_uk(obj.date)}")
 
         serializer = self.get_serializer(obj)
         return Response(serializer.data)
@@ -4396,6 +4648,7 @@ def daycare_settings(request):
         )
         if not allowed:
             return Response({'detail': 'Not authorized to change settings.'}, status=403)
+        previous_capacity = settings_obj.default_daily_capacity
         if 'default_daily_capacity' in request.data:
             value = request.data['default_daily_capacity']
             if value in (None, '', 0, '0'):
@@ -4409,6 +4662,11 @@ def daycare_settings(request):
                     return Response({'default_daily_capacity': 'Must be a positive number or null.'}, status=400)
                 settings_obj.default_daily_capacity = value
             settings_obj.save()
+            if settings_obj.default_daily_capacity != previous_capacity:
+                old, new = (str(v or 'unlimited') for v in (previous_capacity, settings_obj.default_daily_capacity))
+                log_activity('SETTINGS', 'Daycare settings', action='UPDATED', actor=request.user,
+                             summary=f'Changed the default daily capacity from {old} to {new}',
+                             changes=[{'field': 'default_daily_capacity', 'label': 'Daily capacity', 'old': old, 'new': new}])
     return Response({'default_daily_capacity': settings_obj.default_daily_capacity})
 
 
@@ -4836,11 +5094,19 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return ContactInquiry.objects.all().order_by('-created_at')
 
+    def _log(self, inquiry, action, summary):
+        log_activity('COMMS', inquiry.name, action=action, actor=self.request.user, summary=summary)
+
+    def perform_destroy(self, instance):
+        self._log(instance, 'DELETED', f'Deleted the website enquiry from {instance.name}')
+        instance.delete()
+
     @action(detail=True, methods=['post'])
     def mark_read(self, request, pk=None):
         inquiry = self.get_object()
         inquiry.is_read = True
         inquiry.save()
+        self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as read')
         return Response(ContactInquirySerializer(inquiry).data)
 
     @action(detail=True, methods=['post'])
@@ -4848,6 +5114,7 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
         inquiry = self.get_object()
         inquiry.is_read = False
         inquiry.save()
+        self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as unread')
         return Response(ContactInquirySerializer(inquiry).data)
 
     @action(detail=True, methods=['post'])
@@ -4856,6 +5123,7 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
         inquiry.is_replied = True
         inquiry.is_read = True
         inquiry.save()
+        self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as replied')
         return Response(ContactInquirySerializer(inquiry).data)
 
     @action(detail=False, methods=['get'])
@@ -4947,12 +5215,21 @@ def _user_can_manage_vehicles(user):
     return getattr(getattr(user, 'profile', None), 'can_manage_vehicles', False)
 
 
-class VehicleViewSet(viewsets.ModelViewSet):
+class VehicleViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Fleet vehicles. All staff can view; users with can_manage_vehicles
     add/edit vehicles and update MOT/service due dates. Date changes are
     recorded as maintenance history and re-arm the reminder flags (reminders
     are sent by the daily send_fleet_reminders management command)."""
     permission_classes = [IsStaffReadOrVehicleManager]
+    activity_category = 'FLEET'
+    activity_noun = 'vehicle'
+    activity_fields = {
+        'name': 'Name', 'registration': 'Registration', 'make': 'Make', 'model': 'Model',
+        'status': 'Status', 'mot_due_date': 'MOT due', 'service_due_date': 'Service due', 'notes': 'Notes',
+    }
+
+    def activity_subject(self, obj):
+        return f'{obj.name} ({obj.registration})' if obj.registration else obj.name
 
     def get_serializer_class(self):
         from .serializers import VehicleSerializer
@@ -4966,7 +5243,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
         image_file = serializer.validated_data.get('image')
         if image_file:
             serializer.validated_data['image'] = process_image(image_file, max_size=(1280, 1280))
-        serializer.save()
+        self.log_created(serializer.save())
 
     def perform_update(self, serializer):
         from .models import VehicleMaintenanceRecord
@@ -4977,7 +5254,9 @@ class VehicleViewSet(viewsets.ModelViewSet):
 
         old_mot = serializer.instance.mot_due_date
         old_service = serializer.instance.service_due_date
+        before = self.activity_snapshot(serializer.instance)
         instance = serializer.save()
+        self.log_updated(instance, before)
 
         maintenance_notes = self.request.data.get('maintenance_notes')
         rearm_fields = []
@@ -5012,11 +5291,17 @@ class VehicleViewSet(viewsets.ModelViewSet):
         return Response(VehicleMaintenanceRecordSerializer(records, many=True).data)
 
 
-class VehicleDefectViewSet(viewsets.ModelViewSet):
+class VehicleDefectViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Vehicle defect reports. Any staff member can report a defect (with
     photos) and attach more photos; only vehicle managers can edit, delete
     or change defect status."""
     permission_classes = [IsAdminUser]
+    activity_category = 'FLEET'
+    activity_noun = 'defect'
+    activity_fields = {'title': 'Title', 'description': 'Description', 'severity': 'Severity', 'status': 'Status'}
+
+    def activity_subject(self, obj):
+        return f"'{obj.title}' on {obj.vehicle.name}"
 
     def get_serializer_class(self):
         from .serializers import VehicleDefectSerializer
@@ -5050,6 +5335,8 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         defect = serializer.save(reported_by=self.request.user)
         self._attach_images(defect)
+        self.log_created(defect, f"Reported defect '{defect.title}' on {defect.vehicle.name} "
+                                 f'({defect.get_severity_display().lower()} severity)')
 
         try:
             from .notifications import send_staff_notification
@@ -5068,6 +5355,9 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
     def add_images(self, request, pk=None):
         defect = self.get_object()
         self._attach_images(defect)
+        count = len(request.FILES.getlist('images'))
+        if count:
+            self.log(defect, 'PHOTO', f'Added {count} photo(s) to defect {self.activity_subject(defect)}')
         defect = self.get_queryset().get(pk=defect.pk)
         return Response(self.get_serializer(defect).data)
 
@@ -5096,6 +5386,9 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
             defect.resolved_by = None
             defect.resolved_at = None
         defect.save()
+        self.log(defect, 'STATUS', f'Marked defect {self.activity_subject(defect)} as {defect.get_status_display().lower()}',
+                 changes=[{'field': 'status', 'label': 'Status', 'old': dict(defect.STATUS_CHOICES).get(old_status, old_status),
+                           'new': defect.get_status_display()}])
 
         if defect.reported_by and defect.reported_by != request.user:
             try:
@@ -5120,6 +5413,7 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
         if not text:
             return Response({'detail': 'Text is required'}, status=400)
         comment = VehicleDefectComment.objects.create(defect=defect, user=request.user, text=text)
+        self.log(defect, 'COMMENT', f'Commented on defect {self.activity_subject(defect)}: {text}')
         try:
             from .notifications import notify_defect_comment
             notify_defect_comment(comment, defect, defect_type='vehicle')
@@ -5135,10 +5429,16 @@ class VehicleDefectViewSet(viewsets.ModelViewSet):
         return Response({'count': count})
 
 
-class FacilityDefectViewSet(viewsets.ModelViewSet):
+class FacilityDefectViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """General site/facility defect reports (e.g. a broken gate). Any staff
     member can report a defect with photos and change its status."""
     permission_classes = [IsAdminUser]
+    activity_category = 'DEFECT'
+    activity_noun = 'defect'
+    activity_fields = {'title': 'Title', 'location': 'Location', 'description': 'Description', 'severity': 'Severity', 'status': 'Status'}
+
+    def activity_subject(self, obj):
+        return f"'{obj.title}'" + (f' at {obj.location}' if obj.location else '')
 
     def get_serializer_class(self):
         from .serializers import FacilityDefectSerializer
@@ -5164,6 +5464,8 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         defect = serializer.save(reported_by=self.request.user)
         self._attach_images(defect)
+        self.log_created(defect, f'Reported site defect {self.activity_subject(defect)} '
+                                 f'({defect.get_severity_display().lower()} severity)')
 
         try:
             from .notifications import send_staff_notification
@@ -5181,6 +5483,9 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
     def add_images(self, request, pk=None):
         defect = self.get_object()
         self._attach_images(defect)
+        count = len(request.FILES.getlist('images'))
+        if count:
+            self.log(defect, 'PHOTO', f'Added {count} photo(s) to defect {self.activity_subject(defect)}')
         defect = self.get_queryset().get(pk=defect.pk)
         return Response(self.get_serializer(defect).data)
 
@@ -5205,6 +5510,9 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
             defect.resolved_by = None
             defect.resolved_at = None
         defect.save()
+        self.log(defect, 'STATUS', f'Marked defect {self.activity_subject(defect)} as {defect.get_status_display().lower()}',
+                 changes=[{'field': 'status', 'label': 'Status', 'old': dict(defect.STATUS_CHOICES).get(old_status, old_status),
+                           'new': defect.get_status_display()}])
 
         if defect.reported_by and defect.reported_by != request.user:
             try:
@@ -5229,6 +5537,7 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
         if not text:
             return Response({'detail': 'Text is required'}, status=400)
         comment = FacilityDefectComment.objects.create(defect=defect, user=request.user, text=text)
+        self.log(defect, 'COMMENT', f'Commented on defect {self.activity_subject(defect)}: {text}')
         try:
             from .notifications import notify_defect_comment
             notify_defect_comment(comment, defect, defect_type='facility')
@@ -5244,7 +5553,7 @@ class FacilityDefectViewSet(viewsets.ModelViewSet):
         return Response({'count': count})
 
 
-class IncidentViewSet(viewsets.ModelViewSet):
+class IncidentViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Staff-only incident log — scuffles, bites, injuries, escapes.
 
     ``permission_classes = [IsAdminUser]`` is the whole confidentiality story:
@@ -5257,6 +5566,21 @@ class IncidentViewSet(viewsets.ModelViewSet):
     ``?status=``, ``?severity=``, ``?type=``, ``?open=true``.
     """
     permission_classes = [IsAdminUser]
+    activity_category = 'INCIDENT'
+    activity_noun = 'incident'
+    activity_fields = {
+        'title': 'Title', 'incident_type': 'Type', 'severity': 'Severity', 'status': 'Status',
+        'occurred_at': 'Occurred', 'location': 'Location', 'description': 'Description',
+        'injuries': 'Injuries', 'action_taken': 'Action taken', 'vet_required': 'Vet required',
+        'vet_details': 'Vet details', 'resolution_notes': 'Resolution notes',
+    }
+
+    def activity_subject(self, obj):
+        return f"'{obj.title}'"
+
+    def activity_dog(self, obj):
+        entries = list(obj.dog_entries.select_related('dog'))
+        return entries[0].dog if len(entries) == 1 else None
 
     def get_serializer_class(self):
         from .serializers import IncidentSerializer, IncidentSummarySerializer
@@ -5346,6 +5670,9 @@ class IncidentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         incident = serializer.save(reported_by=self.request.user)
         self._attach_media(incident)
+        dogs = ', '.join(entry.dog.name for entry in incident.dog_entries.select_related('dog'))
+        self.log_created(incident, f"Logged incident '{incident.title}' ({incident.get_severity_display().lower()})"
+                                   + (f' — {dogs}' if dogs else ''))
         self._notify_new_incident(incident)
 
     def perform_destroy(self, instance):
@@ -5360,6 +5687,7 @@ class IncidentViewSet(viewsets.ModelViewSet):
         if not self.request.user.is_superuser:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only an administrator can delete an incident record.')
+        self.log_deleted(instance)
         instance.delete()
 
     def _notify_new_incident(self, incident):
@@ -5385,7 +5713,9 @@ class IncidentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def add_media(self, request, pk=None):
         incident = self.get_object()
-        self._attach_media(incident)
+        created = self._attach_media(incident)
+        if created:
+            self.log(incident, 'PHOTO', f"Added {len(created)} file(s) to incident '{incident.title}'")
         incident = self.get_queryset().get(pk=incident.pk)
         return Response(self.get_serializer(incident).data)
 
@@ -5395,6 +5725,7 @@ class IncidentViewSet(viewsets.ModelViewSet):
         deleted, _ = incident.media.filter(id=media_id).delete()
         if not deleted:
             return Response({'detail': 'Not found'}, status=404)
+        self.log(incident, 'PHOTO', f"Removed a file from incident '{incident.title}'")
         incident = self.get_queryset().get(pk=incident.pk)
         return Response(self.get_serializer(incident).data)
 
@@ -5413,6 +5744,7 @@ class IncidentViewSet(viewsets.ModelViewSet):
         if incident.status == new_status and not notes:
             return Response(self.get_serializer(incident).data)
 
+        old_status = incident.status
         incident.status = new_status
         if notes:
             incident.resolution_notes = notes
@@ -5423,6 +5755,12 @@ class IncidentViewSet(viewsets.ModelViewSet):
             incident.resolved_by = None
             incident.resolved_at = None
         incident.save()
+        self.log(
+            incident, 'STATUS',
+            f"Marked incident '{incident.title}' as {incident.get_status_display().lower()}" + (f': {notes}' if notes else ''),
+            changes=[{'field': 'status', 'label': 'Status', 'old': dict(Incident.STATUS_CHOICES).get(old_status, old_status),
+                      'new': incident.get_status_display()}] if old_status != new_status else None,
+        )
 
         if incident.reported_by and incident.reported_by != request.user:
             try:
@@ -5448,6 +5786,7 @@ class IncidentViewSet(viewsets.ModelViewSet):
         if not text:
             return Response({'detail': 'Text is required'}, status=400)
         IncidentComment.objects.create(incident=incident, user=request.user, text=text)
+        self.log(incident, 'COMMENT', f"Commented on incident '{incident.title}': {text}")
         incident = self.get_queryset().get(pk=incident.pk)
         return Response(self.get_serializer(incident).data)
 
@@ -5468,6 +5807,8 @@ class IncidentViewSet(viewsets.ModelViewSet):
         entry.owner_notified = notified
         entry.owner_notified_at = timezone.now() if notified else None
         entry.save(update_fields=['owner_notified', 'owner_notified_at'])
+        self.log(incident, 'STATUS', dog=entry.dog,
+                 summary=f"Recorded that {entry.dog.name}'s owner has {'' if notified else 'not '}been told about '{incident.title}'")
         incident = self.get_queryset().get(pk=incident.pk)
         return Response(self.get_serializer(incident).data)
 
@@ -5521,6 +5862,15 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
             notify_new_intake_request(instance)
         except Exception as e:
             print(f"Failed to send push notification: {e}")
+        self._log(instance, 'CREATED', f'Submitted a booking form for {self._dog_names(instance)}')
+
+    @staticmethod
+    def _dog_names(instance):
+        return ', '.join(d.name for d in instance.dogs.all()) or 'no dogs'
+
+    def _log(self, instance, action, summary):
+        log_activity('COMMS', person(instance.owner), action=action, summary=summary,
+                     actor=self.request.user, source='BOOKING_FORM')
 
     def perform_destroy(self, instance):
         # Owners can withdraw their own form only while it's pending; staff can
@@ -5528,6 +5878,10 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         if not self.request.user.is_staff and instance.status != 'PENDING':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can delete a booking form that has been reviewed.')
+        dogs = self._dog_names(instance)
+        self._log(instance, 'DELETED',
+                  f"Deleted {person(instance.owner)}'s booking form for {dogs}" if self.request.user.is_staff
+                  else f'Withdrew their booking form for {dogs}')
         instance.delete()
 
     @action(detail=False, methods=['get'])
@@ -5598,6 +5952,7 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         instance.reviewed_by = request.user
         instance.reviewed_at = timezone.now()
         instance.save()
+        self._log(instance, 'APPROVED', f"Approved {person(instance.owner)}'s booking form for {self._dog_names(instance)}")
 
         self._notify_owner_status(instance, approved=True)
         return Response(self.get_serializer(instance).data)
@@ -5619,6 +5974,8 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         instance.reviewed_by = request.user
         instance.reviewed_at = timezone.now()
         instance.save()
+        self._log(instance, 'DENIED', f"Denied {person(instance.owner)}'s booking form for {self._dog_names(instance)}"
+                                      + (f': {instance.denial_reason}' if instance.denial_reason else ''))
 
         self._notify_owner_status(instance, approved=False)
         return Response(self.get_serializer(instance).data)
@@ -5685,6 +6042,14 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             raise PermissionDenied('You do not have permission to manage payments.')
 
     @staticmethod
+    def _label(invoice):
+        return f'invoice #{invoice.id} for {invoice.billed_name} ({invoice.period_label})'
+
+    def _log(self, invoice, action, summary, changes=None):
+        log_activity('BILLING', f'Invoice #{invoice.id} — {invoice.billed_name}', action=action,
+                     summary=summary, actor=self.request.user, changes=changes)
+
+    @staticmethod
     def _parse_period(request):
         try:
             year = int(request.data.get('year'))
@@ -5730,6 +6095,12 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Generate for a customer or a dog, not both.'}, status=400)
         created, skipped, manual = billing.generate_invoices_for_month(
             year, month, created_by=request.user, customer=customer, dog=dog)
+        import calendar as _calendar
+        period = f'{_calendar.month_name[month]} {year}'
+        scope = f' for {person(customer)}' if customer else f' for {dog.name}' if dog else ''
+        log_activity('BILLING', f'Invoices {period}', action='CREATED', actor=request.user,
+                     summary=f'Generated {len(created)} draft invoice(s) for {period}{scope}'
+                             + (f' ({skipped} skipped)' if skipped else ''))
         return Response({
             'created': len(created),
             'skipped': skipped,
@@ -5756,6 +6127,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=400)
         invoice.refresh_from_db()
+        self._log(invoice, 'STATUS', f'Sent {self._label(invoice)}, £{invoice.total}')
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=False, methods=['post'])
@@ -5785,6 +6157,11 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                     'customer': invoice.billed_name,
                     'detail': str(exc),
                 })
+        import calendar as _calendar
+        period = f'{_calendar.month_name[month]} {year}'
+        if sent or failed:
+            log_activity('BILLING', f'Invoices {period}', action='STATUS', actor=request.user,
+                         summary=f'Sent {sent} invoice(s) for {period}' + (f', {len(failed)} failed' if failed else ''))
         return Response({'sent': sent, 'failed': failed})
 
     @action(detail=True, methods=['post'])
@@ -5797,6 +6174,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         if invoice.status != 'DRAFT':
             return Response({'detail': 'Only draft invoices can be regenerated.'}, status=400)
         billing.regenerate_draft(invoice)
+        self._log(invoice, 'UPDATED', f'Regenerated {self._label(invoice)}, now £{invoice.total}')
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=['post'])
@@ -5837,6 +6215,9 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             notes=(request.data.get('notes') or '')[:255],
         )
         invoice.refresh_from_db()
+        self._log(invoice, 'COMPLETED',
+                  f'Recorded a £{amount:.2f} {dict(PaymentRecord.METHOD_CHOICES).get(method, method).lower()} payment '
+                  f'against {self._label(invoice)}, now {invoice.get_status_display().lower()}')
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=['post'])
@@ -5893,6 +6274,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 invoice.xero_sync_error = f'Void failed in Xero: {exc}'
             invoice.save(update_fields=['xero_sync_error', 'updated_at'])
 
+        self._log(invoice, 'STATUS', f'Voided {self._label(invoice)}'
+                  + (' (also voided in Xero)' if xero_voided else f' (Xero: {xero_error})' if xero_error else ''))
         data = self.get_serializer(invoice).data
         data['xero_voided'] = xero_voided
         if xero_error:
@@ -5916,6 +6299,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=400)
         invoice.refresh_from_db()
+        self._log(invoice, 'UPDATED', f"Added a £{amount:.2f} line '{request.data.get('description', '')}' to {self._label(invoice)}")
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=['post'])
@@ -5930,6 +6314,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=400)
         invoice.refresh_from_db()
+        self._log(invoice, 'UPDATED', f'Removed a line from {self._label(invoice)}')
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=['post'])
@@ -5950,6 +6335,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             if ok:
                 billing.email_invoice_from_xero(invoice)
         invoice.refresh_from_db()
+        if ok:
+            self._log(invoice, 'UPDATED', f'Pushed {self._label(invoice)} to Xero')
         data = self.get_serializer(invoice).data
         data['pushed'] = ok
         return Response(data)
@@ -6108,7 +6495,13 @@ def billing_settings(request):
         return Response({'detail': 'You do not have permission to manage payments.'}, status=403)
 
     pricing = ServicePricing.load()
+    price_fields = {
+        'day_care_price': 'Daycare (legacy flat rate)', 'day_care_price_1_day': 'Daycare 1 day/week',
+        'day_care_price_2_to_4_days': 'Daycare 2–4 days/week', 'day_care_price_5_days': 'Daycare 5 days/week',
+        'boarding_price_per_night': 'Boarding per night', 'owner_transport_discount': 'Owner transport discount',
+    }
     if request.method == 'PATCH':
+        before = snapshot_fields(pricing, price_fields)
         updated = False
         for field in ('day_care_price', 'day_care_price_1_day', 'day_care_price_2_to_4_days',
                       'day_care_price_5_days', 'boarding_price_per_night', 'owner_transport_discount'):
@@ -6124,6 +6517,10 @@ def billing_settings(request):
             updated = True
         if updated:
             pricing.save()
+            changes = diff_fields(before, snapshot_fields(pricing, price_fields), price_fields)
+            if changes:
+                log_activity('BILLING', 'Standard prices', action='UPDATED', actor=request.user, changes=changes,
+                             summary='Changed standard prices: ' + ', '.join(c['label'].lower() for c in changes))
     return Response({
         'day_care_price': pricing.day_care_price,
         'day_care_price_1_day': pricing.day_care_price_1_day,
@@ -6177,6 +6574,8 @@ def customer_rates(request):
     except (UserProfile.DoesNotExist, ValueError):
         return Response({'detail': 'User profile not found'}, status=404)
 
+    rate_fields = {'daycare_rate': 'Daycare rate', 'boarding_rate': 'Boarding rate', 'billing_mode': 'Billing mode'}
+    before = snapshot_fields(profile, rate_fields)
     for field in ('daycare_rate', 'boarding_rate'):
         if field not in request.data:
             continue
@@ -6197,6 +6596,11 @@ def customer_rates(request):
             return Response({'billing_mode': 'Choose APP or MANUAL.'}, status=400)
         profile.billing_mode = mode
     profile.save()
+    changes = diff_fields(before, snapshot_fields(profile, rate_fields), rate_fields)
+    if changes:
+        name = person(profile.user)
+        log_activity('BILLING', name, action='UPDATED', actor=request.user, changes=changes,
+                     summary=f"Changed {name}'s billing: " + ', '.join(c['label'].lower() for c in changes))
     return Response(_customer_rate_payload(profile))
 
 
@@ -6529,7 +6933,8 @@ def _holiday_summary(staff_user, hr_record, year=None):
     }
 
 
-class StaffHRRecordViewSet(viewsets.GenericViewSet,
+class StaffHRRecordViewSet(ActivityLogMixin,
+                           viewsets.GenericViewSet,
                            mixins.ListModelMixin,
                            mixins.RetrieveModelMixin,
                            mixins.UpdateModelMixin):
@@ -6538,6 +6943,17 @@ class StaffHRRecordViewSet(viewsets.GenericViewSet,
     who leaves gets an employment_end_date, keeping the record."""
 
     permission_classes = [IsStaffManager]
+    activity_category = 'STAFF'
+    activity_noun = 'employment record for'
+    activity_fields = {
+        'job_title': 'Job title', 'employment_start_date': 'Start date', 'employment_end_date': 'End date',
+        'holiday_allowance_days': 'Holiday allowance', 'emergency_contact_name': 'Emergency contact',
+        'emergency_contact_phone': 'Emergency contact phone', 'emergency_contact_relationship': 'Emergency contact relationship',
+        'manager_notes': 'Manager notes',
+    }
+
+    def activity_subject(self, obj):
+        return person(obj.user)
 
     def get_queryset(self):
         from .models import StaffHRRecord
@@ -6664,10 +7080,16 @@ class StaffHRRecordViewSet(viewsets.GenericViewSet,
         return Response(rows)
 
 
-class StaffPayRateViewSet(viewsets.ModelViewSet):
+class StaffPayRateViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Pay history, manager-only. ?staff_member=<id> filters one person."""
 
     permission_classes = [IsStaffManager]
+    activity_category = 'STAFF'
+    activity_noun = 'pay rate for'
+    activity_fields = {'pay_type': 'Pay type', 'rate': 'Rate', 'effective_from': 'Effective from', 'note': 'Note'}
+
+    def activity_subject(self, obj):
+        return person(obj.staff_member)
 
     def get_queryset(self):
         from .models import StaffPayRate
@@ -6682,13 +7104,24 @@ class StaffPayRateViewSet(viewsets.ModelViewSet):
         return StaffPayRateSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        rate = serializer.save(created_by=self.request.user)
+        self.log_created(rate, f"Set {person(rate.staff_member)}'s pay to £{rate.rate} "
+                               f'({rate.get_pay_type_display().lower()}) from {_uk(rate.effective_from)}')
 
 
-class StaffMeetingViewSet(viewsets.ModelViewSet):
+class StaffMeetingViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Meetings. Managers manage all; other staff see meetings they attend."""
 
     permission_classes = [IsAdminUser]
+    activity_category = 'STAFF'
+    activity_noun = 'meeting'
+    activity_fields = {
+        'title': 'Title', 'meeting_type': 'Type', 'scheduled_for': 'Scheduled for', 'location': 'Location',
+        'status': 'Status', 'attendees': 'Attendees', 'agenda': 'Agenda', 'minutes': 'Minutes',
+    }
+
+    def activity_subject(self, obj):
+        return f"'{obj.title}'"
 
     def get_permissions(self):
         if self.request.method not in SAFE_METHODS:
@@ -6710,14 +7143,27 @@ class StaffMeetingViewSet(viewsets.ModelViewSet):
         return StaffMeetingSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        meeting = serializer.save(created_by=self.request.user)
+        attendees = ', '.join(person(u) for u in meeting.attendees.all())
+        self.log_created(meeting, f"Scheduled {meeting.get_meeting_type_display().lower()} '{meeting.title}' "
+                                  f"for {meeting.scheduled_for:%d/%m/%Y %H:%M}" + (f' with {attendees}' if attendees else ''))
 
 
-class StaffAppraisalViewSet(viewsets.ModelViewSet):
+class StaffAppraisalViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Appraisals. Managers draft and share; the staff member sees their own
     once shared, and can comment and acknowledge — not edit or delete."""
 
     permission_classes = [IsAdminUser]
+    activity_category = 'STAFF'
+    activity_noun = 'appraisal for'
+    activity_fields = {
+        'appraisal_date': 'Appraisal date', 'overall_rating': 'Rating', 'next_review_date': 'Next review',
+        'status': 'Status', 'summary': 'Summary', 'strengths': 'Strengths',
+        'areas_for_improvement': 'Areas for improvement', 'goals': 'Goals',
+    }
+
+    def activity_subject(self, obj):
+        return person(obj.staff_member)
 
     def get_permissions(self):
         # acknowledge/comment are the staff member's own actions; everything
@@ -6743,7 +7189,8 @@ class StaffAppraisalViewSet(viewsets.ModelViewSet):
         return StaffAppraisalSerializer
 
     def perform_create(self, serializer):
-        serializer.save(appraiser=self.request.user)
+        appraisal = serializer.save(appraiser=self.request.user)
+        self.log_created(appraisal, f'Drafted an appraisal for {person(appraisal.staff_member)}')
 
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
@@ -6758,6 +7205,7 @@ class StaffAppraisalViewSet(viewsets.ModelViewSet):
         appraisal.status = 'SHARED'
         appraisal.shared_at = timezone.now()
         appraisal.save()
+        self.log(appraisal, 'STATUS', f"Shared {person(appraisal.staff_member)}'s appraisal with them")
         send_push_notification(
             appraisal.staff_member,
             'Appraisal shared',
@@ -6776,6 +7224,7 @@ class StaffAppraisalViewSet(viewsets.ModelViewSet):
                             status=drf_status.HTTP_403_FORBIDDEN)
         appraisal.staff_comments = str(request.data.get('staff_comments', ''))[:5000]
         appraisal.save()
+        self.log(appraisal, 'COMMENT', f'{person(request.user)} commented on their appraisal')
         return Response(self.get_serializer(appraisal).data)
 
     @action(detail=True, methods=['post'])
@@ -6793,13 +7242,20 @@ class StaffAppraisalViewSet(viewsets.ModelViewSet):
         appraisal.status = 'ACKNOWLEDGED'
         appraisal.acknowledged_at = timezone.now()
         appraisal.save()
+        self.log(appraisal, 'STATUS', f'{person(request.user)} acknowledged their appraisal')
         return Response(self.get_serializer(appraisal).data)
 
 
-class SicknessAbsenceViewSet(viewsets.ModelViewSet):
+class SicknessAbsenceViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Sickness records. Managers manage all; staff can read their own."""
 
     permission_classes = [IsAdminUser]
+    activity_category = 'STAFF'
+    activity_noun = 'sickness record for'
+    activity_fields = {'start_date': 'From', 'end_date': 'To', 'reason': 'Reason', 'notes': 'Notes'}
+
+    def activity_subject(self, obj):
+        return person(obj.staff_member)
 
     def get_permissions(self):
         if self.request.method not in SAFE_METHODS:
@@ -6821,13 +7277,21 @@ class SicknessAbsenceViewSet(viewsets.ModelViewSet):
         return SicknessAbsenceSerializer
 
     def perform_create(self, serializer):
-        serializer.save(recorded_by=self.request.user)
+        absence = serializer.save(recorded_by=self.request.user)
+        self.log_created(absence, f'Recorded sickness for {person(absence.staff_member)} from {_uk(absence.start_date)}'
+                                  + (f' to {_uk(absence.end_date)}' if absence.end_date else ''))
 
 
-class StaffTrainingRecordViewSet(viewsets.ModelViewSet):
+class StaffTrainingRecordViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Training/qualifications. Managers manage all; staff can read their own."""
 
     permission_classes = [IsAdminUser]
+    activity_category = 'STAFF'
+    activity_noun = 'training record for'
+    activity_fields = {'name': 'Course', 'provider': 'Provider', 'completed_date': 'Completed', 'expiry_date': 'Expires', 'notes': 'Notes'}
+
+    def activity_subject(self, obj):
+        return person(obj.staff_member)
 
     def get_permissions(self):
         if self.request.method not in SAFE_METHODS:
@@ -6849,7 +7313,9 @@ class StaffTrainingRecordViewSet(viewsets.ModelViewSet):
         return StaffTrainingRecordSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        record = serializer.save(created_by=self.request.user)
+        self.log_created(record, f"Recorded training for {person(record.staff_member)}: {record.name}"
+                                 + (f' (expires {_uk(record.expiry_date)})' if record.expiry_date else ''))
 
 
 # --- Safety & compliance register ---
@@ -6866,7 +7332,7 @@ class IsComplianceManager(BasePermission):
         return bool(user.is_superuser or (profile and profile.can_manage_compliance))
 
 
-class ComplianceCheckTypeViewSet(viewsets.ModelViewSet):
+class ComplianceCheckTypeViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """The safety & compliance register: fire alarm tests, extinguisher
     servicing, first aid kits, licence/insurance renewals, and so on.
 
@@ -6874,6 +7340,12 @@ class ComplianceCheckTypeViewSet(viewsets.ModelViewSet):
     the list); adding/editing/removing checks needs can_manage_compliance."""
 
     permission_classes = [IsAdminUser]
+    activity_category = 'COMPLIANCE'
+    activity_noun = 'check'
+    activity_fields = {'name': 'Name', 'category': 'Category', 'frequency': 'Frequency', 'description': 'Description', 'is_active': 'Active'}
+
+    def activity_subject(self, obj):
+        return f"'{obj.name}'"
 
     def get_permissions(self):
         if self.request.method not in SAFE_METHODS:
@@ -6903,15 +7375,22 @@ class ComplianceCheckTypeViewSet(viewsets.ModelViewSet):
         return ComplianceCheckTypeSerializer
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        check = serializer.save(created_by=self.request.user)
+        self.log_created(check, f"Added check '{check.name}' ({check.get_frequency_display().lower()})")
 
 
-class ComplianceCheckLogViewSet(viewsets.ModelViewSet):
+class ComplianceCheckLogViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Completions of compliance checks. Any staff member can log one and
     read the history; editing or deleting a past log is manager-only (the
     register is an audit trail)."""
 
     permission_classes = [IsAdminUser]
+    activity_category = 'COMPLIANCE'
+    activity_noun = 'completion of'
+    activity_fields = {'performed_on': 'Done on', 'result': 'Result', 'notes': 'Notes'}
+
+    def activity_subject(self, obj):
+        return f"'{obj.check_type.name}'"
 
     def get_permissions(self):
         if self.request.method not in SAFE_METHODS and self.action != 'create':
@@ -6931,4 +7410,6 @@ class ComplianceCheckLogViewSet(viewsets.ModelViewSet):
         return ComplianceCheckLogSerializer
 
     def perform_create(self, serializer):
-        serializer.save(performed_by=self.request.user)
+        entry = serializer.save(performed_by=self.request.user)
+        self.log(entry, 'COMPLETED', f"Completed '{entry.check_type.name}' on {_uk(entry.performed_on)}: "
+                                     f'{entry.get_result_display().lower()}' + (f' — {entry.notes}' if entry.notes else ''))
