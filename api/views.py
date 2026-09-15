@@ -3748,17 +3748,17 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def mark_read(self, request, pk=None):
-        """Mark a query as read by the owner and/or staff."""
+        """Mark a query as read by the owner.
+
+        Staff opening a thread deliberately changes nothing: the Contact
+        Staff badge counts threads awaiting a reply, and only a reply or a
+        resolve clears it — otherwise a message opened, glanced at and
+        closed would vanish from everyone's count and go unanswered.
+        """
         from .serializers import SupportQuerySerializer
         query = self.get_object()
-        changed = False
         if request.user == query.owner:
             query.has_unread_reply = False
-            changed = True
-        if request.user.is_staff:
-            query.staff_has_unread = False
-            changed = True
-        if changed:
             query.save()
         return Response(SupportQuerySerializer(query, context={'request': request}).data)
 
@@ -5171,10 +5171,17 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unread_count(self, request):
+        """Enquiries nobody has replied to yet — the Website Inquiries badge.
+
+        Counts ``is_replied``, not ``is_read``: opening an enquiry marks it
+        read, and a badge that cleared on a glance would let an enquiry go
+        unanswered. Only "Mark as replied" clears it. (The route keeps its
+        old name for app versions that already call it.)
+        """
         # Permission is handled by InquiryViewerPermission; this used to
         # dereference user.profile unguarded, which is an AttributeError 500 for
         # any user without one.
-        return Response({'count': ContactInquiry.objects.filter(is_read=False).count()})
+        return Response({'count': ContactInquiry.objects.filter(is_replied=False).count()})
 
 
 class ContactInquiryCreateThrottle(AnonRateThrottle):

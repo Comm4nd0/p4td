@@ -101,7 +101,7 @@ class ActionItemsSection extends StatelessWidget {
         const SizedBox(height: 4),
         ActionItemTile(
           icon: PiconsDuotone.chats,
-          label: 'Unresolved Queries',
+          label: 'Messages awaiting reply',
           count: unresolvedQueryCount,
           countColor: unresolvedQueryCount > 0 ? Colors.red : null,
           onTap: onOpenQueries,
@@ -118,7 +118,7 @@ class ActionItemsSection extends StatelessWidget {
           const SizedBox(height: 4),
           ActionItemTile(
             icon: PiconsDuotone.envelope,
-            label: 'Unread Inquiries',
+            label: 'Enquiries awaiting reply',
             count: unreadInquiryCount,
             countColor: unreadInquiryCount > 0 ? Colors.red : null,
             onTap: onOpenInquiries,
