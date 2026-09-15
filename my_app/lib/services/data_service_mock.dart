@@ -638,7 +638,17 @@ class MockDataService implements DataService {
   @override
   Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false}) async => [];
   @override
-  Future<List<DogChangeLog>> getDogChangeLogs({String? dogId, int? limit}) async => [];
+  Future<List<DogChangeLog>> getDogChangeLogs({
+    String? dogId,
+    int? limit,
+    String? actorId,
+    String? action,
+    DateTime? from,
+    DateTime? to,
+  }) async =>
+      [];
+  @override
+  Future<List<DogChangeActor>> getDogChangeLogActors() async => [];
   @override
   Future<Incident> getIncident(int id) async =>
       Incident(id: id, title: 'Test', occurredAt: DateTime.now());

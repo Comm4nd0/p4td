@@ -3393,14 +3393,28 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<DogChangeLog>> getDogChangeLogs({String? dogId, int? limit}) async {
-    final base = Uri.parse('${AuthService.baseUrl}/api/dog-change-logs/');
+  Future<List<DogChangeLog>> getDogChangeLogs({
+    String? dogId,
+    int? limit,
+    String? actorId,
+    String? action,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    String isoDate(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final params = <String, String>{
+      if (dogId != null) 'dog': dogId,
+      if (actorId != null) 'actor': actorId,
+      if (action != null) 'action': action,
+      if (from != null) 'from': isoDate(from),
+      if (to != null) 'to': isoDate(to),
+      if (limit != null) 'limit': '$limit',
+    };
+    final uri = Uri.parse('${AuthService.baseUrl}/api/dog-change-logs/')
+        .replace(queryParameters: params.isEmpty ? null : params);
     if (limit != null) {
       // A bare newest-N list, no envelope — the dashboard's summary.
-      final uri = base.replace(queryParameters: {
-        if (dogId != null) 'dog': dogId,
-        'limit': '$limit',
-      });
       final response = await _get(uri);
       if (response.statusCode != 200) {
         throw Exception('Failed to load change log: ${response.statusCode}');
@@ -3408,9 +3422,19 @@ class ApiDataService implements DataService {
       final List<dynamic> data = json.decode(response.body);
       return data.map((e) => DogChangeLog.fromJson(e as Map<String, dynamic>)).toList();
     }
-    final uri = dogId == null ? base : base.replace(queryParameters: {'dog': dogId});
+    // _fetchAllPages keeps the filter params while adding the page ones.
     final rows = await _fetchAllPages(uri);
     return rows.map((e) => DogChangeLog.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  @override
+  Future<List<DogChangeActor>> getDogChangeLogActors() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dog-change-logs/actors/'));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load change log actors: ${response.statusCode}');
+    }
+    final List<dynamic> data = json.decode(response.body);
+    return data.map((e) => DogChangeActor.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   @override

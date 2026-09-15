@@ -271,7 +271,18 @@ abstract class DataService {
 
   // Dog change log (staff only). [dogId] narrows to one dog; [limit] returns
   // just the newest N — the dashboard's summary — else the whole trail.
-  Future<List<DogChangeLog>> getDogChangeLogs({String? dogId, int? limit});
+  // [actorId] is a user id or 'system'; [from]/[to] are inclusive dates.
+  Future<List<DogChangeLog>> getDogChangeLogs({
+    String? dogId,
+    int? limit,
+    String? actorId,
+    String? action,
+    DateTime? from,
+    DateTime? to,
+  });
+
+  /// Everyone who appears in the change log, for its "changed by" filter.
+  Future<List<DogChangeActor>> getDogChangeLogActors();
 
   // Incidents (staff only — the API refuses owners outright)
   Future<List<Incident>> getIncidents({String? dogId, String? status, bool openOnly = false});

@@ -3912,6 +3912,11 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
     dog's trail (the profile's Change Log); no filter is the master log the
     dashboard shows the latest few of. ``?limit=N`` (max 200) returns just
     the newest N as a bare list; ``?page=`` opts into the page envelope.
+
+    Further filters, all combinable: ``?actor=<user id>`` (or ``system`` for
+    entries nobody signed in for), ``?action=<ACTION>``, and ``?from=`` /
+    ``?to=`` as inclusive ``YYYY-MM-DD`` local dates. ``actors/`` lists who
+    appears in the log, for the filter picker.
     """
     permission_classes = [IsAdminUser]
     pagination_class = OptInPagination
@@ -3921,12 +3926,56 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
         return DogChangeLogSerializer
 
     def get_queryset(self):
+        from datetime import date as date_cls
+        from rest_framework.exceptions import ValidationError
         from .models import DogChangeLog
+
+        params = self.request.query_params
         queryset = DogChangeLog.objects.select_related('dog', 'actor')
-        dog_id = self.request.query_params.get('dog')
+        dog_id = params.get('dog')
         if dog_id:
             queryset = queryset.filter(dog_id=dog_id)
+        actor = params.get('actor')
+        if actor == 'system':
+            queryset = queryset.filter(actor__isnull=True)
+        elif actor:
+            queryset = queryset.filter(actor_id=actor)
+        action_type = params.get('action')
+        if action_type:
+            queryset = queryset.filter(action=action_type)
+        for param, lookup in (('from', 'created_at__date__gte'), ('to', 'created_at__date__lte')):
+            raw = params.get(param)
+            if not raw:
+                continue
+            try:
+                queryset = queryset.filter(**{lookup: date_cls.fromisoformat(raw)})
+            except ValueError:
+                raise ValidationError({param: 'Use YYYY-MM-DD.'})
         return queryset
+
+    @action(detail=False, methods=['get'])
+    def actors(self, request):
+        """Everyone who appears in the log, for the "changed by" filter:
+        ``[{id, name}]`` by name, with ``{id: null, name: 'System'}`` last
+        when unattributed entries exist."""
+        from .models import DogChangeLog
+        rows = (
+            DogChangeLog.objects.exclude(actor__isnull=True)
+            .values('actor_id', 'actor_name')
+            .distinct()
+        )
+        # An actor's snapshot name can vary over time (a rename); show one
+        # row per person under their latest name.
+        latest_name = {}
+        for row in rows.order_by('actor_id', '-created_at'):
+            latest_name.setdefault(row['actor_id'], row['actor_name'])
+        people = sorted(
+            ({'id': actor_id, 'name': name or 'Unknown'} for actor_id, name in latest_name.items()),
+            key=lambda p: p['name'].lower(),
+        )
+        if DogChangeLog.objects.filter(actor__isnull=True).exists():
+            people.append({'id': None, 'name': 'System'})
+        return Response(people)
 
     def list(self, request, *args, **kwargs):
         limit = request.query_params.get('limit')

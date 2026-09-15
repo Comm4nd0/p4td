@@ -13016,3 +13016,75 @@ class DogChangeLogTests(TestCase):
         resp = self.client.get('/api/dog-change-logs/?page=1&page_size=3')
         self.assertEqual(resp.data['count'], 8)
         self.assertEqual(len(resp.data['results']), 3)
+
+
+class DogChangeLogFilterTests(TestCase):
+    """The master log narrows by who, what kind of change, and when."""
+
+    def setUp(self):
+        from .models import DogChangeLog
+        self.owner = User.objects.create_user(username='alex@example.com', password='pw', first_name='Alex', last_name='Smith')
+        self.sam = User.objects.create_user(username='sam@example.com', password='pw', first_name='Sam', is_staff=True)
+        self.kim = User.objects.create_user(username='kim@example.com', password='pw', first_name='Kim', is_staff=True)
+        self.buddy = Dog.objects.create(owner=self.owner, name='Buddy')
+        self.luna = Dog.objects.create(owner=self.owner, name='Luna')
+        DogChangeLog.objects.all().delete()  # drop the creation rows: this suite seeds its own
+        as_sam, as_kim = APIClient(), APIClient()
+        as_sam.force_authenticate(self.sam)
+        as_kim.force_authenticate(self.kim)
+        as_sam.patch(f'/api/dogs/{self.buddy.id}/', {'general_notes': 'a'}, format='json')
+        as_kim.patch(f'/api/dogs/{self.luna.id}/', {'general_notes': 'b'}, format='json')
+        as_kim.post('/api/vaccinations/', {
+            'dog': self.buddy.id, 'name': 'DHP',
+            'date_administered': '2026-09-01', 'expiry_date': '2027-09-01',
+        }, format='json')
+        # A management-command style change: nobody signed in.
+        self.buddy.refresh_from_db()
+        self.buddy.name = 'Buddy B'
+        self.buddy.save()
+        # Spread them over three days, oldest first.
+        for days_ago, log in enumerate(reversed(DogChangeLog.objects.order_by('created_at', 'id'))):
+            DogChangeLog.objects.filter(pk=log.pk).update(
+                created_at=timezone.now() - timedelta(days=days_ago))
+        self.client = as_sam
+
+    def _summaries(self, query):
+        resp = self.client.get(f'/api/dog-change-logs/?{query}')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        return [r['summary'] for r in resp.data]
+
+    def test_filter_by_actor_including_system(self):
+        self.assertEqual(self._summaries(f'actor={self.kim.id}'), [
+            'Added vaccination: DHP (given 01/09/2026, expires 01/09/2027)',
+            'Updated general notes',
+        ])
+        self.assertEqual(self._summaries('actor=system'), ['Updated name'])
+
+    def test_filter_by_action_and_dog_combine(self):
+        self.assertEqual(self._summaries('action=UPDATED'), ['Updated name', 'Updated general notes', 'Updated general notes'])
+        self.assertEqual(self._summaries(f'action=UPDATED&dog={self.luna.id}'), ['Updated general notes'])
+        self.assertEqual(self._summaries(f'action=VACCINATION&actor={self.sam.id}'), [])
+
+    def test_filter_by_date_range_is_inclusive(self):
+        today = timezone.localdate()
+        two_days_ago = today - timedelta(days=2)
+        # Newest first: name (today), vaccination (1 day ago), then the two
+        # general-notes edits (2 and 3 days ago).
+        self.assertEqual(self._summaries(f'from={today.isoformat()}'), ['Updated name'])
+        self.assertEqual(self._summaries(f'to={two_days_ago.isoformat()}'),
+                         ['Updated general notes', 'Updated general notes'])
+        self.assertEqual(len(self._summaries(f'from={two_days_ago.isoformat()}&to={today.isoformat()}')), 3)
+        resp = self.client.get('/api/dog-change-logs/?from=yesterday')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_actors_lists_everyone_in_the_log_with_system_last(self):
+        resp = self.client.get('/api/dog-change-logs/actors/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, [
+            {'id': self.kim.id, 'name': 'Kim'},
+            {'id': self.sam.id, 'name': 'Sam'},
+            {'id': None, 'name': 'System'},
+        ])
+        owner_client = APIClient()
+        owner_client.force_authenticate(self.owner)
+        self.assertEqual(owner_client.get('/api/dog-change-logs/actors/').status_code, 403)
