@@ -4,8 +4,8 @@
 # Pinned to the versions currently resolved in dev so dev/CI/prod stay aligned.
 
 # Django core
-Django==5.2.10
-djangorestframework==3.16.1
+Django==5.2.17
+djangorestframework==3.17.2
 djoser==2.2.3
 django-cors-headers==4.3.1
 

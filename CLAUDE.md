@@ -52,7 +52,7 @@ python manage.py runserver
 - **Dev DB**: SQLite (default)
 - **Prod DB**: PostgreSQL 15
 - **Python version**: 3.11
-- **Django version**: 5.2.10
+- **Django version**: 5.2.17
 
 ### Mobile (Flutter)
 
