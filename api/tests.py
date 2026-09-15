@@ -13241,3 +13241,46 @@ class ActivityLogTests(TestCase):
         row = self.client.get('/api/dog-change-logs/?category=COMMS').data[0]
         self.assertEqual((row['category'], row['category_display'], row['subject'], row['dog_name'], row['dog']),
                          ('COMMS', 'Client communications', 'Olivia Owen', 'Olivia Owen', None))
+
+
+class DogInvoiceCoverageTests(TestCase):
+    """The profile calendar's "which invoice covers this day" markers are for
+    payment managers only, and follow the invoice lines' dates."""
+
+    def setUp(self):
+        from .models import Invoice, InvoiceLine
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.manager = User.objects.create_user(username='paymgr', password='pw', is_staff=True)
+        self.manager.profile.can_manage_payments = True
+        self.manager.profile.save()
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido')
+        self.sent = Invoice.objects.create(
+            customer=self.owner, period_year=2026, period_month=6, status='SENT',
+            xero_invoice_number='INV-0042', due_date=date(2026, 6, 15))
+        for day in ('2026-06-01', '2026-06-03'):
+            InvoiceLine.objects.create(invoice=self.sent, dog=self.dog, description=f'Daycare — Fido — {day}',
+                                       quantity=1, unit_price=Decimal('35.00'), line_total=Decimal('35.00'),
+                                       attendance_dates=[day])
+        void = Invoice.objects.create(customer=self.owner, period_year=2026, period_month=5, status='VOID')
+        InvoiceLine.objects.create(invoice=void, dog=self.dog, description='old', quantity=1,
+                                   unit_price=Decimal('35.00'), line_total=Decimal('35.00'),
+                                   attendance_dates=['2026-05-04'])
+        self.client = APIClient()
+
+    def test_only_payment_managers_can_see_coverage(self):
+        for username in ('owner', 'staff'):
+            self.client.login(username=username, password='pw')
+            self.assertEqual(self.client.get(f'/api/dogs/{self.dog.id}/invoice-coverage/').status_code, 403)
+
+    def test_each_invoiced_day_names_its_invoice_and_void_lines_are_ignored(self):
+        self.client.login(username='paymgr', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/invoice-coverage/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(sorted(resp.data['dates']), ['2026-06-01', '2026-06-03'])
+        entry = resp.data['dates']['2026-06-01']
+        self.assertEqual(entry['invoice'], self.sent.id)
+        self.assertEqual(entry['period_label'], 'June 2026')
+        self.assertEqual(entry['xero_invoice_number'], 'INV-0042')
+        self.assertEqual((entry['status'], entry['status_display']), ('SENT', 'Sent'))
+        self.assertTrue(entry['is_overdue'])

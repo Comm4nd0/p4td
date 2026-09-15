@@ -169,6 +169,11 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
+- `api/dogs/<id>/invoice-coverage/` — payment managers only (`can_manage_payments`); which
+  invoice charges each of the dog's days, from every non-VOID invoice line's
+  `attendance_dates`. Feeds the dog profile calendar's invoice dots (`DogScheduleCalendar`
+  `invoiceCoverage`, long-press a day to see and open the invoice); everyone else gets 403
+  and the app passes null, so owners and ordinary staff never see it.
 - `api/dogs/health_flags/` — staff-only; feeds the dashboard's single **Dog health to
   confirm** row: male dogs over a year old not marked neutered, plus dogs whose
   `last_vaccination_date` is more than a year old (no date = not flagged), with a grand

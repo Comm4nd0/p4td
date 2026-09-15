@@ -1105,6 +1105,20 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<Map<DateTime, InvoiceCoverage>> getDogInvoiceCoverage(String dogId) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/invoice-coverage/'));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load invoice coverage: ${response.statusCode}');
+    }
+    final data = json.decode(response.body) as Map<String, dynamic>;
+    final dates = (data['dates'] as Map<String, dynamic>?) ?? const {};
+    return {
+      for (final entry in dates.entries)
+        DateTime.parse(entry.key): InvoiceCoverage.fromJson(Map<String, dynamic>.from(entry.value as Map)),
+    };
+  }
+
+  @override
   Future<List<DateChangeRequest>> getDateChangeRequests({String? dogId}) async {
     final data = await _fetchAllPages(
       Uri.parse('${AuthService.baseUrl}/api/date-change-requests/'),

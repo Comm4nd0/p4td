@@ -95,6 +95,46 @@ class InvoicePayment {
   }
 }
 
+/// Which invoice charges one day of a dog's calendar — a row of
+/// `/api/dogs/{id}/invoice-coverage/`, shown to payment managers only.
+class InvoiceCoverage {
+  final int invoiceId;
+  final String periodLabel;
+  final String xeroInvoiceNumber;
+
+  /// DRAFT | SENDING | SENT | PART_PAID | PAID
+  final String status;
+  final String statusDisplay;
+  final bool isOverdue;
+
+  const InvoiceCoverage({
+    required this.invoiceId,
+    required this.periodLabel,
+    this.xeroInvoiceNumber = '',
+    required this.status,
+    required this.statusDisplay,
+    this.isOverdue = false,
+  });
+
+  bool get isPaid => status == 'PAID';
+  bool get isDraft => status == 'DRAFT' || status == 'SENDING';
+
+  /// "Invoice #12 — June 2026 (INV-0042)"
+  String get label =>
+      'Invoice #$invoiceId — $periodLabel${xeroInvoiceNumber.isNotEmpty ? ' ($xeroInvoiceNumber)' : ''}';
+
+  String get statusLabel => isOverdue ? 'Overdue' : statusDisplay;
+
+  factory InvoiceCoverage.fromJson(Map<String, dynamic> json) => InvoiceCoverage(
+        invoiceId: json['invoice'],
+        periodLabel: json['period_label'] ?? '',
+        xeroInvoiceNumber: json['xero_invoice_number'] ?? '',
+        status: json['status'] ?? 'DRAFT',
+        statusDisplay: json['status_display'] ?? '',
+        isOverdue: json['is_overdue'] ?? false,
+      );
+}
+
 /// Outcome of a generate call: how many drafts were created/skipped/left on
 /// manual billing, how many of the new drafts were also raised in Xero, and
 /// the new invoice ids (so a single-dog generation can open its draft).
