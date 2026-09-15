@@ -29,6 +29,7 @@ import 'staff_notifications_screen.dart';
 import 'feed_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'unified_dashboard_screen.dart';
+import 'client_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'my_calendar_screen.dart';
@@ -287,12 +288,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final profile = await _dataService.getProfile();
       if (mounted) {
         _applyPermissions(profile);
+        // Everyone lands on their Dashboard (unless a deep link overrides):
+        // the roster for staff, today-and-next-visit for owners. Done here
+        // rather than as the index default so the tab's body is built for
+        // the right role from the start.
+        if (widget.initialRoute == null && _currentIndex == 1) {
+          setState(() => _currentIndex = 2);
+        }
         // Load pending requests count and subscribe to notifications
         if (profile.isStaff) {
-          // Default to Dashboard tab for staff (unless deep-link overrides)
-          if (widget.initialRoute == null && _currentIndex == 1) {
-            setState(() => _currentIndex = 2);
-          }
           // Warm the offline caches (route + dog photos) while on WiFi, so
           // the app keeps working through signal dead zones mid-route.
           getIt<OfflinePrefetchService>().prefetchForToday();
@@ -589,7 +593,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? _buildDogsView()
             : _currentIndex == 1
                 ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
-                : UnifiedDashboardScreen(
+                // Both roles have a Dashboard tab; only staff get the roster.
+                : !_isStaff
+                    ? ClientDashboardScreen(
+                        dogs: _allDogs,
+                        onSwitchToFeed: () => setState(() => _currentIndex = 1),
+                      )
+                    : UnifiedDashboardScreen(
                     key: _dashboardKey,
                     canAssignDogs: _canAssignDogs,
                     canManageRequests: _canManageRequests,
@@ -680,11 +690,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     icon: Picon(PiconsDuotone.images),
                     label: 'Feed',
                   ),
-                  if (_isStaff)
-                    BottomNavigationBarItem(
-                      icon: Picon(PiconsDuotone.squaresFour),
-                      label: "Dashboard",
-                    ),
+                  BottomNavigationBarItem(
+                    icon: Picon(PiconsDuotone.squaresFour),
+                    label: 'Dashboard',
+                  ),
                 ],
               ),
             ),
@@ -782,7 +791,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _navTile(0, PiconsDuotone.pawPrint,
                     _isStaff ? 'All Dogs' : (_allDogs.length == 1 ? _allDogs.first.name : 'My Dogs')),
                 _navTile(1, PiconsDuotone.images, 'Feed'),
-                if (_isStaff) _navTile(2, PiconsDuotone.squaresFour, 'Dashboard'),
+                _navTile(2, PiconsDuotone.squaresFour, 'Dashboard'),
               ],
             )
           else

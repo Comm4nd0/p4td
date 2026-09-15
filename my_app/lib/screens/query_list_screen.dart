@@ -7,6 +7,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import 'query_detail_screen.dart';
+import '../widgets/new_query_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/page_body.dart';
 
@@ -85,75 +86,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
   }
 
   Future<void> _showNewQueryDialog() async {
-    final subjectController = TextEditingController();
-    final messageController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New Message'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: subjectController,
-                decoration: const InputDecoration(
-                  labelText: 'Subject',
-                  hintText: 'Brief summary',                ),
-                validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: messageController,
-                decoration: const InputDecoration(
-                  labelText: 'Message',
-                  hintText: 'Your message',                ),
-                maxLines: 4,
-                validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(context, true);
-              }
-            },
-            child: const Text('Submit'),
-          ),
-        ],
-      ),
-    );
-
-    if (result == true) {
-      try {
-        await _dataService.createSupportQuery(
-          subject: subjectController.text.trim(),
-          initialMessage: messageController.text.trim(),
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Message sent'), backgroundColor: AppColors.success),
-          );
-        }
-        _loadQueries();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to send message: $e')),
-          );
-        }
-      }
-    }
+    if (await showNewQueryDialog(context)) _loadQueries();
   }
 
   Future<void> _showStaffNewQueryDialog() async {
