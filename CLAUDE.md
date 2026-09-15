@@ -361,7 +361,7 @@ cannot simply be copied.
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
 > | Live on the App Store | **1.11.28** | `c22da1b` | Released through the web UI on 2026-08-31 |
-> | Submitted, in review | 1.12.9 | `2c70979` | Tag `v1.12.9`, build 592, submitted 2026-09-08 |
+> | Submitted, in review | 1.12.26 | (pubspec commit of tag `v1.12.26`) | Tag `v1.12.26`, Android build 470, submitted 2026-09-15 |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
