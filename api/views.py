@@ -649,6 +649,49 @@ class DogViewSet(viewsets.ModelViewSet):
         )
         return Response({'dates': [d.isoformat() for d in dates]})
 
+    @action(detail=True, methods=['get'], url_path='invoice-coverage')
+    def invoice_coverage(self, request, pk=None):
+        """Payment managers only: which invoice charges each of the dog's days.
+
+        GET /api/dogs/{id}/invoice-coverage/
+
+        ``{"dates": {"YYYY-MM-DD": {invoice, period_label, xero_invoice_number,
+        status, status_display, is_overdue}}}`` — one entry per date on any
+        non-VOID invoice line for the dog, whichever invoice carries it (the
+        dog's own or its owner's). The profile calendar marks those days and
+        names the invoice on a long-press; a day on no invoice is absent.
+        """
+        if not _user_can_manage_payments(request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff who manage payments can see invoice coverage.')
+        from .models import InvoiceLine
+
+        dog = self.get_object()
+        today = timezone.localdate()
+        lines = (
+            InvoiceLine.objects.filter(dog=dog, is_adjustment=False)
+            .exclude(invoice__status='VOID')
+            .select_related('invoice')
+            .order_by('invoice_id', 'id')
+        )
+        dates = {}
+        for line in lines:
+            invoice = line.invoice
+            info = {
+                'invoice': invoice.id,
+                'period_label': invoice.period_label,
+                'xero_invoice_number': invoice.xero_invoice_number,
+                'status': invoice.status,
+                'status_display': invoice.get_status_display(),
+                'is_overdue': bool(
+                    invoice.status in ('SENT', 'PART_PAID')
+                    and invoice.due_date is not None and invoice.due_date < today
+                ),
+            }
+            for day in line.attendance_dates:
+                dates[day] = info
+        return Response({'dates': dates})
+
     @action(detail=False, methods=['post'])
     def bulk_import(self, request):
         """Staff-only endpoint to bulk import dog names.

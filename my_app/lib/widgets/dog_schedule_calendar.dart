@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
+import '../models/invoice.dart';
 
 /// Month calendar showing a dog's daycare schedule on their profile.
 ///
@@ -52,6 +54,13 @@ class DogScheduleCalendar extends StatefulWidget {
   /// just explains in a snackbar that boarding is managed elsewhere.
   final void Function(DateTime date)? onBoardingDayTap;
 
+  /// Which invoice charges each day — payment managers only (the dog profile
+  /// passes null for everyone else, and the API refuses them anyway). Days
+  /// with an entry get a small dot coloured by the invoice's state, and a
+  /// long-press names the invoice; [onInvoiceTap] opens it.
+  final Map<DateTime, InvoiceCoverage>? invoiceCoverage;
+  final void Function(InvoiceCoverage coverage)? onInvoiceTap;
+
   const DogScheduleCalendar({
     super.key,
     required this.firstDay,
@@ -67,6 +76,8 @@ class DogScheduleCalendar extends StatefulWidget {
     required this.onBookedDayTap,
     required this.onFreeDayTap,
     this.onBoardingDayTap,
+    this.invoiceCoverage,
+    this.onInvoiceTap,
   });
 
   @override
@@ -79,6 +90,62 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
   static const Color _booked = AppColors.success;
   static const Color _pending = AppColors.warning;
   static const Color _boarding = Colors.deepPurple;
+  static const Color _invoicedPaid = Colors.white;
+  static const Color _invoicedUnpaid = AppColors.warning;
+  static const Color _invoicedOverdue = AppColors.error;
+  static final Color _invoicedDraft = Colors.grey[400]!;
+
+  bool get _showsInvoices => widget.invoiceCoverage != null;
+
+  Color _coverageColor(InvoiceCoverage coverage) {
+    if (coverage.isOverdue) return _invoicedOverdue;
+    if (coverage.isPaid) return _invoicedPaid;
+    if (coverage.isDraft) return _invoicedDraft;
+    return _invoicedUnpaid;
+  }
+
+  /// Long-press: which invoice (if any) charges this day, with a way in.
+  void _showInvoiceSheet(DateTime day) {
+    final d = _norm(day);
+    final coverage = widget.invoiceCoverage?[d];
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(DateFormat('EEEE d MMMM yyyy').format(d),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (coverage == null)
+              Text('Not on any invoice yet.', style: TextStyle(color: Colors.grey[700]))
+            else ...[
+              Text(coverage.label),
+              const SizedBox(height: 4),
+              Text(coverage.statusLabel,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: coverage.isOverdue ? AppColors.error : Colors.grey[700])),
+              if (widget.onInvoiceTap != null) ...[
+                const SizedBox(height: 16),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    widget.onInvoiceTap!(coverage);
+                  },
+                  child: const Text('Open invoice'),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -170,34 +237,60 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
       decoration = TextDecoration.lineThrough;
     }
 
-    if (fill == null && border == null && !isToday) {
+    final coverage = widget.invoiceCoverage?[d];
+    if (fill == null && border == null && !isToday && coverage == null) {
       return null; // default rendering
     }
 
+    final circle = Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: fill,
+        shape: BoxShape.circle,
+        border: border != null
+            ? Border.all(color: border, width: 1.5)
+            : (isToday && fill == null
+                ? Border.all(color: Theme.of(context).primaryColor, width: 1.5)
+                : null),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '${day.day}',
+        style: TextStyle(
+          color: textColor ??
+              (isToday ? Theme.of(context).primaryColor : null),
+          fontWeight: FontWeight.w600,
+          decoration: decoration,
+          fontSize: 14,
+        ),
+      ),
+    );
+    if (coverage == null) return Center(child: circle);
+    // A small dot under the number says the day is on an invoice; its colour
+    // says whether that invoice is paid, unpaid, overdue or still a draft.
     return Center(
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: fill,
-          shape: BoxShape.circle,
-          border: border != null
-              ? Border.all(color: border, width: 1.5)
-              : (isToday && fill == null
-                  ? Border.all(color: Theme.of(context).primaryColor, width: 1.5)
-                  : null),
-        ),
+      child: Stack(
         alignment: Alignment.center,
-        child: Text(
-          '${day.day}',
-          style: TextStyle(
-            color: textColor ??
-                (isToday ? Theme.of(context).primaryColor : null),
-            fontWeight: FontWeight.w600,
-            decoration: decoration,
-            fontSize: 14,
+        children: [
+          circle,
+          Positioned(
+            bottom: 3,
+            child: Semantics(
+              label: 'On ${coverage.label}, ${coverage.statusLabel}',
+              child: Container(
+                key: ValueKey('invoice-dot-${d.year}-${d.month}-${d.day}'),
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _coverageColor(coverage),
+                  border: Border.all(color: fill == null ? Colors.grey[600]! : Colors.white, width: 1),
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -241,6 +334,7 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
             setState(() => _focusedDay = focusedDay);
             _onDayTapped(selectedDay);
           },
+          onDayLongPressed: _showsInvoices ? (day, _) => _showInvoiceSheet(day) : null,
           onPageChanged: (focusedDay) => _focusedDay = focusedDay,
           calendarBuilders: CalendarBuilders(
             defaultBuilder: (context, day, _) =>
@@ -266,6 +360,20 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
             _legendDot(Colors.grey[400]!, 'Closed'),
           ],
         ),
+        if (_showsInvoices) ...[
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            alignment: WrapAlignment.center,
+            children: [
+              _legendDot(_invoicedUnpaid, 'Invoiced', outlined: true),
+              _legendDot(_invoicedOverdue, 'Overdue', outlined: true),
+              _legendDot(Colors.grey[700]!, 'Paid', outlined: true),
+              _legendDot(_invoicedDraft, 'Draft invoice', outlined: true),
+            ],
+          ),
+        ],
         const SizedBox(height: 4),
         Text(
           widget.isStaff
@@ -275,6 +383,8 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
                     'Tap a boarding day to cancel the stay.',
                   if (widget.allowPastEdits)
                     'Past days can be edited too — changes update attendance used for invoicing.',
+                  if (_showsInvoices)
+                    'A dot under a day means it is on an invoice — long-press the day to see which.',
                 ].join(' ')
               : 'Tap a booked day to request a cancellation or move, or a free day to request an extra day.',
           textAlign: TextAlign.center,

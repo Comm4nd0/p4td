@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:paws4thoughtdogs/models/closure_day.dart';
+import 'package:paws4thoughtdogs/models/invoice.dart';
 import 'package:paws4thoughtdogs/widgets/dog_schedule_calendar.dart';
 
 void main() {
@@ -14,6 +15,8 @@ void main() {
     required void Function(DateTime) onFreeDayTap,
     void Function(DateTime)? onBoardingDayTap,
     bool isStaff = false,
+    Map<DateTime, InvoiceCoverage>? invoiceCoverage,
+    void Function(InvoiceCoverage)? onInvoiceTap,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -38,11 +41,60 @@ void main() {
             onBookedDayTap: onBookedDayTap,
             onFreeDayTap: onFreeDayTap,
             onBoardingDayTap: onBoardingDayTap,
+            invoiceCoverage: invoiceCoverage,
+            onInvoiceTap: onInvoiceTap,
           ),
         ),
       ),
     );
   }
+
+  group('invoice coverage (payment managers)', () {
+    const coverage = InvoiceCoverage(
+      invoiceId: 12,
+      periodLabel: 'June 2030',
+      xeroInvoiceNumber: 'INV-0042',
+      status: 'SENT',
+      statusDisplay: 'Sent',
+    );
+
+    testWidgets('without coverage there are no dots and no invoice legend', (tester) async {
+      await tester.pumpWidget(buildCalendar(onBookedDayTap: (_) {}, onFreeDayTap: (_) {}, isStaff: true));
+      expect(find.byKey(const ValueKey('invoice-dot-2030-6-10')), findsNothing);
+      expect(find.text('Invoiced'), findsNothing);
+      expect(find.textContaining('long-press'), findsNothing);
+    });
+
+    testWidgets('an invoiced day gets a dot, the legend appears and a long-press opens the invoice',
+        (tester) async {
+      InvoiceCoverage? opened;
+      await tester.pumpWidget(buildCalendar(
+        onBookedDayTap: (_) {},
+        onFreeDayTap: (_) {},
+        isStaff: true,
+        invoiceCoverage: {DateTime(2030, 6, 10): coverage},
+        onInvoiceTap: (c) => opened = c,
+      ));
+
+      expect(find.byKey(const ValueKey('invoice-dot-2030-6-10')), findsOneWidget);
+      expect(find.byKey(const ValueKey('invoice-dot-2030-6-20')), findsNothing);
+      expect(find.text('Invoiced'), findsOneWidget);
+      expect(find.textContaining('long-press the day'), findsOneWidget);
+
+      await tester.longPress(find.text('10'));
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #12 — June 2030 (INV-0042)'), findsOneWidget);
+      expect(find.text('Sent'), findsOneWidget);
+      await tester.tap(find.text('Open invoice'));
+      await tester.pumpAndSettle();
+      expect(opened?.invoiceId, 12);
+
+      // A day on no invoice says so.
+      await tester.longPress(find.text('20'));
+      await tester.pumpAndSettle();
+      expect(find.text('Not on any invoice yet.'), findsOneWidget);
+    });
+  });
 
   testWidgets('renders legend and month grid', (tester) async {
     await tester.pumpWidget(

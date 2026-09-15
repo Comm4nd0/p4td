@@ -53,6 +53,10 @@ abstract class DataService {
   /// Past dates the dog actually attended (staff-only). Feeds the profile
   /// calendar's past booked days so payment managers can edit history.
   Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from});
+
+  /// Which invoice charges each of the dog's days (payment managers only;
+  /// the API refuses everyone else). Keys are midnight-normalised dates.
+  Future<Map<DateTime, InvoiceCoverage>> getDogInvoiceCoverage(String dogId);
   Future<List<gm.GroupMedia>> getFeed({String? dogId});
   Future<FeedPage> getFeedPage({String? dogId, int page = 1});
   Future<void> uploadGroupMedia({

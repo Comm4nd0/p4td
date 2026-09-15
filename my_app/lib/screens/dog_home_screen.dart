@@ -8,6 +8,7 @@ import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/incident.dart';
 import '../models/dog_change_log.dart';
+import '../models/invoice.dart';
 import '../models/owner_profile.dart';
 import '../models/vaccination_certificate.dart';
 import '../services/data_service.dart';
@@ -27,6 +28,7 @@ import 'dog_notes_screen.dart';
 import 'vaccinations_screen.dart';
 import 'incidents_screen.dart';
 import 'dog_change_log_screen.dart';
+import 'invoice_detail_screen.dart';
 import '../constants/app_colors.dart';
 import '../widgets/page_body.dart';
 import '../widgets/owner_picker.dart';
@@ -67,6 +69,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   // dog actually attended.
   bool _canEditPastDates = false;
   Set<DateTime> _pastAttendance = {};
+  // Which invoice charges each day — payment managers only.
+  Map<DateTime, InvoiceCoverage>? _invoiceCoverage;
 
   @override
   void initState() {
@@ -200,6 +204,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           _pastAttendance = attendance.map(_dateOnly).toSet();
         });
       }
+      await _loadInvoiceCoverage();
     } catch (_) {
       // Non-fatal: the calendar just stays today-onwards.
     }
@@ -213,6 +218,28 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         setState(() => _pastAttendance = attendance.map(_dateOnly).toSet());
       }
     } catch (_) {}
+    await _loadInvoiceCoverage();
+  }
+
+  /// Best-effort: the markers are a convenience on top of the calendar, so
+  /// a failed load leaves whatever was shown before.
+  Future<void> _loadInvoiceCoverage() async {
+    try {
+      final coverage = await _dataService.getDogInvoiceCoverage(_dog.id);
+      if (mounted) {
+        setState(() => _invoiceCoverage = {for (final e in coverage.entries) _dateOnly(e.key): e.value});
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _openInvoice(InvoiceCoverage coverage) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InvoiceDetailScreen(invoiceId: coverage.invoiceId, canManagePayments: true),
+      ),
+    );
+    _loadInvoiceCoverage();
   }
 
   Future<void> _loadClosureDays() async {
@@ -2223,6 +2250,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           onFreeDayTap: _onCalendarFreeDayTap,
                           onBoardingDayTap:
                               widget.isStaff ? _onBoardingDayTap : null,
+                          invoiceCoverage: _invoiceCoverage,
+                          onInvoiceTap: _openInvoice,
                         ),
                       ),
                     ],
