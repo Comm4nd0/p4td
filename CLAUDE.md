@@ -360,7 +360,7 @@ cannot simply be copied.
 >
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
-> | Live on the App Store | **1.11.28** | `c22da1b` | Released through the web UI on 2026-08-31 |
+> | Live on the App Store | **1.12.9** | `2c70979` | Tag `v1.12.9`, build 592; confirmed live by Marco on 2026-09-15 |
 > | Submitted, in review | 1.12.26 | `1205ff2` | Tag `v1.12.26` on 2026-09-15. Android build 470 promoted to production the same evening. iOS **not yet submitted**: App Store Connect refused build 603 three times and Xcode Cloud produced no other 1.12.26 build in 3.5 h — check its Production workflow, then re-run `Release iOS to App Store` on the tag |
 >
 > **Release notes must be diffed from the live row, never from memory or from
