@@ -426,6 +426,12 @@ def notify_staff_new_inquiry(sender, instance, created, **kwargs):
     if not created:
         return
     try:
+        from api.dog_changes import log_activity
+        log_activity('COMMS', instance.name, action='CREATED', source='WEBSITE',
+                     summary=f'Website enquiry received from {instance.name} about {instance.get_service_display().lower()}')
+    except Exception:
+        pass
+    try:
         from api.notifications import notify_new_contact_inquiry
         notify_new_contact_inquiry(instance)
     except Exception:

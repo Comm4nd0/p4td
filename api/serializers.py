@@ -1901,13 +1901,18 @@ class DogChangeLogSerializer(serializers.ModelSerializer):
     actor_name = serializers.SerializerMethodField()
     action_display = serializers.CharField(source='get_action_display', read_only=True)
     source_display = serializers.CharField(source='get_source_display', read_only=True)
+    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    # The entry's subject under its own name; ``dog_name`` is the same value,
+    # kept for app versions that only knew dog entries.
+    subject = serializers.CharField(source='dog_name', read_only=True)
     dog_profile_image = serializers.SerializerMethodField()
 
     class Meta:
         from .models import DogChangeLog
         model = DogChangeLog
         fields = [
-            'id', 'dog', 'dog_name', 'dog_profile_image', 'actor', 'actor_name',
+            'id', 'category', 'category_display', 'subject',
+            'dog', 'dog_name', 'dog_profile_image', 'actor', 'actor_name',
             'action', 'action_display', 'source', 'source_display',
             'summary', 'changes', 'created_at',
         ]

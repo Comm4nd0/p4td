@@ -271,12 +271,14 @@ abstract class DataService {
 
   // Dog change log (staff only). [dogId] narrows to one dog; [limit] returns
   // just the newest N — the dashboard's summary — else the whole trail.
-  // [actorId] is a user id or 'system'; [from]/[to] are inclusive dates.
+  // [actorId] is a user id or 'system'; [from]/[to] are inclusive dates;
+  // [category] is one of [dogChangeCategoryLabels]' keys.
   Future<List<DogChangeLog>> getDogChangeLogs({
     String? dogId,
     int? limit,
     String? actorId,
     String? action,
+    String? category,
     DateTime? from,
     DateTime? to,
   });

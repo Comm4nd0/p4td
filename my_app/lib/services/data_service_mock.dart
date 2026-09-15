@@ -643,6 +643,7 @@ class MockDataService implements DataService {
     int? limit,
     String? actorId,
     String? action,
+    String? category,
     DateTime? from,
     DateTime? to,
   }) async =>

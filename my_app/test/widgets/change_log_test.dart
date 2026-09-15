@@ -15,11 +15,15 @@ DogChangeLog _entry({
   String actor = 'Sam Jones',
   String source = 'APP',
   String sourceDisplay = 'App',
+  String category = 'DOG',
+  String categoryDisplay = 'Dogs',
   List<DogFieldChange> changes = const [],
 }) =>
     DogChangeLog(
       id: id,
-      dogId: '7',
+      category: category,
+      categoryDisplay: categoryDisplay,
+      dogId: category == 'DOG' ? '7' : null,
       dogName: dog,
       actorName: actor,
       action: action,
@@ -31,7 +35,7 @@ DogChangeLog _entry({
       createdAt: DateTime(2026, 9, 15, 10, 30),
     );
 
-typedef _Call = ({String? dogId, int? limit, String? actorId, String? action, DateTime? from, DateTime? to});
+typedef _Call = ({String? dogId, int? limit, String? actorId, String? action, String? category, DateTime? from, DateTime? to});
 
 class _FakeDataService extends MockDataService {
   final List<DogChangeLog> entries;
@@ -44,10 +48,11 @@ class _FakeDataService extends MockDataService {
     int? limit,
     String? actorId,
     String? action,
+    String? category,
     DateTime? from,
     DateTime? to,
   }) async {
-    calls.add((dogId: dogId, limit: limit, actorId: actorId, action: action, from: from, to: to));
+    calls.add((dogId: dogId, limit: limit, actorId: actorId, action: action, category: category, from: from, to: to));
     return entries;
   }
 
@@ -85,7 +90,7 @@ void main() {
         ),
       ));
 
-      expect(find.text('Recent Changes'), findsOneWidget);
+      expect(find.text('Recent Activity'), findsOneWidget);
       expect(find.text('View all'), findsOneWidget);
       expect(find.text('Buddy — Change 1'), findsOneWidget);
       expect(find.text('Buddy — Change 5'), findsOneWidget);
@@ -111,16 +116,36 @@ void main() {
       expect(find.text('Sam Jones · approved owner request · 15/09/26 10:30'), findsOneWidget);
     });
 
+    testWidgets('a non-dog entry names its subject and area', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ChangeLogSection(entries: [
+            _entry(
+              id: 1,
+              dog: 'Olivia Owen',
+              category: 'COMMS',
+              categoryDisplay: 'Client communications',
+              action: 'MESSAGE',
+              summary: "Replied to Olivia Owen: 'Lead lost'",
+            ),
+          ]),
+        ),
+      ));
+
+      expect(find.text("Olivia Owen — Replied to Olivia Owen: 'Lead lost'"), findsOneWidget);
+      expect(find.text('Sam Jones · Client communications · 15/09/26 10:30'), findsOneWidget);
+    });
+
     testWidgets('empty and failed states', (tester) async {
       await tester.pumpWidget(const MaterialApp(
         home: Scaffold(body: ChangeLogSection(entries: [])),
       ));
-      expect(find.text('No changes recorded yet'), findsOneWidget);
+      expect(find.text('No activity recorded yet'), findsOneWidget);
 
       await tester.pumpWidget(const MaterialApp(
         home: Scaffold(body: ChangeLogSection(entries: [], failed: true)),
       ));
-      expect(find.text("Couldn't load recent changes — pull down to retry"), findsOneWidget);
+      expect(find.text("Couldn't load recent activity — pull down to retry"), findsOneWidget);
     });
   });
 
@@ -159,7 +184,7 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: DogChangeLogScreen()));
       await _settle(tester);
 
-      expect(find.text('Change Log'), findsOneWidget);
+      expect(find.text('Activity Log'), findsOneWidget);
       expect(find.text('Luna — Updated food instructions'), findsOneWidget);
     });
 
@@ -203,7 +228,7 @@ void main() {
       expect(find.text('Sam Jones'), findsOneWidget);
       expect(find.text('Vaccination'), findsOneWidget);
       expect(find.text('01/09/26 – 15/09/26'), findsOneWidget);
-      expect(find.text('No changes match these filters'), findsOneWidget);
+      expect(find.text('Nothing matches these filters'), findsOneWidget);
 
       // × on the type chip re-queries without it; the rest stay. (The chip's
       // Picon avatar is two Icons; the delete icon is the last one.)
@@ -224,7 +249,7 @@ void main() {
       // Clear drops everything and asks for the whole log.
       await tester.tap(find.text('Clear'));
       await _settle(tester);
-      expect(fake.calls.last, (dogId: null, limit: null, actorId: null, action: null, from: null, to: null));
+      expect(fake.calls.last, (dogId: null, limit: null, actorId: null, action: null, category: null, from: null, to: null));
       expect(find.byType(InputChip), findsNothing);
     });
 
@@ -237,7 +262,7 @@ void main() {
 
       await tester.tap(find.byTooltip('Filters'));
       await tester.pumpAndSettle();
-      expect(find.text('Filter changes'), findsOneWidget);
+      expect(find.text('Filter activity'), findsOneWidget);
       // The master log offers a dog picker; a single dog's log would not.
       expect(find.byKey(const Key('filter-dog')), findsOneWidget);
 
@@ -250,6 +275,38 @@ void main() {
 
       expect(fake.calls.last.action, 'PHOTO');
       expect(find.widgetWithText(InputChip, 'Gallery'), findsOneWidget);
+    });
+
+    testWidgets('the Filters sheet narrows the master log to one area', (tester) async {
+      final fake = _FakeDataService(const []);
+      _register(fake);
+
+      await tester.pumpWidget(const MaterialApp(home: DogChangeLogScreen()));
+      await _settle(tester);
+
+      await tester.tap(find.byTooltip('Filters'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('filter-category')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fleet').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(fake.calls.last.category, 'FLEET');
+      expect(find.widgetWithText(InputChip, 'Fleet'), findsOneWidget);
+    });
+
+    testWidgets("one dog's log has no area picker and never sends a category", (tester) async {
+      final fake = _FakeDataService(const []);
+      _register(fake);
+
+      await tester.pumpWidget(const MaterialApp(home: DogChangeLogScreen(dogId: '7', dogName: 'Buddy')));
+      await _settle(tester);
+      await tester.tap(find.byTooltip('Filters'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('filter-category')), findsNothing);
+      expect(fake.calls.single.category, isNull);
     });
   });
 }

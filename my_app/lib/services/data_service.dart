@@ -3398,6 +3398,7 @@ class ApiDataService implements DataService {
     int? limit,
     String? actorId,
     String? action,
+    String? category,
     DateTime? from,
     DateTime? to,
   }) async {
@@ -3407,6 +3408,7 @@ class ApiDataService implements DataService {
       if (dogId != null) 'dog': dogId,
       if (actorId != null) 'actor': actorId,
       if (action != null) 'action': action,
+      if (category != null) 'category': category,
       if (from != null) 'from': isoDate(from),
       if (to != null) 'to': isoDate(to),
       if (limit != null) 'limit': '$limit',
