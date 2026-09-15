@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -19,6 +20,14 @@ class NotificationService {
   final DataService _dataService = ApiDataService();
 
   bool _isInitialized = false;
+
+  final StreamController<Map<String, dynamic>> _foregroundMessages =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// The data payload of every push that arrives while the app is open.
+  /// The home screen listens so the inbox badges beside the bell climb the
+  /// moment a message, booking form or enquiry lands, without a restart.
+  Stream<Map<String, dynamic>> get foregroundMessages => _foregroundMessages.stream;
 
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -72,6 +81,7 @@ class NotificationService {
         debugPrint('Got a message whilst in the foreground!');
       }
       _showLocalNotification(message);
+      _foregroundMessages.add(Map<String, dynamic>.from(message.data));
     });
 
     // 4. Handle notification taps when app is in background

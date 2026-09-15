@@ -812,53 +812,10 @@ def notify_user_date_request_status(sender, instance, created, **kwargs):
         for additional_owner in instance.dog.additional_owners.all():
             send_push_notification(additional_owner, title, body, data, category='bookings')
 
-# --- Contact Staff Notifications ---
-
-@receiver(post_save, sender=SupportQuery)
-def notify_staff_new_query(sender, instance, created, **kwargs):
-    if created:
-        owner_name = instance.owner.first_name or instance.owner.username
-        title = "New Message from Owner"
-        body = f"{owner_name}: {instance.subject}"
-        data = {
-            'type': 'support_query',
-            'id': str(instance.id),
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-        }
-        from django.contrib.auth.models import User
-        for user in User.objects.filter(is_staff=True, profile__can_reply_queries=True):
-            send_push_notification(user, title, body, data)
-
-@receiver(post_save, sender=SupportMessage)
-def notify_query_message(sender, instance, created, **kwargs):
-    if not created:
-        return
-    query = instance.query
-    sender_user = instance.sender
-    if sender_user.is_staff:
-        # Staff replied — notify the owner
-        staff_name = sender_user.first_name or sender_user.username
-        title = "Staff Reply"
-        body = f"{staff_name} replied to: {query.subject}"
-        data = {
-            'type': 'support_query_reply',
-            'id': str(query.id),
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-        }
-        send_push_notification(query.owner, title, body, data)
-    else:
-        # Owner followed up — notify staff
-        owner_name = sender_user.first_name or sender_user.username
-        title = "New Reply from Owner"
-        body = f"{owner_name} added a message to: {query.subject}"
-        data = {
-            'type': 'support_query_update',
-            'id': str(query.id),
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-        }
-        from django.contrib.auth.models import User
-        for user in User.objects.filter(is_staff=True, profile__can_reply_queries=True):
-            send_push_notification(user, title, body, data)
+# Contact Staff pushes live in notifications.notify_new_support_query /
+# notify_support_message, called from SupportQueryViewSet. A post_save pair
+# here used to duplicate them, sending staff two pushes per message (and the
+# second one with no category, so it could not be silenced).
 
 # Owner notification on boarding status changes lives in
 # BoardingRequestViewSet._notify_owner_boarding_status — a pre_save/post_save

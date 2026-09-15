@@ -39,6 +39,7 @@ import 'staff_notifications_screen.dart';
 import 'boarding_request_list_screen.dart';
 import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
+import 'booking_requests_screen.dart';
 import 'dog_profile_changes_screen.dart';
 import 'facility_defects_screen.dart';
 import 'incidents_screen.dart';
@@ -1829,6 +1830,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       pendingRequestCount: _counts.pendingRequestCount,
       unresolvedQueryCount: _counts.unresolvedQueryCount,
       unreadInquiryCount: _counts.unreadInquiryCount,
+      pendingBookingFormCount: _counts.pendingBookingFormCount,
       pendingProfileChangeCount: _counts.pendingProfileChangeCount,
       pendingBoardingCount: _counts.pendingBoardingCount,
       unresolvedDefectCount: _counts.unresolvedDefectCount,
@@ -1856,6 +1858,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       onOpenInquiries: () async {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryListScreen()));
         _counts.reloadUnreadInquiryCount();
+      },
+      onOpenBookingForms: () async {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => BookingRequestsScreen(isStaff: widget.isStaff),
+        ));
+        _counts.reloadPendingBookingFormCount();
       },
       onOpenProfileChanges: () async {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const DogProfileChangesScreen()));

@@ -10,7 +10,9 @@ void main() {
     int siteDefects = 0,
     int vehicleDefects = 0,
     int dogHealth = 0,
+    int bookingForms = 0,
     VoidCallback? onOpenDefects,
+    VoidCallback? onOpenBookingForms,
     VoidCallback? onOpenDogHealth,
   }) {
     return MaterialApp(
@@ -20,6 +22,7 @@ void main() {
             pendingRequestCount: 0,
             unresolvedQueryCount: 0,
             unreadInquiryCount: 0,
+            pendingBookingFormCount: bookingForms,
             pendingProfileChangeCount: 0,
             pendingBoardingCount: 0,
             unresolvedDefectCount: siteDefects,
@@ -31,6 +34,7 @@ void main() {
             onOpenPendingRequests: () {},
             onOpenQueries: () {},
             onOpenInquiries: () {},
+            onOpenBookingForms: onOpenBookingForms ?? () {},
             onOpenProfileChanges: () {},
             onOpenBoardingRequests: () {},
             onOpenDefects: onOpenDefects ?? () {},
@@ -74,6 +78,15 @@ void main() {
     expect(find.text('Dog health to confirm'), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
     await tester.tap(find.text('Dog health to confirm'));
+    expect(opened, 1);
+  });
+
+  testWidgets('booking forms are an action item with the pending count', (tester) async {
+    var opened = 0;
+    await tester.pumpWidget(build(bookingForms: 3, onOpenBookingForms: () => opened++));
+    expect(find.text('Booking Forms'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    await tester.tap(find.text('Booking Forms'));
     expect(opened, 1);
   });
 }

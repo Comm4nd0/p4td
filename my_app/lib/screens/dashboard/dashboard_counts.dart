@@ -45,6 +45,7 @@ class DashboardCounts extends ChangeNotifier {
   int pendingBoardingCount = 0;
   int unresolvedQueryCount = 0;
   int unreadInquiryCount = 0;
+  int pendingBookingFormCount = 0;
   int pendingProfileChangeCount = 0;
   int unresolvedDefectCount = 0;
   int unresolvedVehicleDefectCount = 0;
@@ -88,6 +89,7 @@ class DashboardCounts extends ChangeNotifier {
     await Future.wait([
       reloadPendingRequestCount(),
       reloadUnresolvedQueryCount(),
+      reloadPendingBookingFormCount(),
       if (canViewInquiries) reloadUnreadInquiryCount(),
       reloadBoarding(),
       if (canManageRequests) reloadPendingProfileChangeCount(),
@@ -168,6 +170,14 @@ class DashboardCounts extends ChangeNotifier {
     try {
       final count = await _dataService.getUnreadInquiryCount();
       unreadInquiryCount = count;
+      _safeNotify();
+    } catch (_) {}
+  }
+
+  Future<void> reloadPendingBookingFormCount() async {
+    try {
+      final count = await _dataService.getPendingIntakeRequestCount();
+      pendingBookingFormCount = count;
       _safeNotify();
     } catch (_) {}
   }

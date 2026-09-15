@@ -24,6 +24,7 @@ class ActionItemsSection extends StatelessWidget {
   final int pendingRequestCount;
   final int unresolvedQueryCount;
   final int unreadInquiryCount;
+  final int pendingBookingFormCount;
   final int pendingProfileChangeCount;
   final int pendingBoardingCount;
   final int unresolvedDefectCount;
@@ -38,6 +39,7 @@ class ActionItemsSection extends StatelessWidget {
   final VoidCallback onOpenPendingRequests;
   final VoidCallback onOpenQueries;
   final VoidCallback onOpenInquiries;
+  final VoidCallback onOpenBookingForms;
   final VoidCallback onOpenProfileChanges;
   final VoidCallback onOpenBoardingRequests;
   final VoidCallback onOpenDefects;
@@ -49,6 +51,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.pendingRequestCount,
     required this.unresolvedQueryCount,
     required this.unreadInquiryCount,
+    required this.pendingBookingFormCount,
     required this.pendingProfileChangeCount,
     required this.pendingBoardingCount,
     required this.unresolvedDefectCount,
@@ -61,6 +64,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.onOpenPendingRequests,
     required this.onOpenQueries,
     required this.onOpenInquiries,
+    required this.onOpenBookingForms,
     required this.onOpenProfileChanges,
     required this.onOpenBoardingRequests,
     required this.onOpenDefects,
@@ -101,6 +105,14 @@ class ActionItemsSection extends StatelessWidget {
           count: unresolvedQueryCount,
           countColor: unresolvedQueryCount > 0 ? Colors.red : null,
           onTap: onOpenQueries,
+        ),
+        const SizedBox(height: 4),
+        ActionItemTile(
+          icon: PiconsDuotone.clipboardText,
+          label: 'Booking Forms',
+          count: pendingBookingFormCount,
+          countColor: pendingBookingFormCount > 0 ? Colors.red : null,
+          onTap: onOpenBookingForms,
         ),
         if (canViewInquiries) ...[
           const SizedBox(height: 4),
