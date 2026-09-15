@@ -36,6 +36,7 @@ import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
 import '../models/roadwork_issue.dart';
 import '../models/photo_tagging_status.dart';
+import '../models/owner_handover_status.dart';
 import '../models/staff_hr.dart';
 import '../models/compliance.dart';
 import 'auth_service.dart';
@@ -1689,6 +1690,41 @@ class ApiDataService implements DataService {
       return PhotoTaggingStatus.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     throw Exception('Failed to load photo tagging status: ${response.statusCode}');
+  }
+
+  @override
+  Future<OwnerHandoverStatus> getOwnerHandovers({DateTime? date}) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/owner_handovers/${_dateParam(date)}'));
+    if (response.statusCode == 200) {
+      return OwnerHandoverStatus.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception('Failed to load owner handovers: ${response.statusCode}');
+  }
+
+  @override
+  Future<OwnerHandoverStatus> assignOwnerHandover({
+    required DateTime date,
+    required OwnerHandoverLeg leg,
+    required int? staffMemberId,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/owner_handovers/'),
+      headers: headers,
+      body: json.encode({
+        'date': _dateBody(date),
+        'leg': leg.apiValue,
+        'staff_member_id': staffMemberId,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return OwnerHandoverStatus.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    String detail = '';
+    try {
+      detail = (json.decode(response.body) as Map<String, dynamic>)['detail']?.toString() ?? '';
+    } catch (_) {}
+    throw Exception(detail.isNotEmpty ? detail : 'Failed to assign owner handover: ${response.statusCode}');
   }
 
   @override

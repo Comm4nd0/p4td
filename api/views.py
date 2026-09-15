@@ -2625,6 +2625,136 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             'untagged': untagged,
         })
 
+    # ---- Owner handovers ----------------------------------------------
+    # Dogs the owner brings in the morning or collects in the evening are on
+    # no driver's route, so nobody was responsible for being there when the
+    # owner arrived. One OwnerHandoverDuty row per (date, leg) names who is;
+    # the dashboard shows each leg's dog count in red until it has one.
+
+    def _owner_handover_status(self, target_date, request):
+        from .models import OwnerHandoverDuty
+
+        ctx = self._boarding_context(target_date)
+        boarding = ctx['boarding_dog_ids']
+        prev_ids = ctx['boarding_prev_dog_ids']
+        next_ids = ctx['boarding_next_dog_ids']
+
+        # Not get_queryset(): that also honours ?staff_member=, and a duty
+        # covers the whole day. UNASSIGNED rows stay in — a dog whose owner
+        # does both legs is materialised that way and is exactly what this
+        # counts. Only REMOVED means the dog isn't coming.
+        assignments = (
+            DailyDogAssignment.objects
+            .filter(date=target_date)
+            .exclude(status='REMOVED')
+            .select_related('dog')
+        )
+
+        def entry(a, when):
+            image = a.dog.profile_image
+            return {
+                'dog_id': a.dog_id,
+                'dog_name': a.dog.name,
+                'dog_profile_image': request.build_absolute_uri(image.url) if image else None,
+                'time': when.strftime('%H:%M') if when else None,
+            }
+
+        drop_off, collection = [], []
+        for a in assignments:
+            is_boarding = a.dog_id in boarding
+            # Mid-stay a boarding dog sleeps at the carer's: the owner only
+            # hands it over on the first day and takes it back on the last.
+            if a.effective_owner_brings and (not is_boarding or a.dog_id not in prev_ids):
+                drop_off.append(entry(a, a.effective_owner_brings_time))
+            if a.effective_owner_collects and (not is_boarding or a.dog_id not in next_ids):
+                collection.append(entry(a, a.effective_owner_collects_time))
+        for dogs in (drop_off, collection):
+            dogs.sort(key=lambda d: (d['time'] is None, d['time'] or '', d['dog_name'].lower()))
+
+        duties = {
+            d.leg: d for d in OwnerHandoverDuty.objects
+            .filter(date=target_date).select_related('staff_member')
+        }
+
+        def leg(code, dogs):
+            duty = duties.get(code)
+            staff = duty.staff_member if duty else None
+            return {
+                'leg': code,
+                'count': len(dogs),
+                'dogs': dogs,
+                'staff_member_id': staff.id if staff else None,
+                'staff_member_name': (staff.first_name or staff.username) if staff else None,
+            }
+
+        return {
+            'date': target_date.isoformat(),
+            'drop_off': leg(OwnerHandoverDuty.LEG_DROP_OFF, drop_off),
+            'collection': leg(OwnerHandoverDuty.LEG_COLLECTION, collection),
+        }
+
+    @action(detail=False, methods=['get', 'post'])
+    def owner_handovers(self, request):
+        """GET: the day's owner drop-offs and owner collections — how many
+        dogs, which, at what time — and the staff member on each leg.
+        Accepts optional ?date=YYYY-MM-DD (defaults to today).
+
+        POST: put a staff member on one leg for a day. Body: ``date``
+        (optional, defaults to today), ``leg`` (``DROP_OFF`` | ``COLLECTION``),
+        ``staff_member_id`` (a staff user, or null to clear). Any staff member
+        may set it — like ``assign_to_me`` — so whoever is in first can claim
+        it. Returns the same payload as GET.
+        """
+        from datetime import date as date_cls
+        from .models import OwnerHandoverDuty
+
+        if request.method == 'GET':
+            target_date, error = self._parse_date(request)
+            if error:
+                return error
+            self._materialize_roster_for_date(target_date)
+            return Response(self._owner_handover_status(target_date, request))
+
+        date_str = request.data.get('date')
+        if date_str:
+            try:
+                target_date = date_cls.fromisoformat(str(date_str))
+            except ValueError:
+                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        else:
+            target_date = timezone.localdate()
+
+        leg = request.data.get('leg')
+        if leg not in dict(OwnerHandoverDuty.LEG_CHOICES):
+            return Response({'detail': 'leg must be DROP_OFF or COLLECTION.'}, status=400)
+
+        staff_member_id = request.data.get('staff_member_id')
+        staff = None
+        if staff_member_id not in (None, ''):
+            staff = User.objects.filter(pk=staff_member_id, is_staff=True).first()
+            if staff is None:
+                return Response({'detail': 'staff_member_id must be a staff member.'}, status=400)
+
+        duty, _ = OwnerHandoverDuty.objects.get_or_create(date=target_date, leg=leg)
+        previous = duty.staff_member
+        duty.staff_member = staff
+        duty.assigned_by = request.user
+        duty.save()
+
+        self._materialize_roster_for_date(target_date)
+        payload = self._owner_handover_status(target_date, request)
+        leg_label = 'owner drop-offs' if leg == OwnerHandoverDuty.LEG_DROP_OFF else 'owner collections'
+        count = payload['drop_off' if leg == OwnerHandoverDuty.LEG_DROP_OFF else 'collection']['count']
+        if staff is not None:
+            summary = f"Put {person(staff)} on {leg_label} for {_uk(target_date)} ({count} dogs)"
+        else:
+            summary = f"Took {person(previous) if previous else 'nobody'} off {leg_label} for {_uk(target_date)}"
+        log_activity(
+            'SCHEDULE', person(staff or previous) if (staff or previous) else leg_label,
+            action='ASSIGNED', summary=summary, actor=request.user,
+        )
+        return Response(payload)
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update the status of an assignment."""

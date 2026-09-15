@@ -507,6 +507,46 @@ class DailyDogAssignment(models.Model):
         return not self.is_boarding_day or self.boarding_last_day
 
 
+class OwnerHandoverDuty(models.Model):
+    """Who on the team meets the owners on a given day.
+
+    Some dogs are dropped at daycare by their owner in the morning
+    (``DailyDogAssignment.effective_owner_brings``) and some are collected by
+    their owner in the evening (``effective_owner_collects``). Neither leg is on
+    a driver's route, so nobody was ever responsible for being there when the
+    owner turned up. One row per day per leg names the staff member who is:
+    the dashboard shows each leg's dog count in red until it has one.
+    """
+    LEG_DROP_OFF = 'DROP_OFF'
+    LEG_COLLECTION = 'COLLECTION'
+    LEG_CHOICES = [
+        (LEG_DROP_OFF, 'Owner drop-offs'),
+        (LEG_COLLECTION, 'Owner collections'),
+    ]
+
+    date = models.DateField()
+    leg = models.CharField(max_length=12, choices=LEG_CHOICES)
+    # SET_NULL: a departed staff member leaves the day unclaimed again rather
+    # than erasing that it was ever set.
+    staff_member = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='owner_handover_duties',
+        help_text='Staff member responsible for meeting the owners on this leg that day.')
+    assigned_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='assigned_owner_handover_duties')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('date', 'leg')
+        ordering = ['date', 'leg']
+
+    def __str__(self):
+        who = self.staff_member.username if self.staff_member else 'nobody'
+        return f"{self.get_leg_display()} on {self.date}: {who}"
+
+
 class DogWeekdayPickup(models.Model):
     """Persistent default: who picks up <dog> every <weekday>.
 

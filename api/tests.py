@@ -1,5 +1,5 @@
 import json
-from datetime import date, timedelta
+from datetime import date, time as dtime, timedelta
 from decimal import Decimal
 from unittest import skipUnless
 from unittest.mock import patch
@@ -16,7 +16,7 @@ from .models import (
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
     GroupMedia, IntakeRequest, Invoice, XeroConnection, PasswordResetOTP,
-    Comment, MediaReaction,
+    Comment, MediaReaction, OwnerHandoverDuty, DogChangeLog,
 )
 from django.utils import timezone
 
@@ -3212,6 +3212,127 @@ class PhotoTaggingStatusTests(TestCase):
         self.client.login(username='owner', password='pw')
         resp = self.client.get('/api/daily-assignments/photo_tagging/')
         self.assertEqual(resp.status_code, 403)
+
+
+class OwnerHandoverTests(TestCase):
+    """/api/daily-assignments/owner_handovers/ — which of the day's dogs the
+    owner drops off / collects, and who on the team meets them."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(
+            username='staff', password='pw', is_staff=True, first_name='Alice')
+        self.staff2 = User.objects.create_user(
+            username='staff2', password='pw', is_staff=True, first_name='Bob')
+        self.driven = Dog.objects.create(owner=self.owner, name='Rex')
+        self.brought = Dog.objects.create(
+            owner=self.owner, name='Buddy', owner_brings_default=True,
+            owner_brings_default_time=dtime(8, 30))
+        self.collected = Dog.objects.create(
+            owner=self.owner, name='Coco', owner_collects_default=True)
+        self.both = Dog.objects.create(
+            owner=self.owner, name='Dot', owner_brings_default=True, owner_collects_default=True)
+        # A weekday well in the future so no roster materialisation interferes.
+        self.day = date.today() + timedelta(days=30)
+        while self.day.isoweekday() > 5:
+            self.day += timedelta(days=1)
+        self.client = APIClient()
+        self.client.login(username='staff', password='pw')
+
+    def _assign(self, dog, status='ASSIGNED', on=None, **overrides):
+        return DailyDogAssignment.objects.create(
+            dog=dog, staff_member=None if status == 'UNASSIGNED' else self.staff,
+            date=on or self.day, status=status, **overrides)
+
+    def _get(self):
+        return self.client.get(
+            f'/api/daily-assignments/owner_handovers/?date={self.day.isoformat()}')
+
+    def _post(self, leg, staff_id, on=None):
+        return self.client.post('/api/daily-assignments/owner_handovers/', {
+            'date': (on or self.day).isoformat(), 'leg': leg, 'staff_member_id': staff_id,
+        }, format='json')
+
+    def test_counts_each_leg_and_names_nobody_until_set(self):
+        self._assign(self.driven)
+        self._assign(self.brought)
+        self._assign(self.collected)
+        self._assign(self.both, status='UNASSIGNED')  # owner does both: no driver
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        drop, coll = resp.data['drop_off'], resp.data['collection']
+        self.assertEqual(drop['count'], 2)
+        self.assertEqual([d['dog_name'] for d in drop['dogs']], ['Buddy', 'Dot'])
+        self.assertEqual(drop['dogs'][0]['time'], '08:30')
+        self.assertIsNone(drop['staff_member_id'])
+        self.assertEqual(coll['count'], 2)
+        self.assertEqual([d['dog_name'] for d in coll['dogs']], ['Coco', 'Dot'])
+        self.assertIsNone(coll['staff_member_name'])
+
+    def test_per_date_override_and_removed_rows(self):
+        self._assign(self.driven, owner_brings=True)      # owner brings just today
+        self._assign(self.brought, owner_brings=False)    # staff fetching today
+        self._assign(self.collected, status='REMOVED')    # not coming
+        resp = self._get()
+        self.assertEqual([d['dog_name'] for d in resp.data['drop_off']['dogs']], ['Rex'])
+        self.assertEqual(resp.data['collection']['count'], 0)
+
+    def test_boarding_dog_only_handed_over_on_the_edges_of_the_stay(self):
+        dog = Dog.objects.create(
+            owner=self.owner, name='Ember', owner_brings_default=True, owner_collects_default=True)
+        first, mid, last = self.day, self.day + timedelta(days=1), self.day + timedelta(days=2)
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date=first, end_date=last, status='APPROVED')
+        br.dogs.add(dog)
+        for d in (first, mid, last):
+            self._assign(dog, on=d)
+
+        def legs(on):
+            r = self.client.get(f'/api/daily-assignments/owner_handovers/?date={on.isoformat()}')
+            return r.data['drop_off']['count'], r.data['collection']['count']
+
+        self.assertEqual(legs(first), (1, 0))
+        self.assertEqual(legs(mid), (0, 0))
+        self.assertEqual(legs(last), (0, 1))
+
+    def test_assigning_a_staff_member_persists_and_is_logged(self):
+        self._assign(self.brought)
+        resp = self._post('DROP_OFF', self.staff2.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['drop_off']['staff_member_id'], self.staff2.id)
+        self.assertEqual(resp.data['drop_off']['staff_member_name'], 'Bob')
+        self.assertIsNone(resp.data['collection']['staff_member_id'])
+        duty = OwnerHandoverDuty.objects.get(date=self.day, leg='DROP_OFF')
+        self.assertEqual(duty.staff_member, self.staff2)
+        self.assertEqual(duty.assigned_by, self.staff)
+        self.assertEqual(self._get().data['drop_off']['staff_member_id'], self.staff2.id)
+        log = DogChangeLog.objects.filter(category='SCHEDULE').latest('id')
+        self.assertIn('owner drop-offs', log.summary)
+        self.assertIn('Bob', log.summary)
+
+        # Re-posting replaces rather than duplicating; null clears.
+        self._post('DROP_OFF', self.staff.id)
+        self.assertEqual(OwnerHandoverDuty.objects.filter(date=self.day).count(), 1)
+        resp = self._post('DROP_OFF', None)
+        self.assertIsNone(resp.data['drop_off']['staff_member_id'])
+
+    def test_legs_are_independent_per_day(self):
+        self._post('COLLECTION', self.staff.id)
+        other = self.day + timedelta(days=1)
+        self._post('COLLECTION', self.staff2.id, on=other)
+        self.assertEqual(self._get().data['collection']['staff_member_id'], self.staff.id)
+        self.assertEqual(self._get().data['drop_off']['staff_member_id'], None)
+
+    def test_rejects_bad_leg_and_non_staff_member(self):
+        self.assertEqual(self._post('LUNCH', self.staff.id).status_code, 400)
+        self.assertEqual(self._post('DROP_OFF', self.owner.id).status_code, 400)
+        self.assertEqual(self._post('DROP_OFF', 999999).status_code, 400)
+        self.assertFalse(OwnerHandoverDuty.objects.exists())
+
+    def test_owner_blocked(self):
+        self.client.login(username='owner', password='pw')
+        self.assertEqual(self._get().status_code, 403)
+        self.assertEqual(self._post('DROP_OFF', self.staff.id).status_code, 403)
 
 
 class StaffAvailabilityTests(TestCase):

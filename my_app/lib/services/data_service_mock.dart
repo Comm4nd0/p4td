@@ -358,6 +358,22 @@ class MockDataService implements DataService {
       const PhotoTaggingStatus(total: 0, tagged: 0, untagged: []);
 
   @override
+  Future<OwnerHandoverStatus> getOwnerHandovers({DateTime? date}) async =>
+      const OwnerHandoverStatus(
+        dropOff: OwnerHandoverLegStatus(leg: OwnerHandoverLeg.dropOff, count: 0),
+        collection:
+            OwnerHandoverLegStatus(leg: OwnerHandoverLeg.collection, count: 0),
+      );
+
+  @override
+  Future<OwnerHandoverStatus> assignOwnerHandover({
+    required DateTime date,
+    required OwnerHandoverLeg leg,
+    required int? staffMemberId,
+  }) =>
+      getOwnerHandovers(date: date);
+
+  @override
   Future<List<Dog>> getUnassignedDogs({DateTime? date}) async => [];
 
   @override
