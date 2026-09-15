@@ -1,5 +1,5 @@
-Vaccination certificates: attach the vet's PDF or photo behind each vaccination date on your dog's profile. They're private to the dog's owners and the team, and you'll get a reminder a week before a date turns a year old.
+Your own Dashboard tab: where each dog is today, the week ahead, anything needing your attention, your latest invoice, upcoming boarding and new photos, with Quick Actions to change days, book boarding or contact staff.
 
-New notifications when your dog is collected and home, when the team replies to a message, and when a new photo of your dog lands on the feed – each with its own switch on your Profile.
+Invoices now list one line per day your dog was in.
 
-Other clients now see you by first name only.
+Attach the vet's certificate behind each vaccination date, get notified when your dog is collected and home, and change your sign-in email from your Profile.
