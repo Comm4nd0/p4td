@@ -7450,6 +7450,13 @@ class BillingTestsBase(TestCase):
             date=date(year, month, day), status=status,
         )
 
+    @staticmethod
+    def _dates(invoice, **filters):
+        """Every date the invoice's attendance lines charge, in line order —
+        one line per day, so this is the list of lines' single dates."""
+        return [d for line in invoice.lines.filter(is_adjustment=False, **filters).order_by('id')
+                for d in line.attendance_dates]
+
 
 class BillingGenerationTests(BillingTestsBase):
     def test_generation_counts_attended_days_and_excludes_removed(self):
@@ -7469,12 +7476,15 @@ class BillingGenerationTests(BillingTestsBase):
         invoice = created[0]
         self.assertEqual(invoice.status, 'DRAFT')
         self.assertEqual(invoice.customer, self.owner)
-        line = invoice.lines.get()
-        self.assertEqual(line.quantity, 4)
-        self.assertEqual(line.unit_price, Decimal('25.00'))
-        self.assertEqual(line.line_total, Decimal('100.00'))
+        # One line per day, each dated, so the owner sees exactly which days.
+        lines = list(invoice.lines.order_by('id'))
+        self.assertEqual([l.quantity for l in lines], [1, 1, 1, 1])
+        self.assertEqual({l.unit_price for l in lines}, {Decimal('25.00')})
+        self.assertEqual({l.line_total for l in lines}, {Decimal('25.00')})
         self.assertEqual(invoice.total, Decimal('100.00'))
-        self.assertEqual(line.attendance_dates, ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04'])
+        self.assertEqual([l.attendance_dates for l in lines],
+                         [['2026-06-01'], ['2026-06-02'], ['2026-06-03'], ['2026-06-04']])
+        self.assertEqual(lines[0].description, 'Daycare — Biscuit — Mon 01/06/2026 (1 day a week rate)')
 
     def test_multi_dog_owner_gets_one_invoice_with_line_per_dog(self):
         from api import billing
@@ -7486,10 +7496,10 @@ class BillingGenerationTests(BillingTestsBase):
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(len(created), 1)
         invoice = created[0]
-        self.assertEqual(invoice.lines.count(), 2)
+        self.assertEqual(invoice.lines.count(), 3)
         self.assertEqual(invoice.total, Decimal('75.00'))
-        # Lines sorted by dog name.
-        self.assertEqual([l.dog.name for l in invoice.lines.all()], ['Alfie', 'Biscuit'])
+        # Lines grouped by dog, dogs sorted by name.
+        self.assertEqual([l.dog.name for l in invoice.lines.all()], ['Alfie', 'Biscuit', 'Biscuit'])
 
     def test_daily_rate_override_beats_service_pricing(self):
         from api import billing
@@ -7555,7 +7565,7 @@ class BillingGenerationTests(BillingTestsBase):
 
         billing.regenerate_draft(invoice)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.lines.get().quantity, 2)
+        self.assertEqual(invoice.lines.count(), 2)
         self.assertEqual(invoice.total, Decimal('50.00'))
 
     def test_regenerate_rejects_sent_invoice(self):
@@ -8113,12 +8123,13 @@ class BoardingBillingTests(BillingTestsBase):
         # Friday 5 June -> Sunday 7 June = 2 nights.
         self._board(date(2026, 6, 5), date(2026, 6, 7))
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
-        self.assertIn('Boarding', line.description)
-        self.assertEqual(line.quantity, 2)
-        self.assertEqual(line.unit_price, Decimal('30.00'))
-        self.assertEqual(line.line_total, Decimal('60.00'))
-        self.assertEqual(line.attendance_dates, ['2026-06-05', '2026-06-06'])
+        lines = list(created[0].lines.order_by('id'))
+        self.assertEqual(len(lines), 2)  # one line per night
+        self.assertEqual(lines[0].description, 'Boarding — Biscuit — night of Fri 05/06/2026')
+        self.assertEqual({l.quantity for l in lines}, {1})
+        self.assertEqual({l.unit_price for l in lines}, {Decimal('30.00')})
+        self.assertEqual({l.line_total for l in lines}, {Decimal('30.00')})
+        self.assertEqual(self._dates(created[0]), ['2026-06-05', '2026-06-06'])
         self.assertEqual(created[0].total, Decimal('60.00'))
 
     def test_stay_spanning_months_bills_each_months_nights(self):
@@ -8127,9 +8138,9 @@ class BoardingBillingTests(BillingTestsBase):
         # 29 June -> 3 July: June bills nights of 29th/30th, July bills 1st/2nd.
         self._board(date(2026, 6, 29), date(2026, 7, 3))
         june, _, _ = billing.generate_invoices_for_month(2026, 6)
-        self.assertEqual(june[0].lines.get().attendance_dates, ['2026-06-29', '2026-06-30'])
+        self.assertEqual(self._dates(june[0]), ['2026-06-29', '2026-06-30'])
         july, _, _ = billing.generate_invoices_for_month(2026, 7)
-        self.assertEqual(july[0].lines.get().attendance_dates, ['2026-07-01', '2026-07-02'])
+        self.assertEqual(self._dates(july[0]), ['2026-07-01', '2026-07-02'])
 
     def test_boarding_rate_override_beats_service_pricing(self):
         from api import billing
@@ -8151,9 +8162,8 @@ class BoardingBillingTests(BillingTestsBase):
         pricing.save()
         self._board(date(2026, 6, 1), date(2026, 6, 3))
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
-        self.assertEqual(line.quantity, 2)
-        self.assertEqual(line.line_total, Decimal('0.00'))
+        self.assertEqual(created[0].lines.count(), 2)
+        self.assertEqual({l.line_total for l in created[0].lines.all()}, {Decimal('0.00')})
 
     def test_pending_denied_and_cancelled_requests_not_billed(self):
         from api import billing
@@ -8177,11 +8187,9 @@ class BoardingBillingTests(BillingTestsBase):
         self._attend(self.dog, 10)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
-        by_kind = {l.description.split(' — ')[0]: l for l in invoice.lines.all()}
-        self.assertEqual(sorted(by_kind), ['Boarding', 'Daycare'])
-        self.assertEqual(by_kind['Boarding'].quantity, 2)   # 2 nights @ £30
-        self.assertEqual(by_kind['Daycare'].quantity, 1)    # only the 10th
-        self.assertEqual(by_kind['Daycare'].attendance_dates, ['2026-06-10'])
+        kinds = [l.description.split(' — ')[0] for l in invoice.lines.order_by('id')]
+        self.assertEqual(kinds, ['Boarding', 'Boarding', 'Daycare'])  # 2 nights @ £30, then the 10th
+        self.assertEqual(self._dates(invoice, description__startswith='Daycare'), ['2026-06-10'])
         # 2 nights @ £30 + 1 day @ £25.
         self.assertEqual(invoice.total, Decimal('85.00'))
 
@@ -8209,7 +8217,7 @@ class BoardingBillingTests(BillingTestsBase):
         booking.save()
         billing.regenerate_draft(invoice)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.lines.get().quantity, 3)
+        self.assertEqual(invoice.lines.count(), 3)
         self.assertEqual(invoice.total, Decimal('90.00'))
 
 
@@ -8439,7 +8447,7 @@ class BillingRateResolutionTests(BillingTestsBase):
         br.dogs.add(self.dog)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created[0].customer, self.owner)
-        self.assertEqual(created[0].lines.get().unit_price, Decimal('25.00'))
+        self.assertEqual({l.unit_price for l in created[0].lines.all()}, {Decimal('25.00')})
 
     def test_owner_cannot_self_set_rate(self):
         self.client.login(username='owner', password='pw')
@@ -8473,11 +8481,11 @@ class AdvanceBillingTests(BillingTestsBase):
         from api import billing
 
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
         expected = self._june_dates({1, 3})
-        self.assertEqual(line.quantity, len(expected))  # 9 days
-        self.assertEqual(line.attendance_dates, [d.isoformat() for d in expected])
-        self.assertIn('booked days', line.description)
+        lines = list(created[0].lines.order_by('id'))
+        self.assertEqual(len(lines), len(expected))  # 9 days, one line each
+        self.assertEqual(self._dates(created[0]), [d.isoformat() for d in expected])
+        self.assertEqual(lines[0].description, 'Daycare — Biscuit — Mon 01/06/2026 (2-4 days a week rate)')
         self.assertEqual(created[0].total, Decimal('25.00') * len(expected))
 
     def test_closure_days_and_boarding_days_are_not_booked(self):
@@ -8489,10 +8497,10 @@ class AdvanceBillingTests(BillingTestsBase):
             owner=self.owner, start_date=date(2026, 6, 3), end_date=date(2026, 6, 5), status='APPROVED')
         br.dogs.add(self.dog)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        daycare = created[0].lines.get(description__startswith='Daycare')
-        self.assertNotIn('2026-06-01', daycare.attendance_dates)
-        self.assertNotIn('2026-06-03', daycare.attendance_dates)
-        self.assertEqual(daycare.quantity, 7)
+        daycare = self._dates(created[0], description__startswith='Daycare')
+        self.assertNotIn('2026-06-01', daycare)
+        self.assertNotIn('2026-06-03', daycare)
+        self.assertEqual(len(daycare), 7)
 
     def test_approved_changes_shape_the_booking(self):
         from api import billing
@@ -8503,7 +8511,7 @@ class AdvanceBillingTests(BillingTestsBase):
         DateChangeRequest.objects.create(
             dog=self.dog, request_type='ADD_DAY', new_date=date(2026, 6, 12), status='APPROVED')
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        dates = created[0].lines.get().attendance_dates
+        dates = self._dates(created[0])
         self.assertNotIn('2026-06-08', dates)
         self.assertIn('2026-06-12', dates)
 
@@ -8512,7 +8520,7 @@ class AdvanceBillingTests(BillingTestsBase):
 
         self._attend(self.dog, 15, status='REMOVED')
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        self.assertNotIn('2026-06-15', created[0].lines.get().attendance_dates)
+        self.assertNotIn('2026-06-15', self._dates(created[0]))
 
     def test_last_months_unbilled_extras_are_caught_up(self):
         """May's invoice charged May's booked days; a day added in May after
@@ -8521,19 +8529,20 @@ class AdvanceBillingTests(BillingTestsBase):
         from api import billing
 
         may, _, _ = billing.generate_invoices_for_month(2026, 5)
-        may_line = may[0].lines.get()
-        self.assertIn('2026-05-04', may_line.attendance_dates)  # a booked Monday
+        self.assertIn('2026-05-04', self._dates(may[0]))  # a booked Monday
         # Later in May: the booked Monday happens, plus an unplanned Friday.
         self._attend(self.dog, 4, month=5)
         self._attend(self.dog, 8, month=5)
 
         june, _, _ = billing.generate_invoices_for_month(2026, 6)
         lines = list(june[0].lines.order_by('id'))
-        self.assertEqual(len(lines), 2)
-        booked, extra = lines
-        self.assertIn('booked days', booked.description)
-        self.assertIn('extra day in May', extra.description)
+        self.assertEqual(len(lines), 10)
+        # Date order: May's unbilled extra comes first, then June's booked days.
+        extra, *booked = lines
+        self.assertEqual(extra.description, 'Daycare — Biscuit — Fri 08/05/2026 (extra day in May, 2-4 days a week rate)')
         self.assertEqual(extra.attendance_dates, ['2026-05-08'])
+        self.assertEqual(len(booked), 9)
+        self.assertFalse(any('extra' in l.description for l in booked))
         self.assertEqual(june[0].total, Decimal('25.00') * (9 + 1))
 
     def test_extras_with_no_prior_invoice_are_days_off_the_schedule(self):
@@ -8556,10 +8565,9 @@ class AdvanceBillingTests(BillingTestsBase):
         self._attend(self.dog, 15, month=5)  # another May extra after June was drafted
         billing.regenerate_draft(june[0])
         june[0].refresh_from_db()
-        extra = june[0].lines.get(description__contains='extra')
-        self.assertEqual(extra.attendance_dates, ['2026-05-08', '2026-05-15'])
+        self.assertEqual(self._dates(june[0], description__contains='extra'), ['2026-05-08', '2026-05-15'])
         # May's booked days stay on May's invoice only.
-        self.assertEqual(june[0].lines.filter(description__contains='booked').get().quantity, 9)
+        self.assertEqual(june[0].lines.exclude(description__contains='extra').count(), 9)
 
     def test_dog_with_nothing_booked_and_nothing_attended_is_skipped(self):
         from api import billing
@@ -8580,9 +8588,9 @@ class AdvanceBillingTests(BillingTestsBase):
         self.dog.owner_collects_default = True
         self.dog.save()
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
-        self.assertEqual(line.unit_price, Decimal('20.00'))
-        self.assertIn('owner drop-off & pick-up', line.description)
+        lines = list(created[0].lines.all())
+        self.assertEqual({l.unit_price for l in lines}, {Decimal('20.00')})
+        self.assertTrue(all('owner drop-off & pick-up' in l.description for l in lines))
 
 
 class DaycarePriceTierTests(BillingTestsBase):
@@ -8635,14 +8643,15 @@ class DaycarePriceTierTests(BillingTestsBase):
         self._attend(self.dog, 2)                 # an extra Tuesday already on June's roster
         self._attend(self.dog, 20, month=5)       # an extra day in May, never invoiced
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        lines = {('extra' in l.description): l for l in created[0].lines.all()}
-        booked, extra = lines[False], lines[True]
-        self.assertEqual(booked.quantity, 6)
-        self.assertEqual(booked.unit_price, Decimal('40.00'))
-        self.assertIn('1 day a week rate', booked.description)
-        self.assertEqual(extra.quantity, 1)
-        self.assertEqual(extra.unit_price, Decimal('40.00'))
-        self.assertIn('extra day in May', extra.description)
+        lines = list(created[0].lines.order_by('id'))
+        booked = [l for l in lines if 'extra' not in l.description]
+        extra = [l for l in lines if 'extra' in l.description]
+        self.assertEqual(len(booked), 6)
+        self.assertEqual({l.unit_price for l in booked}, {Decimal('40.00')})
+        self.assertIn('1 day a week rate', booked[0].description)
+        self.assertEqual(len(extra), 1)
+        self.assertEqual(extra[0].unit_price, Decimal('40.00'))
+        self.assertIn('extra day in May', extra[0].description)
         self.assertEqual(created[0].total, Decimal('280.00'))
 
     def test_five_day_dog_missing_days_still_gets_five_day_rate(self):
@@ -8653,7 +8662,7 @@ class DaycarePriceTierTests(BillingTestsBase):
         self._attend(self.dog, 1)
         self._attend(self.dog, 2)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
+        line = created[0].lines.first()
         self.assertEqual(line.unit_price, Decimal('33.00'))
         self.assertIn('5 days a week rate', line.description)
 
@@ -8665,7 +8674,7 @@ class DaycarePriceTierTests(BillingTestsBase):
         self.dog.save()
         self._attend(self.dog, 1)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
+        line = created[0].lines.first()
         self.assertEqual(line.unit_price, Decimal('30.00'))
         self.assertIn('agreed rate', line.description)
 
@@ -8680,7 +8689,7 @@ class DaycarePriceTierTests(BillingTestsBase):
         pricing.save()
         self._attend(self.dog, 1)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        self.assertEqual(created[0].lines.get().unit_price, Decimal('42.00'))
+        self.assertEqual(created[0].lines.first().unit_price, Decimal('42.00'))
 
     def test_only_payment_managers_set_the_dog_override(self):
         # A staff member without the payments permission: the rate is ignored,
@@ -8868,7 +8877,7 @@ class InvoiceAdjustmentTests(BillingTestsBase):
         self._add('Damaged lead', '15.00')
         self.invoice.refresh_from_db()
         adjustment = self.invoice.lines.get(is_adjustment=True)
-        attendance_line = self.invoice.lines.get(is_adjustment=False)
+        attendance_line = self.invoice.lines.filter(is_adjustment=False).first()
 
         # Attendance-derived lines can't be deleted.
         resp = self.client.post(f'/api/invoices/{self.invoice.id}/remove_line/',
@@ -9190,14 +9199,14 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
         invoice = created[0]
         lines = list(invoice.lines.order_by('id'))
-        self.assertEqual(len(lines), 2)
-        standard = next(l for l in lines if 'owner drop-off' not in l.description)
-        discounted = next(l for l in lines if 'owner drop-off' in l.description)
-        self.assertEqual(standard.quantity, 3)
-        self.assertEqual(standard.unit_price, Decimal('25.00'))
-        self.assertEqual(discounted.quantity, 1)
-        self.assertEqual(discounted.unit_price, Decimal('20.00'))
-        self.assertEqual(discounted.attendance_dates, ['2026-06-01'])
+        self.assertEqual(len(lines), 4)
+        standard = [l for l in lines if 'owner drop-off' not in l.description]
+        discounted = [l for l in lines if 'owner drop-off' in l.description]
+        self.assertEqual(len(standard), 3)
+        self.assertEqual({l.unit_price for l in standard}, {Decimal('25.00')})
+        self.assertEqual(len(discounted), 1)
+        self.assertEqual(discounted[0].unit_price, Decimal('20.00'))
+        self.assertEqual(discounted[0].attendance_dates, ['2026-06-01'])
         self.assertEqual(invoice.total, Decimal('95.00'))
 
     def test_dog_transport_defaults_apply(self):
@@ -9232,7 +9241,7 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
         self.assertEqual(created[0].lines.get().unit_price, Decimal('0.00'))
 
-    def test_zero_discount_keeps_single_line(self):
+    def test_zero_discount_bills_every_day_at_full_rate(self):
         from api import billing
         from website.models import ServicePricing
 
@@ -9242,9 +9251,10 @@ class OwnerTransportDiscountTests(BillingTestsBase):
         self._attend_transport(self.dog, 1, True, True)
         self._attend_transport(self.dog, 2, False, False)
         created, _, _ = billing.generate_invoices_for_month(2026, 6)
-        line = created[0].lines.get()
-        self.assertEqual(line.quantity, 2)
-        self.assertEqual(line.unit_price, Decimal('25.00'))
+        lines = list(created[0].lines.all())
+        self.assertEqual(len(lines), 2)
+        self.assertEqual({l.unit_price for l in lines}, {Decimal('25.00')})
+        self.assertFalse(any('owner drop-off' in l.description for l in lines))
 
     def test_billing_settings_exposes_discount(self):
         self.client.login(username='manager', password='pw')
@@ -9532,7 +9542,7 @@ class OwnerlessDogBillingTests(BillingTestsBase):
         self._attend(self.stray, 2)
         billing.regenerate_draft(created[0])
         created[0].refresh_from_db()
-        self.assertEqual(created[0].lines.get().quantity, 2)
+        self.assertEqual(created[0].lines.count(), 2)
         self.assertEqual(created[0].total, Decimal('50.00'))
 
 
@@ -9558,9 +9568,7 @@ class PerDogGenerationTests(BillingTestsBase):
         self.assertIsNone(invoice.customer)
         self.assertEqual(invoice.billed_dog, self.dog)
         self.assertEqual(invoice.billed_name, 'Biscuit (dog)')
-        line = invoice.lines.get()
-        self.assertEqual(line.dog, self.dog)
-        self.assertEqual(line.quantity, 2)
+        self.assertEqual([l.dog for l in invoice.lines.all()], [self.dog, self.dog])
         self.assertEqual(invoice.total, Decimal('50.00'))
 
     def test_per_dog_uses_dog_rate_not_owner_discount(self):
@@ -9571,13 +9579,13 @@ class PerDogGenerationTests(BillingTestsBase):
         self.owner.profile.daycare_rate = Decimal('20.00')
         self.owner.profile.save()
         created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
-        self.assertEqual(created[0].lines.get().unit_price, Decimal('25.00'))
+        self.assertEqual({l.unit_price for l in created[0].lines.all()}, {Decimal('25.00')})
 
         Invoice.objects.all().delete()
         self.dog.daily_rate = Decimal('30.00')
         self.dog.save()
         created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.dog)
-        self.assertEqual(created[0].lines.get().unit_price, Decimal('30.00'))
+        self.assertEqual({l.unit_price for l in created[0].lines.all()}, {Decimal('30.00')})
 
     def test_owner_invoice_excludes_dog_already_billed_per_dog(self):
         from api import billing
@@ -9626,9 +9634,7 @@ class PerDogGenerationTests(BillingTestsBase):
         self._attend(self.dog, 4)
         billing.regenerate_draft(created[0])
         created[0].refresh_from_db()
-        line = created[0].lines.get()
-        self.assertEqual(line.dog, self.dog)
-        self.assertEqual(line.quantity, 3)
+        self.assertEqual([l.dog for l in created[0].lines.all()], [self.dog] * 3)
         self.assertEqual(created[0].total, Decimal('75.00'))
 
     def test_regenerate_owner_invoice_keeps_per_dog_billed_dog_off(self):

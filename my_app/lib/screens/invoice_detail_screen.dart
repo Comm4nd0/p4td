@@ -424,6 +424,33 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
   }
 
+  /// "Mon 1 Jun 2026" for a per-day line; the dog's name for an older
+  /// per-dog line whose days sit in its chips.
+  String _lineTitle(InvoiceLine line) {
+    final day = line.attendanceDates.length == 1 ? DateTime.tryParse(line.attendanceDates.single) : null;
+    if (day != null) return DateFormat('EEE d MMM yyyy').format(day);
+    return line.dogName ?? line.description;
+  }
+
+  /// "Biscuit · Daycare · 2–4 days a week rate · owner transport" — what the
+  /// line charges for, read from the description the server wrote.
+  String _lineSubtitle(InvoiceLine line) {
+    final boarding = line.description.startsWith('Boarding');
+    final perDay = line.attendanceDates.length == 1;
+    final parts = <String>[
+      if (perDay && line.dogName != null) line.dogName!,
+      boarding ? 'Boarding night' : 'Daycare',
+      if (!perDay)
+        '${line.quantity} ${boarding ? 'night' : 'day'}${line.quantity == 1 ? '' : 's'} @ £${line.unitPrice.toStringAsFixed(2)}',
+      if (line.description.contains('extra day in') || line.description.contains('extra night in'))
+        'unbilled from last month',
+      if (RegExp(r'\((?:extra [a-z]+ in \w+, )?([^,)]+ rate)').firstMatch(line.description) case final m?)
+        m.group(1)!,
+      if (line.description.contains('owner drop-off')) 'owner transport',
+    ];
+    return parts.join(' · ');
+  }
+
   Widget _buildLinesCard(Invoice invoice) {
     final attendanceLines = invoice.lines.where((l) => !l.isAdjustment).toList();
     final adjustments = invoice.lines.where((l) => l.isAdjustment).toList();
@@ -442,20 +469,23 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                       .titleSmall
                       ?.copyWith(fontWeight: FontWeight.bold)),
             ),
+            // One line per day the dog was in: the title is the day, the
+            // subtitle says which dog, what kind of day and which rate. Older
+            // invoices (one line per dog) still list their days as chips.
             ...attendanceLines.map((line) => ExpansionTile(
-                  leading: Picon(PiconsDuotone.dog, size: 24),
-                  title: Text(line.dogName ?? line.description,
+                  leading: Picon(
+                      line.description.startsWith('Boarding') ? PiconsDuotone.bed : PiconsDuotone.dog,
+                      size: 24),
+                  title: Text(_lineTitle(line),
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                   subtitle: Text(
-                    '${line.description.startsWith('Boarding') ? 'Boarding — ' : ''}'
-                    '${line.quantity} ${line.description.startsWith('Boarding') ? 'night' : 'day'}${line.quantity == 1 ? '' : 's'} @ £${line.unitPrice.toStringAsFixed(2)}'
-                    '${line.description.contains('owner drop-off') ? ' · owner transport' : ''}',
+                    _lineSubtitle(line),
                     style: TextStyle(color: Colors.grey[600], fontSize: 13),
                   ),
                   trailing: Text('£${line.lineTotal.toStringAsFixed(2)}',
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                   children: [
-                    if (line.attendanceDates.isNotEmpty)
+                    if (line.attendanceDates.length > 1)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                         child: Wrap(

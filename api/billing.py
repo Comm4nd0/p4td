@@ -466,90 +466,67 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None, dog
 
 def _build_all_lines(invoice, dogs):
     """Create every line for ``{dog: charges}`` (see ``charges_for_month``);
-    returns the total. Booked days first, then last month's extras, then
-    boarding — each its own line so the invoice reads as the charge it is."""
+    returns the total.
+
+    One line per day, so the invoice reads as a diary of the dog's
+    attendance: for each dog (by name) the days run in date order, which
+    puts last month's unbilled extras first and this month's booked days
+    and boarding nights after them. Each line carries its own date in
+    ``attendance_dates`` — that is what ``_billed_dates_by_dog`` reads to
+    make sure a date is never charged twice."""
     prev_label = _calendar.month_name[previous_month(invoice.period_year, invoice.period_month)[1]]
     total = Decimal('0.00')
-    total += _build_lines(invoice, {d: c['daycare'] for d, c in dogs.items() if c.get('daycare')})
-    total += _build_lines(invoice, {d: c['extra_daycare'] for d, c in dogs.items() if c.get('extra_daycare')},
-                          extra_month=prev_label)
-    total += _build_boarding_lines(invoice, {d: c['boarding'] for d, c in dogs.items() if c.get('boarding')})
-    total += _build_boarding_lines(invoice, {d: c['extra_boarding'] for d, c in dogs.items() if c.get('extra_boarding')},
-                                   extra_month=prev_label)
+    for dog, charges in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
+        items = [(d, 'daycare', owner_transport, prev_label) for d, owner_transport in charges.get('extra_daycare', [])]
+        items += [(n, 'boarding', False, prev_label) for n in charges.get('extra_boarding', [])]
+        items += [(d, 'daycare', owner_transport, None) for d, owner_transport in charges.get('daycare', [])]
+        items += [(n, 'boarding', False, None) for n in charges.get('boarding', [])]
+        items.sort(key=lambda item: (item[0], item[1]))
+        total += _build_day_lines(invoice, dog, items)
     return total
 
 
-def _build_lines(invoice, dogs, extra_month=None):
-    """Create the daycare InvoiceLines for a dog map of (date, owner_transport)
-    day tuples; returns the lines' total. ``extra_month`` names the previous
-    month when the days are its unbilled extras rather than this month's
-    booked days.
+def _build_day_lines(invoice, dog, items):
+    """Create one InvoiceLine per ``(date, kind, owner_transport, extra_month)``
+    item for ``dog``; returns their total. ``extra_month`` names the previous
+    month when the day is one of its unbilled extras rather than one of this
+    month's booked days.
 
-    Days where the owner handled both transport legs bill at the day rate
-    minus the configurable owner-transport discount (as their own line, so
-    the saving is visible on the invoice); other days bill at the full rate.
-    """
+    A daycare day where the owner handled both transport legs bills at the
+    day rate minus the configurable owner-transport discount, and the line
+    says so; other days bill at the full rate. Boarding nights bill at the
+    per-night rate."""
     from website.models import ServicePricing
 
     discount = ServicePricing.load().owner_transport_discount
+    day_rate, note = resolve_day_rate(dog, customer=invoice.customer)
+    night_rate = get_boarding_rate(dog, customer=invoice.customer)
     total = Decimal('0.00')
-    for dog, days in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
-        rate, note = resolve_day_rate(dog, customer=invoice.customer)
-        split_discount = discount > 0
-        standard = [d for d, owner_transport in days if not (owner_transport and split_discount)]
-        discounted = [d for d, owner_transport in days if owner_transport and split_discount]
-        def what(n):
-            days = f"{n} {'extra' if extra_month else 'booked'} day{'s' if n != 1 else ''}"
-            return f'{days} in {extra_month}' if extra_month else days
-
-        if standard:
-            line_total = rate * len(standard)
-            InvoiceLine.objects.create(
-                invoice=invoice,
-                dog=dog,
-                description=f"Daycare — {dog.name} ({what(len(standard))} @ £{rate}, {note})",
-                quantity=len(standard),
-                unit_price=rate,
-                line_total=line_total,
-                attendance_dates=[d.isoformat() for d in standard],
-            )
-            total += line_total
-        if discounted:
-            discounted_rate = max(rate - discount, Decimal('0.00'))
-            line_total = discounted_rate * len(discounted)
-            InvoiceLine.objects.create(
-                invoice=invoice,
-                dog=dog,
-                description=(
-                    f"Daycare — {dog.name} ({what(len(discounted))} "
-                    f"@ £{discounted_rate}, {note}, owner drop-off & pick-up)"
-                ),
-                quantity=len(discounted),
-                unit_price=discounted_rate,
-                line_total=line_total,
-                attendance_dates=[d.isoformat() for d in discounted],
-            )
-            total += line_total
-    return total
-
-
-def _build_boarding_lines(invoice, dogs, extra_month=None):
-    """Create one boarding InvoiceLine per dog; returns the lines' total."""
-    total = Decimal('0.00')
-    for dog, nights in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
-        rate = get_boarding_rate(dog, customer=invoice.customer)
-        line_total = rate * len(nights)
-        where = f' in {extra_month}' if extra_month else ''
+    for day, kind, owner_transport, extra_month in items:
+        when = day.strftime('%a %d/%m/%Y')
+        if kind == 'boarding':
+            rate = night_rate
+            tail = f' (extra night in {extra_month})' if extra_month else ''
+            description = f"Boarding — {dog.name} — night of {when}{tail}"
+        else:
+            discounted = owner_transport and discount > 0
+            rate = max(day_rate - discount, Decimal('0.00')) if discounted else day_rate
+            notes = [note]
+            if extra_month:
+                notes.insert(0, f'extra day in {extra_month}')
+            if discounted:
+                notes.append('owner drop-off & pick-up')
+            description = f"Daycare — {dog.name} — {when} ({', '.join(notes)})"
         InvoiceLine.objects.create(
             invoice=invoice,
             dog=dog,
-            description=f"Boarding — {dog.name} ({len(nights)} night{'s' if len(nights) != 1 else ''}{where} @ £{rate})",
-            quantity=len(nights),
+            description=description,
+            quantity=1,
             unit_price=rate,
-            line_total=line_total,
-            attendance_dates=[d.isoformat() for d in nights],
+            line_total=rate,
+            attendance_dates=[day.isoformat()],
         )
-        total += line_total
+        total += rate
     return total
 
 
