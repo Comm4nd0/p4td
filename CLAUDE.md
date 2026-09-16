@@ -361,7 +361,7 @@ cannot simply be copied.
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
 > | Live on the App Store | **1.12.9** | `2c70979` | Tag `v1.12.9`, build 592; confirmed live by Marco on 2026-09-15 |
-> | Submitted, in review | 1.12.28 | `d73784f` | Tag `v1.12.28` on 2026-09-16, superseding 1.12.26 (Android build 470 is live; its iOS submission never went through). Adds the staff dashboard's owner drop-off/collection cards. Android build 472 goes live on its own once Google's review passes; iOS needs Apple's approval and a press in App Store Connect |
+> | Submitted, in review | 1.12.28 | `d73784f` | Tag `v1.12.28` on 2026-09-16, superseding 1.12.26 (Android build 470 is live; its iOS submission never went through). Adds the staff dashboard's owner drop-off/collection cards. Android build 472 promoted to production the same day (live once Google's review passes). iOS **not yet submitted**: App Store Connect refused build 606 and no newer 1.12.28 build arrived within 30 min, the same failure 1.12.26 hit — check Xcode Cloud's Production workflow for the tag, then re-run `Release iOS to App Store` on it (or pass `APP_BUILD`) |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
