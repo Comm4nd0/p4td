@@ -1,5 +1,1 @@
-Your own Dashboard tab: where each dog is today, the week ahead, anything needing your attention, your latest invoice, upcoming boarding and new photos, with Quick Actions to change days, book boarding or contact staff.
-
-Invoices now list one line per day your dog was in.
-
-Attach the vet's certificate behind each vaccination date, get notified when your dog is collected and home, and change your sign-in email from your Profile.
+For the team: two new cards on the staff dashboard show how many dogs are being dropped off and collected by their owners each day. Each card stays red until a staff member is put in charge of meeting those owners, then turns green.
