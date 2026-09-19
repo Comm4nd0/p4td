@@ -285,7 +285,13 @@ Additional non-router endpoints:
   calls (`dogs/calendar/`, `boarding-requests/`, `invoices/`,
   `date-change-requests/`, `support-queries/`, `closure-days/`, `feed/?dog=`),
   one section per file under `screens/dashboard/client_*`. The calendar is the
-  page; any other fetch failing only degrades its own section. "Needs Your
+  page; any other fetch failing only degrades its own section. The **Calendar**
+  section (`client_calendar_section.dart`) shows all the owner's dogs by Day,
+  Week or Month, swiping either way into the past; it owns no data — the
+  dashboard seeds it with today's two months and fetches further months from
+  `dogs/calendar/` as they scroll into view (the endpoint caps a call at 92
+  days). Tapping through opens My Calendar on that day, where the waitlist
+  actions live. "Needs Your
   Attention" (`ClientAttention.compute`) lists only items with a count — add
   the next owner-facing nag there, not as a new section. Never surface
   incidents or live pickup status here: both are staff-only over the API.

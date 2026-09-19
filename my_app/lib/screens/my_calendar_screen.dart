@@ -13,7 +13,10 @@ import '../widgets/page_body.dart';
 /// Month view of the caller's booked daycare days, boarding stays, closures
 /// and full days — with a waitlist join/leave flow for full days.
 class MyCalendarScreen extends StatefulWidget {
-  const MyCalendarScreen({super.key});
+  /// The day to open on; today when null.
+  final DateTime? initialDay;
+
+  const MyCalendarScreen({super.key, this.initialDay});
 
   @override
   State<MyCalendarScreen> createState() => _MyCalendarScreenState();
@@ -22,8 +25,8 @@ class MyCalendarScreen extends StatefulWidget {
 class _MyCalendarScreenState extends State<MyCalendarScreen> {
   final DataService _dataService = getIt<DataService>();
 
-  DateTime _focusedDay = DateTime.now();
-  DateTime _selectedDay = DateTime.now();
+  late DateTime _focusedDay = widget.initialDay ?? DateTime.now();
+  late DateTime _selectedDay = widget.initialDay ?? DateTime.now();
 
   /// 'yyyy-MM-dd' → day payload, merged across fetched months.
   final Map<String, CalendarDay> _days = {};

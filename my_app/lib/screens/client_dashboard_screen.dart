@@ -28,7 +28,7 @@ import 'dashboard/client_closures_section.dart';
 import 'dashboard/client_photos_section.dart';
 import 'feed_post_screen.dart';
 import 'dashboard/client_today_section.dart';
-import 'dashboard/client_week_strip.dart';
+import 'dashboard/client_calendar_section.dart';
 import 'dog_home_screen.dart';
 import 'edit_dog_screen.dart';
 import 'my_calendar_screen.dart';
@@ -85,6 +85,16 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
 
   OwnerCalendar? _calendar;
   Object? _calendarError;
+
+  /// Every calendar day fetched so far, 'yyyy-MM-dd' → payload: the first
+  /// two months from today, plus whatever the Calendar section has swiped
+  /// to, a month at a time. Cleared and re-seeded on refresh.
+  final Map<String, CalendarDay> _calendarDays = {};
+  final Set<String> _loadingMonths = {};
+
+  /// What the Calendar section last said it was showing, so a refresh can
+  /// fetch it again.
+  (DateTime, DateTime)? _visibleRange;
   List<BoardingRequest> _boarding = const [];
   List<Invoice> _invoices = const [];
   List<DateChangeRequest> _dayRequests = const [];
@@ -109,6 +119,8 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
 
   Future<void> _load() async {
     final today = _today;
+    _calendarDays.clear();
+    _loadingMonths.clear();
     // Each fetch swallows its own error so none can surface as an unhandled
     // async failure while the others are still being awaited.
     await Future.wait([
@@ -128,6 +140,56 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     // The photo strip is per dog, and the calendar is what names the dogs.
     await _loadPhotos();
     if (mounted) setState(() => _loading = false);
+    final visible = _visibleRange;
+    if (visible != null) _ensureCalendarRange(visible.$1, visible.$2);
+  }
+
+  static String _dayKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  CalendarDay? _calendarDayFor(DateTime day) => _calendarDays[_dayKey(day)];
+
+  /// Make sure every day from [start] to [end] is loaded, fetching whole
+  /// months as needed (the endpoint caps a request at 92 days, and a month
+  /// is the unit the Calendar section swipes by).
+  Future<void> _ensureCalendarRange(DateTime start, DateTime end) async {
+    _visibleRange = (start, end);
+    var missing = false;
+    for (var d = start; !d.isAfter(end); d = d.add(const Duration(days: 1))) {
+      if (!_calendarDays.containsKey(_dayKey(d))) {
+        missing = true;
+        break;
+      }
+    }
+    if (!missing) return;
+    final months = <DateTime>[];
+    for (var m = DateTime(start.year, start.month, 1);
+        !m.isAfter(DateTime(end.year, end.month, 1));
+        m = DateTime(m.year, m.month + 1, 1)) {
+      months.add(m);
+    }
+    await Future.wait(months.map(_loadCalendarMonth));
+  }
+
+  Future<void> _loadCalendarMonth(DateTime month) async {
+    final key = '${month.year}-${month.month}';
+    if (!_loadingMonths.add(key)) return;
+    try {
+      final calendar = await _dataService.getOwnerCalendar(
+        start: month,
+        end: DateTime(month.year, month.month + 1, 0),
+      );
+      if (!mounted) return;
+      setState(() {
+        for (final day in calendar.days) {
+          _calendarDays[_dayKey(day.date)] = day;
+        }
+      });
+    } catch (_) {
+      // Those days stay "Loading…"; the next swipe or refresh tries again.
+    } finally {
+      _loadingMonths.remove(key);
+    }
   }
 
   Future<void> _fetch(String name, Future<void> Function() run) async {
@@ -149,6 +211,9 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
       setState(() {
         _calendar = calendar;
         _calendarError = null;
+        for (final day in calendar.days) {
+          _calendarDays[_dayKey(day.date)] = day;
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -196,7 +261,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     await _push(DogHomeScreen(dog: dog, isStaff: false));
   }
 
-  Future<void> _openCalendar() => _push(const MyCalendarScreen());
+  Future<void> _openCalendar([DateTime? day]) => _push(MyCalendarScreen(initialDay: day));
 
   Future<void> _openPayments() => _push(const MyPaymentsScreen());
 
@@ -319,10 +384,12 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                 onOpenCalendar: _openCalendar,
               ),
               gap,
-              ClientWeekStrip(
+              ClientCalendarSection(
                 today: today,
-                calendar: calendar,
-                onTap: (_) => _openCalendar(),
+                dogs: calendar.dogs,
+                dayFor: _calendarDayFor,
+                onVisibleRange: _ensureCalendarRange,
+                onOpenDay: _openCalendar,
               ),
               gap,
               ClientAttentionSection(
