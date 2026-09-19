@@ -296,8 +296,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
             const Expanded(
               child: Text(
                 'These photos are private between you and the Paws 4 Thought '
-                'team — they never appear on the feed. Staff add photos here, '
-                "including paperwork like your dog's vaccination card.",
+                'team — they never appear on the feed. Vaccination certificates '
+                "go under Edit Profile, not here.",
                 style: TextStyle(fontSize: 12),
               ),
             ),
