@@ -15,7 +15,7 @@ from .models import (
     BoardingRequest, BoardingRequestHistory, DailyDogAssignment, DogWeekdayPickup,
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
-    GroupMedia, IntakeRequest, Invoice, XeroConnection, PasswordResetOTP,
+    GroupMedia, IntakeRequest, DogLinkRequest, Invoice, XeroConnection, PasswordResetOTP,
     Comment, MediaReaction, OwnerHandoverDuty, DogChangeLog,
 )
 from django.utils import timezone
@@ -2720,6 +2720,23 @@ class SupportQueryTests(TestCase):
         subjects = [q['subject'] for q in resp.data]
         self.assertIn('My query', subjects)
         self.assertNotIn('Other query', subjects)
+
+    def test_staff_detail_lists_the_owners_dogs(self):
+        """The conversation header can say who the thread is about: staff get
+        the owner's dogs (owned and co-owned, by name); owners get null."""
+        Dog.objects.create(name='Rolo', owner=self.owner)
+        shared = Dog.objects.create(name='Biscuit')
+        shared.additional_owners.add(self.owner)
+        Dog.objects.create(name='Ziggy')
+        query = SupportQuery.objects.create(owner=self.owner, subject='About Rolo')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/support-queries/{query.id}/')
+        self.assertEqual([d['name'] for d in resp.data['owner_dogs']], ['Biscuit', 'Rolo'])
+        self.assertEqual(set(resp.data['owner_dogs'][0]), {'id', 'name', 'profile_image'})
+        self.client.logout()
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/support-queries/{query.id}/')
+        self.assertIsNone(resp.data['owner_dogs'])
 
     def test_staff_sees_all_queries(self):
         other = User.objects.create_user(username='other', password='pw')
@@ -7318,6 +7335,218 @@ class IntakeRequestTests(TestCase):
         self.assertEqual(resp.status_code, 404)
         resp = self.client.delete(f'/api/intake-requests/{request_id}/')
         self.assertEqual(resp.status_code, 404)
+
+
+class DogLinkRequestTests(TestCase):
+    """Link my dog: a client asks for a dog already on the books to be put on
+    their account; staff match it to the Dog and approve, or deny."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='sue@example.com', password='pw', first_name='Sue', last_name='Penney',
+            email='sue@example.com')
+        self.other = User.objects.create_user(username='other', password='pw', first_name='Oz')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # The dog staff hold for Sue, created before she had the app.
+        self.biscuit = Dog.objects.create(
+            name='Biscuit', postcode='SL7 2HE', contact_number='07700 900123')
+        self.client = APIClient()
+
+    def _payload(self, **overrides):
+        payload = {
+            'dog_name': 'biscuit',
+            'postcode': 'sl7 2he',
+            'phone_number': '+44 7700 900123',
+            'notes': 'Brown cockapoo, comes Mondays',
+        }
+        payload.update(overrides)
+        return payload
+
+    def _submit(self, **overrides):
+        self.client.login(username='sue@example.com', password='pw')
+        resp = self.client.post('/api/dog-link-requests/', self._payload(**overrides), format='json')
+        self.client.logout()
+        return resp
+
+    def test_owner_can_submit_and_never_sees_candidates(self):
+        with patch('api.notifications.send_push_notification') as push:
+            resp = self._submit()
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['status'], 'PENDING')
+        self.assertEqual(resp.data['dog_name'], 'biscuit')
+        self.assertEqual(resp.data['postcode'], 'SL7 2HE')
+        self.assertIsNone(resp.data['candidates'])
+        req = DogLinkRequest.objects.get()
+        self.assertEqual(req.owner, self.owner)
+        # The number fills a gap on the profile.
+        self.owner.profile.refresh_from_db()
+        self.assertEqual(self.owner.profile.phone_number, '+44 7700 900123')
+        # Managers are told, like a booking form.
+        manager = User.objects.create_user(username='manager', password='pw', is_staff=True)
+        manager.profile.can_manage_requests = True
+        manager.profile.save()
+        with patch('api.notifications.send_push_notification') as push:
+            self._submit(dog_name='Rolo')
+        self.assertEqual([c.args[0] for c in push.call_args_list], [manager])
+        self.assertEqual(push.call_args.args[3]['type'], 'dog_link_request')
+        log = DogChangeLog.objects.filter(category='CLIENTS', source='LINK_REQUEST', action='CREATED').first()
+        self.assertIsNotNone(log)
+        self.assertIn('Rolo', log.summary)
+
+    def test_dog_name_is_required(self):
+        resp = self._submit(dog_name='   ')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(DogLinkRequest.objects.count(), 0)
+
+    def test_owner_sees_only_own_requests(self):
+        self._submit()
+        self.client.login(username='other', password='pw')
+        resp = self.client.get('/api/dog-link-requests/')
+        self.assertEqual(len(resp.data), 0)
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/dog-link-requests/')
+        self.assertEqual(len(resp.data), 1)
+
+    def test_staff_get_ranked_candidates_with_reasons(self):
+        # A same-name dog elsewhere, a same-postcode dog with another name,
+        # a dog Sue already owns, and an unrelated one.
+        Dog.objects.create(name='Biscuit', postcode='RG1 1AA', owner=self.other)
+        Dog.objects.create(name='Rolo', postcode='SL72HE')
+        Dog.objects.create(name='Biscuit', owner=self.owner)
+        Dog.objects.create(name='Ziggy', postcode='HP9 1AA')
+        self._submit()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/dog-link-requests/{DogLinkRequest.objects.get().id}/')
+        candidates = resp.data['candidates']
+        self.assertEqual([c['name'] for c in candidates], ['Biscuit', 'Biscuit', 'Rolo'])
+        best = candidates[0]
+        self.assertEqual(best['id'], self.biscuit.id)
+        self.assertEqual(best['matches'], {'name': True, 'postcode': True, 'phone': True})
+        self.assertIsNone(best['owner_name'])
+        self.assertEqual(candidates[1]['owner_name'], 'Oz')
+        self.assertEqual(candidates[1]['matches'], {'name': True, 'postcode': False, 'phone': False})
+        self.assertEqual(candidates[2]['matches'], {'name': False, 'postcode': True, 'phone': False})
+        # Ziggy matched nothing; Sue's own Biscuit is never offered.
+        self.assertNotIn(self.owner.dogs.get().id, [c['id'] for c in candidates])
+
+    def test_approve_makes_owner_of_ownerless_dog(self):
+        self._submit()
+        req = DogLinkRequest.objects.get()
+        self.client.login(username='staff', password='pw')
+        with patch('api.notifications.send_push_notification') as push:
+            resp = self.client.post(f'/api/dog-link-requests/{req.id}/approve/', {'dog': self.biscuit.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'APPROVED')
+        self.assertEqual(resp.data['dog'], self.biscuit.id)
+        self.assertEqual(resp.data['linked_dog_name'], 'Biscuit')
+        self.assertIsNone(resp.data['candidates'])
+        self.biscuit.refresh_from_db()
+        self.assertEqual(self.biscuit.owner, self.owner)
+        # The owner is told and the push opens the dog.
+        self.assertEqual(push.call_args.args[0], self.owner)
+        data = push.call_args.args[3]
+        self.assertEqual(data['type'], 'dog_link_request_update')
+        self.assertEqual(data['approved'], 'true')
+        self.assertEqual(data['dog_id'], str(self.biscuit.id))
+        self.assertEqual(push.call_args.kwargs['category'], 'bookings')
+        # Logged against the dog, so it shows on the dog's profile trail.
+        log = DogChangeLog.objects.filter(category='CLIENTS', action='APPROVED', dog=self.biscuit).first()
+        self.assertIsNotNone(log)
+        self.assertIn('Sue Penney', log.summary)
+        # And Sue now sees the dog.
+        self.client.logout()
+        self.client.login(username='sue@example.com', password='pw')
+        resp = self.client.get('/api/dogs/')
+        self.assertEqual([d['name'] for d in resp.data], ['Biscuit'])
+
+    def test_approve_fills_blank_contact_number_only(self):
+        self.biscuit.contact_number = ''
+        self.biscuit.save()
+        self._submit()
+        self.client.login(username='staff', password='pw')
+        self.client.post(f'/api/dog-link-requests/{DogLinkRequest.objects.get().id}/approve/', {'dog': self.biscuit.id}, format='json')
+        self.biscuit.refresh_from_db()
+        self.assertEqual(self.biscuit.contact_number, '+44 7700 900123')
+
+    def test_approve_adds_co_owner_when_dog_has_an_owner(self):
+        self.biscuit.owner = self.other
+        self.biscuit.save()
+        self._submit()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/dog-link-requests/{DogLinkRequest.objects.get().id}/approve/', {'dog': self.biscuit.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.biscuit.refresh_from_db()
+        self.assertEqual(self.biscuit.owner, self.other)
+        self.assertIn(self.owner, self.biscuit.additional_owners.all())
+
+    def test_approve_needs_a_dog(self):
+        self._submit()
+        req = DogLinkRequest.objects.get()
+        self.client.login(username='staff', password='pw')
+        for payload in ({}, {'dog': 'x'}, {'dog': 999999}):
+            resp = self.client.post(f'/api/dog-link-requests/{req.id}/approve/', payload, format='json')
+            self.assertEqual(resp.status_code, 400, payload)
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'PENDING')
+
+    def test_non_staff_cannot_approve_or_deny(self):
+        self._submit()
+        req = DogLinkRequest.objects.get()
+        self.client.login(username='sue@example.com', password='pw')
+        resp = self.client.post(f'/api/dog-link-requests/{req.id}/approve/', {'dog': self.biscuit.id}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.post(f'/api/dog-link-requests/{req.id}/deny/', {}, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.biscuit.refresh_from_db()
+        self.assertIsNone(self.biscuit.owner)
+
+    def test_deny_records_reason_and_cannot_be_re_reviewed(self):
+        self._submit()
+        req = DogLinkRequest.objects.get()
+        self.client.login(username='staff', password='pw')
+        with patch('api.notifications.send_push_notification') as push:
+            resp = self.client.post(f'/api/dog-link-requests/{req.id}/deny/', {'reason': 'No dog of that name'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'DENIED')
+        self.assertEqual(resp.data['denial_reason'], 'No dog of that name')
+        self.assertIn('No dog of that name', push.call_args.args[2])
+        self.assertEqual(push.call_args.args[3]['approved'], 'false')
+        resp = self.client.post(f'/api/dog-link-requests/{req.id}/approve/', {'dog': self.biscuit.id}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.biscuit.refresh_from_db()
+        self.assertIsNone(self.biscuit.owner)
+
+    def test_owner_can_withdraw_pending_but_not_reviewed(self):
+        self._submit()
+        req = DogLinkRequest.objects.get()
+        self.client.login(username='sue@example.com', password='pw')
+        resp = self.client.delete(f'/api/dog-link-requests/{req.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self._submit()
+        req = DogLinkRequest.objects.get()
+        req.status = 'DENIED'
+        req.save()
+        self.client.login(username='sue@example.com', password='pw')
+        resp = self.client.delete(f'/api/dog-link-requests/{req.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.client.logout()
+        self.client.login(username='other', password='pw')
+        resp = self.client.delete(f'/api/dog-link-requests/{req.id}/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_pending_count_folds_into_booking_forms_badge(self):
+        self._submit()
+        IntakeRequest.objects.create(owner=self.other, phone_number='1', emergency_contact_number='2')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get('/api/intake-requests/pending_count/')
+        self.assertEqual(resp.data, {'count': 2, 'booking_forms': 1, 'link_requests': 1})
+        resp = self.client.get('/api/dog-link-requests/pending_count/')
+        self.assertEqual(resp.data['count'], 1)
+        self.client.logout()
+        self.client.login(username='sue@example.com', password='pw')
+        self.assertEqual(self.client.get('/api/intake-requests/pending_count/').data['count'], 0)
+        self.assertEqual(self.client.get('/api/dog-link-requests/pending_count/').data['count'], 0)
 
 
 class NotificationCorrectnessTests(TestCase):

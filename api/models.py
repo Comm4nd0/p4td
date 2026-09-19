@@ -946,6 +946,7 @@ class DogChangeLog(models.Model):
         ('APP', 'App'),
         ('OWNER_REQUEST', 'Approved owner request'),
         ('BOOKING_FORM', 'Booking form'),
+        ('LINK_REQUEST', 'Link request'),
         ('WEBSITE', 'Website'),
         ('ADMIN', 'Admin site'),
         ('SYSTEM', 'System'),
@@ -1573,6 +1574,44 @@ class IntakeDog(models.Model):
 
     def __str__(self):
         return f"{self.name} on booking form #{self.request_id}"
+
+
+class DogLinkRequest(models.Model):
+    """A client asking for a dog that already comes to daycare to be attached
+    to their account.
+
+    Most of the client book predates the app: their dogs exist with no owner
+    (or under someone else's account, for a partner or second family member).
+    Rather than fill in a booking form and hand staff a duplicate dog, the
+    client gives the dog's name plus the postcode and phone number staff hold
+    for it, and staff match it to the right Dog and approve. The client is
+    never shown any existing dog — matching a name is not proof of ownership,
+    and linking exposes the dog's address, photos and medical notes — so a
+    staff member who knows the dog always confirms it.
+    """
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('DENIED', 'Denied'),
+    ]
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dog_link_requests')
+    dog_name = models.CharField(max_length=100, help_text="The dog's name as the client knows it.")
+    postcode = models.CharField(max_length=10, blank=True, help_text='Pickup postcode, matched against the postcode on the dog.')
+    phone_number = models.CharField(max_length=50, blank=True, help_text="The client's number, matched against the contact numbers on the dog.")
+    notes = models.TextField(blank=True, help_text='Anything else that helps staff find the dog (breed, usual days, other family members).')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    denial_reason = models.TextField(blank=True)
+    dog = models.ForeignKey(Dog, null=True, blank=True, on_delete=models.SET_NULL, related_name='link_requests', help_text='The dog the account was linked to on approval.')
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reviewed_dog_link_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Link request for {self.dog_name} from {self.owner.username} ({self.get_status_display()})"
 
 
 class Invoice(models.Model):

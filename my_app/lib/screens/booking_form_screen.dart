@@ -7,6 +7,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/page_body.dart';
+import 'link_dog_screen.dart';
 
 /// Per-dog form state on the booking form. Controllers live for the lifetime
 /// of the screen and are disposed with it.
@@ -173,7 +174,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Booking Form')),
+      appBar: AppBar(title: const Text('New Dog Booking Form')),
       body: PageBody(child: Form(
         key: _formKey,
         child: ListView(
@@ -186,15 +187,40 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.primaryLight.withOpacity(0.4)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Picon(PiconsDuotone.info, color: AppColors.primary, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Tell us about you and your dog(s). Staff will review your '
-                      'booking form and confirm your place.',
-                      style: TextStyle(color: AppColors.primary, fontSize: 13),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Picon(PiconsDuotone.info, color: AppColors.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "This form is for a dog that hasn't been to Paws 4 Thought "
+                          'before. Tell us about you and your dog(s) and staff will '
+                          'confirm your place.',
+                          style: TextStyle(color: AppColors.primary, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // The wrong form here hands staff a duplicate dog, so the
+                  // other door is right in the banner.
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LinkDogScreen()),
+                      ),
+                      icon: const Picon(PiconsDuotone.link, size: 16),
+                      label: const Text('Already come to daycare? Link my dog instead'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                   ),
                 ],

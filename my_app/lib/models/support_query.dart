@@ -5,10 +5,30 @@ enum QueryStatus {
   resolved,
 }
 
+/// A dog on the account of the person a staff member is talking to — just
+/// enough to name it in the conversation header and open its profile.
+class QueryOwnerDog {
+  final int id;
+  final String name;
+  final String? profileImageUrl;
+
+  QueryOwnerDog({required this.id, required this.name, this.profileImageUrl});
+
+  factory QueryOwnerDog.fromJson(Map<String, dynamic> json) => QueryOwnerDog(
+        id: json['id'],
+        name: json['name'] ?? '',
+        profileImageUrl: json['profile_image'],
+      );
+}
+
 class SupportQuery {
   final int id;
   final int ownerId;
   final String ownerName;
+
+  /// Staff-only: the owner's dogs, so staff can see who the thread is about.
+  /// Null for owners.
+  final List<QueryOwnerDog>? ownerDogs;
   final String subject;
   final QueryStatus status;
   final String? resolvedByName;
@@ -25,6 +45,7 @@ class SupportQuery {
     required this.id,
     required this.ownerId,
     required this.ownerName,
+    this.ownerDogs,
     required this.subject,
     required this.status,
     this.resolvedByName,
@@ -43,6 +64,11 @@ class SupportQuery {
       id: json['id'],
       ownerId: json['owner'],
       ownerName: json['owner_name'] ?? '',
+      ownerDogs: json['owner_dogs'] is List
+          ? (json['owner_dogs'] as List)
+              .map((d) => QueryOwnerDog.fromJson(d as Map<String, dynamic>))
+              .toList()
+          : null,
       subject: json['subject'] ?? '',
       status: json['status'] == 'RESOLVED'
           ? QueryStatus.resolved

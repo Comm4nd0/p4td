@@ -7,7 +7,10 @@ import '../models/support_message.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../widgets/dog_picker_sheet.dart';
 import '../widgets/page_body.dart';
+import 'dog_home_screen.dart';
+import 'owner_details_dialog.dart';
 
 class QueryDetailScreen extends StatefulWidget {
   final int queryId;
@@ -194,6 +197,46 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
     return true;
   }
 
+  Future<void> _openOwnerDetails() async {
+    final query = _query;
+    if (query == null) return;
+    try {
+      final profile = await _dataService.getOwnerProfile(query.ownerId);
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (context) => OwnerDetailsDialog(
+          ownerProfile: profile,
+          ownerId: query.ownerId,
+          isStaff: widget.isStaff,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load client details: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _openDog(QueryOwnerDog dog) async {
+    try {
+      final fullDog = await _dataService.getDogById(dog.id.toString());
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DogHomeScreen(dog: fullDog, isStaff: widget.isStaff)),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to open ${dog.name}: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -233,10 +276,71 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            'By ${_query!.ownerName} \u2022 ${ukDateTime(_query!.createdAt.toLocal())}',
-                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                          ),
+                          if (widget.isStaff)
+                            // Who staff are talking to, and about which dog:
+                            // the name opens the client's details, each dog
+                            // chip opens that dog's profile.
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 4,
+                              children: [
+                                InkWell(
+                                  onTap: _openOwnerDetails,
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 2),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Picon(PiconsDuotone.user, size: 14, color: Theme.of(context).colorScheme.primary),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _query!.ownerName,
+                                          style: TextStyle(
+                                            color: Theme.of(context).colorScheme.primary,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '\u2022 ${ukDateTime(_query!.createdAt.toLocal())}',
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                ),
+                              ],
+                            )
+                          else
+                            Text(
+                              'By ${_query!.ownerName} \u2022 ${ukDateTime(_query!.createdAt.toLocal())}',
+                              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                            ),
+                          if (widget.isStaff && _query!.ownerDogs != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: _query!.ownerDogs!.isEmpty
+                                  ? Text(
+                                      'No dogs on this account yet',
+                                      style: TextStyle(color: Colors.grey[600], fontSize: 12, fontStyle: FontStyle.italic),
+                                    )
+                                  : Wrap(
+                                      spacing: 6,
+                                      runSpacing: 6,
+                                      children: [
+                                        for (final dog in _query!.ownerDogs!)
+                                          ActionChip(
+                                            avatar: DogPickerAvatar(imageUrl: dog.profileImageUrl, radius: 11),
+                                            label: Text(dog.name),
+                                            labelStyle: const TextStyle(fontSize: 12),
+                                            visualDensity: VisualDensity.compact,
+                                            onPressed: () => _openDog(dog),
+                                          ),
+                                      ],
+                                    ),
+                            ),
                           if (_query!.status == QueryStatus.resolved)
                             Padding(
                               padding: const EdgeInsets.only(top: 4),
@@ -335,9 +439,12 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
   Widget _buildMessageBubble(SupportMessage message) {
     final isOwnerMessage = !message.isStaff;
     final alignment = isOwnerMessage ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    final color = isOwnerMessage
-        ? Theme.of(context).colorScheme.primaryContainer
-        : Theme.of(context).colorScheme.surfaceContainerHighest;
+    final scheme = Theme.of(context).colorScheme;
+    final color = isOwnerMessage ? scheme.primaryContainer : scheme.surfaceContainerHighest;
+    // The text must be readable on the bubble, not just on the page: the
+    // page's body colour on a green bubble was the "black on dark green".
+    final textColor = isOwnerMessage ? scheme.onPrimaryContainer : scheme.onSurface;
+    final metaColor = textColor.withValues(alpha: 0.7);
     final borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(12),
       topRight: const Radius.circular(12),
@@ -381,11 +488,11 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(message.text),
+                Text(message.text, style: TextStyle(color: textColor)),
                 const SizedBox(height: 4),
                 Text(
                   ukDateTime(message.createdAt.toLocal()),
-                  style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 10, color: metaColor),
                 ),
               ],
             ),

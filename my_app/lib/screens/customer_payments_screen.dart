@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:picons/picons.dart';
@@ -6,6 +5,7 @@ import '../constants/app_colors.dart';
 import '../utils/snacks.dart';
 import '../models/customer_rate.dart';
 import '../models/dog.dart';
+import '../widgets/dog_picker_sheet.dart';
 import '../models/invoice.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -168,10 +168,10 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
     }
     if (!mounted) return;
 
-    final chosen = await showModalBottomSheet<Dog>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => _DogPickerSheet(dogs: dogs),
+    final chosen = await showDogPicker(
+      context,
+      dogs: dogs,
+      subtitle: "The invoice is raised in the dog's name and lands in Xero as a draft — assign the customer and send it there.",
     );
     if (chosen == null || !mounted) return;
     final dogId = int.tryParse(chosen.id);
@@ -617,121 +617,6 @@ class _CustomerPickerSheetState extends State<_CustomerPickerSheet> {
                                 : Text(customer.dogNames.join(', '),
                                     style: const TextStyle(fontSize: 12)),
                             onTap: () => Navigator.pop(context, customer),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DogPickerSheet extends StatefulWidget {
-  final List<Dog> dogs;
-
-  const _DogPickerSheet({required this.dogs});
-
-  @override
-  State<_DogPickerSheet> createState() => _DogPickerSheetState();
-}
-
-class _DogPickerSheetState extends State<_DogPickerSheet> {
-  String _search = '';
-
-  static Widget _dogAvatar(Dog dog) {
-    final fallback = CircleAvatar(
-      radius: 22,
-      backgroundColor: AppColors.grey200,
-      child: Picon(PiconsDuotone.pawPrint, size: 22, color: Colors.grey[700]),
-    );
-    if (dog.profileImageUrl == null) return fallback;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: CachedNetworkImage(
-        imageUrl: dog.profileImageUrl!,
-        width: 44,
-        height: 44,
-        fit: BoxFit.cover,
-        placeholder: (_, __) => Container(width: 44, height: 44, color: AppColors.grey200),
-        errorWidget: (_, __, ___) => fallback,
-      ),
-    );
-  }
-
-  static String _ownerLabel(Dog dog) {
-    final owner = dog.ownerDetails;
-    if (owner == null) return 'No client on the app';
-    return owner.displayName;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final query = _search.toLowerCase();
-    final visible = widget.dogs
-        .where((d) =>
-            query.isEmpty ||
-            d.name.toLowerCase().contains(query) ||
-            _ownerLabel(d).toLowerCase().contains(query))
-        .toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.7,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Column(
-                  children: [
-                    Text('Choose a dog',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleSmall
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text(
-                      "The invoice is raised in the dog's name and lands in Xero as a draft — assign the customer and send it there.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      autofocus: true,
-                      decoration: InputDecoration(
-                        hintText: 'Search dogs or owners',
-                        prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
-                        isDense: true,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onChanged: (value) => setState(() => _search = value),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: visible.isEmpty
-                    ? Center(
-                        child: Text('No dogs found',
-                            style: TextStyle(color: Colors.grey[600])),
-                      )
-                    : ListView.builder(
-                        itemCount: visible.length,
-                        itemBuilder: (context, index) {
-                          final dog = visible[index];
-                          // Several dogs share a name — the photo (and the
-                          // owner line) is how staff tell them apart.
-                          return ListTile(
-                            leading: _dogAvatar(dog),
-                            title: Text(dog.name),
-                            subtitle: Text(_ownerLabel(dog),
-                                style: const TextStyle(fontSize: 12)),
-                            onTap: () => Navigator.pop(context, dog),
                           );
                         },
                       ),

@@ -222,6 +222,19 @@ class NotificationService {
         _navigateToHome(initialRoute: 'booking_forms');
         break;
 
+      // Link my dog — staff: new request to match; owner: the dog is now on
+      // their account (open it) or the request was denied (show why).
+      case 'dog_link_request':
+        _navigateToHome(initialRoute: 'booking_forms');
+        break;
+      case 'dog_link_request_update':
+        if (data['approved'] == 'true') {
+          _navigateToHome(initialRoute: 'dogs', routePayload: data['dog_id'] as String?);
+        } else {
+          _navigateToHome(initialRoute: 'booking_forms');
+        }
+        break;
+
       // Support queries — open the queries screen
       case 'support_query':            // staff: new query from owner
       case 'support_query_update':     // staff: owner replied

@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, VaccinationCertificate, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, VaccinationCertificate, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, DogLinkRequest, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -703,6 +703,7 @@ class SupportMessageSerializer(serializers.ModelSerializer):
 
 class SupportQuerySerializer(serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
+    owner_dogs = serializers.SerializerMethodField()
     messages = SupportMessageSerializer(many=True, read_only=True)
     resolved_by_name = serializers.CharField(source='resolved_by.username', read_only=True, default=None)
     last_message_at = serializers.SerializerMethodField()
@@ -711,15 +712,34 @@ class SupportQuerySerializer(serializers.ModelSerializer):
     class Meta:
         model = SupportQuery
         fields = [
-            'id', 'owner', 'owner_name', 'subject', 'status',
+            'id', 'owner', 'owner_name', 'owner_dogs', 'subject', 'status',
             'has_unread_reply', 'staff_has_unread', 'resolved_by_name', 'resolved_at',
             'messages', 'message_count', 'last_message_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'status', 'has_unread_reply', 'staff_has_unread', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'owner_dogs', 'status', 'has_unread_reply', 'staff_has_unread', 'resolved_by_name', 'resolved_at', 'created_at', 'updated_at']
 
     def get_owner_name(self, obj):
         return owner_display_name(obj.owner)
+
+    def get_owner_dogs(self, obj):
+        """Staff-only: the dogs on the owner's account (owned or co-owned),
+        so the conversation header can say who the thread is about and open
+        the dog. Owners get null — they know their own dogs."""
+        request = self.context.get('request')
+        if not request or not request.user.is_staff:
+            return None
+        dogs = {dog.id: dog for dog in obj.owner.dogs.all()}
+        for dog in obj.owner.additional_dogs.all():
+            dogs.setdefault(dog.id, dog)
+        return [
+            {
+                'id': dog.id,
+                'name': dog.name,
+                'profile_image': request.build_absolute_uri(dog.profile_image.url) if dog.profile_image else None,
+            }
+            for dog in sorted(dogs.values(), key=lambda dog: dog.name.lower())
+        ]
 
     def get_last_message_at(self, obj):
         # Read from the prefetched messages cache instead of a fresh query/row (B29).
@@ -1278,6 +1298,111 @@ class IntakeRequestSerializer(serializers.ModelSerializer):
             IntakeDog(request=request, **dog_data) for dog_data in dogs_data
         )
         return request
+
+
+def _digits(value):
+    return ''.join(ch for ch in (value or '') if ch.isdigit())
+
+
+def _postcode_key(value):
+    return (value or '').replace(' ', '').upper()
+
+
+def find_link_candidates(link_request, limit=8):
+    """Existing dogs that might be the one a link request is about, best first.
+
+    Every dog the requester doesn't already own is scored on the dog's name
+    (exact, or one name containing the other), the postcode and the phone
+    number (last nine digits, so "07700 900123" and "+44 7700 900123" agree).
+    The dog table is a daycare's client book, a few hundred rows at most, so
+    this scans it in Python rather than expressing digit-stripped phone
+    matching in SQL. Returns ``(dog, matches)`` pairs; ``matches`` says which
+    of name/postcode/phone agreed so staff can see why a dog is suggested.
+    """
+    owner = link_request.owner
+    owned = set(Dog.objects.filter(Q(owner=owner) | Q(additional_owners=owner)).values_list('id', flat=True))
+    name = link_request.dog_name.strip().lower()
+    postcode = _postcode_key(link_request.postcode)
+    phone = _digits(link_request.phone_number)
+    phone_tail = phone[-9:] if len(phone) >= 9 else ''
+    scored = []
+    for dog in Dog.objects.select_related('owner').order_by('name'):
+        if dog.id in owned:
+            continue
+        dog_name = dog.name.strip().lower()
+        name_match = bool(name) and dog_name == name
+        name_partial = bool(name) and not name_match and (name in dog_name or dog_name in name)
+        postcode_match = bool(postcode) and _postcode_key(dog.postcode) == postcode
+        phone_match = bool(phone_tail) and any(
+            phone_tail in _digits(number) for number in (dog.contact_number, dog.emergency_contact_number))
+        score = 3 * name_match + name_partial + 2 * postcode_match + 2 * phone_match
+        if score:
+            scored.append((score, dog, {'name': name_match, 'postcode': postcode_match, 'phone': phone_match}))
+    scored.sort(key=lambda item: (-item[0], item[1].name.lower()))
+    return [(dog, matches) for _, dog, matches in scored[:limit]]
+
+
+class DogLinkRequestSerializer(serializers.ModelSerializer):
+    """Link my dog: a client asks for a dog already on the books to be
+    attached to their account. Staff see ``candidates`` — the existing dogs
+    that match what the client gave, with why — and approve with one of
+    them; owners always get ``null`` there, so the request can never be used
+    to browse other people's dogs."""
+    owner_name = serializers.SerializerMethodField()
+    owner_email = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+    linked_dog_name = serializers.CharField(source='dog.name', read_only=True, default=None)
+    candidates = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DogLinkRequest
+        fields = [
+            'id', 'owner', 'owner_name', 'owner_email', 'dog_name', 'postcode',
+            'phone_number', 'notes', 'status', 'denial_reason', 'dog',
+            'linked_dog_name', 'reviewed_by_name', 'reviewed_at', 'created_at',
+            'candidates',
+        ]
+        read_only_fields = [
+            'id', 'owner', 'status', 'denial_reason', 'dog', 'reviewed_by_name',
+            'reviewed_at', 'created_at',
+        ]
+
+    def get_owner_name(self, obj):
+        return owner_display_name(obj.owner)
+
+    def get_owner_email(self, obj):
+        return obj.owner.email
+
+    def get_reviewed_by_name(self, obj):
+        if obj.reviewed_by:
+            return obj.reviewed_by.first_name or obj.reviewed_by.username
+        return None
+
+    def validate_dog_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Tell us your dog's name.")
+        return value
+
+    def validate_postcode(self, value):
+        return value.strip().upper()
+
+    def get_candidates(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_staff or obj.status != 'PENDING':
+            return None
+        candidates = []
+        for dog, matches in find_link_candidates(obj):
+            image = dog.profile_image
+            candidates.append({
+                'id': dog.id,
+                'name': dog.name,
+                'profile_image': request.build_absolute_uri(image.url) if image else None,
+                'postcode': dog.postcode,
+                'owner_name': owner_display_name(dog.owner) if dog.owner_id else None,
+                'matches': matches,
+            })
+        return candidates
 
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
