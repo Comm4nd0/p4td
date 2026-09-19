@@ -381,7 +381,6 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                 calendar: calendar,
                 imageUrls: imageUrls,
                 onOpenDog: _openDog,
-                onOpenCalendar: _openCalendar,
               ),
               gap,
               ClientCalendarSection(

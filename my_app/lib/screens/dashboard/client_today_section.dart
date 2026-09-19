@@ -90,7 +90,6 @@ class ClientTodaySection extends StatelessWidget {
   final Map<String, String?> imageUrls;
 
   final void Function(CalendarDogRef dog)? onOpenDog;
-  final VoidCallback? onOpenCalendar;
 
   const ClientTodaySection({
     super.key,
@@ -98,7 +97,6 @@ class ClientTodaySection extends StatelessWidget {
     required this.calendar,
     this.imageUrls = const {},
     this.onOpenDog,
-    this.onOpenCalendar,
   });
 
   bool get _isWeekend =>
@@ -133,12 +131,6 @@ class ClientTodaySection extends StatelessWidget {
                 ],
               ),
             ),
-            if (onOpenCalendar != null)
-              TextButton.icon(
-                onPressed: onOpenCalendar,
-                icon: const Picon(PiconsDuotone.calendarCheck, size: 16),
-                label: const Text('My Calendar'),
-              ),
           ],
         ),
         const SizedBox(height: 8),
