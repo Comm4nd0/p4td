@@ -238,7 +238,8 @@ abstract class DataService {
 
   // Booking Forms (intake requests)
   Future<List<IntakeRequest>> getIntakeRequests();
-  /// Booking forms awaiting review — the Booking Forms badge. Owners get 0.
+  /// Booking forms plus link requests awaiting review — the Booking Forms
+  /// badge. Owners get 0.
   Future<int> getPendingIntakeRequestCount();
   Future<IntakeRequest> submitIntakeRequest({
     String? phoneNumber,
@@ -252,6 +253,19 @@ abstract class DataService {
   Future<IntakeRequest> approveIntakeRequest(int requestId);
   Future<IntakeRequest> denyIntakeRequest(int requestId, {String? reason});
   Future<void> deleteIntakeRequest(int requestId);
+
+  // Link my dog (dog link requests) — a client asks for a dog already on the
+  // books to be attached to their account; reviewed with the booking forms.
+  Future<List<DogLinkRequest>> getDogLinkRequests();
+  Future<DogLinkRequest> submitDogLinkRequest({
+    required String dogName,
+    String? postcode,
+    String? phoneNumber,
+    String? notes,
+  });
+  Future<DogLinkRequest> approveDogLinkRequest(int requestId, {required int dogId});
+  Future<DogLinkRequest> denyDogLinkRequest(int requestId, {String? reason});
+  Future<void> deleteDogLinkRequest(int requestId);
 
   // Dog Profile Change Requests
   Future<List<DogProfileChangeRequest>> getDogProfileChangeRequests({String? status});

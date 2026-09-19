@@ -580,6 +580,21 @@ class MockDataService implements DataService {
   @override
   Future<void> deleteIntakeRequest(int requestId) async {}
 
+  // Link my dog
+  @override
+  Future<List<DogLinkRequest>> getDogLinkRequests() async => [];
+  @override
+  Future<DogLinkRequest> submitDogLinkRequest({required String dogName, String? postcode, String? phoneNumber, String? notes}) async =>
+      DogLinkRequest(id: 1, dogName: dogName, createdAt: DateTime.now());
+  @override
+  Future<DogLinkRequest> approveDogLinkRequest(int requestId, {required int dogId}) async =>
+      DogLinkRequest(id: requestId, dogName: '', status: IntakeRequestStatus.approved, linkedDogId: dogId, createdAt: DateTime.now());
+  @override
+  Future<DogLinkRequest> denyDogLinkRequest(int requestId, {String? reason}) async =>
+      DogLinkRequest(id: requestId, dogName: '', status: IntakeRequestStatus.denied, denialReason: reason, createdAt: DateTime.now());
+  @override
+  Future<void> deleteDogLinkRequest(int requestId) async {}
+
   // Dog Profile Change Requests
   @override
   Future<List<DogProfileChangeRequest>> getDogProfileChangeRequests({String? status}) async => [];

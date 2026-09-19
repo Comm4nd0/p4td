@@ -21,6 +21,7 @@ import '../models/day_off_request.dart';
 import '../models/contact_inquiry.dart';
 import '../models/dog_profile_change_request.dart';
 import '../models/intake_request.dart';
+import '../models/dog_link_request.dart';
 import '../models/staff_permission.dart';
 import '../models/postcode_address.dart';
 import '../models/vaccination_record.dart';
@@ -2945,6 +2946,96 @@ class ApiDataService implements DataService {
     );
     if (response.statusCode != 204) {
       throw Exception('Failed to withdraw booking form: ${response.statusCode}');
+    }
+  }
+
+  // ── Link my dog (dog link requests) ─────────────────────────────────
+
+  @override
+  Future<List<DogLinkRequest>> getDogLinkRequests() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dog-link-requests/'));
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((j) => DogLinkRequest.fromJson(j)).toList();
+    }
+    throw Exception('Failed to fetch link requests: ${response.statusCode}');
+  }
+
+  @override
+  Future<DogLinkRequest> submitDogLinkRequest({
+    required String dogName,
+    String? postcode,
+    String? phoneNumber,
+    String? notes,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dog-link-requests/'),
+      headers: headers,
+      body: json.encode({
+        'dog_name': dogName,
+        'postcode': postcode ?? '',
+        'phone_number': phoneNumber ?? '',
+        'notes': notes ?? '',
+      }),
+    );
+    if (response.statusCode == 201) {
+      return DogLinkRequest.fromJson(json.decode(response.body));
+    }
+    String errorMessage = 'Failed to send link request';
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map && errorData.isNotEmpty) {
+        final first = errorData.values.first;
+        if (first is List && first.isNotEmpty) {
+          errorMessage = first.first.toString();
+        } else {
+          errorMessage = first?.toString() ?? errorMessage;
+        }
+      }
+    } catch (_) {
+      errorMessage = 'Server error (${response.statusCode})';
+    }
+    throw Exception(errorMessage);
+  }
+
+  @override
+  Future<DogLinkRequest> approveDogLinkRequest(int requestId, {required int dogId}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dog-link-requests/$requestId/approve/'),
+      headers: headers,
+      body: json.encode({'dog': dogId}),
+    );
+    if (response.statusCode == 200) {
+      return DogLinkRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to approve link request: ${response.statusCode}');
+  }
+
+  @override
+  Future<DogLinkRequest> denyDogLinkRequest(int requestId, {String? reason}) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dog-link-requests/$requestId/deny/'),
+      headers: headers,
+      body: json.encode({'reason': reason ?? ''}),
+    );
+    if (response.statusCode == 200) {
+      return DogLinkRequest.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to deny link request: ${response.statusCode}');
+  }
+
+  @override
+  Future<void> deleteDogLinkRequest(int requestId) async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/dog-link-requests/$requestId/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to withdraw link request: ${response.statusCode}');
     }
   }
 

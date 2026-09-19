@@ -262,8 +262,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Once your account is created you can fill out the booking form '
-                    'to get your dog(s) booked into daycare.',
+                    'Once your account is created you can link a dog that already '
+                    'comes to daycare, or fill out the New Dog Booking Form for a '
+                    'new one.',
                     style: TextStyle(color: Colors.grey[600], fontSize: 13),
                   ),
                   const SizedBox(height: 24),

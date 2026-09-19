@@ -11,6 +11,7 @@ import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
 import '../models/boarding_request.dart';
 import '../models/intake_request.dart';
+import '../models/dog_link_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/no_connection_exception.dart';
@@ -24,6 +25,7 @@ import 'dog_home_screen.dart';
 import 'profile_screen.dart';
 import 'add_dog_screen.dart';
 import 'booking_form_screen.dart';
+import 'link_dog_screen.dart';
 import 'booking_requests_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'feed_screen.dart';
@@ -68,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<Dog> _allDogs = [];
   List<Dog> _filteredDogs = [];
   List<IntakeRequest> _myIntakeRequests = [];
+  List<DogLinkRequest> _myLinkRequests = [];
   bool _loadingDogs = true;
   bool _isOffline = false;
   final TextEditingController _searchController = TextEditingController();
@@ -196,11 +199,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // With no dogs attached, the empty state offers the booking form — so
       // check whether the owner already has a submission in flight.
       List<IntakeRequest> intakeRequests = _myIntakeRequests;
+      List<DogLinkRequest> linkRequests = _myLinkRequests;
       if (dogs.isEmpty) {
         try {
           intakeRequests = await _dataService.getIntakeRequests();
         } catch (_) {
           intakeRequests = [];
+        }
+        try {
+          linkRequests = await _dataService.getDogLinkRequests();
+        } catch (_) {
+          linkRequests = [];
         }
       }
 
@@ -208,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() {
           _allDogs = dogs;
           _myIntakeRequests = intakeRequests;
+          _myLinkRequests = linkRequests;
           _loadingDogs = false;
           // Re-apply filter if search text exists
           _filteredDogs = _applyFilter(_searchController.text);
@@ -515,6 +525,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _openBookingForm() async {
     final submitted = await _push<bool>(
       MaterialPageRoute(builder: (_) => const BookingFormScreen()),
+    );
+    if (submitted == true) _refresh();
+  }
+
+  Future<void> _openLinkDog() async {
+    final submitted = await _push<bool>(
+      MaterialPageRoute(builder: (_) => const LinkDogScreen()),
     );
     if (submitted == true) _refresh();
   }
@@ -1041,6 +1058,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
 
+  Widget _emptyStateChoice({
+    required PiconDuotoneData icon,
+    required String title,
+    required String body,
+    required String buttonLabel,
+    required VoidCallback onPressed,
+  }) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Picon(icon, color: AppColors.primary, size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(body, style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: onPressed, child: Text(buttonLabel)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDogsView() {
     if (_loadingDogs) {
       return const DogSkeletonList();
@@ -1050,8 +1100,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final pendingIntake = _myIntakeRequests
           .where((r) => r.status == IntakeRequestStatus.pending)
           .firstOrNull;
+      final pendingLink = _myLinkRequests
+          .where((r) => r.status == IntakeRequestStatus.pending)
+          .firstOrNull;
+      final waiting = pendingIntake != null || pendingLink != null;
       return Center(
-        child: Column(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Picon(PiconsDuotone.pawPrint, size: 64, color: Colors.grey[400]),
@@ -1063,36 +1119,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             if (_isStaff)
               const Text('Tap the button below to add your first dog.')
-            else if (pendingIntake != null) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Text(
-                  'Your booking form for ${pendingIntake.dogNames} has been '
-                  'submitted and is waiting for staff to review.',
-                  textAlign: TextAlign.center,
+            else if (waiting) ...[
+              if (pendingLink != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    'Your request to link ${pendingLink.dogName} to your '
+                    'account is waiting for staff to check.',
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-              ),
+              if (pendingIntake != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(32, 8, 32, 0),
+                  child: Text(
+                    'Your booking form for ${pendingIntake.dogNames} has been '
+                    'submitted and is waiting for staff to review.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               const SizedBox(height: 16),
               TextButton.icon(
                 onPressed: _openBookingForms,
                 icon: Picon(PiconsDuotone.clipboardText),
-                label: const Text('View My Booking Form'),
+                label: const Text('View My Requests'),
               ),
             ] else ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 32),
-                child: Text(
-                  'Ready to book your dog into daycare? Fill out the booking '
-                  'form and staff will confirm your place.\n\nAlready with us? '
-                  'Contact staff to attach your dog to your profile instead.',
-                  textAlign: TextAlign.center,
+              // Two doors, side by side, so an existing client doesn't fill
+              // in the new-dog form and hand staff a duplicate dog.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _emptyStateChoice(
+                        icon: PiconsDuotone.link,
+                        title: 'My dog already comes to daycare',
+                        body: 'Link your dog to this account and staff will '
+                            'attach them for you.',
+                        buttonLabel: 'Link My Dog',
+                        onPressed: _openLinkDog,
+                      ),
+                      const SizedBox(height: 12),
+                      _emptyStateChoice(
+                        icon: PiconsDuotone.clipboardText,
+                        title: 'New to Paws 4 Thought?',
+                        body: 'Tell us about your dog on the New Dog Booking '
+                            'Form and staff will confirm your place.',
+                        buttonLabel: 'New Dog Booking Form',
+                        onPressed: _openBookingForm,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _openBookingForm,
-                icon: Picon(PiconsDuotone.clipboardText),
-                label: const Text('Fill Out Booking Form'),
               ),
               const SizedBox(height: 8),
               TextButton.icon(
@@ -1104,10 +1185,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   );
                 },
                 icon: Picon(PiconsDuotone.headset),
-                label: const Text('Contact Staff'),
+                label: const Text('Not sure? Contact Staff'),
               ),
             ],
           ],
+        ),
         ),
       );
     }

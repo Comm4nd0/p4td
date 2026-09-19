@@ -93,6 +93,11 @@ class AppColors {
     brightness: Brightness.light,
     primary: primary,
     onPrimary: Colors.white,
+    // Left unset, primaryContainer falls back to `primary` — a dark green
+    // that body text (near black) is unreadable on. Chat bubbles and chips
+    // paint this, so give it a tint the default text colour can sit on.
+    primaryContainer: Color(0xFFD7E8E1),
+    onPrimaryContainer: primaryDark,
     secondary: primaryLight,
     onSecondary: Colors.white,
     secondaryContainer: Color(0xFFD7E8E1),
@@ -111,6 +116,8 @@ class AppColors {
     brightness: Brightness.dark,
     primary: primaryLight,
     onPrimary: Colors.white,
+    primaryContainer: Color(0xFF1F3A33),
+    onPrimaryContainer: Color(0xFFA8CFC2),
     secondary: primaryLight,
     onSecondary: Colors.white,
     secondaryContainer: Color(0xFF1F3A33),
