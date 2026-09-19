@@ -1159,6 +1159,15 @@ class ApiDataService implements DataService {
   }
 
   @override
+  @override
+  Future<gm.GroupMedia> getFeedItem(String mediaId) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/feed/$mediaId/'));
+    if (response.statusCode == 200) {
+      return gm.GroupMedia.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load post: ${response.statusCode}');
+  }
+
   /// Backwards-compatible: returns the first page of the feed as a flat list.
   /// New code should prefer [getFeedPage] for infinite scrolling.
   Future<List<gm.GroupMedia>> getFeed({String? dogId}) async {

@@ -57,6 +57,10 @@ abstract class DataService {
   /// Which invoice charges each of the dog's days (payment managers only;
   /// the API refuses everyone else). Keys are midnight-normalised dates.
   Future<Map<DateTime, InvoiceCoverage>> getDogInvoiceCoverage(String dogId);
+  /// One feed post by id, with its comments and reactions — the same
+  /// shape as a feed row, so a post handed over from elsewhere can be
+  /// refreshed on its own page.
+  Future<gm.GroupMedia> getFeedItem(String mediaId);
   Future<List<gm.GroupMedia>> getFeed({String? dogId});
   Future<FeedPage> getFeedPage({String? dogId, int page = 1});
   Future<void> uploadGroupMedia({

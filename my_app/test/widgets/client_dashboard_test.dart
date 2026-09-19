@@ -196,6 +196,13 @@ Future<void> _pump(WidgetTester tester, DataService fake, {List<Dog> dogs = cons
   getIt.registerSingleton<DataService>(fake);
   addTearDown(() => getIt.unregister<DataService>());
 
+  // Tall enough for every section to build: the dashboard is a lazy list
+  // and the Calendar card alone fills most of a phone screen.
+  tester.view.physicalSize = const Size(800, 2600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(body: ClientDashboardScreen(now: _today, dogs: dogs)),
   ));
@@ -226,10 +233,11 @@ void main() {
       );
 
       expect(find.text('Tue 15/09/26'), findsOneWidget);
-      expect(find.text('Buddy'), findsOneWidget);
+      final todaySection = find.byType(ClientTodaySection);
+      expect(find.descendant(of: todaySection, matching: find.text('Buddy')), findsOneWidget);
       expect(find.text('In daycare today'), findsOneWidget);
       expect(find.text('Next in: Thu 17/09/26'), findsOneWidget);
-      expect(find.text('Luna'), findsOneWidget);
+      expect(find.descendant(of: todaySection, matching: find.text('Luna')), findsOneWidget);
       expect(find.text('At home today'), findsOneWidget);
       // The calendar was asked for today plus the dashboard's horizon.
       expect(find.text('Nothing booked in the next 60 days'), findsOneWidget);
@@ -270,7 +278,7 @@ void main() {
       );
 
       expect(find.text('Closed today'), findsOneWidget);
-      expect(find.text('Bank holiday'), findsOneWidget);
+      expect(find.descendant(of: find.byType(ClientTodaySection), matching: find.text('Bank holiday')), findsOneWidget);
     });
 
     testWidgets('a weekend reads as home for the weekend, not "at home today"',
@@ -305,7 +313,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Next 7 Days'), findsOneWidget);
+      expect(find.text('Calendar'), findsOneWidget);
       expect(find.text('Reduced'), findsOneWidget);
       expect(find.text('Full'), findsOneWidget);
       // Tue..Mon — all seven weekday labels are on the strip.

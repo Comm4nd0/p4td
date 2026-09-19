@@ -9,9 +9,19 @@ import '../../models/group_media.dart';
 /// new client's dashboard for weeks.
 class ClientPhotosSection extends StatelessWidget {
   final List<GroupMedia> items;
+
+  /// The Feed button: the whole feed.
   final VoidCallback? onOpenFeed;
 
-  const ClientPhotosSection({super.key, required this.items, this.onOpenFeed});
+  /// A thumbnail: that one post, with its comments and reactions.
+  final void Function(GroupMedia item)? onOpenItem;
+
+  const ClientPhotosSection({
+    super.key,
+    required this.items,
+    this.onOpenFeed,
+    this.onOpenItem,
+  });
 
   /// Merge the per-dog feed pages: newest first, each post once (a post
   /// tagging two of the owner's dogs comes back on both pages).
@@ -55,7 +65,13 @@ class ClientPhotosSection extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, index) => _Thumb(item: items[index], onTap: onOpenFeed),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return _Thumb(
+                item: item,
+                onTap: onOpenItem != null ? () => onOpenItem!(item) : onOpenFeed,
+              );
+            },
           ),
         ),
       ],
