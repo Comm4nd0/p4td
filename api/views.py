@@ -12,8 +12,8 @@ from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
 from .dog_changes import acting_as, log_change, log_activity, snapshot as dog_snapshot, diff as dog_diff, snapshot_fields, diff_fields
 from .activity import ActivityLogMixin, person
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest
-from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest, DogLinkRequest
+from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer, DogLinkRequestSerializer
 from website.models import ContactInquiry
 
 import logging
@@ -3795,7 +3795,8 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         from .models import SupportQuery
         queryset = SupportQuery.objects.prefetch_related('messages')
         if self.request.user.is_staff:
-            return queryset
+            # The detail serializer lists the owner's dogs for staff.
+            return queryset.select_related('owner').prefetch_related('owner__dogs', 'owner__additional_dogs')
         return queryset.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
@@ -6066,12 +6067,17 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def pending_count(self, request):
-        """How many booking forms await review — the app's Booking Forms
-        badge beside the bell. Owners get 0 rather than a 403 so the one
-        call serves everyone."""
+        """How many booking forms and link requests await review — the app's
+        Booking Forms badge beside the bell. Owners get 0 rather than a 403
+        so the one call serves everyone."""
         if not request.user.is_staff:
             return Response({'count': 0})
-        return Response({'count': IntakeRequest.objects.filter(status='PENDING').count()})
+        forms = IntakeRequest.objects.filter(status='PENDING').count()
+        links = DogLinkRequest.objects.filter(status='PENDING').count()
+        # One badge covers both ways a client asks for a dog on their
+        # account — a new-dog booking form and a link-my-dog request — since
+        # the same screen reviews both.
+        return Response({'count': forms + links, 'booking_forms': forms, 'link_requests': links})
 
     def _notify_owner_status(self, instance, approved):
         try:
@@ -6155,6 +6161,154 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         instance.reviewed_at = timezone.now()
         instance.save()
         self._log(instance, 'DENIED', f"Denied {person(instance.owner)}'s booking form for {self._dog_names(instance)}"
+                                      + (f': {instance.denial_reason}' if instance.denial_reason else ''))
+
+        self._notify_owner_status(instance, approved=False)
+        return Response(self.get_serializer(instance).data)
+
+
+class DogLinkRequestViewSet(viewsets.ModelViewSet):
+    """Link my dog: a client whose dog already comes to daycare asks for it
+    to be attached to their account. Staff pick the matching Dog and approve
+    (setting it as the owner, or adding a co-owner when the dog already has
+    one) or deny. Owners can withdraw a request while it's still pending."""
+    serializer_class = DogLinkRequestSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = OptInPagination
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        base = DogLinkRequest.objects.select_related('owner', 'reviewed_by', 'dog')
+        if self.request.user.is_staff:
+            return base.all()
+        return base.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        instance = serializer.save(owner=self.request.user)
+
+        # The number is what staff will ring, so keep it on the profile too —
+        # but only fill a gap; the booking form is the place that overwrites.
+        try:
+            profile = instance.owner.profile
+            if instance.phone_number and not profile.phone_number:
+                profile.phone_number = instance.phone_number
+                profile.save(update_fields=['phone_number'])
+        except UserProfile.DoesNotExist:
+            pass
+
+        try:
+            from .notifications import notify_new_dog_link_request
+            notify_new_dog_link_request(instance)
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+        self._log(instance, 'CREATED', f'Asked for {instance.dog_name} to be linked to their account')
+
+    def _log(self, instance, action, summary, dog=None):
+        log_activity('CLIENTS', person(instance.owner), action=action, summary=summary,
+                     actor=self.request.user, dog=dog, source='LINK_REQUEST')
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.status != 'PENDING':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can delete a link request that has been reviewed.')
+        self._log(instance, 'DELETED',
+                  f"Deleted {person(instance.owner)}'s link request for {instance.dog_name}" if self.request.user.is_staff
+                  else f'Withdrew their link request for {instance.dog_name}')
+        instance.delete()
+
+    @action(detail=False, methods=['get'])
+    def pending_count(self, request):
+        """Link requests awaiting review. The badge uses intake-requests'
+        pending_count, which already folds this in; this is for callers that
+        want the one number."""
+        if not request.user.is_staff:
+            return Response({'count': 0})
+        return Response({'count': DogLinkRequest.objects.filter(status='PENDING').count()})
+
+    def _notify_owner_status(self, instance, approved):
+        try:
+            from .notifications import send_push_notification
+            data = {
+                'type': 'dog_link_request_update',
+                'id': str(instance.id),
+                'approved': 'true' if approved else 'false',
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            if approved:
+                title = 'Dog Linked'
+                body = f"{instance.dog.name} is now on your account."
+                data['dog_id'] = str(instance.dog_id)
+            else:
+                title = 'Link Request Update'
+                body = f"We couldn't link {instance.dog_name} to your account."
+                if instance.denial_reason:
+                    body += f" Reason: {instance.denial_reason}"
+            send_push_notification(instance.owner, title, body, data, category='bookings')
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a pending link request against the dog staff chose
+        (``dog``: a Dog id). An ownerless dog gets the client as its owner;
+        a dog that already has one gets the client as a co-owner."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can approve link requests')
+
+        instance = self.get_object()
+        if instance.status != 'PENDING':
+            return Response({'detail': 'This link request has already been reviewed.'}, status=400)
+
+        try:
+            dog = Dog.objects.get(pk=int(request.data.get('dog')))
+        except (TypeError, ValueError, Dog.DoesNotExist):
+            return Response({'dog': 'Choose which dog to link.'}, status=400)
+
+        from django.utils import timezone
+        owner = instance.owner
+        with acting_as(request.user, 'LINK_REQUEST'):
+            if dog.owner_id is None:
+                dog.owner = owner
+                how = 'as owner'
+            elif dog.owner_id == owner.id or dog.additional_owners.filter(pk=owner.pk).exists():
+                how = 'already linked'
+            else:
+                dog.additional_owners.add(owner)
+                how = 'as co-owner'
+            # Staff may have left the number blank; the client just gave it.
+            if not dog.contact_number and instance.phone_number:
+                dog.contact_number = instance.phone_number
+            dog.save()
+
+        instance.status = 'APPROVED'
+        instance.dog = dog
+        instance.reviewed_by = request.user
+        instance.reviewed_at = timezone.now()
+        instance.save()
+        self._log(instance, 'APPROVED', f"Linked {dog.name} to {person(owner)} ({how})", dog=dog)
+
+        self._notify_owner_status(instance, approved=True)
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=['post'])
+    def deny(self, request, pk=None):
+        """Deny a pending link request, optionally with a reason for the owner."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff can deny link requests')
+
+        instance = self.get_object()
+        if instance.status != 'PENDING':
+            return Response({'detail': 'This link request has already been reviewed.'}, status=400)
+
+        from django.utils import timezone
+        instance.status = 'DENIED'
+        instance.denial_reason = (request.data.get('reason') or '').strip()
+        instance.reviewed_by = request.user
+        instance.reviewed_at = timezone.now()
+        instance.save()
+        self._log(instance, 'DENIED', f"Denied {person(instance.owner)}'s link request for {instance.dog_name}"
                                       + (f': {instance.denial_reason}' if instance.denial_reason else ''))
 
         self._notify_owner_status(instance, approved=False)

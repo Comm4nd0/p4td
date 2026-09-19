@@ -11,7 +11,7 @@ from .models import (
     ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest,
     VaccinationRecord, VaccinationCertificate, WaitlistEntry, DaycareSettings,
     Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage,
-    FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog,
+    FacilityDefect, FacilityDefectImage, IntakeRequest, IntakeDog, DogLinkRequest,
     Invoice, InvoiceLine, PaymentRecord, XeroConnection, RoadworkIssue,
     Incident, IncidentDog, IncidentMedia, IncidentComment,
 )
@@ -1162,6 +1162,15 @@ class IntakeRequestAdmin(admin.ModelAdmin):
     def dog_names(self, obj):
         return ', '.join(d.name for d in obj.dogs.all()) or '-'
     dog_names.short_description = 'Dogs'
+
+
+@admin.register(DogLinkRequest)
+class DogLinkRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner', 'dog_name', 'status', 'dog', 'reviewed_by', 'created_at')
+    list_filter = ('status',)
+    search_fields = ('owner__username', 'owner__email', 'dog_name', 'dog__name')
+    raw_id_fields = ('owner', 'dog', 'reviewed_by')
+    readonly_fields = ('created_at',)
 
 
 class InvoiceLineInline(admin.TabularInline):

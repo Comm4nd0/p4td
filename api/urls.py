@@ -7,7 +7,7 @@ from .views import (
     ClosureDayViewSet, DogNoteViewSet, DogChangeLogViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     DogProfileChangeRequestViewSet, VaccinationRecordViewSet, VaccinationCertificateViewSet,
     WaitlistEntryViewSet,
-    VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet,
+    VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet, DogLinkRequestViewSet,
     InvoiceViewSet, IncidentViewSet,
     StaffHRRecordViewSet, StaffPayRateViewSet, StaffMeetingViewSet,
     StaffAppraisalViewSet, SicknessAbsenceViewSet, StaffTrainingRecordViewSet,
@@ -45,6 +45,7 @@ router.register(r'vehicles', VehicleViewSet, basename='vehicles')
 router.register(r'vehicle-defects', VehicleDefectViewSet, basename='vehicle-defects')
 router.register(r'facility-defects', FacilityDefectViewSet, basename='facility-defects')
 router.register(r'intake-requests', IntakeRequestViewSet, basename='intake-requests')
+router.register(r'dog-link-requests', DogLinkRequestViewSet, basename='dog-link-requests')
 router.register(r'invoices', InvoiceViewSet, basename='invoices')
 router.register(r'incidents', IncidentViewSet, basename='incidents')
 router.register(r'staff-hr', StaffHRRecordViewSet, basename='staff-hr')

@@ -519,6 +519,18 @@ def notify_new_intake_request(intake_request):
     )
 
 
+def notify_new_dog_link_request(link_request):
+    """Tell request managers a client wants an existing dog linked to their
+    account — reviewed on the same screen as booking forms."""
+    owner_name = link_request.owner.first_name or link_request.owner.username
+    notify_staff_inbox(
+        'can_manage_requests',
+        'New Link Request',
+        f"{owner_name} asked for {link_request.dog_name} to be linked to their account.",
+        {'type': 'dog_link_request', 'id': str(link_request.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+    )
+
+
 def notify_new_contact_inquiry(inquiry):
     """Tell enquiry viewers the website (or the app's logged-out form) has a
     new contact enquiry."""
