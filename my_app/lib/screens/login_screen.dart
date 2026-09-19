@@ -119,16 +119,15 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           }
 
           if (mounted) {
-            if (widget.addingAccount) {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-                (route) => false,
-              );
-            } else {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-              );
-            }
+            // Clear the whole stack, not just this screen: the logged-out
+            // landing page is still underneath, and a back press (tablet
+            // navigation bar, hardware key) would drop the signed-in user
+            // onto Log in / Sign up as if they had been logged out. Home is
+            // the root once signed in; back from there leaves the app.
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+              (route) => false,
+            );
           }
         }
       } else {

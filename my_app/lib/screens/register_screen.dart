@@ -99,8 +99,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Account created successfully!')),
             );
-            Navigator.of(context).pushReplacement(
+            // Landing and Login are still on the stack below; clear them so
+            // back from Home doesn't land on the logged-out pages.
+            Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => const HomeScreen()),
+              (route) => false,
             );
           }
         } else {
