@@ -294,7 +294,7 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
                                 child: Text(
                                   widget.isStaff
                                       ? 'Add the first record with the button below.'
-                                      : 'Staff will add records when you show your vaccination card.',
+                                      : "Upload your dog's vaccination certificate under Edit Profile — the Vaccination certificate field — and staff will record the dates.",
                                   textAlign: TextAlign.center,
                                   style: Theme.of(context)
                                       .textTheme
