@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/dog.dart';
 import '../models/vaccination_certificate.dart';
@@ -14,16 +13,9 @@ import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
 import '../widgets/dog_contact_rules.dart';
-import '../widgets/app_sheets.dart';
+import '../widgets/vaccination_certificate_picker.dart';
 import '../widgets/vaccination_certificate_tile.dart';
 import 'vaccination_certificate_screen.dart';
-
-/// Where a new certificate comes from.
-enum _CertificateSource { camera, gallery, pdf }
-
-/// Client-side mirror of the server's 10 MB cap, so a too-big pick is refused
-/// before it is uploaded rather than after.
-const int _maxCertificateBytes = 10 * 1024 * 1024;
 
 class EditDogScreen extends StatefulWidget {
   final Dog dog;
@@ -222,61 +214,12 @@ class _EditDogScreenState extends State<EditDogScreen> {
   }
 
   Future<void> _pickCertificate() async {
-    final source = await showAppActionSheet<_CertificateSource>(
-      context,
-      title: 'Attach vaccination certificate',
-      message: 'A photo of the card or the PDF from the vet.',
-      actions: const [
-        AppSheetAction(label: 'Take photo', value: _CertificateSource.camera),
-        AppSheetAction(label: 'Choose photo', value: _CertificateSource.gallery),
-        AppSheetAction(label: 'Choose PDF', value: _CertificateSource.pdf),
-      ],
-    );
-    if (source == null || !mounted) return;
-    try {
-      Uint8List? bytes;
-      String? name;
-      if (source == _CertificateSource.pdf) {
-        final result = await FilePicker.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: const ['pdf'],
-          withData: true,
-        );
-        final picked = result?.files.singleOrNull;
-        if (picked == null) return;
-        bytes = picked.bytes ?? (picked.path != null ? await XFile(picked.path!).readAsBytes() : null);
-        name = picked.name;
-      } else {
-        // Large enough that the small print on a vet's card survives; the
-        // server re-encodes it anyway.
-        final image = await _picker.pickImage(
-          source: source == _CertificateSource.camera ? ImageSource.camera : ImageSource.gallery,
-          maxWidth: 2400,
-          maxHeight: 2400,
-          imageQuality: 90,
-        );
-        if (image == null) return;
-        bytes = await image.readAsBytes();
-        name = image.name;
-      }
-      if (bytes == null || !mounted) return;
-      if (bytes.length > _maxCertificateBytes) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('That file is over 10 MB. A photo of the certificate is usually much smaller.')),
-        );
-        return;
-      }
-      setState(() {
-        _newCertificateBytes = bytes;
-        _newCertificateName = name;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to pick certificate: $e')),
-        );
-      }
-    }
+    final picked = await pickVaccinationCertificate(context, picker: _picker);
+    if (picked == null || !mounted) return;
+    setState(() {
+      _newCertificateBytes = picked.bytes;
+      _newCertificateName = picked.name;
+    });
   }
 
   Future<void> _openCertificate(VaccinationCertificate certificate) async {

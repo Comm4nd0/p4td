@@ -9,9 +9,12 @@ import '../utils/date_formats.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
 import '../widgets/page_body.dart';
+import '../widgets/vaccination_certificates_section.dart';
 
 /// Vaccination records for a dog. Staff can add, edit and delete records;
-/// owners get a read-only view. Expiry reminders are sent automatically.
+/// owners get a read-only view. Anyone can attach the vet's certificate at
+/// the top, which is how owners get a new date recorded. Expiry reminders
+/// are sent automatically.
 class VaccinationsScreen extends StatefulWidget {
   final Dog dog;
   final bool isStaff;
@@ -268,14 +271,21 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
           final records = snapshot.data ?? [];
+          final certificates = VaccinationCertificatesSection(
+            key: ValueKey('certificates-${widget.dog.id}'),
+            dogId: widget.dog.id,
+            isStaff: widget.isStaff,
+          );
           return RefreshIndicator.adaptive(
             onRefresh: _refresh,
             child: records.isEmpty
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     children: [
+                      certificates,
                       SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.55,
+                        height: MediaQuery.of(context).size.height * 0.4,
                         child: Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -294,7 +304,7 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
                                 child: Text(
                                   widget.isStaff
                                       ? 'Add the first record with the button below.'
-                                      : "Upload your dog's vaccination certificate under Edit Profile — the Vaccination certificate field — and staff will record the dates.",
+                                      : "Attach your dog's vaccination certificate above and staff will record the dates.",
                                   textAlign: TextAlign.center,
                                   style: Theme.of(context)
                                       .textTheme
@@ -316,11 +326,12 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     children: [
+                      certificates,
                       GroupedSection(
                         header: 'Records',
                         footer: widget.isStaff
                             ? 'Owners are reminded automatically 30 days and 7 days before expiry.'
-                            : 'Records are maintained by staff — contact us to update them. We\'ll remind you before anything expires.',
+                            : 'Records are maintained by staff — attach a new certificate above and we\'ll update them. We\'ll remind you before anything expires.',
                         children: [
                           for (final record in records)
                             ListTile(
