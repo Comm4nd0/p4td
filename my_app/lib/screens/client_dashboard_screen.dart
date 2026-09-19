@@ -26,6 +26,7 @@ import 'dashboard/client_billing_card.dart';
 import 'dashboard/client_boarding_section.dart';
 import 'dashboard/client_closures_section.dart';
 import 'dashboard/client_photos_section.dart';
+import 'feed_post_screen.dart';
 import 'dashboard/client_today_section.dart';
 import 'dashboard/client_week_strip.dart';
 import 'dog_home_screen.dart';
@@ -351,7 +352,11 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
               ),
               if (_photos.isNotEmpty) ...[
                 gap,
-                ClientPhotosSection(items: _photos, onOpenFeed: widget.onSwitchToFeed),
+                ClientPhotosSection(
+                  items: _photos,
+                  onOpenFeed: widget.onSwitchToFeed,
+                  onOpenItem: (item) => _push(FeedPostScreen(media: item)),
+                ),
               ],
               gap,
               ClientClosuresSection(
