@@ -217,21 +217,6 @@ class CacheService {
     return _box!.get('$_sortPrefPrefix$screenKey') as String?;
   }
 
-  // ── Dismissed notices ────────────────────────────────────────────
-
-  static const _noticePrefix = 'notice_dismissed_';
-
-  /// Whether the user has dismissed a one-off in-app notice.
-  bool isNoticeDismissed(String key) {
-    if (_box == null) return false;
-    return _box!.get('$_noticePrefix$key') == true;
-  }
-
-  Future<void> dismissNotice(String key) async {
-    if (_box == null) return;
-    await _box!.put('$_noticePrefix$key', true);
-  }
-
   // ── Day board column visibility ─────────────────────────────────
 
   static const _dayBoardColumnsKey = 'day_board_columns';
