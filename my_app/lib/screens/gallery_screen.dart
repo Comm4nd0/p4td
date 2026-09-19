@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../constants/app_colors.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -237,6 +238,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (!widget.isStaff) _privateNote(),
           if (widget.isStaff)
             Padding(
               padding: const EdgeInsets.all(8.0),
@@ -260,7 +262,48 @@ class _GalleryScreenState extends State<GalleryScreen> {
               child: Picon(PiconsDuotone.images),
             )
           : null,
-      body: _buildGalleryContent(),
+      body: widget.isStaff
+          ? _buildGalleryContent()
+          : Column(
+              children: [
+                _privateNote(),
+                Expanded(child: _buildGalleryContent()),
+              ],
+            ),
+    );
+  }
+
+  /// The gallery looks like the feed and is nothing like it: only this
+  /// dog's owners and staff see it. Say so, every time — a client checks
+  /// the audience at the moment it matters, not once.
+  Widget _privateNote() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Picon(PiconsDuotone.lockSimple, size: 16, color: AppColors.primary),
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'These photos are private between you and the Paws 4 Thought '
+                'team — they never appear on the feed. Staff add photos here, '
+                "including paperwork like your dog's vaccination card.",
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

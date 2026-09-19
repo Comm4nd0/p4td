@@ -38,6 +38,12 @@ class FeedItemCard extends StatefulWidget {
 
 class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMixin {
   bool _showAllComments = false;
+
+  /// Clients see, until they dismiss it, that comments are shared. Staff
+  /// know, so they never see it.
+  static const _commentNoticeKey = 'feed_comments_public';
+  late bool _showCommentNotice =
+      !widget.isStaff && !CacheService().isNoticeDismissed(_commentNoticeKey);
   final TextEditingController _commentController = TextEditingController();
   final DataService _dataService = getIt<DataService>();
 
@@ -381,6 +387,38 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
           ),
         )),
         
+        if (_showCommentNotice)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Picon(PiconsDuotone.usersThree, size: 14, color: Colors.grey[600]),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Comments are seen by everyone who uses the app, under your '
+                    'first name. For anything private, use Contact Staff.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ),
+                IconButton(
+                  icon: const Picon(PiconsRegular.x, size: 14),
+                  tooltip: 'Got it',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  onPressed: () {
+                    setState(() => _showCommentNotice = false);
+                    CacheService().dismissNotice(_commentNoticeKey);
+                  },
+                ),
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Row(
@@ -389,7 +427,7 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
                 child: TextField(
                   controller: _commentController,
                   decoration: InputDecoration(
-                    hintText: 'Add a comment...',
+                    hintText: widget.isStaff ? 'Add a comment...' : 'Add a comment (seen by all clients)...',
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     border: OutlineInputBorder(
