@@ -4,6 +4,7 @@ import 'package:picons/picons.dart';
 
 import '../../constants/app_colors.dart';
 import '../../services/data_service.dart';
+import '../../services/service_locator.dart';
 import '../../widgets/dog_quick_info_sheet.dart';
 import '../dog_home_screen.dart';
 
@@ -14,10 +15,14 @@ import '../dog_home_screen.dart';
 ///   neutered.
 /// * Vaccinations overdue — dogs whose last vaccination date is more than a
 ///   year old.
+/// * Certificate to chase — dogs with no vet certificate on file evidencing
+///   a vaccination in the last year. Each row has a Remind button that pushes
+///   the owner straight to the attach sheet (the same push the daily cadence
+///   sends), so nobody has to phone.
 ///
 /// Tapping a dog opens the same quick-info sheet used on the staff dog lists,
 /// with follow-on navigation to the full profile (where the date and the
-/// certificate can be updated). A dog can appear in both lists.
+/// certificate can be updated). A dog can appear in more than one list.
 Future<void> showDogHealthDialog(BuildContext context, DogHealthFlags flags) {
   return showDialog<void>(
     context: context,
@@ -49,7 +54,29 @@ Future<void> showDogHealthDialog(BuildContext context, DogHealthFlags flags) {
                     ? null
                     : 'Last vaccinated ${_ukDate(d.lastVaccinationDate!)}',
               ),
-            if (flags.unspayedMales.isEmpty && flags.vaccinationsOverdue.isEmpty)
+            if (flags.certificatesMissing.isNotEmpty &&
+                (flags.unspayedMales.isNotEmpty || flags.vaccinationsOverdue.isNotEmpty))
+              const SizedBox(height: 16),
+            if (flags.certificatesMissing.isNotEmpty)
+              _HealthGroup(
+                icon: PiconsDuotone.certificate,
+                title: 'Certificate to chase',
+                explanation: 'No vet certificate on file from the last year. Remind pushes '
+                    'the owner straight to the attach screen; the app also chases on '
+                    'its own (the day it is noticed, 3 and 7 days on, then weekly).',
+                dogs: flags.certificatesMissing,
+                detail: (d) {
+                  final why = d.certificateStatus == 'EXPIRED'
+                      ? 'Certificate over a year old'
+                      : 'Nothing on file';
+                  final last = d.certificateReminderLastSent;
+                  return last == null ? why : '$why · reminded ${_ukDate(last)}';
+                },
+                trailing: (d) => _RemindButton(dog: d),
+              ),
+            if (flags.unspayedMales.isEmpty &&
+                flags.vaccinationsOverdue.isEmpty &&
+                flags.certificatesMissing.isEmpty)
               const Text('Nothing to confirm right now.'),
           ],
         ),
@@ -73,6 +100,7 @@ class _HealthGroup extends StatelessWidget {
   final String explanation;
   final List<FlaggedDogSummary> dogs;
   final String? Function(FlaggedDogSummary)? detail;
+  final Widget Function(FlaggedDogSummary)? trailing;
 
   const _HealthGroup({
     required this.icon,
@@ -80,6 +108,7 @@ class _HealthGroup extends StatelessWidget {
     required this.explanation,
     required this.dogs,
     this.detail,
+    this.trailing,
   });
 
   @override
@@ -121,12 +150,77 @@ class _HealthGroup extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (trailing != null) trailing!(d),
                 ],
               ),
             ),
           );
         }),
       ],
+    );
+  }
+}
+
+/// One-tap "Remind": pushes the owner now and shows the outcome in place.
+/// Disabled when nobody on the app owns the dog — that one is a phone call.
+class _RemindButton extends StatefulWidget {
+  final FlaggedDogSummary dog;
+  const _RemindButton({required this.dog});
+
+  @override
+  State<_RemindButton> createState() => _RemindButtonState();
+}
+
+class _RemindButtonState extends State<_RemindButton> {
+  bool _sending = false;
+  bool _sent = false;
+
+  Future<void> _send() async {
+    setState(() => _sending = true);
+    try {
+      final count = await getIt<DataService>().sendCertificateReminder(widget.dog.id);
+      if (!mounted) return;
+      setState(() => _sent = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder sent to ${count == 1 ? '1 person' : '$count people'} '
+              'for ${widget.dog.name}.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.dog.canRemind) {
+      return Tooltip(
+        message: 'Not on the app — give the owner a call',
+        child: Picon(PiconsDuotone.phone, size: 16, color: Colors.grey[500]),
+      );
+    }
+    if (_sent) {
+      return const Picon(PiconsDuotone.checkCircle, size: 18, color: AppColors.success);
+    }
+    return TextButton(
+      onPressed: _sending ? null : _send,
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+      child: _sending
+          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+          : const Text('Remind'),
     );
   }
 }

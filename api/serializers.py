@@ -163,6 +163,8 @@ class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
     additional_owners_details = serializers.SerializerMethodField()
     vaccination_summary = serializers.SerializerMethodField()
+    certificate_status = serializers.SerializerMethodField()
+    certificate_needed_since = serializers.SerializerMethodField()
     cancelled_dates = serializers.SerializerMethodField()
 
     #: Written by staff, about the dog, for staff: where it sits in the van and
@@ -184,7 +186,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
         read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates']
         extra_kwargs = {
             'owner': {'required': False},
@@ -220,6 +222,25 @@ class DogSerializer(serializers.ModelSerializer):
             'expiring_soon': statuses.count('expiring_soon'),
             'next_expiry': min(r.expiry_date for r in records).isoformat(),
         }
+
+    def _certificate_state(self, obj):
+        # Cached per instance: both fields below read it, and a listing
+        # already has the certificates prefetched (dog_listing_queryset).
+        state = getattr(obj, '_certificate_state_cache', None)
+        if state is None:
+            state = obj.certificate_state()
+            obj._certificate_state_cache = state
+        return state
+
+    def get_certificate_status(self, obj):
+        """MISSING, EXPIRED or OK — whether the vet's certificate on file
+        evidences a vaccination within the last year. The app nags the owner
+        on anything but OK, so it is computed here, once, for every surface."""
+        return self._certificate_state(obj)[0]
+
+    def get_certificate_needed_since(self, obj):
+        since = self._certificate_state(obj)[1]
+        return since.isoformat() if since else None
 
     def get_cancelled_dates(self, obj):
         """Upcoming dates the dog has been removed from for the day.
@@ -1224,14 +1245,30 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 
 class IntakeDogSerializer(serializers.ModelSerializer):
+    """One dog on the booking form. ``certificate`` is a read-only summary of
+    the vet's certificate attached through ``intake-requests/<id>/certificate/``
+    (the form itself is JSON, so the file follows in its own request) — null
+    until it arrives, which the review screen shows in red."""
+    certificate = serializers.SerializerMethodField()
+
     class Meta:
         model = IntakeDog
         fields = [
             'id', 'name', 'sex', 'date_of_birth', 'is_spayed',
             'food_instructions', 'medical_notes', 'registered_vet',
-            'daycare_days', 'schedule_type', 'created_dog',
+            'daycare_days', 'schedule_type', 'last_vaccination_date',
+            'certificate', 'created_dog',
         ]
-        read_only_fields = ['id', 'created_dog']
+        read_only_fields = ['id', 'certificate', 'created_dog']
+
+    def get_certificate(self, obj):
+        if not obj.certificate_original_filename and not obj.certificate_file:
+            return None
+        return {
+            'filename': obj.certificate_original_filename,
+            'size_bytes': obj.certificate_size_bytes,
+            'content_type': obj.certificate_content_type,
+        }
 
     def validate_daycare_days(self, value):
         if not isinstance(value, list):

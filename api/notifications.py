@@ -519,6 +519,53 @@ def notify_new_intake_request(intake_request):
     )
 
 
+def dog_owner_users(dog):
+    """The people to push about a dog: its owner and co-owners, deduplicated."""
+    users = [dog.owner] if dog.owner_id else []
+    for user in dog.additional_owners.all():
+        if user not in users:
+            users.append(user)
+    return users
+
+
+def certificate_reminder_text(dog, status):
+    """Title and body of the "please add the certificate" push, by state."""
+    from .models import Dog
+    if status == Dog.CERTIFICATE_EXPIRED:
+        body = (
+            f"{dog.name}'s vaccination certificate on file is over a year old. Please add the "
+            f"new one from the vet in the app — a photo of the card is fine. We need it for "
+            f"our licence records."
+        )
+    else:
+        body = (
+            f"We don't have a vaccination certificate on file for {dog.name}. Please add a "
+            f"photo of the card or the vet's PDF in the app — it takes a minute, and we need "
+            f"it for our licence records."
+        )
+    return 'Vaccination certificate needed', body
+
+
+def notify_certificate_needed(dog, status):
+    """Push the dog's owners to add a vaccination certificate. Returns how
+    many people were pushed (0 when nobody on the app owns the dog). Shared
+    by the daily cadence and a staff member's Send reminder, so both say the
+    same thing and open the same attach sheet (``vaccination_certificate``)."""
+    title, body = certificate_reminder_text(dog, status)
+    data = {
+        'type': 'vaccination_certificate',
+        'dog_id': str(dog.id),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+    }
+    recipients = dog_owner_users(dog)
+    for user in recipients:
+        try:
+            send_push_notification(user, title, body, data, category='dog_updates')
+        except Exception as exc:
+            print(f'Failed to send certificate reminder to {user}: {exc}')
+    return len(recipients)
+
+
 def notify_new_dog_link_request(link_request):
     """Tell request managers a client wants an existing dog linked to their
     account — reviewed on the same screen as booking forms."""

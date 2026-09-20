@@ -35,6 +35,7 @@ import 'client_dashboard_screen.dart';
 import 'query_list_screen.dart';
 import 'closure_days_screen.dart';
 import 'my_calendar_screen.dart';
+import 'vaccinations_screen.dart';
 import 'staff_availability_screen.dart';
 import 'staff_management_screen.dart';
 import 'compliance_screen.dart';
@@ -479,6 +480,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             }
           }
           // Otherwise just switch to dogs tab
+          setState(() => _currentIndex = 0);
+          break;
+        case 'vaccinations':
+        case 'vaccination_certificate':
+          // A vaccination reminder: the dog's vaccinations screen, with the
+          // attach sheet already open when it is the certificate being asked
+          // for. Without the dog loaded yet, the dogs tab is the fallback.
+          final dog = _allDogs.where((d) => d.id.toString() == widget.routePayload).firstOrNull;
+          if (dog != null) {
+            _push(
+              MaterialPageRoute(
+                builder: (_) => VaccinationsScreen(
+                  dog: dog,
+                  isStaff: _isStaff,
+                  attachCertificate: widget.initialRoute == 'vaccination_certificate' && !_isStaff,
+                ),
+              ),
+            );
+            break;
+          }
           setState(() => _currentIndex = 0);
           break;
         case 'feed':
@@ -1259,7 +1280,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// The owner's undismissable nag: a red strip on the dog's card until a
+  /// current vaccination certificate is on file. Tapping opens the attach
+  /// sheet directly. Staff never see it — the dashboard's Dog health row is
+  /// their view of the same list.
+  Widget _certificateNag(Dog dog, {bool compact = false}) {
+    final text = dog.certificateExpired
+        ? (compact ? 'Certificate out of date' : 'Vaccination certificate out of date — tap to add the new one')
+        : (compact ? 'Certificate needed' : 'Vaccination certificate needed — tap to add it');
+    return Material(
+      color: AppColors.error.withValues(alpha: 0.08),
+      child: InkWell(
+        onTap: () => _attachCertificate(dog),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 16, vertical: compact ? 6 : 10),
+          child: Row(
+            children: [
+              Picon(PiconsDuotone.certificate, size: compact ? 14 : 18, color: AppColors.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  text,
+                  maxLines: compact ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: compact ? 12 : 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (!compact) const Picon(PiconsDuotone.caretRight, size: 16, color: AppColors.error),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _attachCertificate(Dog dog) async {
+    await _push(
+      MaterialPageRoute(
+        builder: (_) => VaccinationsScreen(dog: dog, isStaff: false, attachCertificate: true),
+      ),
+    );
+    // The strip clears once the server says the certificate is on file.
+    _loadDogs();
+  }
+
   Widget _dogCard(Dog dog, {bool tiled = false}) {
+    final nag = !_isStaff && dog.needsCertificate;
     Future<void> open() async {
       final result = await _push(
         MaterialPageRoute(
@@ -1316,6 +1386,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
+              if (nag) _certificateNag(dog, compact: true),
             ],
           ),
         ),
@@ -1341,6 +1412,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
             ),
+            if (nag)
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
+                child: _certificateNag(dog),
+              ),
           ],
         ),
       ),

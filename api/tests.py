@@ -12779,7 +12779,15 @@ class DogHealthFlagsTests(TestCase):
         self.client.force_authenticate(self.staff)
         resp = self.client.get('/api/dogs/health_flags/')
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data['count'], 4)
+        # None of the six has a certificate on file, so all six are in the
+        # third list and the grand total is 4 + 6.
+        self.assertEqual(resp.data['count'], 10)
+        self.assertEqual(resp.data['certificates_missing']['count'], 6)
+        missing = resp.data['certificates_missing']['dogs']
+        self.assertEqual(missing[0]['certificate_status'], 'MISSING')
+        self.assertEqual(missing[0]['certificate_needed_since'], today.isoformat())
+        self.assertIsNone(missing[0]['certificate_reminder_last_sent'])
+        self.assertTrue(missing[0]['can_remind'])
         self.assertEqual([d['id'] for d in resp.data['unspayed_males']['dogs']], [unspayed.id, both.id])
         self.assertEqual(resp.data['unspayed_males']['count'], 2)
         overdue_rows = resp.data['vaccinations_overdue']['dogs']
@@ -12865,6 +12873,337 @@ class AnnualVaccinationReminderTests(TestCase):
         output, push = self._run()
         self.assertIn('Sent 1 ', output)
         self.assertEqual(push.call_count, 1)
+
+
+def _certificate_jpeg(name='card.jpg'):
+    """A small real JPEG upload, as the phone would send."""
+    from io import BytesIO
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    buf = BytesIO()
+    Image.new('RGB', (60, 40), (200, 180, 120)).save(buf, format='JPEG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type='image/jpeg')
+
+
+def _file_certificate(dog, vaccination_date=None, days_ago=None):
+    """A VaccinationCertificate row without touching storage: the name is
+    enough for certificate_state, which never opens the file."""
+    from .models import VaccinationCertificate
+    if days_ago is not None:
+        vaccination_date = timezone.localdate() - timedelta(days=days_ago)
+    return VaccinationCertificate.objects.create(
+        dog=dog, file='vaccination_certificates/test/x.jpg', vaccination_date=vaccination_date)
+
+
+class CertificateStatusTests(TestCase):
+    """``Dog.certificate_state`` and the ``certificate_status`` every dog
+    listing carries: MISSING since the dog was created, EXPIRED since the
+    newest certificate turned a year old, else OK."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='csowner', password='pw')
+        self.today = timezone.localdate()
+        self.client = APIClient()
+        self.client.force_authenticate(self.owner)
+
+    def test_missing_expired_and_ok(self):
+        missing = Dog.objects.create(owner=self.owner, name='Missing')
+        expired = Dog.objects.create(owner=self.owner, name='Expired')
+        _file_certificate(expired, days_ago=400)
+        _file_certificate(expired, days_ago=800)   # older one is ignored
+        fine = Dog.objects.create(owner=self.owner, name='Fine')
+        _file_certificate(fine, days_ago=100)
+        undated = Dog.objects.create(owner=self.owner, name='Undated')
+        _file_certificate(undated)                 # counts from its upload today
+
+        self.assertEqual(missing.certificate_state(), (Dog.CERTIFICATE_MISSING, self.today))
+        self.assertEqual(expired.certificate_state(),
+                         (Dog.CERTIFICATE_EXPIRED, self.today - timedelta(days=400 - 365)))
+        self.assertEqual(fine.certificate_state(), (Dog.CERTIFICATE_OK, None))
+        self.assertEqual(undated.certificate_state(), (Dog.CERTIFICATE_OK, None))
+
+        resp = self.client.get('/api/dogs/')
+        by_name = {d['name']: d for d in resp.data}
+        self.assertEqual(by_name['Missing']['certificate_status'], 'MISSING')
+        self.assertEqual(by_name['Missing']['certificate_needed_since'], self.today.isoformat())
+        self.assertEqual(by_name['Expired']['certificate_status'], 'EXPIRED')
+        self.assertEqual(by_name['Fine']['certificate_status'], 'OK')
+        self.assertIsNone(by_name['Fine']['certificate_needed_since'])
+
+    def test_exactly_a_year_is_still_ok(self):
+        dog = Dog.objects.create(owner=self.owner, name='Edge')
+        _file_certificate(dog, days_ago=365)
+        self.assertEqual(dog.certificate_state()[0], Dog.CERTIFICATE_OK)
+        _file_certificate(dog, days_ago=366)  # an older one changes nothing
+        self.assertEqual(dog.certificate_state()[0], Dog.CERTIFICATE_OK)
+
+
+class CertificateReminderTests(TestCase):
+    """While a dog has no current certificate, its owners are pushed on day
+    0, 3, 7 and then weekly, eight times at most; a certificate arriving
+    clears the count and a fresh lapse restarts it."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='crowner', password='pw')
+        self.coowner = User.objects.create_user(username='crcoowner', password='pw')
+        self.today = timezone.localdate()
+
+    def _run(self, today=None):
+        import io
+        out = io.StringIO()
+        with patch('api.notifications.send_push_notification') as push, \
+                patch('django.utils.timezone.localdate', return_value=today or self.today):
+            call_command('send_vaccination_reminders', stdout=out)
+        return out.getvalue(), push
+
+    def _created(self, dog, days_ago):
+        Dog.objects.filter(pk=dog.pk).update(
+            created_at=timezone.now() - timedelta(days=days_ago))
+        dog.refresh_from_db()
+        return dog
+
+    def test_cadence_day_0_3_7_then_weekly(self):
+        dog = Dog.objects.create(owner=self.owner, name='Milo')
+        dog.additional_owners.add(self.coowner)
+        pushed_on = []
+        for offset in range(0, 50):
+            day = self.today + timedelta(days=offset)
+            output, push = self._run(day)
+            if push.call_count:
+                pushed_on.append(offset)
+                self.assertEqual(push.call_count, 2)  # owner and co-owner
+                title, body = push.call_args_list[0].args[1:3]
+                self.assertEqual(title, 'Vaccination certificate needed')
+                self.assertIn("We don't have a vaccination certificate on file for Milo", body)
+                self.assertEqual(push.call_args_list[0].args[3]['type'], 'vaccination_certificate')
+                self.assertEqual(push.call_args_list[0].args[3]['dog_id'], str(dog.id))
+                self.assertEqual(push.call_args_list[0].kwargs.get('category'), 'dog_updates')
+                self.assertIn('1 certificate reminder(s)', output)
+        self.assertEqual(pushed_on, [0, 3, 7, 14, 21, 28, 35, 42])
+        dog.refresh_from_db()
+        self.assertEqual(dog.certificate_reminders_sent, 8)
+        self.assertEqual(dog.certificate_reminder_anchor, self.today)
+        self.assertEqual(dog.certificate_reminder_last_sent, self.today + timedelta(days=42))
+
+    def test_an_old_dog_gets_the_same_cadence_from_its_first_run(self):
+        # A dog on the books for months is not owed every milestone at once:
+        # pacing runs from the last push, so it is day 0 now, day 3 in three.
+        dog = self._created(Dog.objects.create(owner=self.owner, name='Old'), 200)
+        pushed_on = []
+        for offset in range(0, 10):
+            _, push = self._run(self.today + timedelta(days=offset))
+            if push.call_count:
+                pushed_on.append(offset)
+        self.assertEqual(pushed_on, [0, 3, 7])
+        dog.refresh_from_db()
+        self.assertEqual(dog.certificate_reminder_anchor, self.today - timedelta(days=200))
+        self.assertEqual(dog.certificate_reminders_sent, 3)
+
+    def test_a_certificate_arriving_clears_the_cadence(self):
+        dog = Dog.objects.create(owner=self.owner, name='Milo')
+        self._run()
+        dog.refresh_from_db()
+        self.assertEqual(dog.certificate_reminders_sent, 1)
+        _file_certificate(dog, days_ago=10)
+        _, push = self._run(self.today + timedelta(days=3))
+        self.assertEqual(push.call_count, 0)
+        dog.refresh_from_db()
+        self.assertIsNone(dog.certificate_reminder_anchor)
+        self.assertEqual(dog.certificate_reminders_sent, 0)
+
+    def test_an_expired_certificate_restarts_the_cadence_with_its_own_wording(self):
+        dog = Dog.objects.create(owner=self.owner, name='Milo')
+        _file_certificate(dog, days_ago=365)   # turns a year old tomorrow
+        _, push = self._run()
+        self.assertEqual(push.call_count, 0)
+        tomorrow = self.today + timedelta(days=1)
+        _, push = self._run(tomorrow)
+        self.assertEqual(push.call_count, 1)
+        self.assertIn("Milo's vaccination certificate on file is over a year old",
+                      push.call_args.args[2])
+        dog.refresh_from_db()
+        # The anchor is the day the certificate turned a year old.
+        self.assertEqual(dog.certificate_reminder_anchor, self.today)
+        self.assertEqual(dog.certificate_reminders_sent, 1)
+
+    def test_dogs_nobody_on_the_app_owns_are_left_to_staff(self):
+        Dog.objects.create(owner=None, name='Paper')
+        output, push = self._run()
+        self.assertEqual(push.call_count, 0)
+        self.assertIn('0 certificate reminder(s)', output)
+
+
+class RemindCertificateTests(TestCase):
+    """Send reminder on the dashboard's Dog health row: the same push as the
+    cadence, now, logged on the dog's trail."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='rcowner', password='pw')
+        self.coowner = User.objects.create_user(username='rccoowner', password='pw')
+        self.staff = User.objects.create_user(username='rcstaff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Milo')
+        self.dog.additional_owners.add(self.coowner)
+        self.client = APIClient()
+
+    def test_staff_push_both_owners_and_it_is_logged(self):
+        self.client.force_authenticate(self.staff)
+        with patch('api.notifications.send_push_notification') as push:
+            resp = self.client.post(f'/api/dogs/{self.dog.id}/remind_certificate/')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data['sent'], 2)
+        self.assertEqual({c.args[0] for c in push.call_args_list}, {self.owner, self.coowner})
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.certificate_reminder_last_sent, timezone.localdate())
+        from .models import DogChangeLog
+        entry = DogChangeLog.objects.filter(dog=self.dog).latest('id')
+        self.assertIn('reminder to add a vaccination certificate', entry.summary)
+        self.assertEqual(entry.actor, self.staff)
+
+    def test_refused_when_current_or_unreachable_or_not_staff(self):
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(
+            self.client.post(f'/api/dogs/{self.dog.id}/remind_certificate/').status_code, 403)
+
+        self.client.force_authenticate(self.staff)
+        paper = Dog.objects.create(owner=None, name='Paper')
+        resp = self.client.post(f'/api/dogs/{paper.id}/remind_certificate/')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('give the owner a call', resp.data['detail'])
+
+        _file_certificate(self.dog, days_ago=30)
+        resp = self.client.post(f'/api/dogs/{self.dog.id}/remind_certificate/')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('current certificate', resp.data['detail'])
+
+
+class IntakeCertificateTests(TestCase):
+    """The booking form asks for the vet's certificate: it is attached to the
+    pending form dog by dog, shown to staff on review, and becomes the new
+    dog's VaccinationCertificate when the form is approved."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        from django.core.cache import cache
+        self.private_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.private_dir, True)
+        overridden = override_settings(PRIVATE_MEDIA_ROOT=self.private_dir)
+        overridden.enable()
+        self.addCleanup(overridden.disable)
+        cache.clear()
+
+        self.owner = User.objects.create_user(
+            username='icowner', password='pw', first_name='Nina', email='nina@example.com')
+        self.other = User.objects.create_user(username='icother', password='pw')
+        self.staff = User.objects.create_user(username='icstaff', password='pw', is_staff=True)
+        self.client = APIClient()
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/intake-requests/', {
+            'phone_number': '07700 900123',
+            'emergency_contact_number': '07700 900456',
+            'address': '1 Kennel Lane', 'postcode': 'SL7 2HE',
+            'dogs': [{'name': 'Biscuit', 'schedule_type': 'ad_hoc', 'daycare_days': []},
+                     {'name': 'Rolo', 'schedule_type': 'ad_hoc', 'daycare_days': []}],
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.request_id = resp.data['id']
+        self.biscuit_id, self.rolo_id = [d['id'] for d in resp.data['dogs']]
+        self.assertIsNone(resp.data['dogs'][0]['certificate'])
+
+    def _attach(self, intake_dog_id, **extra):
+        return self.client.post(
+            f'/api/intake-requests/{self.request_id}/certificate/',
+            {'dog': intake_dog_id, 'file': _certificate_jpeg(), **extra}, format='multipart')
+
+    def test_attached_certificate_is_filed_against_the_new_dog(self):
+        import os
+        from .models import IntakeDog, VaccinationCertificate
+        resp = self._attach(self.biscuit_id, vaccination_date='2026-08-01')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        summary = resp.data['dogs'][0]['certificate']
+        self.assertEqual(summary['filename'], 'card.jpg')
+        self.assertEqual(summary['content_type'], 'image/jpeg')
+        self.assertGreater(summary['size_bytes'], 0)
+        self.assertEqual(resp.data['dogs'][0]['last_vaccination_date'], '2026-08-01')
+        self.assertIsNone(resp.data['dogs'][1]['certificate'])
+        intake_dog = IntakeDog.objects.get(pk=self.biscuit_id)
+        stored = intake_dog.certificate_file.path
+        self.assertTrue(stored.startswith(self.private_dir))
+        self.assertTrue(os.path.exists(stored))
+
+        # A second upload for the same dog replaces the first, on disk too.
+        resp = self._attach(self.biscuit_id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(os.path.exists(stored))
+
+        self.client.force_authenticate(self.staff)
+        with patch('api.notifications.send_push_notification') as push:
+            resp = self.client.post(f'/api/intake-requests/{self.request_id}/approve/', {}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        biscuit = Dog.objects.get(name='Biscuit')
+        rolo = Dog.objects.get(name='Rolo')
+        certificate = VaccinationCertificate.objects.get(dog=biscuit)
+        self.assertEqual(certificate.vaccination_date, date(2026, 8, 1))
+        self.assertEqual(certificate.original_filename, 'card.jpg')
+        self.assertEqual(certificate.uploaded_by, self.owner)
+        self.assertTrue(os.path.exists(certificate.file.path))
+        self.assertEqual(biscuit.last_vaccination_date, date(2026, 8, 1))
+        self.assertEqual(biscuit.certificate_state()[0], Dog.CERTIFICATE_OK)
+        self.assertEqual(rolo.certificate_state()[0], Dog.CERTIFICATE_MISSING)
+        # The intake copy is gone; the name stays for the review screen.
+        intake_dog.refresh_from_db()
+        self.assertFalse(intake_dog.certificate_file)
+        self.assertEqual(intake_dog.certificate_original_filename, 'card.jpg')
+        # The welcome push names the dog still without one.
+        body = push.call_args.args[2]
+        self.assertIn("Please add Rolo's vaccination certificate", body)
+        self.assertNotIn('Biscuit\'s vaccination certificate', body)
+
+    def test_upload_is_scoped_and_checked(self):
+        # A stranger cannot attach to someone else's form.
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self._attach(self.biscuit_id).status_code, 404)
+        self.client.force_authenticate(self.owner)
+        # An unknown dog id, and a non-certificate file, are refused.
+        self.assertEqual(self._attach(999999).status_code, 400)
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        resp = self.client.post(
+            f'/api/intake-requests/{self.request_id}/certificate/',
+            {'dog': self.biscuit_id,
+             'file': SimpleUploadedFile('page.html', b'<html>hi</html>', content_type='text/html')},
+            format='multipart')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('file', resp.data)
+        # Once reviewed, the form is closed to uploads.
+        self.client.force_authenticate(self.staff)
+        self.client.post(f'/api/intake-requests/{self.request_id}/deny/', {'reason': 'Full'}, format='json')
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self._attach(self.biscuit_id).status_code, 400)
+
+    def test_deny_and_withdraw_discard_the_file(self):
+        import os
+        from .models import IntakeDog
+        self._attach(self.biscuit_id)
+        stored = IntakeDog.objects.get(pk=self.biscuit_id).certificate_file.path
+        self.assertTrue(os.path.exists(stored))
+        self.client.force_authenticate(self.staff)
+        self.client.post(f'/api/intake-requests/{self.request_id}/deny/', {}, format='json')
+        self.assertFalse(os.path.exists(stored))
+
+        # Withdrawing a pending form takes its files with it.
+        self.client.force_authenticate(self.owner)
+        resp = self.client.post('/api/intake-requests/', {
+            'phone_number': '1', 'emergency_contact_number': '2', 'address': 'x', 'postcode': 'SL7 2HE',
+            'dogs': [{'name': 'Second', 'schedule_type': 'ad_hoc', 'daycare_days': []}],
+        }, format='json')
+        request_id = resp.data['id']
+        dog_id = resp.data['dogs'][0]['id']
+        self.client.post(f'/api/intake-requests/{request_id}/certificate/',
+                         {'dog': dog_id, 'file': _certificate_jpeg()}, format='multipart')
+        stored = IntakeDog.objects.get(pk=dog_id).certificate_file.path
+        self.assertTrue(os.path.exists(stored))
+        self.assertEqual(self.client.delete(f'/api/intake-requests/{request_id}/').status_code, 204)
+        self.assertFalse(os.path.exists(stored))
 
 
 class ClientAccessTests(TestCase):

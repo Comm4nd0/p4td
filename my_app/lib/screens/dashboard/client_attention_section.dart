@@ -22,6 +22,8 @@ class ClientAttention {
   final int unpaidInvoices;
   final List<Dog> vaccinationOverdue;
   final List<Dog> vaccinationDueSoon;
+  /// Dogs with no current vet certificate on file (`Dog.needsCertificate`).
+  final List<Dog> certificatesMissing;
   final int pendingDayRequests;
   final int pendingBoarding;
   final int unreadReplies;
@@ -35,6 +37,7 @@ class ClientAttention {
     this.unpaidInvoices = 0,
     this.vaccinationOverdue = const [],
     this.vaccinationDueSoon = const [],
+    this.certificatesMissing = const [],
     this.pendingDayRequests = 0,
     this.pendingBoarding = 0,
     this.unreadReplies = 0,
@@ -47,6 +50,7 @@ class ClientAttention {
       unpaidInvoices +
       vaccinationOverdue.length +
       vaccinationDueSoon.length +
+      certificatesMissing.length +
       pendingDayRequests +
       pendingBoarding +
       unreadReplies +
@@ -93,6 +97,10 @@ class ClientAttention {
       unpaidInvoices: open.length - overdue,
       vaccinationOverdue: vaccOverdue,
       vaccinationDueSoon: vaccSoon,
+      certificatesMissing: [
+        for (final dog in dogs)
+          if (dog.needsCertificate) dog,
+      ],
       pendingDayRequests: dayRequests.where((r) => r.status == RequestStatus.pending).length,
       pendingBoarding: boarding.where((r) => r.status == BoardingRequestStatus.pending).length,
       unreadReplies: queries.where((q) => q.hasUnreadReply).length,
@@ -112,6 +120,9 @@ class ClientAttentionSection extends StatelessWidget {
   final ClientAttention attention;
   final VoidCallback onOpenPayments;
   final void Function(List<Dog> dogs) onOpenVaccinations;
+  /// Opens the attach sheet for one of these dogs — the tile is the nag, so
+  /// the tap must land on the action, not on a screen with the action.
+  final void Function(List<Dog> dogs) onOpenCertificateUpload;
   final VoidCallback onOpenDayRequests;
   final VoidCallback onOpenBoarding;
   final VoidCallback onOpenQueries;
@@ -123,6 +134,7 @@ class ClientAttentionSection extends StatelessWidget {
     required this.attention,
     required this.onOpenPayments,
     required this.onOpenVaccinations,
+    required this.onOpenCertificateUpload,
     required this.onOpenDayRequests,
     required this.onOpenBoarding,
     required this.onOpenQueries,
@@ -151,6 +163,15 @@ class ClientAttentionSection extends StatelessWidget {
           count: a.unpaidInvoices,
           countColor: AppColors.warning,
           onTap: onOpenPayments,
+        ),
+      if (a.certificatesMissing.isNotEmpty)
+        ActionItemTile(
+          icon: PiconsDuotone.certificate,
+          label: 'Vaccination certificate needed',
+          subtitle: _names(a.certificatesMissing),
+          count: a.certificatesMissing.length,
+          countColor: AppColors.error,
+          onTap: () => onOpenCertificateUpload(a.certificatesMissing),
         ),
       if (a.vaccinationOverdue.isNotEmpty)
         ActionItemTile(

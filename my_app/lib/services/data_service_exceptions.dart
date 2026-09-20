@@ -18,11 +18,23 @@ class FlaggedDogSummary {
   /// Set for the vaccinations-overdue list: the date that is over a year old.
   final DateTime? lastVaccinationDate;
 
+  /// Set for the certificates-missing list: 'MISSING' or 'EXPIRED', since
+  /// when, when the owners were last pushed about it, and whether anyone on
+  /// the app owns the dog (Send reminder has someone to reach).
+  final String? certificateStatus;
+  final DateTime? certificateNeededSince;
+  final DateTime? certificateReminderLastSent;
+  final bool canRemind;
+
   const FlaggedDogSummary({
     required this.id,
     required this.name,
     this.imageUrl,
     this.lastVaccinationDate,
+    this.certificateStatus,
+    this.certificateNeededSince,
+    this.certificateReminderLastSent,
+    this.canRemind = false,
   });
 }
 
@@ -39,17 +51,22 @@ class DogHealthFlags {
   final int count;
   final List<FlaggedDogSummary> unspayedMales;
   final List<FlaggedDogSummary> vaccinationsOverdue;
+  /// Dogs with no vet certificate on file evidencing a vaccination in the
+  /// last year — the ones the owner is being chased about.
+  final List<FlaggedDogSummary> certificatesMissing;
 
   const DogHealthFlags({
     required this.count,
     required this.unspayedMales,
     required this.vaccinationsOverdue,
+    this.certificatesMissing = const [],
   });
 
   const DogHealthFlags.empty()
       : count = 0,
         unspayedMales = const [],
-        vaccinationsOverdue = const [];
+        vaccinationsOverdue = const [],
+        certificatesMissing = const [];
 }
 
 /// Why two incompatible dogs are being flagged for a day.

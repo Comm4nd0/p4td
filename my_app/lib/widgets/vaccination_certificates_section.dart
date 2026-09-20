@@ -17,7 +17,16 @@ class VaccinationCertificatesSection extends StatefulWidget {
   final String dogId;
   final bool isStaff;
 
-  const VaccinationCertificatesSection({super.key, required this.dogId, required this.isStaff});
+  /// Open the attach sheet straight away, once, when the section first
+  /// builds — the person tapped a "certificate needed" nag to get here.
+  final bool attachOnOpen;
+
+  const VaccinationCertificatesSection({
+    super.key,
+    required this.dogId,
+    required this.isStaff,
+    this.attachOnOpen = false,
+  });
 
   @override
   State<VaccinationCertificatesSection> createState() => _VaccinationCertificatesSectionState();
@@ -37,6 +46,11 @@ class _VaccinationCertificatesSectionState extends State<VaccinationCertificates
     _dataService.getProfile().then((profile) {
       if (mounted) setState(() => _myUserId = profile.userId);
     }).catchError((_) {});
+    if (widget.attachOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _attach();
+      });
+    }
   }
 
   Future<void> _load() async {

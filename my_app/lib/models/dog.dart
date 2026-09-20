@@ -245,6 +245,13 @@ class Dog {
   final DateTime? lastVaccinationDate;
   /// Server-computed: last vaccination was more than a year ago.
   final bool vaccinationOverdue;
+  /// Server-computed (`certificate_status`): whether the vet's certificate on
+  /// file evidences a vaccination within the last year — 'MISSING', 'EXPIRED'
+  /// or 'OK'. Defaults to OK so an older server never makes the app nag.
+  final String certificateStatus;
+  /// Since when a certificate has been needed; null when [certificateStatus]
+  /// is OK.
+  final DateTime? certificateNeededSince;
   final bool isSpayed;
   /// Payment-manager override of the per-day daycare rate. Null = the
   /// standard tier for how many days a week the dog is booked in.
@@ -284,10 +291,19 @@ class Dog {
     this.dateOfBirth,
     this.lastVaccinationDate,
     this.vaccinationOverdue = false,
+    this.certificateStatus = 'OK',
+    this.certificateNeededSince,
     this.isSpayed = false,
     this.dailyRate,
     this.cancelledDates = const [],
   });
+
+  /// The owner needs to attach a vaccination certificate: none on file, or
+  /// the newest is over a year old. Everything that nags reads this.
+  bool get needsCertificate => certificateStatus != 'OK';
+
+  /// A certificate is on file but over a year old.
+  bool get certificateExpired => certificateStatus == 'EXPIRED';
 
   /// All owners (primary + additional) for convenience
   List<OwnerDetails> get allOwners {
@@ -334,6 +350,8 @@ class Dog {
     DateTime? dateOfBirth,
     DateTime? lastVaccinationDate,
     bool? vaccinationOverdue,
+    String? certificateStatus,
+    DateTime? certificateNeededSince,
     bool? isSpayed,
     double? dailyRate,
     List<DateTime>? cancelledDates,
@@ -368,6 +386,8 @@ class Dog {
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       lastVaccinationDate: lastVaccinationDate ?? this.lastVaccinationDate,
       vaccinationOverdue: vaccinationOverdue ?? this.vaccinationOverdue,
+      certificateStatus: certificateStatus ?? this.certificateStatus,
+      certificateNeededSince: certificateNeededSince ?? this.certificateNeededSince,
       isSpayed: isSpayed ?? this.isSpayed,
       dailyRate: dailyRate ?? this.dailyRate,
       cancelledDates: cancelledDates ?? this.cancelledDates,

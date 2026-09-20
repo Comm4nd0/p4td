@@ -38,6 +38,12 @@ class IntakeDog {
   final String? registeredVet;
   final List<Weekday> daysInDaycare;
   final ScheduleType scheduleType;
+  /// The date on the certificate; becomes the dog's last vaccination date.
+  final DateTime? lastVaccinationDate;
+  /// The certificate attached after submitting (name and size only — the
+  /// file is filed against the dog when the form is approved).
+  final String? certificateFilename;
+  final int certificateSizeBytes;
 
   IntakeDog({
     this.id,
@@ -50,7 +56,12 @@ class IntakeDog {
     this.registeredVet,
     this.daysInDaycare = const [],
     this.scheduleType = ScheduleType.weekly,
+    this.lastVaccinationDate,
+    this.certificateFilename,
+    this.certificateSizeBytes = 0,
   });
+
+  bool get hasCertificate => certificateFilename != null && certificateFilename!.isNotEmpty;
 
   factory IntakeDog.fromJson(Map<String, dynamic> json) {
     final days = <Weekday>[];
@@ -72,6 +83,9 @@ class IntakeDog {
       registeredVet: json['registered_vet'],
       daysInDaycare: days,
       scheduleType: ScheduleTypeExtension.fromApiValue(json['schedule_type']),
+      lastVaccinationDate: parseApiDate(json['last_vaccination_date']),
+      certificateFilename: (json['certificate'] as Map?)?['filename']?.toString(),
+      certificateSizeBytes: ((json['certificate'] as Map?)?['size_bytes'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -86,6 +100,7 @@ class IntakeDog {
       'registered_vet': registeredVet ?? '',
       'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
       'schedule_type': scheduleType.apiValue,
+      if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
     };
   }
 }
