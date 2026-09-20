@@ -391,7 +391,7 @@ cannot simply be copied.
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
 > | Live on the App Store | **1.12.9** | `2c70979` | Tag `v1.12.9`, build 592; confirmed live by Marco on 2026-09-15 |
-> | Submitted, in review | 1.12.42 | (this commit) | Tag `v1.12.42` on 2026-09-20, superseding 1.12.28 (whose iOS submission never went through; Android builds 470/472 reached production). Adds vaccination certificate chasing, Link My Dog, the dashboard calendar and the staff dashboard spotlight. Notes diffed from live 1.12.9. If the iOS lane refuses the first build, check Xcode Cloud's Production workflow for the tag and re-run `Release iOS to App Store` (or pass `APP_BUILD`) |
+> | Submitted, in review | 1.12.42 | `ea808af` | Tag `v1.12.42` on 2026-09-20, superseding 1.12.28 (whose iOS submission never went through; Android builds 470/472 reached production). Adds vaccination certificate chasing, Link My Dog, the dashboard calendar and the staff dashboard spotlight. Notes diffed from live 1.12.9. If the iOS lane refuses the first build, check Xcode Cloud's Production workflow for the tag and re-run `Release iOS to App Store` (or pass `APP_BUILD`) |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
