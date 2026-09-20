@@ -78,12 +78,15 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
 
   List<SupportQuery> get _filteredQueries {
     if (_filter == 'ALL') return _queries;
-    // A reply you haven't read yet belongs under Open whatever the thread's
-    // status: staff often reply and resolve in one go, and the badge counted
-    // that reply while the Open list showed nothing to tap on.
+    // For the owner, a reply they haven't read yet belongs under Open
+    // whatever the thread's status: staff often reply and resolve in one
+    // go, and the badge counted that reply while the Open list showed
+    // nothing to tap on. The flag is the owner's, so staff never see a
+    // resolved thread under Open because of it.
+    final unreadCounts = !widget.isStaff;
     return _queries.where((q) =>
       _filter == 'OPEN'
-        ? q.status == QueryStatus.open || q.hasUnreadReply
+        ? q.status == QueryStatus.open || (unreadCounts && q.hasUnreadReply)
         : q.status == QueryStatus.resolved
     ).toList();
   }
