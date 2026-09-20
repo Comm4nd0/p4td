@@ -3021,6 +3021,71 @@ class CompatibilityConflictTests(TestCase):
         self.assertEqual(names, ['Buddy', 'Rex'])
         self.assertIn('Fights at pickup', conflicts[0]['reasons'])
 
+    def _conflict_today(self):
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_a)
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=False,
+            text='Fights at pickup', created_by=self.staff_a,
+        )
+
+    def test_acknowledging_a_conflict_marks_it_for_everyone(self):
+        """The dashboard spotlights a pair until someone acknowledges it; the
+        flag is per day and pair on the server, first acknowledger wins, and
+        the pair is found either way round."""
+        self._conflict_today()
+        url = f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        self.client.login(username='staffa', password='pw')
+        conflict = self.client.get(url).data['conflicts'][0]
+        self.assertIsNone(conflict['acknowledged_by_name'])
+        self.assertIsNone(conflict['acknowledged_at'])
+
+        resp = self.client.post('/api/daily-assignments/acknowledge_conflict/', {
+            'date': self.today.isoformat(), 'dog_a': self.dog2.id, 'dog_b': self.dog1.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['acknowledged_by_name'], 'Alice')
+        self.assertEqual((resp.data['dog_a_id'], resp.data['dog_b_id']),
+                         tuple(sorted((self.dog1.id, self.dog2.id))))
+        log = DogChangeLog.objects.filter(category='SCHEDULE', action='STATUS').first()
+        self.assertIsNotNone(log)
+        self.assertIn('Acknowledged the grouping conflict', log.summary)
+
+        # Bob sees Alice's acknowledgement; his own attempt changes nothing.
+        self.client.logout()
+        self.client.login(username='staffb', password='pw')
+        conflict = self.client.get(url).data['conflicts'][0]
+        self.assertEqual(conflict['acknowledged_by_name'], 'Alice')
+        self.assertIsNotNone(conflict['acknowledged_at'])
+        resp = self.client.post('/api/daily-assignments/acknowledge_conflict/', {
+            'date': self.today.isoformat(), 'dog_a': self.dog1.id, 'dog_b': self.dog2.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['acknowledged_by_name'], 'Alice')
+        self.assertEqual(DogChangeLog.objects.filter(category='SCHEDULE', action='STATUS').count(), 1)
+
+        # Another day is a fresh conflict.
+        tomorrow = (self.today + timedelta(days=1)).isoformat()
+        DailyDogAssignment.objects.create(dog=self.dog1, staff_member=self.staff_a, date=self.today + timedelta(days=1))
+        DailyDogAssignment.objects.create(dog=self.dog2, staff_member=self.staff_a, date=self.today + timedelta(days=1))
+        conflict = self.client.get(f'/api/daily-assignments/compatibility_conflicts/?date={tomorrow}').data['conflicts'][0]
+        self.assertIsNone(conflict['acknowledged_by_name'])
+
+    def test_acknowledge_conflict_validates_the_pair(self):
+        self.client.login(username='staffa', password='pw')
+        for payload in ({}, {'dog_a': self.dog1.id}, {'dog_a': self.dog1.id, 'dog_b': self.dog1.id}):
+            resp = self.client.post('/api/daily-assignments/acknowledge_conflict/', payload, format='json')
+            self.assertEqual(resp.status_code, 400, payload)
+        resp = self.client.post('/api/daily-assignments/acknowledge_conflict/',
+                                {'dog_a': self.dog1.id, 'dog_b': 999999}, format='json')
+        self.assertEqual(resp.status_code, 404)
+        self.client.logout()
+        self.client.login(username='owner', password='pw')
+        resp = self.client.post('/api/daily-assignments/acknowledge_conflict/',
+                                {'dog_a': self.dog1.id, 'dog_b': self.dog2.id}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
     def test_no_conflict_when_dogs_with_different_staff(self):
         self._assign(self.dog1, self.staff_a)
         self._assign(self.dog2, self.staff_b)

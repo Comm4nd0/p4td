@@ -140,7 +140,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 | `api/comments/` | Feed comments |
 | `api/boarding-requests/` | Boarding requests |
 | `api/device-tokens/` | Push notification tokens |
-| `api/daily-assignments/` | Staff-dog daily assignments. `<id>/reassign/` moves one dog; `bulk_reassign/` (`assignment_ids`, `staff_member_id`, `scope`) moves several to one staff member in one transaction with the same `just_this_day`/`from_now_on` semantics — it backs the dashboard's **Reassign Dogs** quick action, next to Add Dog to Day. Rows already with the target are reported under `skipped`, not moved. `owner_handovers/` (GET `?date=`, POST `date`/`leg`/`staff_member_id`) is the dashboard's **Dropped off by owner / Collected by owner** pair: the day's dogs whose owner brings or collects them (`effective_owner_brings`/`effective_owner_collects`, boarding-aware, REMOVED excluded) and the staff member on each leg (`OwnerHandoverDuty`, one row per date and leg). Neither leg is on a driver's route, so the cards stay red until someone is named; any staff member can set it, like `assign_to_me` |
+| `api/daily-assignments/` | Staff-dog daily assignments. `<id>/reassign/` moves one dog; `bulk_reassign/` (`assignment_ids`, `staff_member_id`, `scope`) moves several to one staff member in one transaction with the same `just_this_day`/`from_now_on` semantics — it backs the dashboard's **Reassign Dogs** quick action, next to Add Dog to Day. Rows already with the target are reported under `skipped`, not moved. `owner_handovers/` (GET `?date=`, POST `date`/`leg`/`staff_member_id`) is the dashboard's **Dropped off by owner / Collected by owner** pair: the day's dogs whose owner brings or collects them (`effective_owner_brings`/`effective_owner_collects`, boarding-aware, REMOVED excluded) and the staff member on each leg (`OwnerHandoverDuty`, one row per date and leg). Neither leg is on a driver's route, so the cards stay red until someone is named; any staff member can set it, like `assign_to_me`. `compatibility_conflicts/` rows carry `acknowledged_by_name`/`acknowledged_at`, set by `acknowledge_conflict/` (POST `date`, `dog_a`, `dog_b`; `ConflictAcknowledgement`, one per day and pair, first acknowledger kept) — "someone on the team has seen this", shared by everyone, logged under `SCHEDULE`; the banner still shows the pair, only the dashboard spotlight stops |
 | `api/support-queries/` | Support tickets. Creating one pushes staff with `can_reply_queries`; `add_message/` pushes the other side of the thread (category `messages`). The detail carries `owner_dogs` (id, name, photo) for staff — the conversation header names the client, links to their details and opens each dog — and `null` for owners. **The staff badge (`unresolved_count/`) counts threads awaiting a reply, not unseen ones:** `staff_has_unread` is set by an owner message and cleared only by a staff reply or a resolve — staff `mark_read/` is a no-op, so a thread opened and closed stays on the count until someone answers it |
 | `api/closure-days/` | Facility closures |
 | `api/dog-notes/` | Behavioral/compatibility notes |
@@ -269,6 +269,17 @@ Additional non-router endpoints:
   creates a duplicate dog. Staff review both on `booking_requests_screen.dart`,
   where a link request lists the server's candidate dogs with why each matched
   and a **Find dog** search (`widgets/dog_picker_sheet.dart`) for when none do.
+- **Staff dashboard spotlight** (`widgets/spotlight_coach.dart`, steps in
+  `unified_dashboard_screen.dart`'s `_spotlightSteps`): on today's board, the
+  screen dims except one widget with a speech bubble beside it — the owner
+  drop-off card with nobody named (until 11:00), the collection card likewise
+  (until 16:00), then unacknowledged grouping conflicts (assigners only).
+  Tapping the card or the button does the normal action; the next step follows
+  when the day's data changes. Not now hides a step for the session only, so it
+  returns on the next launch while still outstanding. The GlobalKeys go on
+  today's widgets only — the date switcher keeps the outgoing day mounted for a
+  moment and a key may appear once. Add the next must-do-now item as a step
+  there, not as another banner.
 - **Staff inbox badges**: the home AppBar shows Contact Staff, Booking Forms,
   Website Inquiries (with `can_view_inquiries`) and the bell, each a
   `BadgedActionIcon` (`widgets/badged_action_icon.dart`) with its count. **A count
