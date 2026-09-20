@@ -118,17 +118,20 @@ requires matters here: skip it and the release shares a train with the previous
 one, and the wrong binary can be attached.
 
 **The newest build in the train is not always attachable.** Every tag-push run
-so far was refused with "The specified pre-release build could not be added" on
-the build that was newest when the tag landed, and the one release that went
-through (1.10.1) was a re-run an hour later that picked up the *next* build —
-the archive the tag push itself had queued. Both Xcode Cloud workflows build
-every commit (development and main move together) and their counters
-interleave, so the newest build at tag time may well be the Development one,
-which distributes to internal testers only. The lane therefore treats that
-refusal as "not yet": it waits (up to `WAIT_MINUTES`, default 30) for a build
-newer than any it was refused, then attaches that. If nothing newer arrives,
-check the Production workflow's run for the tag in Xcode Cloud, and once its
-build is in TestFlight re-run the workflow on the tag or pass `APP_BUILD`.
+through v1.12.43 was refused with "The specified pre-release build could not be
+added" on the build that was newest when the tag landed. That build is the
+Development workflow's (it distributes to internal testers only), and **a tag
+push starts nothing in Xcode Cloud** — the Production workflow, the only one
+that distributes to App Store Connect, has to be started for the tag. The one
+release that went through (1.10.1) was a re-run an hour later that happened to
+find a Production build. The lane now starts that build itself, first thing,
+through the App Store Connect API (`scripts/xcode_cloud_start_build.py`,
+idempotent by commit), and treats the refusal as "not yet": it waits (up to
+`WAIT_MINUTES`, default 30) for a build newer than any it was refused, then
+attaches that. If nothing newer arrives, look at the Production run in Xcode
+Cloud; for a tag whose lane predates the start step, run the `Start Xcode Cloud
+Production build` workflow with the tag, wait for TestFlight, then re-run the
+release lane on the tag or pass `APP_BUILD`.
 
 Don't try to force `CFBundleVersion` to match pubspec, and in particular don't
 pass `--build-number="$CI_BUILD_NUMBER"` in `ci_post_clone.sh` — Xcode Cloud
