@@ -1,39 +1,35 @@
 Vaccination certificates
 
-You can now attach the vet's certificate — a PDF or a photo — to your dog's profile, from the Vaccinations screen or straight from the dashboard. Certificates are kept private and shown only to the dog's owners and the team. We need one on file for our licence records, so until your dog has a current certificate the app will say so: on the dog's card, under Needs Your Attention, and with a reminder now and then that opens the attach screen for you. A new dog's certificate is asked for on the booking form itself. If a dog's last vaccination date is coming up to a year old, you'll get a reminder a week before, so it isn't a surprise at check-in.
+Attach the vet's certificate — a PDF or a photo — to your dog's profile, from the Vaccinations screen or straight from the dashboard. Certificates are private to the dog's owners and the team. We need one on file for our licence records, so until your dog has a current certificate the app says so on the dog's card and under Needs Your Attention, and sends the odd reminder that opens the attach screen for you. A new dog's certificate is asked for on the booking form. When a dog's last vaccination date is coming up to a year old, you get a reminder a week before.
 
 Link My Dog
 
-If your dog already comes to daycare, you no longer fill in the new-dog form: choose Link My Dog, give the dog's name and the postcode and phone number we hold, and the team attaches the dog to your account.
+If your dog already comes to daycare, choose Link My Dog instead of the new-dog form: give the dog's name and the postcode and phone number we hold, and the team attaches the dog to your account.
 
 Notifications you were missing
 
-The app now tells you when your dog has been collected and when they're home, when the team replies to one of your messages, and when a new photo of your dog lands on the feed. Each has its own switch on your Profile page.
-
-Privacy
-
-Other clients see you by your first name only, and the feed opens once your dog's booking form has been approved.
+The app now tells you when your dog has been collected and when they're home, when the team replies to a message, and when a new photo of your dog lands on the feed. Each has its own switch on your Profile page.
 
 Your Dashboard
 
-You now have a Dashboard tab of your own: where each dog is today and when they're next in, a calendar of all your dogs by day, week or month that you can swipe back through, anything that needs your attention (an unpaid invoice, a vaccination due, a missing certificate, a request waiting on us, a reply from the team), your latest invoice, upcoming boarding, the newest photos of your dogs (tap one to see it full size) and any closures coming up, with Quick Actions for changing days, requesting boarding and contacting staff.
+A Dashboard tab of your own: where each dog is today and when they're next in, a calendar of all your dogs by day, week or month, anything that needs your attention (an unpaid invoice, a vaccination due, a missing certificate, a request waiting on us, a reply from the team), your latest invoice, upcoming boarding, the newest photos of your dogs and any closures coming up, with Quick Actions for changing days, requesting boarding and contacting staff.
 
-Photos and comments
+Privacy
 
-The gallery on your dog's profile is private to you and the team. Comments on the shared feed are seen by every client, and the comment box now says so.
+Other clients see you by your first name only, the feed opens once your booking form has been approved, and your dog's gallery is private to you and the team. Comments on the shared feed are seen by every client, and the comment box now says so.
 
 Invoices
 
-Invoices now list one line per day your dog was in, so you can see exactly which days you're paying for. They're paid by bank transfer from the invoice Xero emails you, so the Pay Now button has gone and the invoice screen says so instead.
+Invoices list one line per day your dog was in, so you can see exactly which days you're paying for. They're paid by bank transfer from the invoice Xero emails you, so the Pay Now button has gone.
 
 Your details
 
-You can change the email address you sign in with from your Profile, and we ask for a last name at sign-up so the team knows who they're talking to. Pickup instructions (keys, gates, where the dog waits) now belong to each dog rather than your account, so two dogs at one address can differ. A contact number and an emergency contact are now required on the booking form and on each dog, so we can always reach someone if we need to.
+Change the email you sign in with from your Profile. Pickup instructions (keys, gates, where the dog waits) now belong to each dog rather than your account, so two dogs at one address can differ. A contact number and an emergency contact are required on the booking form and on each dog.
 
 For the team
 
-Invoicing now bills in advance: a month's invoice charges the days a dog is booked in, plus any extra days from last month that weren't billed. Daycare is priced by how many days a week the dog comes, with a per-dog override for payment managers. An invoice can be raised for a single dog and lands in Xero as a draft to finish there, and the dog picker shows each dog's photo.
+Invoicing bills in advance: a month's invoice charges the days a dog is booked in, plus any unbilled extra days from last month. Daycare is priced by how many days a week the dog comes, with a per-dog override for payment managers. An invoice can be raised for a single dog and lands in Xero as a draft.
 
-Two new cards on the staff dashboard show how many dogs are being dropped off and collected by their owners that day. Each stays red until a staff member is put in charge of meeting those owners, then turns green, and the dashboard now spotlights whichever of these still needs doing. The dashboard's incompatible-dogs warning now covers every pair in on the same day, not only two dogs in the same van, and a conflict can be acknowledged for the whole team. The unspayed-males row has become a single "Dog health to confirm" row that also lists dogs whose vaccination date is over a year old and dogs with no current certificate on file, each with a one-tap Remind that pushes the owner straight to the attach screen. A vehicle's MOT and service can be marked done with a tick. Resolved Contact Staff threads stay out of the Open list. Staff permissions are re-checked whenever the app comes back to the foreground.
+The staff dashboard shows how many dogs are dropped off and collected by their owners each day, red until someone is put in charge of meeting them, and spotlights whichever of these still needs doing. The incompatible-dogs warning covers every pair in on the same day and can be acknowledged for the whole team. The Dog health row lists unneutered males, vaccination dates over a year old and dogs with no current certificate, each with a one-tap Remind. A vehicle's MOT and service can be marked done. Resolved Contact Staff threads stay out of the Open list.
 
-Nothing from a client gets missed: Contact Staff messages, booking forms, website enquiries and requests each have their own icon and count at the top of the staff home screen. A count only clears once the item has been dealt with — a reply, an approval or a denial — never just by opening it, and the counts refresh the moment a notification arrives. A new activity log on the dashboard records who did what and when across the whole business — messages, bookings, the schedule, fleet, incidents, defects, staff records, compliance and billing — with the dog-related entries also on each dog's profile. Requests to add a day show who is already booked and who is on duty; a Reassign Dogs quick action moves several dogs to another driver at once; owners can be found by name or email when assigning a dog and are shown by full name throughout; and payment managers can see which invoice covered any day on a dog's calendar.
+Contact Staff messages, booking forms, website enquiries and requests each have their own icon and count at the top of the staff home screen; a count clears only once the item has been dealt with. A business-wide activity log records who did what and when, with each dog's entries on its profile. Requests to add a day show who is already booked and who is on duty, Reassign Dogs moves several dogs to another driver at once, owners are shown by full name throughout, and payment managers can see which invoice covered any day on a dog's calendar.
