@@ -173,6 +173,114 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
+  static DateTime _plusOneYear(DateTime d) => DateTime(d.year + 1, d.month, d.day);
+
+  /// The next due date once this year's is done. An MOT taken in the month
+  /// before it expires keeps its anniversary (a year from the old expiry);
+  /// any earlier, or after it lapsed, it runs a year from today. Services
+  /// have no such rule, so a year from today.
+  static DateTime _nextDueAfterDone(String field, DateTime? current, DateTime today) {
+    if (field == 'mot' && current != null) {
+      final windowStart = current.subtract(const Duration(days: 31));
+      if (!today.isBefore(windowStart) && !today.isAfter(current)) {
+        return _plusOneYear(current);
+      }
+    }
+    return _plusOneYear(today);
+  }
+
+  /// One tap for the yearly cycle: records this year's as done, sets next
+  /// year's date and re-arms the reminders — the same save as the pencil,
+  /// with the next date worked out for you.
+  Future<void> _markDone(String label, String field, DateTime? current) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var next = _nextDueAfterDone(field, current, today);
+    final notesController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('$label done'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: Text('Next due: ${ukDate(next)}')),
+                  TextButton(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: next,
+                        firstDate: today,
+                        lastDate: today.add(const Duration(days: 365 * 3)),
+                        helpText: 'Next $label due date',
+                      );
+                      if (picked != null) setDialogState(() => next = picked);
+                    },
+                    child: const Text('Change'),
+                  ),
+                ],
+              ),
+              Text(
+                "You'll be reminded 30 days and 7 days before, and if it goes overdue.",
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesController,
+                decoration: InputDecoration(
+                  labelText: 'Notes (optional)',
+                  hintText: field == 'mot' ? 'e.g. Passed, one advisory on rear tyres' : 'e.g. Full service at Marlow Motors',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Mark done'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final notes = notesController.text.trim();
+    notesController.dispose();
+    if (confirmed != true) return;
+
+    try {
+      await _dataService.updateVehicle(
+        widget.vehicleId,
+        motDueDate: field == 'mot' ? next : null,
+        serviceDueDate: field == 'service' ? next : null,
+        maintenanceNotes: notes.isEmpty ? '$label done ${ukDate(today)}' : notes,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$label done — next due ${ukDate(next)}'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+      _loadAll();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to mark $label done: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _reportDefect() async {
     final vehicle = _vehicle;
     if (vehicle == null) return;
@@ -349,10 +457,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
         DueBadge(label: label, status: status),
         if (widget.canManageVehicles) ...[
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Picon(PiconsDuotone.checkCircle, size: 22, color: AppColors.success),
+            tooltip: 'Mark $label done — next due in a year',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _markDone(label, field, dueDate),
+          ),
           IconButton(
             icon: Picon(PiconsDuotone.calendar, size: 22),
-            tooltip: 'Update $label due date',
+            tooltip: 'Set $label due date',
+            visualDensity: VisualDensity.compact,
             onPressed: () => _updateDueDate(label, field, dueDate),
           ),
         ],
