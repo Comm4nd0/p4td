@@ -507,6 +507,36 @@ class DailyDogAssignment(models.Model):
         return not self.is_boarding_day or self.boarding_last_day
 
 
+class ConflictAcknowledgement(models.Model):
+    """A staff member has seen a grouping conflict for a day and is handling it.
+
+    The dashboard spotlights unacknowledged grouping conflicts until someone
+    acknowledges them. That has to live here, not on a phone: one person
+    tapping OK should quiet it for the whole team, and reinstalling the app
+    must not bring it back. One row per day per pair of dogs, stored with
+    the lower dog id first so the pair is found whichever way round it comes.
+    Nothing is undone by it — the conflict banner still shows the pair.
+    """
+    date = models.DateField()
+    dog_a = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='+')
+    dog_b = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='+')
+    acknowledged_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='conflict_acknowledgements')
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('date', 'dog_a', 'dog_b')
+        ordering = ['date', 'dog_a_id', 'dog_b_id']
+
+    @staticmethod
+    def pair(dog_a_id, dog_b_id):
+        return tuple(sorted((int(dog_a_id), int(dog_b_id))))
+
+    def __str__(self):
+        return f"Conflict {self.dog_a_id}/{self.dog_b_id} on {self.date} acknowledged"
+
+
 class OwnerHandoverDuty(models.Model):
     """Who on the team meets the owners on a given day.
 

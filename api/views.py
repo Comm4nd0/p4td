@@ -2489,7 +2489,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         ``all`` returns both kinds.
         """
         from django.db.models import Q
-        from .models import DogNote
+        from .models import DogNote, ConflictAcknowledgement
         from .scheduling import HOUSE_STAFF_USERNAME
 
         target_date, error = self._parse_date(request)
@@ -2544,6 +2544,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             key = tuple(sorted((note.dog_id, note.related_dog_id)))
             incompat.setdefault(key, []).append(note)
 
+        # Who has already acknowledged which pair today, so the app can
+        # spotlight only the pairs nobody has looked at yet.
+        acks = {
+            (ack.dog_a_id, ack.dog_b_id): ack
+            for ack in ConflictAcknowledgement.objects.filter(date=target_date)
+            .select_related('acknowledged_by')
+        }
+
         conflicts = []
         for (dog_a_id, dog_b_id), notes in incompat.items():
             a_assignment = assignment_by_dog[dog_a_id]
@@ -2553,7 +2561,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             if not same_group and scope == 'group':
                 continue
             shared_staff = a_assignment.staff_member if same_group else None
+            ack = acks.get((dog_a_id, dog_b_id))
             conflicts.append({
+                'acknowledged_by_name': staff_name(ack.acknowledged_by) if ack else None,
+                'acknowledged_at': ack.acknowledged_at.isoformat() if ack else None,
                 'scope': 'SAME_GROUP' if same_group else 'SAME_DAY',
                 'staff_member_id': shared_staff.id if shared_staff else None,
                 'staff_member_name': staff_name(shared_staff) or '',
@@ -2574,6 +2585,50 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             c['dog_a_name'].lower(),
         ))
         return Response({'date': target_date.isoformat(), 'conflicts': conflicts})
+
+    @action(detail=False, methods=['post'])
+    def acknowledge_conflict(self, request):
+        """Record that a staff member has seen a grouping conflict and is
+        handling it. Body: ``date`` (optional, defaults to today), ``dog_a``
+        and ``dog_b`` (the pair, either way round). Idempotent: a pair already
+        acknowledged for the day keeps its first acknowledger. Any staff
+        member can do it — it is a "someone has this" flag for the whole
+        team, and the dashboard stops spotlighting the pair once set.
+        """
+        from .models import ConflictAcknowledgement
+
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        try:
+            dog_a_id, dog_b_id = ConflictAcknowledgement.pair(request.data.get('dog_a'), request.data.get('dog_b'))
+        except (TypeError, ValueError):
+            return Response({'detail': 'dog_a and dog_b are required.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if dog_a_id == dog_b_id:
+            return Response({'detail': 'dog_a and dog_b must differ.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+        dogs = {d.id: d for d in Dog.objects.filter(id__in=(dog_a_id, dog_b_id))}
+        if len(dogs) != 2:
+            return Response({'detail': 'Dog not found.'}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        ack, created = ConflictAcknowledgement.objects.get_or_create(
+            date=target_date, dog_a=dogs[dog_a_id], dog_b=dogs[dog_b_id],
+            defaults={'acknowledged_by': request.user},
+        )
+        if created:
+            log_activity(
+                'SCHEDULE', f'{dogs[dog_a_id].name} & {dogs[dog_b_id].name}', action='STATUS',
+                actor=request.user,
+                summary=f'Acknowledged the grouping conflict between {dogs[dog_a_id].name} '
+                        f'and {dogs[dog_b_id].name} for {_uk(target_date)}',
+            )
+        by = ack.acknowledged_by
+        return Response({
+            'date': target_date.isoformat(),
+            'dog_a_id': dog_a_id,
+            'dog_b_id': dog_b_id,
+            'acknowledged_by_name': (by.first_name or by.username) if by else None,
+            'acknowledged_at': ack.acknowledged_at.isoformat(),
+        }, status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def photo_tagging(self, request):
