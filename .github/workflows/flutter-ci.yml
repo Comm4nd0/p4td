@@ -73,13 +73,27 @@ jobs:
       - name: Every build surface installs the pinned Flutter
         run: ./scripts/check-flutter-pin.sh
 
-  # The Android release workflow sets Play's What's New from this file, and
-  # Google refuses the whole release over 500 characters. Finding that out on
-  # the tag means another version bump and another tag, so say so here.
+  # The store release workflows set What's New from these files, and each
+  # store refuses the whole release over its cap: Google at 500 characters,
+  # Apple at 4000. Finding that out on the tag means another version bump and
+  # another tag (v1.12.42's iOS lane died exactly so), so say so here.
   play-release-notes:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: App Store What's New fits Apple's 4000-character limit
+        run: |
+          notes=my_app/fastlane/metadata/en-GB/release_notes.txt
+          if [ ! -f "$notes" ]; then
+            echo "::error::$notes is missing — the iOS release workflow reads App Store What's New from it."
+            exit 1
+          fi
+          length="$(wc -m < "$notes")"
+          echo "$notes: $length characters"
+          if [ "$length" -gt 4000 ]; then
+            echo "::error::$notes is $length characters; App Store Connect allows 4000."
+            exit 1
+          fi
       - name: Play What's New fits Google's 500-character limit
         run: |
           notes=my_app/fastlane/metadata/android/en-GB/changelogs/default.txt
