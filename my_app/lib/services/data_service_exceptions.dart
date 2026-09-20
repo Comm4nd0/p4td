@@ -79,6 +79,12 @@ class CompatibilityConflict {
   final String? dogBStaffName;
   final List<String> reasons;
 
+  /// Who on the team has said "I've seen this and I'm handling it" today,
+  /// and when. Null until someone does. The dashboard spotlights a pair
+  /// until it is acknowledged; the banner shows it either way.
+  final String? acknowledgedByName;
+  final DateTime? acknowledgedAt;
+
   CompatibilityConflict({
     this.scope = CompatibilityConflictScope.sameGroup,
     required this.staffMemberId,
@@ -90,9 +96,12 @@ class CompatibilityConflict {
     required this.dogBName,
     this.dogBStaffName,
     required this.reasons,
+    this.acknowledgedByName,
+    this.acknowledgedAt,
   });
 
   bool get isSameGroup => scope == CompatibilityConflictScope.sameGroup;
+  bool get isAcknowledged => acknowledgedByName != null;
 
   static int? _optInt(dynamic v) {
     if (v == null) return null;
@@ -116,6 +125,10 @@ class CompatibilityConflict {
       reasons: (json['reasons'] as List<dynamic>? ?? [])
           .map((r) => r.toString())
           .toList(),
+      acknowledgedByName: json['acknowledged_by_name']?.toString(),
+      acknowledgedAt: json['acknowledged_at'] != null
+          ? DateTime.tryParse(json['acknowledged_at'].toString())
+          : null,
     );
   }
 }

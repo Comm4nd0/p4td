@@ -1694,6 +1694,27 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<void> acknowledgeCompatibilityConflict({
+    required DateTime date,
+    required int dogAId,
+    required int dogBId,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/acknowledge_conflict/'),
+      headers: headers,
+      body: json.encode({
+        'date': '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+        'dog_a': dogAId,
+        'dog_b': dogBId,
+      }),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Failed to acknowledge conflict: ${response.statusCode}');
+    }
+  }
+
+  @override
   Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date}) async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/photo_tagging/${_dateParam(date)}'));
     if (response.statusCode == 200) {

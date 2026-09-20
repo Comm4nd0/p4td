@@ -22,12 +22,18 @@ class OwnerHandoverSection extends StatelessWidget {
   final Set<int> availableStaffIds;
   final Future<void> Function(OwnerHandoverLeg leg, int staffId) onAssign;
 
+  /// Keys on the two cards, so the dashboard's spotlight can point at one.
+  final Key? dropOffKey;
+  final Key? collectionKey;
+
   const OwnerHandoverSection({
     super.key,
     required this.status,
     required this.staffMembers,
     required this.availableStaffIds,
     required this.onAssign,
+    this.dropOffKey,
+    this.collectionKey,
   });
 
   @override
@@ -37,15 +43,16 @@ class OwnerHandoverSection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(children: [
-        Expanded(child: _card(context, status.dropOff)),
+        Expanded(child: _card(context, status.dropOff, key: dropOffKey)),
         const SizedBox(width: 6),
-        Expanded(child: _card(context, status.collection)),
+        Expanded(child: _card(context, status.collection, key: collectionKey)),
       ]),
     );
   }
 
-  Widget _card(BuildContext context, OwnerHandoverLegStatus leg) {
+  Widget _card(BuildContext context, OwnerHandoverLegStatus leg, {Key? key}) {
     return OwnerHandoverCard(
+      key: key,
       leg: leg,
       onTap: leg.count == 0
           ? null

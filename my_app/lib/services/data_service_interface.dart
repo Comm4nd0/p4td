@@ -146,6 +146,13 @@ abstract class DataService {
   Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail, List<int>? dogIds});
   Future<void> reorderAssignments(List<int> assignmentIds);
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date});
+  /// Mark a grouping conflict as seen and handled for the day, for the whole
+  /// team. Idempotent; the first acknowledger is kept.
+  Future<void> acknowledgeCompatibilityConflict({
+    required DateTime date,
+    required int dogAId,
+    required int dogBId,
+  });
 
   /// Photo-tagging progress for a day: how many of the day's dogs have been
   /// tagged in feed media posted that day, and which still need tagging.

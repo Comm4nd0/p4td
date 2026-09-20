@@ -29,6 +29,7 @@ import 'dashboard/add_dog_to_day_dialog.dart';
 import 'dashboard/boarding_section.dart';
 import 'dashboard/change_log_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
+import '../widgets/spotlight_coach.dart';
 import 'dashboard/dashboard_counts.dart';
 import 'dashboard/dog_health_dialog.dart';
 import 'dashboard/reassign_dogs_dialog.dart';
@@ -113,6 +114,17 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   List<DateTime> _dateOptions = [];
   final ScrollController _dateScrollController = ScrollController();
   late DateTime _selectedDate;
+
+  // ── Spotlight: things that need doing right now ──────────────────
+  // Keys live on today's widgets only (a GlobalKey may appear once in the
+  // tree, and the date switcher keeps the outgoing day alive briefly).
+  final GlobalKey _dropOffSpotKey = GlobalKey(debugLabel: 'spot-drop-off');
+  final GlobalKey _collectionSpotKey = GlobalKey(debugLabel: 'spot-collection');
+  final GlobalKey _conflictSpotKey = GlobalKey(debugLabel: 'spot-conflicts');
+
+  /// Steps put off with Not now, for this session only: they come back the
+  /// next time the app opens if still outstanding.
+  final Set<String> _spotlightDismissed = {};
 
   // Closure days for the whole visible date range. This batch-loaded map is the
   // source of truth that drives the date strip and the reduced-capacity banner;
@@ -516,6 +528,103 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to assign staff member: $e')));
     }
+  }
+
+  static bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  /// Marks a grouping conflict as seen for the whole team and returns the
+  /// day's conflicts as the server now reports them.
+  Future<List<CompatibilityConflict>> _acknowledgeConflict(CompatibilityConflict conflict) async {
+    final date = _selectedDate;
+    await _dataService.acknowledgeCompatibilityConflict(
+        date: date, dogAId: conflict.dogAId, dogBId: conflict.dogBId);
+    await _loadConflicts(date);
+    _loadRecentChanges();
+    return _dayData(date).conflicts;
+  }
+
+  /// What the spotlight should point at on today's board, in order: the
+  /// morning drop-off leg with nobody on it, the collection leg likewise,
+  /// then grouping conflicts nobody has acknowledged. Each is gated on the
+  /// time of day so a leg that has happened doesn't nag all afternoon, and
+  /// on the widget being on screen (a GlobalKey with no context is a card
+  /// that isn't rendered — no dogs on that leg, or another date showing).
+  List<SpotlightStep> _spotlightSteps() {
+    if (!_isToday(_selectedDate) || !_isDaycareDay(_selectedDate)) return const [];
+    final day = _dayData(_selectedDate);
+    if (!day.loaded) return const [];
+    final now = DateTime.now();
+    final steps = <SpotlightStep>[];
+    final handovers = day.handovers;
+    if (handovers != null) {
+      final dropOff = handovers.dropOff;
+      if (dropOff.count > 0 && !dropOff.hasStaff && now.hour < 11) {
+        steps.add(SpotlightStep(
+          id: 'drop_off',
+          targetKey: _dropOffSpotKey,
+          title: 'Nobody is meeting the owners',
+          message: '${dropOff.count} ${dropOff.count == 1 ? 'dog is' : 'dogs are'} being dropped off '
+              'by their owner this morning and no one is down to meet them at the door.',
+          actionLabel: 'Name someone',
+          onAction: () => _assignHandoverFromSpotlight(OwnerHandoverLeg.dropOff),
+        ));
+      }
+      final collection = handovers.collection;
+      if (collection.count > 0 && !collection.hasStaff && now.hour < 16) {
+        steps.add(SpotlightStep(
+          id: 'collection',
+          targetKey: _collectionSpotKey,
+          title: 'Nobody is handing dogs back',
+          message: '${collection.count} ${collection.count == 1 ? 'dog is' : 'dogs are'} being collected '
+              'by their owner today and no one is down to hand them over.',
+          actionLabel: 'Name someone',
+          onAction: () => _assignHandoverFromSpotlight(OwnerHandoverLeg.collection),
+        ));
+      }
+    }
+    final unacknowledged = day.conflicts.where((c) => !c.isAcknowledged).length;
+    if (unacknowledged > 0 && widget.canAssignDogs) {
+      steps.add(SpotlightStep(
+        id: 'conflicts',
+        targetKey: _conflictSpotKey,
+        title: 'Grouping conflicts to check',
+        message: '$unacknowledged ${unacknowledged == 1 ? 'pair of dogs that don\'t get on is' : 'pairs of dogs that don\'t get on are'} '
+            'in today and nobody has acknowledged it. Regroup them or acknowledge that you have it in hand.',
+        actionLabel: 'Review',
+        onAction: () => _reviewConflictsFromSpotlight(),
+      ));
+    }
+    return steps
+        .where((step) => !_spotlightDismissed.contains(step.id) && step.targetKey.currentContext != null)
+        .toList();
+  }
+
+  Future<void> _assignHandoverFromSpotlight(OwnerHandoverLeg leg) async {
+    final handovers = _dayData(_selectedDate).handovers;
+    if (handovers == null) return;
+    final status = leg == OwnerHandoverLeg.dropOff ? handovers.dropOff : handovers.collection;
+    final picked = await showOwnerHandoverSheet(
+      context,
+      leg: status,
+      staffMembers: _staffMembers,
+      availableStaffIds: _workingStaffIds,
+    );
+    if (picked != null && picked != status.staffMemberId) {
+      await _assignOwnerHandover(leg, picked);
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _reviewConflictsFromSpotlight() async {
+    await showCompatibilityConflictsDialog(
+      context,
+      _dayData(_selectedDate).conflicts,
+      onAcknowledge: _acknowledgeConflict,
+    );
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadConflicts(DateTime date) async {
@@ -1253,6 +1362,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                           staffMembers: _staffMembers,
                           availableStaffIds: _workingStaffIds,
                           onAssign: _assignOwnerHandover,
+                          dropOffKey: _isToday(_selectedDate) ? _dropOffSpotKey : null,
+                          collectionKey: _isToday(_selectedDate) ? _collectionSpotKey : null,
                         ),
                         _buildPhotoTaggingCard(day),
                         const SizedBox(height: 16),
@@ -1263,6 +1374,38 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       ),
     );
 
+    // The spotlight sits above the whole Scaffold, FAB included, so nothing
+    // else is tappable while something urgent is pointed at. The steps are
+    // recomputed on every build: naming someone or acknowledging a pair
+    // changes the day's data, and the next step (or none) follows.
+    final spotlightSteps = _spotlightSteps();
+    // A card that first appears in this frame has no context yet, so the
+    // step list can lag the screen by one frame. Look again once the frame
+    // is up and rebuild if that changed the answer.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final now = _spotlightSteps();
+      final shown = spotlightSteps.isEmpty ? null : spotlightSteps.first.id;
+      final wanted = now.isEmpty ? null : now.first.id;
+      if (shown != wanted) setState(() {});
+    });
+    return Stack(
+      children: [
+        _buildScaffold(day, assignments, dayPane, dateKey, refresh),
+        if (spotlightSteps.isNotEmpty)
+          Positioned.fill(
+            child: SpotlightOverlay(
+              step: spotlightSteps.first,
+              remaining: spotlightSteps.length - 1,
+              onNotNow: () => setState(() => _spotlightDismissed.add(spotlightSteps.first.id)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildScaffold(DayData day, List<DailyDogAssignment> assignments, Widget dayPane,
+      String dateKey, Future<void> Function() refresh) {
     return Scaffold(
       floatingActionButton: _buildQuickActionsFab(),
       body: Column(
@@ -1618,15 +1761,22 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final label = conflicts.length == 1
         ? '1 grouping conflict'
         : '${conflicts.length} grouping conflicts';
-    final subtitle = compatibilityConflictSummary(conflicts);
+    final allAcknowledged = conflicts.every((c) => c.isAcknowledged);
+    final subtitle = compatibilityConflictSummary(conflicts) +
+        (allAcknowledged ? ' · acknowledged' : '');
     return Padding(
+      key: _isToday(date) ? _conflictSpotKey : null,
       padding: const EdgeInsets.only(bottom: 12),
       child: Material(
         color: Colors.orange.shade600,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => showCompatibilityConflictsDialog(context, conflicts),
+          onTap: () => showCompatibilityConflictsDialog(
+            context,
+            conflicts,
+            onAcknowledge: widget.canAssignDogs ? _acknowledgeConflict : null,
+          ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
