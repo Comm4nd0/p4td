@@ -2,7 +2,7 @@ from rest_framework import viewsets, mixins, status as drf_status
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes as perm_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny, BasePermission, SAFE_METHODS
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth.models import User
 from django.core.mail import send_mail, EmailMessage
@@ -12,7 +12,7 @@ from decimal import Decimal
 from .pagination import FeedPagination, OptInPagination
 from .dog_changes import acting_as, log_change, log_activity, snapshot as dog_snapshot, diff as dog_diff, snapshot_fields, diff_fields
 from .activity import ActivityLogMixin, person
-from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest, DogLinkRequest
+from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, PasswordResetOTP, DogProfileChangeRequest, IntakeRequest, IntakeDog, DogLinkRequest, VaccinationCertificate
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer, DogLinkRequestSerializer
 from website.models import ContactInquiry
 
@@ -49,8 +49,12 @@ def dog_listing_queryset():
         ).only('id', 'dog_id', 'date', 'status'),
         to_attr='future_removed_assignments',
     )
+    certificates = Prefetch(
+        'vaccination_certificates',
+        queryset=VaccinationCertificate.objects.only('id', 'dog_id', 'vaccination_date', 'created_at'),
+    )
     return Dog.objects.select_related('owner__profile').prefetch_related(
-        'vaccinations', 'additional_owners__profile', removed_assignments
+        'vaccinations', 'additional_owners__profile', removed_assignments, certificates
     )
 
 
@@ -924,6 +928,20 @@ class DogViewSet(viewsets.ModelViewSet):
         return Dog.objects.filter(last_vaccination_date__lt=cutoff).order_by('name')
 
     @staticmethod
+    def _certificates_missing():
+        """``(dog, status, needed_since)`` for every dog without a certificate
+        evidencing a vaccination in the last year. Decided in Python over the
+        prefetched certificates — the client book is a few hundred rows."""
+        today = timezone.localdate()
+        rows = []
+        for dog in Dog.objects.prefetch_related(
+                'vaccination_certificates', 'additional_owners').order_by('name'):
+            status, since = dog.certificate_state(today)
+            if status != Dog.CERTIFICATE_OK:
+                rows.append((dog, status, since))
+        return rows
+
+    @staticmethod
     def _dashboard_dog_summary(request, dog):
         return {
             'id': dog.id,
@@ -933,6 +951,29 @@ class DogViewSet(viewsets.ModelViewSet):
                 if dog.profile_image else None
             ),
         }
+
+    @action(detail=True, methods=['post'])
+    def remind_certificate(self, request, pk=None):
+        """Staff-only: push the dog's owners to add a vaccination certificate
+        now, the same message the daily cadence sends. 400 when nobody on the
+        app owns the dog (staff phone those). Logged on the dog's trail."""
+        if not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Staff only.')
+        dog = self.get_object()
+        status, _since = dog.certificate_state()
+        if status == Dog.CERTIFICATE_OK:
+            return Response({'detail': f'{dog.name} has a current certificate on file.'}, status=400)
+        from .notifications import notify_certificate_needed
+        sent = notify_certificate_needed(dog, status)
+        if not sent:
+            return Response(
+                {'detail': f'Nobody on the app owns {dog.name} — give the owner a call instead.'},
+                status=400)
+        Dog.objects.filter(pk=dog.pk).update(certificate_reminder_last_sent=timezone.localdate())
+        log_change(dog, action='VACCINATION', actor=request.user,
+                   summary='Sent the owner a reminder to add a vaccination certificate')
+        return Response({'sent': sent})
 
     @action(detail=False, methods=['get'])
     def unspayed_males(self, request):
@@ -956,9 +997,13 @@ class DogViewSet(viewsets.ModelViewSet):
         """Staff-only: every dog whose health paperwork needs a word with the
         owner, for the dashboard's single "Dog health to confirm" row.
 
-        Two lists today — neutered status to confirm (the old unspayed_males)
-        and vaccinations more than a year old — plus a grand total. Add a
-        list here rather than a dashboard row when the next one comes along.
+        Three lists — neutered status to confirm (the old unspayed_males),
+        vaccinations more than a year old, and dogs with no current
+        certificate on file (``certificates_missing``, each row saying
+        MISSING or EXPIRED, since when, when the owner was last reminded and
+        whether ``remind_certificate`` can reach anyone) — plus a grand
+        total. Add a list here rather than a dashboard row when the next one
+        comes along.
         """
         if not request.user.is_staff:
             from rest_framework.exceptions import PermissionDenied
@@ -970,10 +1015,21 @@ class DogViewSet(viewsets.ModelViewSet):
             summary = self._dashboard_dog_summary(request, dog)
             summary['last_vaccination_date'] = dog.last_vaccination_date.isoformat()
             overdue.append(summary)
+        certificates = []
+        for dog, status, since in self._certificates_missing():
+            summary = self._dashboard_dog_summary(request, dog)
+            summary['certificate_status'] = status
+            summary['certificate_needed_since'] = since.isoformat()
+            summary['certificate_reminder_last_sent'] = (
+                dog.certificate_reminder_last_sent.isoformat()
+                if dog.certificate_reminder_last_sent else None)
+            summary['can_remind'] = bool(dog.owner_id) or bool(dog.additional_owners.all())
+            certificates.append(summary)
         return Response({
-            'count': len(unspayed) + len(overdue),
+            'count': len(unspayed) + len(overdue) + len(certificates),
             'unspayed_males': {'count': len(unspayed), 'dogs': unspayed},
             'vaccinations_overdue': {'count': len(overdue), 'dogs': overdue},
+            'certificates_missing': {'count': len(certificates), 'dogs': certificates},
         })
 
     def destroy(self, request, *args, **kwargs):
@@ -6062,6 +6118,9 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     pagination_class = OptInPagination
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
+    # Only the `certificate` action throttles (it names ScopedRateThrottle);
+    # this is the bucket it shares with vaccination-certificates/.
+    throttle_scope = 'certificate_upload'
 
     def get_queryset(self):
         base = IntakeRequest.objects.select_related('owner', 'reviewed_by').prefetch_related('dogs')
@@ -6108,7 +6167,54 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         log_activity('COMMS', person(instance.owner), action=action, summary=summary,
                      actor=self.request.user, source='BOOKING_FORM')
 
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser],
+            throttle_classes=[ScopedRateThrottle])
+    def certificate(self, request, pk=None):
+        """Attach the vet's certificate to one dog on a pending booking form:
+        multipart ``dog`` (the IntakeDog id) and ``file``, optionally
+        ``vaccination_date``. The form is JSON, so the file follows it in its
+        own request; the app sends one per dog straight after submitting.
+        Same preparation and limits as ``vaccination-certificates/``; a second
+        upload for the same dog replaces the first. Owner of the form or
+        staff, while it is pending."""
+        from .certificates import CertificateRejected, prepare_certificate, safe_original_filename
+        instance = self.get_object()
+        if instance.status != 'PENDING':
+            return Response({'detail': 'This booking form has already been reviewed.'}, status=400)
+        try:
+            intake_dog = instance.dogs.get(pk=int(request.data.get('dog')))
+        except (TypeError, ValueError, IntakeDog.DoesNotExist):
+            return Response({'dog': ['Which dog on the form is this certificate for?']}, status=400)
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response({'file': ['Attach a PDF or a photo of the certificate.']}, status=400)
+        try:
+            prepared = prepare_certificate(upload)
+        except CertificateRejected as exc:
+            return Response({'file': [str(exc)]}, status=400)
+        vaccination_date = request.data.get('vaccination_date')
+        if vaccination_date:
+            from rest_framework.fields import DateField
+            try:
+                intake_dog.last_vaccination_date = DateField().to_internal_value(vaccination_date)
+            except DRFValidationError as exc:
+                return Response({'vaccination_date': exc.detail}, status=400)
+
+        if intake_dog.certificate_file:
+            intake_dog.certificate_file.delete(save=False)
+        intake_dog.certificate_file.save(prepared.file.name, prepared.file, save=False)
+        intake_dog.certificate_original_filename = safe_original_filename(getattr(upload, 'name', ''))
+        intake_dog.certificate_content_type = prepared.content_type
+        intake_dog.certificate_size_bytes = prepared.file.size
+        intake_dog.save()
+        self._log(instance, 'UPDATED',
+                  f"Attached {intake_dog.name}'s vaccination certificate to their booking form")
+        # Re-read: the instance's prefetched dogs predate the save.
+        return Response(self.get_serializer(self.get_object()).data)
+
     def perform_destroy(self, instance):
+        for intake_dog in instance.dogs.all():
+            intake_dog.discard_certificate_file()
         # Owners can withdraw their own form only while it's pending; staff can
         # delete anything (e.g. clearing out duplicates).
         if not self.request.user.is_staff and instance.status != 'PENDING':
@@ -6141,6 +6247,11 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
             if approved:
                 title = 'Booking Form Approved'
                 body = f"Welcome aboard! {dog_names} {'have' if instance.dogs.count() > 1 else 'has'} been added to daycare."
+                without = [d.name for d in instance.dogs.all()
+                           if d.created_dog_id and not d.created_dog.vaccination_certificates.exists()]
+                if without:
+                    body += (f" Please add {', '.join(without)}'s vaccination certificate in the app"
+                             " — we need it for our licence records.")
             else:
                 title = 'Booking Form Update'
                 body = f"Your booking form for {dog_names} was not approved."
@@ -6185,9 +6296,11 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
                     emergency_contact_number=instance.emergency_contact_number,
                     daycare_days=intake_dog.daycare_days,
                     schedule_type=intake_dog.schedule_type,
+                    last_vaccination_date=intake_dog.last_vaccination_date,
                 )
             intake_dog.created_dog = dog
             intake_dog.save(update_fields=['created_dog'])
+            self._file_intake_certificate(intake_dog, dog)
 
         instance.status = 'APPROVED'
         instance.reviewed_by = request.user
@@ -6197,6 +6310,28 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
 
         self._notify_owner_status(instance, approved=True)
         return Response(self.get_serializer(instance).data)
+
+    def _file_intake_certificate(self, intake_dog, dog):
+        """Turn the certificate attached to the form into the new dog's
+        VaccinationCertificate (uploaded by the owner, dated from the form)
+        and drop the intake copy — private-media/ is never swept."""
+        if not intake_dog.certificate_file:
+            return
+        with intake_dog.certificate_file.open('rb') as source:
+            content = ContentFile(source.read(), name=os.path.basename(intake_dog.certificate_file.name))
+        certificate = VaccinationCertificate(
+            dog=dog,
+            vaccination_date=intake_dog.last_vaccination_date,
+            original_filename=intake_dog.certificate_original_filename,
+            content_type=intake_dog.certificate_content_type,
+            size_bytes=intake_dog.certificate_size_bytes,
+            uploaded_by=intake_dog.request.owner,
+        )
+        certificate.file.save(content.name, content, save=False)
+        certificate.save()
+        intake_dog.discard_certificate_file()
+        log_change(dog, action='VACCINATION', actor=self.request.user,
+                   summary='Filed the vaccination certificate from the booking form')
 
     @action(detail=True, methods=['post'])
     def deny(self, request, pk=None):
@@ -6210,6 +6345,8 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'This booking form has already been reviewed.'}, status=400)
 
         from django.utils import timezone
+        for intake_dog in instance.dogs.all():
+            intake_dog.discard_certificate_file()
         instance.status = 'DENIED'
         instance.denial_reason = (request.data.get('reason') or '').strip()
         instance.reviewed_by = request.user
@@ -6292,6 +6429,9 @@ class DogLinkRequestViewSet(viewsets.ModelViewSet):
             if approved:
                 title = 'Dog Linked'
                 body = f"{instance.dog.name} is now on your account."
+                if instance.dog.certificate_state()[0] != Dog.CERTIFICATE_OK:
+                    body += (f" Please add {instance.dog.name}'s vaccination certificate in the app"
+                             " — we need it for our licence records.")
                 data['dog_id'] = str(instance.dog_id)
             else:
                 title = 'Link Request Update'

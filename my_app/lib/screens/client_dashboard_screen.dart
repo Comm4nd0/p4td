@@ -284,6 +284,12 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     await _push(VaccinationsScreen(dog: dog, isStaff: false));
   }
 
+  Future<void> _openCertificateUpload(List<Dog> dogs) async {
+    final dog = await _pickDog('Which dog?', dogs);
+    if (dog == null || !mounted) return;
+    await _push(VaccinationsScreen(dog: dog, isStaff: false, attachCertificate: true));
+  }
+
   Future<void> _openDogDetails(List<Dog> dogs) async {
     final dog = await _pickDog('Which dog?', dogs);
     if (dog == null || !mounted) return;
@@ -395,6 +401,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                 attention: attention,
                 onOpenPayments: _openPayments,
                 onOpenVaccinations: _openVaccinations,
+                onOpenCertificateUpload: _openCertificateUpload,
                 onOpenDayRequests: _changeDays,
                 onOpenBoarding: _openBoardingList,
                 onOpenQueries: _openQueries,

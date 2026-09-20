@@ -64,6 +64,7 @@ Dog _dog(
   String? emergency = '07700 900000',
   DateTime? lastVaccination,
   bool vaccinationOverdue = false,
+  String certificateStatus = 'OK',
 }) =>
     Dog(
       id: ref.$1,
@@ -73,6 +74,7 @@ Dog _dog(
       emergencyContactNumber: emergency,
       lastVaccinationDate: lastVaccination,
       vaccinationOverdue: vaccinationOverdue,
+      certificateStatus: certificateStatus,
     );
 
 BoardingRequest _stay({
@@ -388,6 +390,34 @@ void main() {
       expect(find.text('Luna'), findsNWidgets(2)); // her dog row and the tile subtitle
       expect(find.text('Vaccination overdue'), findsNothing);
       expect(find.text('Invoice awaiting payment'), findsNothing);
+      expect(find.text('Nothing needs your attention'), findsNothing);
+    });
+
+    test('a dog without a current certificate counts once, whatever the reason', () {
+      final attention = ClientAttention.compute(
+        today: _today,
+        dogs: [
+          _dog(_buddy, certificateStatus: 'MISSING'),
+          _dog(_luna, certificateStatus: 'EXPIRED'),
+          _dog(('9', 'Rex')),
+        ],
+        invoices: const [],
+        dayRequests: const [],
+        boarding: const [],
+        queries: const [],
+      );
+      expect(attention.certificatesMissing.map((d) => d.name), ['Buddy', 'Luna']);
+      expect(attention.total, 2);
+    });
+
+    testWidgets('a missing certificate is a tile that names the dog', (tester) async {
+      await _pump(
+        tester,
+        _FakeDataService(calendarFor: (s, e) => _calendar(s, e)),
+        dogs: [_dog(_buddy, certificateStatus: 'MISSING'), _dog(_luna)],
+      );
+      expect(find.text('Vaccination certificate needed'), findsOneWidget);
+      expect(find.text('Buddy'), findsNWidgets(2)); // his dog row and the tile subtitle
       expect(find.text('Nothing needs your attention'), findsNothing);
     });
 

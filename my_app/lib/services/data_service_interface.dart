@@ -205,6 +205,10 @@ abstract class DataService {
 
   // Vaccination certificates (private files — see VaccinationCertificate)
   Future<List<VaccinationCertificate>> getVaccinationCertificates(String dogId);
+  /// Staff: push the dog's owners to add a vaccination certificate now.
+  /// Returns how many people were pushed; throws with the server's sentence
+  /// when nobody can be reached or the certificate is current.
+  Future<int> sendCertificateReminder(String dogId);
   Future<VaccinationCertificate> uploadVaccinationCertificate({
     required String dogId,
     required Uint8List bytes,
@@ -260,6 +264,15 @@ abstract class DataService {
     String? pickupInstructions,
     String? additionalInfo,
     required List<IntakeDog> dogs,
+  });
+  /// Attach the vet's certificate to one dog on a pending booking form —
+  /// the form is JSON, so the file follows it. Returns the updated form.
+  Future<IntakeRequest> uploadIntakeCertificate({
+    required int requestId,
+    required int intakeDogId,
+    required Uint8List bytes,
+    required String filename,
+    DateTime? vaccinationDate,
   });
   Future<IntakeRequest> approveIntakeRequest(int requestId);
   Future<IntakeRequest> denyIntakeRequest(int requestId, {String? reason});

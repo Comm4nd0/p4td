@@ -231,6 +231,8 @@ class ApiDataService implements DataService {
         dateOfBirth: parseApiDate(json['date_of_birth']),
         lastVaccinationDate: parseApiDate(json['last_vaccination_date']),
         vaccinationOverdue: json['vaccination_overdue'] ?? false,
+        certificateStatus: json['certificate_status']?.toString() ?? 'OK',
+        certificateNeededSince: parseApiDate(json['certificate_needed_since'] as String?),
         isSpayed: json['is_spayed'] ?? false,
         dailyRate: double.tryParse(json['daily_rate']?.toString() ?? ''),
         cancelledDates: parseApiDateList(json['cancelled_dates']),
@@ -619,6 +621,8 @@ class ApiDataService implements DataService {
       dateOfBirth: parseApiDate(data['date_of_birth']),
       lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
       vaccinationOverdue: data['vaccination_overdue'] ?? false,
+      certificateStatus: data['certificate_status']?.toString() ?? 'OK',
+      certificateNeededSince: parseApiDate(data['certificate_needed_since'] as String?),
       isSpayed: data['is_spayed'] ?? false,
       dailyRate: double.tryParse(data['daily_rate']?.toString() ?? ''),
     );
@@ -790,6 +794,8 @@ class ApiDataService implements DataService {
           dateOfBirth: parseApiDate(data['date_of_birth']),
           lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
           vaccinationOverdue: data['vaccination_overdue'] ?? false,
+          certificateStatus: data['certificate_status']?.toString() ?? 'OK',
+          certificateNeededSince: parseApiDate(data['certificate_needed_since'] as String?),
           isSpayed: data['is_spayed'] ?? false,
         );
       } else {
@@ -874,6 +880,8 @@ class ApiDataService implements DataService {
           dateOfBirth: parseApiDate(data['date_of_birth']),
           lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
           vaccinationOverdue: data['vaccination_overdue'] ?? false,
+          certificateStatus: data['certificate_status']?.toString() ?? 'OK',
+          certificateNeededSince: parseApiDate(data['certificate_needed_since'] as String?),
           isSpayed: data['is_spayed'] ?? false,
         );
       } else {
@@ -916,16 +924,24 @@ class ApiDataService implements DataService {
                 name: d['name']?.toString() ?? '',
                 imageUrl: d['profile_image']?.toString(),
                 lastVaccinationDate: parseApiDate(d['last_vaccination_date'] as String?),
+                certificateStatus: d['certificate_status']?.toString(),
+                certificateNeededSince: parseApiDate(d['certificate_needed_since'] as String?),
+                certificateReminderLastSent:
+                    parseApiDate(d['certificate_reminder_last_sent'] as String?),
+                canRemind: d['can_remind'] == true,
               ))
           .toList();
     }
 
     final unspayed = parse('unspayed_males');
     final overdue = parse('vaccinations_overdue');
+    final certificates = parse('certificates_missing');
     return DogHealthFlags(
-      count: (data['count'] as num?)?.toInt() ?? (unspayed.length + overdue.length),
+      count: (data['count'] as num?)?.toInt() ??
+          (unspayed.length + overdue.length + certificates.length),
       unspayedMales: unspayed,
       vaccinationsOverdue: overdue,
+      certificatesMissing: certificates,
     );
   }
 
@@ -2538,6 +2554,27 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<int> sendCertificateReminder(String dogId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/remind_certificate/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return ((json.decode(response.body) as Map)['sent'] as num).toInt();
+    }
+    // 400 carries a sentence for the staff member ("give the owner a call").
+    String message = 'Failed to send the reminder';
+    try {
+      final body = json.decode(response.body);
+      if (body is Map && body['detail'] != null) message = body['detail'].toString();
+    } catch (_) {
+      message = 'Server error (${response.statusCode})';
+    }
+    throw Exception(message);
+  }
+
+  @override
   Future<void> deleteVaccinationCertificate(int id) async {
     final headers = await _getHeaders();
     final response = await http.delete(
@@ -2938,6 +2975,49 @@ class ApiDataService implements DataService {
       errorMessage = 'Server error (${response.statusCode})';
     }
     throw Exception(errorMessage);
+  }
+
+  @override
+  Future<IntakeRequest> uploadIntakeCertificate({
+    required int requestId,
+    required int intakeDogId,
+    required Uint8List bytes,
+    required String filename,
+    DateTime? vaccinationDate,
+  }) async {
+    final token = await _authService.getToken();
+    final mime = _certificateMimeType(filename).split('/');
+    final response = await http.sendMultipart(
+      method: 'POST',
+      url: Uri.parse('${AuthService.baseUrl}/api/intake-requests/$requestId/certificate/'),
+      fill: (request) {
+        request.headers['Authorization'] = 'Token $token';
+        request.fields['dog'] = intakeDogId.toString();
+        if (vaccinationDate != null) {
+          request.fields['vaccination_date'] = formatApiDate(vaccinationDate)!;
+        }
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: filename,
+          contentType: http_parser.MediaType(mime[0], mime[1]),
+        ));
+      },
+    );
+    if (response.statusCode == 200) {
+      return IntakeRequest.fromJson(json.decode(response.body));
+    }
+    String message = 'Failed to upload the certificate';
+    try {
+      final body = json.decode(response.body);
+      if (body is Map && body.isNotEmpty) {
+        final first = body.values.first;
+        message = first is List ? first.first.toString() : first.toString();
+      }
+    } catch (_) {
+      message = 'Server error (${response.statusCode})';
+    }
+    throw Exception(message);
   }
 
   @override

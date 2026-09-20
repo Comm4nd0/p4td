@@ -248,6 +248,17 @@ class NotificationService {
         _navigateToHome(initialRoute: 'dogs', routePayload: data['dog_id'] as String?);
         break;
 
+      // Vaccination reminders — owner: the dog's vaccinations screen, and
+      // straight into the attach sheet when it is the certificate being
+      // chased (the daily cadence and a staff member's Send reminder).
+      case 'vaccination':
+        _navigateToHome(initialRoute: 'vaccinations', routePayload: data['dog_id'] as String?);
+        break;
+      case 'vaccination_certificate':
+        _navigateToHome(
+            initialRoute: 'vaccination_certificate', routePayload: data['dog_id'] as String?);
+        break;
+
       // Traffic alerts — open dogs tab
       case 'traffic_alert':
         _navigateToHome(initialRoute: 'dogs');

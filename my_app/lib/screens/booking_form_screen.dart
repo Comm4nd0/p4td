@@ -7,6 +7,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/page_body.dart';
+import '../widgets/vaccination_certificate_picker.dart';
 import 'link_dog_screen.dart';
 
 /// Per-dog form state on the booking form. Controllers live for the lifetime
@@ -21,6 +22,15 @@ class _DogEntry {
   bool isSpayed = false;
   ScheduleType scheduleType = ScheduleType.weekly;
   final Set<Weekday> days = {};
+
+  /// The vet's certificate, required before the form can be submitted. The
+  /// form itself is JSON, so the file is uploaded right after it, per dog;
+  /// [serverId] and [certificateUploaded] let a failed upload be retried
+  /// without submitting the form twice.
+  PickedCertificate? certificate;
+  DateTime? lastVaccinationDate;
+  int? serverId;
+  bool certificateUploaded = false;
 
   void dispose() {
     nameController.dispose();
@@ -40,6 +50,7 @@ class _DogEntry {
       registeredVet: vetController.text.trim(),
       daysInDaycare: days.toList()..sort((a, b) => a.index.compareTo(b.index)),
       scheduleType: scheduleType,
+      lastVaccinationDate: lastVaccinationDate,
     );
   }
 }
@@ -60,6 +71,10 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
 
   bool _isSubmitting = false;
   bool _postcodeLookupEnabled = false;
+
+  /// Set once the form itself is on the server; a retry after a failed
+  /// certificate upload then only uploads what is still missing.
+  int? _submittedRequestId;
 
   final _phoneController = TextEditingController();
   final _emergencyContactController = TextEditingController();
@@ -134,20 +149,62 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     });
   }
 
+  Future<void> _pickCertificate(_DogEntry dog) async {
+    final picked = await pickVaccinationCertificate(context);
+    if (picked == null || !mounted) return;
+    setState(() {
+      dog.certificate = picked;
+      dog.certificateUploaded = false;
+    });
+  }
+
+  Future<void> _pickVaccinationDate(_DogEntry dog) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: dog.lastVaccinationDate ?? now,
+      firstDate: DateTime(now.year - 3),
+      lastDate: now,
+      helpText: 'Date of last vaccination',
+    );
+    if (picked != null && mounted) setState(() => dog.lastVaccinationDate = picked);
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
+    _DogEntry? uploading;
     try {
-      await _dataService.submitIntakeRequest(
-        phoneNumber: _phoneController.text.trim(),
-        emergencyContactNumber: _emergencyContactController.text.trim(),
-        address: _addressController.text.trim(),
-        postcode: _postcodeController.text.trim().toUpperCase(),
-        pickupInstructions: _pickupController.text.trim(),
-        additionalInfo: _additionalInfoController.text.trim(),
-        dogs: _dogs.map((d) => d.toIntakeDog()).toList(),
-      );
+      if (_submittedRequestId == null) {
+        final request = await _dataService.submitIntakeRequest(
+          phoneNumber: _phoneController.text.trim(),
+          emergencyContactNumber: _emergencyContactController.text.trim(),
+          address: _addressController.text.trim(),
+          postcode: _postcodeController.text.trim().toUpperCase(),
+          pickupInstructions: _pickupController.text.trim(),
+          additionalInfo: _additionalInfoController.text.trim(),
+          dogs: _dogs.map((d) => d.toIntakeDog()).toList(),
+        );
+        _submittedRequestId = request.id;
+        // The server keeps the dogs in the order they were sent.
+        for (var i = 0; i < _dogs.length && i < request.dogs.length; i++) {
+          _dogs[i].serverId = request.dogs[i].id;
+        }
+      }
+      for (final dog in _dogs) {
+        final picked = dog.certificate;
+        if (dog.certificateUploaded || dog.serverId == null || picked == null) continue;
+        uploading = dog;
+        await _dataService.uploadIntakeCertificate(
+          requestId: _submittedRequestId!,
+          intakeDogId: dog.serverId!,
+          bytes: picked.bytes,
+          filename: picked.name,
+          vaccinationDate: dog.lastVaccinationDate,
+        );
+        dog.certificateUploaded = true;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -159,16 +216,104 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final message = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            content: Text(uploading == null
+                ? message
+                : "Your form is in, but ${uploading.nameController.text.trim()}'s certificate "
+                    "didn't upload: $message Tap Submit to try again."),
             backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 6),
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  /// The required certificate, as a FormField so the form's validate() covers
+  /// it and the error reads inline like every other required field.
+  Widget _certificateField(_DogEntry dog) {
+    return FormField<PickedCertificate>(
+      validator: (_) => dog.certificate == null ? "Please attach your dog's vaccination certificate" : null,
+      builder: (state) {
+        final picked = dog.certificate;
+        final date = dog.lastVaccinationDate;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Vaccination certificate',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "A photo of the vet's card or the PDF. We need it on file for our licence "
+              "records before your dog's first day.",
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Picon(
+                picked == null ? PiconsDuotone.paperclip : PiconsDuotone.checkCircle,
+                color: picked == null
+                    ? (state.hasError ? AppColors.error : AppColors.primary)
+                    : AppColors.success,
+              ),
+              title: Text(
+                picked == null ? 'Attach certificate (required)' : picked.name,
+                style: TextStyle(
+                  color: picked == null ? AppColors.primary : null,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: picked == null
+                  ? null
+                  : Text('${(picked.bytes.length / 1024).round()} KB · tap to change'),
+              trailing: picked == null
+                  ? null
+                  : IconButton(
+                      icon: const Picon(PiconsDuotone.x),
+                      tooltip: 'Remove',
+                      onPressed: () => setState(() => dog.certificate = null),
+                    ),
+              onTap: () => _pickCertificate(dog),
+            ),
+            if (state.hasError)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  state.errorText!,
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            InkWell(
+              onTap: () => _pickVaccinationDate(dog),
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: 'Date of last vaccination (optional)',
+                  prefixIcon: const Picon(PiconsDuotone.syringe),
+                  suffixIcon: date == null
+                      ? null
+                      : IconButton(
+                          icon: const Picon(PiconsDuotone.x),
+                          onPressed: () => setState(() => dog.lastVaccinationDate = null),
+                        ),
+                ),
+                child: Text(
+                  date == null
+                      ? 'Not set'
+                      : '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -477,6 +622,8 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                   label: const Text('Look up postcode'),
                 ),
               ),
+            const SizedBox(height: 16),
+            _certificateField(dog),
             const SizedBox(height: 16),
             const Text(
               'How often would they attend?',

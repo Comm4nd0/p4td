@@ -19,7 +19,16 @@ class VaccinationsScreen extends StatefulWidget {
   final Dog dog;
   final bool isStaff;
 
-  const VaccinationsScreen({super.key, required this.dog, required this.isStaff});
+  /// Open the attach sheet as soon as the screen appears — for a reminder
+  /// tap or the dashboard nag, where the person came here to upload.
+  final bool attachCertificate;
+
+  const VaccinationsScreen({
+    super.key,
+    required this.dog,
+    required this.isStaff,
+    this.attachCertificate = false,
+  });
 
   @override
   State<VaccinationsScreen> createState() => _VaccinationsScreenState();
@@ -275,6 +284,7 @@ class _VaccinationsScreenState extends State<VaccinationsScreen> {
             key: ValueKey('certificates-${widget.dog.id}'),
             dogId: widget.dog.id,
             isStaff: widget.isStaff,
+            attachOnOpen: widget.attachCertificate,
           );
           return RefreshIndicator.adaptive(
             onRefresh: _refresh,

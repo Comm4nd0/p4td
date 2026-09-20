@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 from django.db.models.signals import post_save, pre_delete, pre_save
-from .certificates import certificate_upload_path, private_storage
+from .certificates import certificate_upload_path, intake_certificate_upload_path, private_storage
 from django.dispatch import receiver
 
 class UserProfile(models.Model):
@@ -175,6 +175,14 @@ class Dog(models.Model):
     # against the current date (rather than a boolean) re-arms the reminder by
     # itself when a new date is entered — no update path can forget to reset it.
     annual_vaccination_reminder_sent_for = models.DateField(null=True, blank=True, help_text='Bookkeeping for send_vaccination_reminders: the last_vaccination_date the one-week-before push was sent for.')
+    # Escalating "please add the certificate" pushes (send_vaccination_reminders).
+    # The anchor is the date the certificate has been missing or expired since
+    # (certificate_state); when it changes, the count starts again, so a new
+    # lapse next year re-arms the cadence without any update path having to
+    # remember to reset it.
+    certificate_reminder_anchor = models.DateField(null=True, blank=True, help_text='Bookkeeping for send_vaccination_reminders: the certificate_needed_since date the escalating certificate reminders are counting from.')
+    certificate_reminders_sent = models.PositiveSmallIntegerField(default=0, help_text='How many escalating certificate reminders have gone out for the current anchor.')
+    certificate_reminder_last_sent = models.DateField(null=True, blank=True, help_text='When the owners were last pushed about the certificate, by the daily command or a staff member.')
     is_spayed = models.BooleanField(default=False, help_text='Whether the dog has been spayed/neutered. Staff-only field.')
     daily_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-day billing rate override for this dog. Blank = standard day care price from Service Pricing. Staff-only field.')
     boarding_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, help_text='Per-night boarding rate override for this dog. Blank = standard boarding price from Service Pricing. Staff-only field.')
@@ -205,6 +213,36 @@ class Dog(models.Model):
         if not self.last_vaccination_date:
             return None
         return self.last_vaccination_date + timezone.timedelta(days=self.VACCINATION_VALID_DAYS)
+
+    #: certificate_state() results. Nothing filed, filed but a year old, fine.
+    CERTIFICATE_MISSING = 'MISSING'
+    CERTIFICATE_EXPIRED = 'EXPIRED'
+    CERTIFICATE_OK = 'OK'
+
+    def certificate_state(self, today=None):
+        """``(status, needed_since)`` for the dog's vaccination paperwork.
+
+        ``OK`` when a VaccinationCertificate evidences a date within the last
+        year (a certificate with no date counts from the day it was uploaded,
+        since staff record the date afterwards), ``MISSING`` when nothing is
+        on file — since the dog was created — and ``EXPIRED`` when the newest
+        one is over a year old, since the day it turned a year old.
+        ``needed_since`` is None for ``OK``. Reads ``vaccination_certificates``
+        through the prefetch when one is loaded, so listings stay flat.
+        """
+        today = today or timezone.localdate()
+        evidenced = None
+        for certificate in self.vaccination_certificates.all():
+            date = certificate.vaccination_date or timezone.localtime(certificate.created_at).date()
+            if evidenced is None or date > evidenced:
+                evidenced = date
+        if evidenced is None:
+            created = timezone.localtime(self.created_at).date() if self.created_at else today
+            return self.CERTIFICATE_MISSING, min(created, today)
+        expires = evidenced + timezone.timedelta(days=self.VACCINATION_VALID_DAYS)
+        if expires < today:
+            return self.CERTIFICATE_EXPIRED, expires
+        return self.CERTIFICATE_OK, None
 
     @property
     def vaccination_overdue(self):
@@ -1597,6 +1635,17 @@ class IntakeDog(models.Model):
     registered_vet = models.TextField(blank=True)
     daycare_days = models.JSONField(default=list, blank=True, help_text='Requested day numbers (1-7) for daycare attendance.')
     schedule_type = models.CharField(max_length=20, choices=Dog.SCHEDULE_TYPE_CHOICES, default='weekly')
+    last_vaccination_date = models.DateField(null=True, blank=True, help_text="The date on the certificate; becomes the dog's last_vaccination_date on approval.")
+    # The vet's certificate, attached by the owner right after submitting the
+    # form (intake-requests/<id>/certificate/). Same private storage and the
+    # same preparation as VaccinationCertificate — it becomes one when the
+    # form is approved, and the copy here is deleted then, or on deny/delete.
+    certificate_file = models.FileField(
+        upload_to=intake_certificate_upload_path, storage=private_storage, max_length=200, blank=True,
+    )
+    certificate_original_filename = models.CharField(max_length=255, blank=True)
+    certificate_content_type = models.CharField(max_length=100, blank=True)
+    certificate_size_bytes = models.PositiveIntegerField(default=0)
     created_dog = models.ForeignKey(Dog, null=True, blank=True, on_delete=models.SET_NULL, related_name='intake_dogs', help_text='The Dog record created when the request was approved.')
 
     class Meta:
@@ -1604,6 +1653,15 @@ class IntakeDog(models.Model):
 
     def __str__(self):
         return f"{self.name} on booking form #{self.request_id}"
+
+    def discard_certificate_file(self):
+        """Remove the file from private storage, keeping the name and size for
+        the review screen. Nothing ever sweeps private-media/, so every path
+        that makes the copy redundant must call this."""
+        if self.certificate_file:
+            self.certificate_file.delete(save=False)
+            self.certificate_file = ''
+            self.save(update_fields=['certificate_file'])
 
 
 class DogLinkRequest(models.Model):

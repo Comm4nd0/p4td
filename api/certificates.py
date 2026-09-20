@@ -150,6 +150,14 @@ def certificate_upload_path(instance, filename):
     return f'vaccination_certificates/{instance.dog_id}/{secrets.token_hex(16)}.{extension}'
 
 
+def intake_certificate_upload_path(instance, filename):
+    """``vaccination_certificates/intake/<booking form id>/<random>.<ext>``:
+    the same rules as :func:`certificate_upload_path`, for a certificate that
+    arrives with a booking form before its dog exists."""
+    extension = Path(filename).suffix.lower().lstrip('.') or 'bin'
+    return f'vaccination_certificates/intake/{instance.request_id}/{secrets.token_hex(16)}.{extension}'
+
+
 class CertificateRejected(Exception):
     """An upload that is not a certificate we are prepared to store.
 

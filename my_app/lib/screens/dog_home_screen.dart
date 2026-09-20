@@ -62,6 +62,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   // The vet's certificates behind the vaccination date. Private files: listed
   // here, opened through the token-checked viewer, never by URL.
   List<VaccinationCertificate> _certificates = [];
+  /// Set after the attach sheet was used from here, so an EXPIRED dog
+  /// stops reading as expired before the profile is refetched.
+  bool _certificateAddedHere = false;
   int? _myUserId;
 
   // Payment managers can edit past days (attendance history feeding
@@ -128,12 +131,30 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     if (removed == true) _loadCertificates();
   }
 
-  /// Certificates under the vaccination date, newest first. When a date is
-  /// recorded but nothing backs it up, say so — the edit screen is where one
-  /// gets attached.
-  Widget? _buildCertificatesBlock() {
-    if (_certificates.isEmpty && _dog.lastVaccinationDate == null) return null;
-    const color = AppColors.primary;
+  Future<void> _attachCertificate() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VaccinationsScreen(
+          dog: _dog,
+          isStaff: widget.isStaff,
+          attachCertificate: true,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _certificateAddedHere = true;
+    _loadCertificates();
+  }
+
+  /// Certificates under the vaccination date, newest first. With nothing on
+  /// file, or only one over a year old, the block turns red and carries the
+  /// attach button — for an owner this is the nag on the dog itself, so it
+  /// is always shown.
+  Widget _buildCertificatesBlock() {
+    final missing = _certificates.isEmpty;
+    final needs = missing || (_dog.certificateExpired && !_certificateAddedHere);
+    final color = needs ? AppColors.error : AppColors.primary;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 8),
@@ -146,28 +167,44 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Picon(PiconsDuotone.certificate, size: 16, color: color),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Text('Vaccination certificates',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
             ],
           ),
-          if (_certificates.isEmpty)
+          if (needs)
             Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'No certificate on file — attach one from Edit.',
-                style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                missing
+                    ? (widget.isStaff
+                        ? 'No certificate on file — the owner is being reminded.'
+                        : "No certificate on file. We need the vet's certificate for our licence records.")
+                    : (widget.isStaff
+                        ? 'Newest certificate is over a year old — the owner is being reminded.'
+                        : 'Your newest certificate is over a year old — please add the new one.'),
+                style: TextStyle(fontSize: 13, color: Colors.grey[800]),
               ),
-            )
-          else
+            ),
+          if (!missing)
             for (final certificate in _certificates)
               VaccinationCertificateTile(
                 certificate: certificate,
                 onTap: () => _openCertificate(certificate),
               ),
+          if (needs)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _attachCertificate,
+                icon: const Picon(PiconsDuotone.paperclip, size: 16),
+                label: const Text('Attach certificate'),
+                style: TextButton.styleFrom(foregroundColor: color, visualDensity: VisualDensity.compact),
+              ),
+            ),
         ],
       ),
     );
@@ -1943,7 +1980,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   '${_dog.vaccinationOverdue ? ' — over a year ago' : ''}',
               accent: _dog.vaccinationOverdue ? Colors.red[700] : null,
             ),
-          if (_buildCertificatesBlock() case final block?) block,
+          _buildCertificatesBlock(),
           if (_dog.contactNumber != null && _dog.contactNumber!.trim().isNotEmpty)
             _infoBlock(
               icon: PiconsDuotone.phone,

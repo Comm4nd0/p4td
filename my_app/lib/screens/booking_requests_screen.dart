@@ -798,6 +798,35 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
               padding: const EdgeInsets.only(top: 4),
               child: Text('Vet: ${dog.registeredVet}', style: const TextStyle(fontSize: 13)),
             ),
+          // The form asks for the certificate; a missing one is worth a word
+          // with the owner before approving, so it reads red.
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Picon(
+                  dog.hasCertificate ? PiconsDuotone.certificate : PiconsDuotone.warningCircle,
+                  size: 16,
+                  color: dog.hasCertificate ? AppColors.success : AppColors.error,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    dog.hasCertificate
+                        ? 'Certificate attached: ${dog.certificateFilename}'
+                            '${dog.lastVaccinationDate != null ? ' (vaccinated ${_formatDate(dog.lastVaccinationDate)})' : ''}'
+                        : 'No vaccination certificate attached',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: dog.hasCertificate ? null : AppColors.error,
+                      fontWeight: dog.hasCertificate ? null : FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

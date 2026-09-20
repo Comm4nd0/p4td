@@ -512,6 +512,8 @@ class MockDataService implements DataService {
   @override
   Future<List<VaccinationCertificate>> getVaccinationCertificates(String dogId) async => [];
   @override
+  Future<int> sendCertificateReminder(String dogId) async => 1;
+  @override
   Future<VaccinationCertificate> uploadVaccinationCertificate({required String dogId, required Uint8List bytes, required String filename, DateTime? vaccinationDate}) async => throw UnimplementedError();
   @override
   Future<void> deleteVaccinationCertificate(int id) async {}
@@ -575,6 +577,9 @@ class MockDataService implements DataService {
   @override
   Future<IntakeRequest> submitIntakeRequest({String? phoneNumber, String? emergencyContactNumber, String? address, String? postcode, String? pickupInstructions, String? additionalInfo, required List<IntakeDog> dogs}) async =>
       IntakeRequest(id: 1, dogs: dogs, createdAt: DateTime.now());
+  @override
+  Future<IntakeRequest> uploadIntakeCertificate({required int requestId, required int intakeDogId, required Uint8List bytes, required String filename, DateTime? vaccinationDate}) async =>
+      IntakeRequest(id: requestId, createdAt: DateTime.now());
   @override
   Future<IntakeRequest> approveIntakeRequest(int requestId) async =>
       IntakeRequest(id: requestId, status: IntakeRequestStatus.approved, createdAt: DateTime.now());
