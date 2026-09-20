@@ -1,0 +1,38 @@
+name: Start Xcode Cloud Production build
+
+# Starts Xcode Cloud's Production workflow for a tag through the App Store
+# Connect API. A `v*` tag push starts nothing in Xcode Cloud, and the iOS
+# release lane needs the Production build (the only one that distributes to
+# App Store Connect) to exist for the tag. `Release iOS to App Store` does
+# this itself on every tag; this is the same step on its own, for a tag
+# whose lane predates that step or died before reaching it. Run it, wait
+# for the build to reach TestFlight, then re-run the release lane on the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to build (e.g. v1.12.43)"
+        required: true
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install PyJWT
+        run: pip install --quiet pyjwt cryptography
+
+      - name: Start the Production build for the tag
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG"
+          COMMIT_SHA="$(git rev-parse "$TAG^{commit}")" python3 scripts/xcode_cloud_start_build.py

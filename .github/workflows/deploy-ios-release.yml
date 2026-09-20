@@ -47,8 +47,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     # The lane waits up to 30 min for a build to appear, 30 for it to finish
-    # processing, and — if App Store Connect refuses it — 30 more for the build
-    # the tag itself queued in Xcode Cloud. Leave headroom for all three.
+    # processing, and — if App Store Connect refuses it — 30 more for the
+    # Production build this workflow starts below. Leave headroom for all three.
     timeout-minutes: 100
     defaults:
       run:
@@ -90,6 +90,25 @@ jobs:
           fi
 
           echo "Shipping $version — build resolved from its TestFlight train" >> "$GITHUB_STEP_SUMMARY"
+
+      # A tag push starts nothing in Xcode Cloud. Without this, the newest
+      # build in the version train is the Development workflow's, which App
+      # Store Connect refuses to attach, and the lane below dies waiting for
+      # a build that was never queued (every tag through v1.12.43). Started
+      # first so the archive runs while the listing is pushed; idempotent by
+      # commit, so a re-run of the lane never queues a second one.
+      - name: Start the Xcode Cloud Production build for this tag
+        if: github.ref_type == 'tag'
+        working-directory: .
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          TAG: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          pip install --quiet pyjwt cryptography
+          python3 scripts/xcode_cloud_start_build.py
 
       - uses: ruby/setup-ruby@v1
         with:

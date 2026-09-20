@@ -359,7 +359,12 @@ Additional non-router endpoints:
 - **Mobile deploy (iOS)**: Xcode Cloud archives and uploads to TestFlight on push
   to `main` (bootstrapped by `my_app/ios/ci_scripts/ci_post_clone.sh`). Shipping to
   the App Store is the same `v*` tag, which runs `.github/workflows/deploy-ios-release.yml`
-  — see [Releasing to the stores](#releasing-to-the-stores) below.
+  — see [Releasing to the stores](#releasing-to-the-stores) below. **A tag push starts
+  nothing in Xcode Cloud**: the Production workflow (the only one that distributes to
+  App Store Connect) must be started for the tag, which the release lane now does
+  first thing through the App Store Connect API (`scripts/xcode_cloud_start_build.py`).
+  `.github/workflows/xcode-cloud-start-build.yml` is the same step on its own, for a
+  tag whose lane died before it.
 - **Production server**: Gunicorn (2 workers, 2 threads, 120s timeout)
 
 ### Mobile version bumps (required)
