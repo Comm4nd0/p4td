@@ -4275,26 +4275,79 @@ class AssignmentTransportTests(TestCase):
         self.assertTrue(self.dog.owner_brings_default)
         self.assertEqual(self.dog.owner_brings_default_time.strftime('%H:%M'), '08:00')
 
-    def test_materialization_keeps_owner_transport_dog_off_the_route_but_on_record(self):
+    def _owner_drives_both_ways(self):
         # Remove today's assignment so the materializer has a clean state
         self.assignment.delete()
         # Owner handles BOTH legs — no staff route ever touches this dog.
         self.dog.owner_brings_default = True
         self.dog.owner_collects_default = True
         self.dog.save()
+
+    def _today_board(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        return resp.data
+
+    def test_materialization_books_owner_transport_dog_to_the_house_account(self):
+        # Frankie and Winter: booked in every Monday, dropped off and collected
+        # by their owners. They were materialised UNASSIGNED, which `today`
+        # hides and unassigned_dogs hides too, so every week the day looked as
+        # if they had never been booked and staff added them by hand — to the
+        # P4TD account. Do that for them.
+        house = User.objects.create_user(username='P4TD', password='pw', is_staff=True)
+        self._owner_drives_both_ways()
         DogWeekdayPickup.objects.create(
             dog=self.dog, weekday=self.today.isoweekday(),
             staff_member=self.staff,
         )
+        board = self._today_board()
+        rows = [a for a in board if a['dog'] == self.dog.id]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['staff_member'], house.id)
+        # Not on the roster driver's list — nobody drives this dog.
+        self.assertNotIn(self.dog.id, [a['dog'] for a in board if a['staff_member'] == self.staff.id])
+        assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.today)
+        self.assertEqual(assignment.status, 'ASSIGNED')
+        self.assertEqual(assignment.staff_member_id, house.id)
+
+    def test_materialization_books_owner_transport_dog_without_a_roster_entry(self):
+        # A driver roster entry is about who collects the dog; a dog nobody
+        # collects need not have one to attend.
+        house = User.objects.create_user(username='P4TD', password='pw', is_staff=True)
+        self._owner_drives_both_ways()
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=self.dog).exists())
+        board = self._today_board()
+        self.assertIn(self.dog.id, [a['dog'] for a in board if a['staff_member'] == house.id])
+        # Not repeated on the next load.
+        self._today_board()
+        self.assertEqual(DailyDogAssignment.objects.filter(dog=self.dog, date=self.today).count(), 1)
+        # And still not nagging for a driver. (unassigned_dogs uses a JSON
+        # contains lookup SQLite lacks; the check runs on PostgreSQL, i.e. CI.)
+        if connection.features.supports_json_field_contains:
+            resp = self.client.get(f'/api/daily-assignments/unassigned_dogs/?date={self.today.isoformat()}')
+            self.assertNotIn(self.dog.id, [d['id'] for d in resp.data])
+
+    def test_owner_transport_dog_not_booked_on_another_weekday(self):
+        User.objects.create_user(username='P4TD', password='pw', is_staff=True)
+        self._owner_drives_both_ways()
+        other = self.today + timedelta(days=1)
         self.client.login(username='staff', password='pw')
-        resp = self.client.get(f'/api/daily-assignments/today/?date={self.today.isoformat()}')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={other.isoformat()}')
         self.assertEqual(resp.status_code, 200)
-        # Still absent from the driver's list...
-        dog_ids = [a['dog'] for a in resp.data]
-        self.assertNotIn(self.dog.id, dog_ids)
-        # ...but the attendance row exists, because billing reads attendance
-        # from DailyDogAssignment. This test previously asserted no row at all,
-        # which is why these dogs were silently invoiced £0.
+        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog, date=other).exists())
+
+    def test_materialization_keeps_owner_transport_dog_on_record_without_a_house_account(self):
+        # No P4TD account to book to: the attendance row still exists, because
+        # billing reads attendance from DailyDogAssignment. This test once
+        # asserted no row at all, which is why these dogs were invoiced £0.
+        self._owner_drives_both_ways()
+        DogWeekdayPickup.objects.create(
+            dog=self.dog, weekday=self.today.isoweekday(),
+            staff_member=self.staff,
+        )
+        board = self._today_board()
+        self.assertNotIn(self.dog.id, [a['dog'] for a in board])
         assignment = DailyDogAssignment.objects.get(dog=self.dog, date=self.today)
         self.assertEqual(assignment.status, 'UNASSIGNED')
 

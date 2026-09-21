@@ -220,6 +220,12 @@ Additional non-router endpoints:
   are ever touched. Billing-neutral by construction —
   `billing.attendance_for_month` already skips days inside an approved stay, so
   the boarding nights are the only charge.
+  **Dogs the owner drives both ways go to `P4TD` too** (`owner_brings_default`
+  and `owner_collects_default`): `_materialize_roster_for_date` books them there
+  every weekday in `daycare_days`, roster entry or not, so they sit on the day's
+  board under the house card and never on a driver's list. They used to be
+  materialised `UNASSIGNED`, which `today` hides and `unassigned_dogs` hides
+  too, so every week the day looked unbooked and staff added them by hand.
   A weekday arrival is the exception: the dog is still at home that morning and
   needs collecting, so that day is created `UNASSIGNED` with no staff member and
   surfaces in `unassigned_dogs` for a driver to claim. It goes to `P4TD` as
