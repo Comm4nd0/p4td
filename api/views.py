@@ -2420,10 +2420,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
           * dogs whose current ``daycare_days`` no longer include this weekday
           * dogs with an APPROVED CANCEL DateChangeRequest for this date
           * dogs that already have a DailyDogAssignment for this date
-          * dogs whose owner handles BOTH legs of transport
-            (owner_brings_default AND owner_collects_default) — no staff route
-            ever touches them. Dogs the owner only brings OR only collects are
-            still materialized, because staff run the other leg.
+
+        Dogs whose owner handles BOTH legs of transport (owner_brings_default
+        AND owner_collects_default) need no driver, so they are booked to the
+        ``P4TD`` house account like a boarding dog — with or without a roster
+        entry. Dogs the owner only brings OR only collects go to their roster
+        driver, who runs the other leg.
         """
         from .models import ClosureDay
         from datetime import date as date_cls
@@ -2442,7 +2444,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # "P4TD" account (see api.scheduling). Done here as well as at approval
         # time so stays approved before this existed — and dogs added to a stay
         # afterwards — still turn up on the day's roster.
-        from .scheduling import materialize_boarding_for_date
+        from .scheduling import house_staff_account, materialize_boarding_for_date
         boarding_created = materialize_boarding_for_date(target_date)
 
         weekday = target_date.isoweekday()
@@ -2452,45 +2454,62 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             .filter(weekday=weekday)
             .select_related('dog', 'staff_member')
         )
-        if not roster_entries:
+        # (dog, roster entry or None) per dog id. Dogs the owner drives both
+        # ways attend without a driver, so a missing roster entry must not
+        # keep them off the day — unassigned_dogs deliberately hides them
+        # too, so nothing else would ever book them in. Filtered in Python:
+        # the set is tiny and JSONField ``contains`` is not portable.
+        candidates = {entry.dog_id: (entry.dog, entry) for entry in roster_entries}
+        owner_driven = (
+            Dog.objects
+            .filter(owner_brings_default=True, owner_collects_default=True)
+            .exclude(schedule_type='ad_hoc')
+        )
+        for dog in owner_driven:
+            if weekday in (dog.daycare_days or []):
+                candidates.setdefault(dog.id, (dog, None))
+        if not candidates:
             return boarding_created
 
         existing_dog_ids = set(
             DailyDogAssignment.objects
-            .filter(date=target_date, dog_id__in=[e.dog_id for e in roster_entries])
+            .filter(date=target_date, dog_id__in=list(candidates))
             .values_list('dog_id', flat=True)
         )
         cancelled_dog_ids = set(
-            self._cancelled_dog_ids_for_date(
-                target_date,
-                dog_ids=[e.dog_id for e in roster_entries],
-            )
+            self._cancelled_dog_ids_for_date(target_date, dog_ids=list(candidates))
         )
 
+        house = house_staff_account()
         to_create = []
-        for entry in roster_entries:
-            dog = entry.dog
+        for dog, entry in candidates.values():
             if dog.schedule_type == 'ad_hoc':
                 continue
             if weekday not in (dog.daycare_days or []):
                 continue
             if dog.id in existing_dog_ids or dog.id in cancelled_dog_ids:
                 continue
-            # When the owner handles BOTH legs no staff route touches this dog —
-            # but the dog still *attends*, and attendance is what billing reads
-            # (billing.attendance_for_month counts DailyDogAssignment rows).
-            # Skipping the row entirely meant these dogs were invoiced £0 every
-            # month and had to be added to the roster by hand every week.
-            # Materialise them as UNASSIGNED instead: every roster/van view
-            # already excludes REMOVED and UNASSIGNED, so they stay off the
-            # driver's list while billing and capacity can still see them.
-            owner_does_both = dog.owner_brings_default and dog.owner_collects_default
+            if dog.owner_brings_default and dog.owner_collects_default:
+                # No staff route touches this dog, but it still *attends*, and
+                # attendance is what billing reads (billing.attendance_for_month
+                # counts DailyDogAssignment rows). Book it to the P4TD house
+                # account, as a boarding dog is: it shows on the day's board
+                # under P4TD — which is what staff were doing by hand every
+                # week, because an UNASSIGNED row is hidden from `today` and
+                # the dog is hidden from unassigned_dogs, so the day looked as
+                # if it had never been booked — and stays off every driver's
+                # list. With no house account fall back to UNASSIGNED, which
+                # billing and capacity still see.
+                staff = house if house is not None else (entry.staff_member if entry else None)
+                status = 'ASSIGNED' if house is not None else 'UNASSIGNED'
+            else:
+                staff, status = entry.staff_member, 'ASSIGNED'
             to_create.append(DailyDogAssignment(
                 dog=dog,
-                staff_member=entry.staff_member,
+                staff_member=staff,
                 date=target_date,
-                status='UNASSIGNED' if owner_does_both else 'ASSIGNED',
-                sort_order=entry.sort_order,
+                status=status,
+                sort_order=entry.sort_order if entry else 0,
             ))
 
         if not to_create:
