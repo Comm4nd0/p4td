@@ -24,6 +24,12 @@ class DogScheduleCalendar extends StatefulWidget {
   /// Booked daycare days (recurring days adjusted by approved requests).
   final Set<DateTime> bookedDates;
 
+  /// The subset of [bookedDates] that are not one of the dog's regular
+  /// weekdays — extra days added on top of the schedule. Drawn in yellow
+  /// so they stand apart from the regular green days; they tap like any
+  /// booked day.
+  final Set<DateTime> extraDates;
+
   /// Days with a pending ADD_DAY (or the new date of a pending CHANGE).
   final Set<DateTime> pendingAddDates;
 
@@ -66,6 +72,7 @@ class DogScheduleCalendar extends StatefulWidget {
     required this.firstDay,
     required this.lastDay,
     required this.bookedDates,
+    this.extraDates = const {},
     required this.pendingAddDates,
     required this.pendingRemoveDates,
     required this.boardingDates,
@@ -88,6 +95,7 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
   late DateTime _focusedDay;
 
   static const Color _booked = AppColors.success;
+  static const Color _extra = Color(0xFFFBC02D); // yellow
   static const Color _pending = AppColors.warning;
   static const Color _boarding = Colors.deepPurple;
   static const Color _invoicedPaid = Colors.white;
@@ -228,6 +236,9 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     } else if (widget.pendingAddDates.contains(d)) {
       border = _pending;
       textColor = _pending;
+    } else if (widget.extraDates.contains(d)) {
+      fill = _extra;
+      textColor = Colors.black87;
     } else if (widget.bookedDates.contains(d)) {
       fill = _booked;
       textColor = Colors.white;
@@ -354,7 +365,8 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
           runSpacing: 4,
           alignment: WrapAlignment.center,
           children: [
-            _legendDot(_booked, 'Booked'),
+            _legendDot(_booked, 'Regular day'),
+            _legendDot(_extra, 'Extra day'),
             _legendDot(_pending, 'Pending', outlined: true),
             _legendDot(_boarding, 'Boarding'),
             _legendDot(Colors.grey[400]!, 'Closed'),
