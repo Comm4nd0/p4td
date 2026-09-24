@@ -288,8 +288,8 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@paws4thoughtd
 # Where website/app contact enquiries are sent. api/views.py and website/views.py
 # both read this via getattr(settings, 'CONTACT_INQUIRY_EMAIL', ...) — but it
 # was never defined here, so setting it in .env did nothing and every enquiry
-# went to DEFAULT_FROM_EMAIL regardless (while DEPLOYMENT.md and IMPROVEMENTS.md
-# both told you to configure it). Django does not auto-import env vars.
+# went to DEFAULT_FROM_EMAIL regardless (while DEPLOYMENT.md told you to
+# configure it). Django does not auto-import env vars.
 CONTACT_INQUIRY_EMAIL = os.environ.get('CONTACT_INQUIRY_EMAIL', DEFAULT_FROM_EMAIL)
 
 # Loud warning if a production deploy is silently discarding every email —

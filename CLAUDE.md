@@ -32,7 +32,6 @@ p4td/
 ├── docker-compose.prod.yml # Production (Hetzner CX22)
 ├── Dockerfile              # Multi-stage production build (Python 3.11)
 ├── Caddyfile               # Reverse proxy (auto HTTPS, media serving)
-├── app/                    # Legacy Android app (not actively maintained)
 └── .github/workflows/      # CI: backend tests, Flutter tests, Play Store deployment
 ```
 
@@ -551,7 +550,6 @@ database check taken after the directory walk.
 
 ## Important Notes
 
-- The `app/` directory is a **legacy Android app** — the active mobile client is `my_app/` (Flutter)
 - No backend linter is configured — follow standard Django/PEP 8 conventions
 - Media files, `private-media/` and `.env` are gitignored
 - **`/media/` is public.** Anything under `MEDIA_ROOT` is served to anyone with the

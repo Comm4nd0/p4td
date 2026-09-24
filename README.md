@@ -52,5 +52,3 @@ cd my_app && flutter test
 - [`CLAUDE.md`](CLAUDE.md) — full project guide (architecture, endpoints,
   deployment, conventions, management commands).
 - [`FUNCTIONALITY_GUIDE.md`](FUNCTIONALITY_GUIDE.md) — owner & staff feature overview.
-- [`BACKEND_DAYCARE_INTEGRATION.md`](BACKEND_DAYCARE_INTEGRATION.md) and
-  [`DAYCARE_SCHEDULE_FEATURE.md`](DAYCARE_SCHEDULE_FEATURE.md) — daycare schedule feature.

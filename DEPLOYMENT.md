@@ -180,7 +180,14 @@ docker logs p4td-web-1 --tail 20
 
 ## One-time / periodic ops
 
-See **`IMPROVEMENTS.md` → Manual deploy steps**: nightly `pg_dump` backups
-shipped off-box, the `P4TD_CRON_HEARTBEAT_URL` for cron alerting,
-`CONTACT_INQUIRY_EMAIL`, and a note that the B15/B16 constraint migrations need
-clean data first.
+Server-side setup that can't be done from the repo:
+
+- **Backups**: wire `scripts/backup-db.sh` (nightly `pg_dump` with retention)
+  to host cron and ship the dumps off-box (rclone/restic/S3).
+- **Cron alerting**: the scheduled commands ping `P4TD_CRON_HEARTBEAT_URL` on
+  success — point it at a healthchecks.io (or similar) check so a missed run
+  alerts you. Add a check for the backups too.
+- **`CONTACT_INQUIRY_EMAIL`**: set it so contact-form enquiries reach a
+  monitored inbox (falls back to `DEFAULT_FROM_EMAIL`).
+- **Rollback** is manual: `deploy.sh` records the prior commit and image id in
+  `.deploy-history` and prints the rollback command.
