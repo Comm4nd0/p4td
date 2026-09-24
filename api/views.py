@@ -122,6 +122,24 @@ def _log_assignment(assignment, actor, summary, action='ASSIGNED'):
     log_change(assignment.dog, category='SCHEDULE', action=action, actor=actor, summary=summary)
 
 
+def _apply_schedule_change(dog, old_daycare_days, old_schedule_type, *, actor):
+    """After a dog's ``daycare_days``/``schedule_type`` were saved: release the
+    weekdays it no longer comes on — roster entry *and* the future days already
+    booked from it (``scheduling.release_dropped_weekdays``). A dog that became
+    ad hoc loses every regular weekday; otherwise only the dropped ones. Shared
+    by the staff edit and an approved owner change request."""
+    from .scheduling import release_dropped_weekdays
+
+    old_days = {int(d) for d in (old_daycare_days or [])}
+    new_days = {int(d) for d in (dog.daycare_days or [])}
+    if old_schedule_type != 'ad_hoc' and dog.schedule_type == 'ad_hoc':
+        # The roster must be empty for an ad-hoc dog, whatever its old days said.
+        DogWeekdayPickup.objects.filter(dog=dog).delete()
+        release_dropped_weekdays(dog, old_days, actor=actor)
+        return
+    release_dropped_weekdays(dog, old_days - new_days, actor=actor)
+
+
 _WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 
@@ -890,23 +908,7 @@ class DogViewSet(viewsets.ModelViewSet):
         dog.refresh_from_db()
         # Refresh cached pickup coordinates if the address changed.
         self._maybe_geocode(dog)
-        new_daycare_days = list(dog.daycare_days or [])
-        new_schedule_type = dog.schedule_type
-
-        # If the dog became ad-hoc, wipe its entire roster.
-        if old_schedule_type != 'ad_hoc' and new_schedule_type == 'ad_hoc':
-            DogWeekdayPickup.objects.filter(dog=dog).delete()
-            return
-
-        # Otherwise, drop roster entries for weekdays that are no longer part
-        # of the dog's schedule.
-        if set(old_daycare_days) != set(new_daycare_days):
-            dropped = set(old_daycare_days) - set(new_daycare_days)
-            if dropped:
-                DogWeekdayPickup.objects.filter(
-                    dog=dog,
-                    weekday__in=dropped,
-                ).delete()
+        _apply_schedule_change(dog, old_daycare_days, old_schedule_type, actor=self.request.user)
 
     @staticmethod
     def _unspayed_males_queryset():
@@ -1165,6 +1167,11 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         dog = change_request.dog
+        # Captured before the proposed values land on the instance: the roster
+        # release below compares old with new, and reading them afterwards
+        # made a schedule change look like no change at all.
+        old_daycare_days = list(dog.daycare_days or [])
+        old_schedule_type = dog.schedule_type
 
         # Apply proposed text/JSON field changes. Re-enforce the whitelist here
         # so a malformed/stale proposed_changes can never write a field an owner
@@ -1183,10 +1190,6 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
             if dog.profile_image:
                 dog.profile_image.delete(save=False)
             dog.profile_image = change_request.proposed_image
-
-        # Handle schedule/roster side-effects (same logic as perform_update)
-        old_daycare_days = list(dog.daycare_days or [])
-        old_schedule_type = dog.schedule_type
 
         # Attribute the change to the owner who requested it so the
         # care-instructions staff notification names them (not "A user").
@@ -1209,15 +1212,7 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
             geocode_dog(dog)
         except Exception as e:
             print(f"Geocoding failed for dog {getattr(dog, 'id', '?')}: {e}")
-        new_daycare_days = list(dog.daycare_days or [])
-        new_schedule_type = dog.schedule_type
-
-        if old_schedule_type != 'ad_hoc' and new_schedule_type == 'ad_hoc':
-            DogWeekdayPickup.objects.filter(dog=dog).delete()
-        elif set(old_daycare_days) != set(new_daycare_days):
-            dropped = set(old_daycare_days) - set(new_daycare_days)
-            if dropped:
-                DogWeekdayPickup.objects.filter(dog=dog, weekday__in=dropped).delete()
+        _apply_schedule_change(dog, old_daycare_days, old_schedule_type, actor=request.user)
 
         # Mark as approved
         change_request.status = 'APPROVED'

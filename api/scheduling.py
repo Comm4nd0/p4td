@@ -623,3 +623,91 @@ def materialize_boarding_for_date(target_date):
         return 0
     DailyDogAssignment.objects.bulk_create(to_create, ignore_conflicts=True)
     return len(to_create)
+
+
+WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+
+def release_dropped_weekdays(dog, weekdays, *, actor=None):
+    """A dog stopped coming on ``weekdays``: take it off the weekly roster for
+    them and off every future day already booked from that roster.
+
+    Called when a dog's regular days change (``DogViewSet.perform_update`` and
+    an approved owner profile-change request) and by the
+    ``release_stale_roster_days`` command that repairs days booked before this
+    existed. ``_materialize_roster_for_date`` creates a ``DailyDogAssignment``
+    the first time anyone looks at a date, so a Friday dog moved to Mondays
+    on a Tuesday still had next Friday's row — the profile said Monday while
+    the staff dashboard still had it booked in on Friday, and billing charges
+    booked days whether or not the dog turns up.
+
+    Only rows that are plainly the old regular day go: strictly future (today's
+    board is operational — Remove takes a dog off it), not yet started
+    (``ASSIGNED``/``UNASSIGNED``), not booked from a boarding stay, not an
+    approved ADD_DAY/CHANGE onto that date, and not a day a staff member put
+    the dog on by hand (a ``SCHEDULE`` log entry naming the date — the
+    ``assign_dogs``/``assign_to_me`` wording, or a reassign or transport
+    change for that day). Materialised rows write no such entry.
+
+    Returns the dates released, oldest first, after logging them on the dog's
+    trail under ``SCHEDULE``.
+    """
+    from .dog_changes import log_change
+    from .models import DailyDogAssignment, DogChangeLog, DogWeekdayPickup
+
+    weekdays = {int(d) for d in weekdays}
+    if not weekdays:
+        return []
+    DogWeekdayPickup.objects.filter(dog=dog, weekday__in=weekdays).delete()
+
+    today = timezone.localdate()
+    candidates = list(
+        DailyDogAssignment.objects.filter(
+            dog=dog,
+            date__gt=today,
+            date__iso_week_day__in=weekdays,
+            from_boarding=False,
+            status__in=('ASSIGNED', 'UNASSIGNED'),
+        ).order_by('date')
+    )
+    if not candidates:
+        return []
+
+    adds_by_date, _ = effective_change_actions(
+        candidates[0].date, candidates[-1].date, dog_ids=[dog.id],
+    )
+    hand_booked = set()
+    summaries = DogChangeLog.objects.filter(
+        dog=dog, category='SCHEDULE',
+    ).values_list('summary', flat=True)
+    if summaries:
+        by_label = {row.date.strftime('%d/%m/%Y'): row.date for row in candidates}
+        for summary in summaries:
+            for label, day in by_label.items():
+                if label in summary:
+                    hand_booked.add(day)
+
+    released = [
+        row for row in candidates
+        if dog.id not in adds_by_date.get(row.date, set())
+        and row.date not in hand_booked
+    ]
+    if not released:
+        return []
+
+    DailyDogAssignment.objects.filter(pk__in=[row.pk for row in released]).delete()
+    dates = [row.date for row in released]
+    day_names = sorted({d.strftime('%A') for d in dates}, key=lambda n: WEEKDAY_ORDER.index(n))
+    listed = ', '.join(d.strftime('%d/%m/%Y') for d in dates)
+    log_change(
+        dog,
+        category='SCHEDULE',
+        action='DELETED',
+        actor=actor,
+        summary=(
+            f"Took {dog.name} off {' and '.join(day_names)} "
+            f"(no longer a regular day): {listed}"
+        ),
+    )
+    return dates
+

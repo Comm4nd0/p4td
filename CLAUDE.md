@@ -233,6 +233,19 @@ Additional non-router endpoints:
   (`Dog.owner_brings_default`, or the per-date `owner_brings` override), when
   the stay starts at a weekend (by its first weekday the dog is already with the
   carer), or when it runs straight on from another approved stay.
+- **A dog's regular days own its future board rows.** The dashboard books a
+  dog in the first time anyone looks at a date (`_materialize_roster_for_date`
+  writes a `DailyDogAssignment` from `DogWeekdayPickup`), so a change to
+  `daycare_days`/`schedule_type` must take those rows back out or the profile
+  says Monday while Friday is still on the board and on the invoice. Both
+  writers (`DogViewSet.perform_update` and an approved
+  `dog-profile-changes/` request) go through `_apply_schedule_change` →
+  `scheduling.release_dropped_weekdays`: roster entries for the dropped
+  weekdays go, and so do future `ASSIGNED`/`UNASSIGNED` rows on them, except
+  boarding rows, approved extra days and days a staff member put the dog on
+  by hand (a `SCHEDULE` log entry naming the date). Today's row stays —
+  Remove handles the live board. Logged under `SCHEDULE`. Add the next
+  schedule writer behind the same helper.
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
 - **Push notifications** via Firebase Admin SDK. Every owner-facing push carries a
   `category` matched to a `UserProfile.notify_*` switch the person can flip on the
@@ -494,6 +507,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py send_compliance_reminders` | Push due/overdue safety & compliance check reminders to staff with `can_manage_compliance` — 30 days ahead for long-cycle checks, plus at due/overdue; once per cycle, re-armed when a completion is logged | Daily 8:10am |
 | `python manage.py send_end_of_day_alerts` | Push an end-of-day exception summary (dogs never picked up, still out with the team, or never assigned to a driver) to staff with `receives_business_alerts`. Silent when everything got home. `--date` | Daily 5:30pm |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files. Never touches dog gallery photos — see [Feed Media Pruning](#feed-media-pruning) | Weekly, Sun 3am (with `--include-orphans`) |
+| `python manage.py release_stale_roster_days` | Take dogs off future days still booked from a regular weekday they no longer come on (rows the dashboard materialised before the schedule edit released them itself — see the roster note under Backend). Lists by default; `--apply` deletes, `--dog <id>` narrows. Same exclusions as the edit | — |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
 | `python manage.py prune_auth_tokens` | Delete DRF auth tokens older than N days so an abandoned device's token can't be reused indefinitely (tokens never expire on their own). `--days`, `--dry-run` | — |
 | `python manage.py generate_monthly_invoices` | Generate draft invoices for the current month in advance (its booked days plus last month's unbilled extras); notifies staff with `can_manage_payments` to review/send. Idempotent; `--year`, `--month` | Monthly, 1st 6:00am |

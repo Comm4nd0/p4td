@@ -1562,6 +1562,124 @@ class WeekdayRosterTests(TestCase):
             dog=self.dog, date=self.today
         ).exists())
 
+    # --- a regular day dropped from the schedule ---
+
+    def _seed_dropped_weekday_rows(self):
+        """Rows on the dog's current weekday W around a schedule change.
+        Returns a dict of the ones a change away from W must keep."""
+        W = self.today_weekday
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=W, staff_member=self.staff_a)
+        mk = lambda days, **kw: DailyDogAssignment.objects.create(  # noqa: E731
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=days),
+            **kw)
+        self.stale = [mk(7), mk(14, status='UNASSIGNED')]
+        keep = {
+            'today': mk(0),
+            'past': mk(-7, status='DROPPED_OFF'),
+            'started': mk(21, status='PICKED_UP'),
+            'boarding': mk(28, from_boarding=True),
+            'by_hand': mk(35),
+            'extra_day': mk(42),
+            'other_weekday': mk(8),
+        }
+        DogChangeLog.objects.create(
+            dog=self.dog, dog_name=self.dog.name, category='SCHEDULE', action='ASSIGNED',
+            summary=f"Assigned Rex to Alice for {keep['by_hand'].date:%d/%m/%Y}",
+        )
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=keep['extra_day'].date,
+            status='APPROVED',
+        )
+        return keep
+
+    def _assert_dropped_weekday_released(self, keep):
+        for row in self.stale:
+            self.assertFalse(DailyDogAssignment.objects.filter(pk=row.pk).exists(), row.date)
+        for label, row in keep.items():
+            self.assertTrue(DailyDogAssignment.objects.filter(pk=row.pk).exists(), label)
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=self.dog, weekday=self.today_weekday).exists())
+        entry = DogChangeLog.objects.filter(dog=self.dog, category='SCHEDULE', action='DELETED').get()
+        for row in self.stale:
+            self.assertIn(f'{row.date:%d/%m/%Y}', entry.summary)
+        self.assertIn(f'{self.stale[0].date:%A}', entry.summary)
+
+    def test_dropping_a_weekday_releases_its_future_booked_days(self):
+        # Bonnie: moved from Fridays to Mondays, but the dashboard had already
+        # booked next Friday from the roster, so she stayed on Friday's board.
+        keep = self._seed_dropped_weekday_rows()
+        other_weekday = (self.today_weekday % 7) + 1
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'daycare_days': [other_weekday],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self._assert_dropped_weekday_released(keep)
+        entry = DogChangeLog.objects.get(dog=self.dog, category='SCHEDULE', action='DELETED')
+        self.assertEqual(entry.actor, self.staff_a)
+
+    def test_keeping_a_weekday_leaves_its_booked_days_alone(self):
+        keep = self._seed_dropped_weekday_rows()
+        other_weekday = (self.today_weekday % 7) + 1
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'daycare_days': [self.today_weekday, other_weekday],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        for row in self.stale + list(keep.values()):
+            self.assertTrue(DailyDogAssignment.objects.filter(pk=row.pk).exists())
+        self.assertTrue(DogWeekdayPickup.objects.filter(dog=self.dog, weekday=self.today_weekday).exists())
+        self.assertFalse(DogChangeLog.objects.filter(dog=self.dog, category='SCHEDULE').exclude(action='ASSIGNED').exists())
+
+    def test_becoming_ad_hoc_releases_every_future_regular_day(self):
+        keep = self._seed_dropped_weekday_rows()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'schedule_type': 'ad_hoc',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self._assert_dropped_weekday_released(keep)
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=self.dog).exists())
+
+    def test_approved_owner_schedule_change_releases_future_booked_days(self):
+        from .models import DogProfileChangeRequest
+        keep = self._seed_dropped_weekday_rows()
+        other_weekday = (self.today_weekday % 7) + 1
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {
+            'daycare_days': [other_weekday],
+        }, format='json')
+        self.assertEqual(resp.status_code, 202)
+        # Nothing moves until staff approve.
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=self.stale[0].pk).exists())
+        cr = DogProfileChangeRequest.objects.get(dog=self.dog, status='PENDING')
+        self.client.logout()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        self._assert_dropped_weekday_released(keep)
+
+    def test_release_stale_roster_days_command(self):
+        from io import StringIO
+        # A change made before the schedule edit released booked days: the
+        # profile already says the other weekday, the roster row is long gone,
+        # but the days booked from it are still there.
+        keep = self._seed_dropped_weekday_rows()
+        other_weekday = (self.today_weekday % 7) + 1
+        self.dog.daycare_days = [other_weekday]
+        self.dog.save()
+        DogWeekdayPickup.objects.filter(dog=self.dog).delete()
+
+        out = StringIO()
+        call_command('release_stale_roster_days', stdout=out)
+        self.assertIn('[dry-run]', out.getvalue())
+        self.assertIn(f'{self.stale[0].date:%d/%m/%Y}', out.getvalue())
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=self.stale[0].pk).exists())
+
+        out = StringIO()
+        call_command('release_stale_roster_days', '--apply', stdout=out)
+        self.assertIn('Released 2 day(s).', out.getvalue())
+        self._assert_dropped_weekday_released(keep)
+
     # --- reassign scope ---
 
     def test_reassign_just_this_day_does_not_touch_roster(self):
