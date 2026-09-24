@@ -670,6 +670,15 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
+  /// The booked days that aren't one of the dog's regular weekdays — the
+  /// extra days, shown in yellow on the calendar. Judged against the current
+  /// schedule, so a past day on a weekday the dog has since dropped shows as
+  /// extra too.
+  Set<DateTime> _extraDates(Set<DateTime> booked) {
+    final regular = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
+    return booked.where((d) => !regular.contains(d.weekday)).toSet();
+  }
+
   /// Days awaiting approval to be added: pending ADD_DAY requests and the new
   /// date of pending CHANGE requests.
   Set<DateTime> _pendingAddDates() => _requests
@@ -2276,6 +2285,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                               canEditPastDates: _canEditPastDates),
                           lastDay: calendarLastDay(DateTime.now(), isStaff: widget.isStaff),
                           bookedDates: {...upcomingDates, ..._pastAttendance},
+                          extraDates: _extraDates({...upcomingDates, ..._pastAttendance}),
                           pendingAddDates: _pendingAddDates(),
                           pendingRemoveDates: _pendingRemoveDates(),
                           boardingDates: _boardingDates(BoardingRequestStatus.approved),

@@ -24,7 +24,8 @@ void main() {
           child: DogScheduleCalendar(
             firstDay: firstDay,
             lastDay: DateTime(2030, 12, 31),
-            bookedDates: {DateTime(2030, 6, 10)},
+            bookedDates: {DateTime(2030, 6, 10), DateTime(2030, 6, 17)},
+            extraDates: {DateTime(2030, 6, 17)},
             pendingAddDates: {DateTime(2030, 6, 11)},
             pendingRemoveDates: {DateTime(2030, 6, 12)},
             boardingDates: {DateTime(2030, 6, 13)},
@@ -102,7 +103,8 @@ void main() {
     );
 
     expect(find.text('June 2030'), findsOneWidget);
-    expect(find.text('Booked'), findsOneWidget);
+    expect(find.text('Regular day'), findsOneWidget);
+    expect(find.text('Extra day'), findsOneWidget);
     expect(find.text('Pending'), findsOneWidget);
     expect(find.text('Boarding'), findsOneWidget);
     expect(find.text('Closed'), findsOneWidget);
@@ -116,6 +118,28 @@ void main() {
 
     await tester.tap(find.text('10'));
     expect(tapped, DateTime(2030, 6, 10));
+  });
+
+  testWidgets('an extra day is yellow, a regular day green, and both tap as booked',
+      (tester) async {
+    DateTime? tapped;
+    await tester.pumpWidget(
+      buildCalendar(onBookedDayTap: (d) => tapped = d, onFreeDayTap: (_) {}),
+    );
+
+    Color? fillOf(String day) {
+      final container = tester.widget<Container>(find.ancestor(
+        of: find.text(day),
+        matching: find.byType(Container),
+      ).first);
+      return (container.decoration as BoxDecoration?)?.color;
+    }
+
+    expect(fillOf('17'), const Color(0xFFFBC02D));
+    expect(fillOf('10'), const Color(0xFF2E7D32));
+
+    await tester.tap(find.text('17'));
+    expect(tapped, DateTime(2030, 6, 17));
   });
 
   testWidgets('tapping a free day fires onFreeDayTap', (tester) async {
