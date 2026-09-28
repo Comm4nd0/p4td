@@ -2317,6 +2317,20 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<ContactInquiry> markInquiryUnreplied(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/mark_unreplied/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return ContactInquiry.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to mark inquiry as not replied');
+    }
+  }
+
+  @override
   Future<void> deleteInquiry(int inquiryId) async {
     final headers = await _getHeaders();
     final response = await http.delete(

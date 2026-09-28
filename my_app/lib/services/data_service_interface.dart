@@ -186,6 +186,7 @@ abstract class DataService {
   Future<ContactInquiry> markInquiryRead(int inquiryId);
   Future<ContactInquiry> markInquiryUnread(int inquiryId);
   Future<ContactInquiry> markInquiryReplied(int inquiryId);
+  Future<ContactInquiry> markInquiryUnreplied(int inquiryId);
   Future<void> deleteInquiry(int inquiryId);
   Future<int> getUnreadInquiryCount();
 

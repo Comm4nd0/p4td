@@ -5425,6 +5425,16 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
         self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as replied')
         return Response(ContactInquirySerializer(inquiry).data)
 
+    @action(detail=True, methods=['post'])
+    def mark_unreplied(self, request, pk=None):
+        """Undo a Mark as replied pressed by mistake — the enquiry goes back
+        on the badge. Leaves ``is_read`` alone: it has still been opened."""
+        inquiry = self.get_object()
+        inquiry.is_replied = False
+        inquiry.save()
+        self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as not replied')
+        return Response(ContactInquirySerializer(inquiry).data)
+
     @action(detail=False, methods=['get'])
     def unread_count(self, request):
         """Enquiries nobody has replied to yet — the Website Inquiries badge.

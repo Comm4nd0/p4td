@@ -6679,6 +6679,32 @@ class ContactInquiryEndpointTests(TestCase):
         self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_replied/')
         self.assertEqual(count(), 0)
 
+    def test_mark_unreplied_puts_enquiry_back_on_badge(self):
+        # Replies often go out by phone or from the business inbox, so staff
+        # mark by hand — and need to undo a mistaken press.
+        from website.models import ContactInquiry
+        from api.models import DogChangeLog
+        inquiry = ContactInquiry.objects.create(name='Sam', email='sam@example.com', service='daycare', message='Hi')
+        self.client.force_authenticate(self.viewer)
+        resp = self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_replied/')
+        self.assertTrue(resp.data['is_replied'])
+        resp = self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_unreplied/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['is_replied'])
+        self.assertTrue(resp.data['is_read'])
+        self.assertEqual(self.client.get('/api/contact-inquiries/unread_count/').data['count'], 1)
+        self.assertTrue(DogChangeLog.objects.filter(
+            category='COMMS', summary__contains='as not replied').exists())
+
+    def test_staff_without_permission_cannot_mark_unreplied(self):
+        from website.models import ContactInquiry
+        inquiry = ContactInquiry.objects.create(name='Sam', email='sam@example.com', service='daycare', message='Hi', is_replied=True)
+        self.client.force_authenticate(self.staff)
+        resp = self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_unreplied/')
+        self.assertEqual(resp.status_code, 403)
+        inquiry.refresh_from_db()
+        self.assertTrue(inquiry.is_replied)
+
 
 class PhotoUploadValidationTests(TestCase):
     """Photo.file is a FileField and /media/ is served unauthenticated straight

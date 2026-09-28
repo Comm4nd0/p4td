@@ -486,6 +486,8 @@ class MockDataService implements DataService {
   @override
   Future<ContactInquiry> markInquiryReplied(int inquiryId) async => throw UnimplementedError();
   @override
+  Future<ContactInquiry> markInquiryUnreplied(int inquiryId) async => throw UnimplementedError();
+  @override
   Future<void> deleteInquiry(int inquiryId) async {}
 
   // Closure Days
