@@ -421,7 +421,9 @@ def notify_feed_post_tags(post):
     poster = public_display_name(post.uploaded_by)
     kind = 'video' if post.media_type == 'VIDEO' else 'photo'
     recipients = {}
-    for dog in post.tagged_dogs.all():
+    # Ordered by id so the title reads the same every time: the M2M join has no
+    # ordering of its own and PostgreSQL returns it in whatever order it likes.
+    for dog in post.tagged_dogs.order_by('id'):
         for person in _dog_household(dog):
             if person.id == post.uploaded_by_id:
                 continue
