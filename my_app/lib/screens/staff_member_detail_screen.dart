@@ -8,8 +8,8 @@ import '../widgets/page_body.dart';
 
 /// Everything a manager needs about one staff member, in five tabs:
 /// Overview (employment, holiday, emergency contact, private notes),
-/// Pay (rate history), Meetings, Appraisals, and Records (sickness +
-/// training). All data comes from the manager-only staff HR endpoints.
+/// Pay (rate history), Meetings, Appraisals, and Records (certifications
+/// such as DBS, sickness and training). All data comes from the manager-only staff HR endpoints.
 class StaffMemberDetailScreen extends StatefulWidget {
   final int staffId;
   final String staffName;
@@ -34,6 +34,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
   List<StaffAppraisal> _appraisals = [];
   List<SicknessAbsence> _absences = [];
   List<StaffTrainingRecord> _training = [];
+  List<StaffCertification> _certifications = [];
   bool _loading = true;
   String? _error;
 
@@ -52,6 +53,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
         _dataService.getStaffAppraisals(staffId: widget.staffId),
         _dataService.getSicknessAbsences(staffId: widget.staffId),
         _dataService.getStaffTrainingRecords(staffId: widget.staffId),
+        _dataService.getStaffCertifications(staffId: widget.staffId),
       ]);
       if (!mounted) return;
       setState(() {
@@ -61,6 +63,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
         _appraisals = results[3] as List<StaffAppraisal>;
         _absences = results[4] as List<SicknessAbsence>;
         _training = results[5] as List<StaffTrainingRecord>;
+        _certifications = results[6] as List<StaffCertification>;
         _loading = false;
         _error = null;
       });
@@ -896,7 +899,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     );
   }
 
-  // ---------- Records (sickness + training) ----------
+  // ---------- Records (certifications + sickness + training) ----------
 
   Widget _buildRecordsTab() {
     return RefreshIndicator.adaptive(
@@ -905,6 +908,30 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(12),
         children: [
+          Row(
+            children: [
+              _sectionHeader('Certifications'),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => _editCertification(),
+                icon: const Picon(PiconsDuotone.plusCircle, size: 18),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          if (!_certifications.any((c) => c.certType == 'DBS'))
+            Card(
+              color: AppColors.error.withAlpha(20),
+              child: ListTile(
+                leading: const Picon(PiconsDuotone.identificationCard,
+                    color: AppColors.error),
+                title: const Text('No DBS check on file'),
+                subtitle: const Text('Tap to record their DBS certificate.'),
+                onTap: () => _editCertification(),
+              ),
+            ),
+          ..._certifications.map(_certificationCard),
+          const SizedBox(height: 8),
           Row(
             children: [
               _sectionHeader('Sickness'),
@@ -996,6 +1023,117 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _certificationCard(StaffCertification cert) {
+    final color = _trainingColor(cert.expiryStatus);
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withAlpha(30),
+          child: Picon(PiconsDuotone.identificationCard, color: color, size: 20),
+        ),
+        title: Text([
+          cert.certTypeDisplay,
+          if (cert.levelDisplay.isNotEmpty) cert.levelDisplay,
+        ].join(' · ')),
+        subtitle: Text([
+          if (cert.certificateNumber.isNotEmpty) 'No. ${cert.certificateNumber}',
+          if (cert.issueDate != null) 'Issued ${_formatDate(cert.issueDate!)}',
+          if (cert.renewalDate != null)
+            cert.expiryStatus == 'EXPIRED'
+                ? 'RECHECK OVERDUE ${_formatDate(cert.renewalDate!)}'
+                : 'Recheck ${_formatDate(cert.renewalDate!)}',
+          if (cert.onUpdateService) 'On Update Service',
+          if (cert.notes.isNotEmpty) cert.notes,
+        ].join(' · ')),
+        onTap: () => _editCertification(cert),
+        trailing: IconButton(
+          icon: const Picon(PiconsDuotone.trash, size: 20),
+          onPressed: () => _confirmDelete(
+            'Delete this ${cert.certTypeDisplay}?',
+            () => _dataService.deleteStaffCertification(cert.id),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Add (no [existing]) or edit a certification. DBS is the only type so
+  /// far, so there's no type picker yet — add one here with the next type.
+  Future<void> _editCertification([StaffCertification? existing]) async {
+    final number = TextEditingController(text: existing?.certificateNumber ?? '');
+    final notes = TextEditingController(text: existing?.notes ?? '');
+    String level = (existing != null && existing.level.isNotEmpty)
+        ? existing.level
+        : 'ENHANCED';
+    DateTime? issued = existing?.issueDate;
+    DateTime? recheck = existing?.renewalDate;
+    bool updateService = existing?.onUpdateService ?? false;
+
+    final saved = await _showFormSheet(
+      title: existing == null ? 'Add DBS check' : 'Edit DBS check',
+      builder: (context, setSheetState) => [
+        DropdownButtonFormField<String>(
+          initialValue: level,
+          decoration: const InputDecoration(labelText: 'Level'),
+          items: StaffCertification.dbsLevels.entries
+              .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+              .toList(),
+          onChanged: (v) => setSheetState(() => level = v ?? level),
+        ),
+        TextField(
+          controller: number,
+          decoration: const InputDecoration(labelText: 'Certificate number'),
+        ),
+        _datePickerTile(
+          label: 'Issued',
+          value: issued,
+          onPicked: (d) => setSheetState(() => issued = d),
+          allowClear: true,
+          onCleared: () => setSheetState(() => issued = null),
+        ),
+        _datePickerTile(
+          label: 'Recheck due (blank if not rechecked)',
+          value: recheck,
+          onPicked: (d) => setSheetState(() => recheck = d),
+          allowClear: true,
+          onCleared: () => setSheetState(() => recheck = null),
+        ),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('On the DBS Update Service'),
+          value: updateService,
+          onChanged: (v) => setSheetState(() => updateService = v),
+        ),
+        TextField(
+          controller: notes,
+          decoration: const InputDecoration(labelText: 'Notes'),
+        ),
+      ],
+    );
+    if (saved != true) return;
+    if (issued != null && recheck != null && recheck!.isBefore(issued!)) {
+      _snack('The recheck date can\'t be before the issue date.');
+      return;
+    }
+
+    final fields = <String, dynamic>{
+      'cert_type': 'DBS',
+      'level': level,
+      'certificate_number': number.text.trim(),
+      'issue_date': _isoOrNull(issued),
+      'renewal_date': _isoOrNull(recheck),
+      'on_update_service': updateService,
+      'notes': notes.text.trim(),
+    };
+    await _run(
+      () => existing == null
+          ? _dataService
+              .createStaffCertification({...fields, 'staff_member': widget.staffId})
+          : _dataService.updateStaffCertification(existing.id, fields),
+      'Failed to save DBS check',
     );
   }
 

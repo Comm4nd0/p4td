@@ -2317,6 +2317,20 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<ContactInquiry> markInquiryUnreplied(int inquiryId) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/$inquiryId/mark_unreplied/'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return ContactInquiry.fromJson(json.decode(response.body));
+    } else {
+      throw Exception('Failed to mark inquiry as not replied');
+    }
+  }
+
+  @override
   Future<void> deleteInquiry(int inquiryId) async {
     final headers = await _getHeaders();
     final response = await http.delete(
@@ -4223,6 +4237,21 @@ class ApiDataService implements DataService {
 
   @override
   Future<void> deleteStaffTrainingRecord(int id) => _staffHrDelete('/api/staff-training/$id/');
+
+  @override
+  Future<List<StaffCertification>> getStaffCertifications({int? staffId}) =>
+      _staffHrList('/api/staff-certifications/', StaffCertification.fromJson, staffId: staffId);
+
+  @override
+  Future<StaffCertification> createStaffCertification(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-certifications/', fields, StaffCertification.fromJson);
+
+  @override
+  Future<StaffCertification> updateStaffCertification(int id, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/staff-certifications/$id/', fields, StaffCertification.fromJson);
+
+  @override
+  Future<void> deleteStaffCertification(int id) => _staffHrDelete('/api/staff-certifications/$id/');
 
   // --- Safety & compliance register ---
 

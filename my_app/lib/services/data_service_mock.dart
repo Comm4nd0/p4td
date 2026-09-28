@@ -486,6 +486,8 @@ class MockDataService implements DataService {
   @override
   Future<ContactInquiry> markInquiryReplied(int inquiryId) async => throw UnimplementedError();
   @override
+  Future<ContactInquiry> markInquiryUnreplied(int inquiryId) async => throw UnimplementedError();
+  @override
   Future<void> deleteInquiry(int inquiryId) async {}
 
   // Closure Days
@@ -850,6 +852,16 @@ class MockDataService implements DataService {
       StaffTrainingRecord(id: 1, staffMemberId: 1, name: 'Canine First Aid');
   @override
   Future<void> deleteStaffTrainingRecord(int id) async {}
+  @override
+  Future<List<StaffCertification>> getStaffCertifications({int? staffId}) async => [];
+  @override
+  Future<StaffCertification> createStaffCertification(Map<String, dynamic> fields) async =>
+      StaffCertification(id: 1, staffMemberId: 1);
+  @override
+  Future<StaffCertification> updateStaffCertification(int id, Map<String, dynamic> fields) async =>
+      StaffCertification(id: id, staffMemberId: 1);
+  @override
+  Future<void> deleteStaffCertification(int id) async {}
 
   // --- Safety & compliance register ---
   @override

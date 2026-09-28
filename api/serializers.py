@@ -1842,7 +1842,7 @@ class IncidentSummarySerializer(serializers.ModelSerializer):
 
 from .models import (
     StaffHRRecord, StaffPayRate, StaffMeeting, StaffAppraisal,
-    SicknessAbsence, StaffTrainingRecord,
+    SicknessAbsence, StaffTrainingRecord, StaffCertification,
 )
 
 
@@ -1983,6 +1983,35 @@ class StaffTrainingRecordSerializer(serializers.ModelSerializer):
             'created_by', 'created_at',
         ]
         read_only_fields = ['id', 'staff_member_name', 'expiry_status', 'created_by', 'created_at']
+
+    def get_staff_member_name(self, obj):
+        return _display_name(obj.staff_member)
+
+
+class StaffCertificationSerializer(serializers.ModelSerializer):
+    staff_member_name = serializers.SerializerMethodField()
+    cert_type_display = serializers.CharField(source='get_cert_type_display', read_only=True)
+    level_display = serializers.CharField(source='get_level_display', read_only=True)
+    expiry_status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = StaffCertification
+        fields = [
+            'id', 'staff_member', 'staff_member_name', 'cert_type', 'cert_type_display',
+            'level', 'level_display', 'certificate_number', 'issue_date', 'renewal_date',
+            'on_update_service', 'expiry_status', 'notes', 'created_by', 'created_at',
+        ]
+        read_only_fields = [
+            'id', 'staff_member_name', 'cert_type_display', 'level_display',
+            'expiry_status', 'created_by', 'created_at',
+        ]
+
+    def validate(self, data):
+        issued = data.get('issue_date', getattr(self.instance, 'issue_date', None))
+        renew = data.get('renewal_date', getattr(self.instance, 'renewal_date', None))
+        if issued and renew and renew < issued:
+            raise serializers.ValidationError('renewal_date must be on or after issue_date.')
+        return data
 
     def get_staff_member_name(self, obj):
         return _display_name(obj.staff_member)

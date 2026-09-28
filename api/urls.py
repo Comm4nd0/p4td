@@ -11,6 +11,7 @@ from .views import (
     InvoiceViewSet, IncidentViewSet,
     StaffHRRecordViewSet, StaffPayRateViewSet, StaffMeetingViewSet,
     StaffAppraisalViewSet, SicknessAbsenceViewSet, StaffTrainingRecordViewSet,
+    StaffCertificationViewSet,
     ComplianceCheckTypeViewSet, ComplianceCheckLogViewSet,
     request_password_reset, verify_otp, reset_password, change_password, change_email,
     delete_account, postcode_lookup, daycare_settings, submit_contact_inquiry,
@@ -54,6 +55,7 @@ router.register(r'staff-meetings', StaffMeetingViewSet, basename='staff-meetings
 router.register(r'staff-appraisals', StaffAppraisalViewSet, basename='staff-appraisals')
 router.register(r'staff-absences', SicknessAbsenceViewSet, basename='staff-absences')
 router.register(r'staff-training', StaffTrainingRecordViewSet, basename='staff-training')
+router.register(r'staff-certifications', StaffCertificationViewSet, basename='staff-certifications')
 router.register(r'compliance-checks', ComplianceCheckTypeViewSet, basename='compliance-checks')
 router.register(r'compliance-logs', ComplianceCheckLogViewSet, basename='compliance-logs')
 

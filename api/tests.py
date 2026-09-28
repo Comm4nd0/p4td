@@ -6679,6 +6679,32 @@ class ContactInquiryEndpointTests(TestCase):
         self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_replied/')
         self.assertEqual(count(), 0)
 
+    def test_mark_unreplied_puts_enquiry_back_on_badge(self):
+        # Replies often go out by phone or from the business inbox, so staff
+        # mark by hand — and need to undo a mistaken press.
+        from website.models import ContactInquiry
+        from api.models import DogChangeLog
+        inquiry = ContactInquiry.objects.create(name='Sam', email='sam@example.com', service='daycare', message='Hi')
+        self.client.force_authenticate(self.viewer)
+        resp = self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_replied/')
+        self.assertTrue(resp.data['is_replied'])
+        resp = self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_unreplied/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['is_replied'])
+        self.assertTrue(resp.data['is_read'])
+        self.assertEqual(self.client.get('/api/contact-inquiries/unread_count/').data['count'], 1)
+        self.assertTrue(DogChangeLog.objects.filter(
+            category='COMMS', summary__contains='as not replied').exists())
+
+    def test_staff_without_permission_cannot_mark_unreplied(self):
+        from website.models import ContactInquiry
+        inquiry = ContactInquiry.objects.create(name='Sam', email='sam@example.com', service='daycare', message='Hi', is_replied=True)
+        self.client.force_authenticate(self.staff)
+        resp = self.client.post(f'/api/contact-inquiries/{inquiry.id}/mark_unreplied/')
+        self.assertEqual(resp.status_code, 403)
+        inquiry.refresh_from_db()
+        self.assertTrue(inquiry.is_replied)
+
 
 class PhotoUploadValidationTests(TestCase):
     """Photo.file is a FileField and /media/ is served unauthenticated straight
@@ -12011,7 +12037,7 @@ class StaffManagementTests(TestCase):
         self._login(self.owner)
         for url in ['/api/staff-hr/', '/api/staff-hr/team_overview/', '/api/staff-pay-rates/',
                     '/api/staff-meetings/', '/api/staff-appraisals/', '/api/staff-absences/',
-                    '/api/staff-training/']:
+                    '/api/staff-training/', '/api/staff-certifications/']:
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 403, url)
 
@@ -12200,6 +12226,66 @@ class StaffManagementTests(TestCase):
         }, format='json')
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['expiry_status'], 'EXPIRING')
+
+    # --- certifications (DBS) ---
+
+    def test_dbs_certification_crud_and_gating(self):
+        from .models import StaffCertification, DogChangeLog
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-certifications/', {
+            'staff_member': self.worker.id, 'cert_type': 'DBS', 'level': 'ENHANCED',
+            'certificate_number': '001234567890', 'issue_date': '2025-03-01',
+            'renewal_date': (timezone.localdate() + timedelta(days=30)).isoformat(),
+            'on_update_service': True,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['cert_type_display'], 'DBS check')
+        self.assertEqual(resp.data['level_display'], 'Enhanced')
+        self.assertEqual(resp.data['expiry_status'], 'EXPIRING')
+        cert_id = resp.data['id']
+
+        # Logged under STAFF, without the certificate number.
+        entry = DogChangeLog.objects.filter(category='STAFF', action='CREATED').latest('id')
+        self.assertIn('DBS check (Enhanced)', entry.summary)
+        self.assertNotIn('001234567890', entry.summary)
+        resp = self.client.patch(f'/api/staff-certifications/{cert_id}/',
+                                 {'certificate_number': '999'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DogChangeLog.objects.filter(summary__contains='999').exists())
+
+        # A recheck date before the issue date is refused.
+        resp = self.client.patch(f'/api/staff-certifications/{cert_id}/',
+                                 {'renewal_date': '2025-01-01'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+        other = User.objects.create_user(username='other3', password='pw', is_staff=True)
+        StaffCertification.objects.create(staff_member=other, cert_type='DBS', level='BASIC')
+
+        # Staff read only their own and cannot write.
+        self._login(self.worker)
+        resp = self.client.get('/api/staff-certifications/')
+        self.assertEqual([r['id'] for r in resp.data], [cert_id])
+        resp = self.client.post('/api/staff-certifications/', {
+            'staff_member': self.worker.id, 'cert_type': 'DBS',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/staff-certifications/{cert_id}/').status_code, 403)
+
+        self._login(self.owner)
+        self.assertEqual(self.client.get('/api/staff-certifications/').status_code, 403)
+
+    def test_team_overview_flags_missing_and_expiring_dbs(self):
+        from .models import StaffCertification
+        self._login(self.manager)
+        row = lambda: next(r for r in self.client.get('/api/staff-hr/team_overview/').data
+                           if r['username'] == 'worker')
+        self.assertEqual(row()['missing_certifications'], ['DBS'])
+        self.assertEqual(row()['certifications_expiring'], 0)
+        StaffCertification.objects.create(
+            staff_member=self.worker, cert_type='DBS', level='ENHANCED',
+            renewal_date=timezone.localdate() - timedelta(days=1))
+        self.assertEqual(row()['missing_certifications'], [])
+        self.assertEqual(row()['certifications_expiring'], 1)
 
     # --- team overview ---
 

@@ -128,13 +128,13 @@ class ServicePricingAdmin(admin.ModelAdmin):
 
 @admin.register(ContactInquiry)
 class ContactInquiryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'email', 'service_display', 'read_display', 'created_at')
-    list_filter = ('service', 'is_read', 'created_at')
+    list_display = ('name', 'email', 'service_display', 'read_display', 'is_replied', 'created_at')
+    list_filter = ('service', 'is_read', 'is_replied', 'created_at')
     search_fields = ('name', 'email', 'message')
     readonly_fields = ('name', 'email', 'service', 'message', 'created_at')
     list_per_page = 20
     ordering = ['-created_at']
-    actions = ['mark_as_read']
+    actions = ['mark_as_read', 'mark_as_replied', 'mark_as_not_replied']
 
     def service_display(self, obj):
         return obj.get_service_display()
@@ -152,6 +152,16 @@ class ContactInquiryAdmin(admin.ModelAdmin):
         updated = queryset.update(is_read=True)
         self.message_user(request, f'{updated} inquiry(ies) marked as read.')
     mark_as_read.short_description = 'Mark selected as read'
+
+    def mark_as_replied(self, request, queryset):
+        updated = queryset.update(is_replied=True, is_read=True)
+        self.message_user(request, f'{updated} inquiry(ies) marked as replied.')
+    mark_as_replied.short_description = 'Mark selected as replied'
+
+    def mark_as_not_replied(self, request, queryset):
+        updated = queryset.update(is_replied=False)
+        self.message_user(request, f'{updated} inquiry(ies) marked as not replied.')
+    mark_as_not_replied.short_description = 'Mark selected as not replied'
 
     def has_add_permission(self, request):
         return False

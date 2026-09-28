@@ -56,6 +56,34 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
     }
   }
 
+  /// Replies often go out by phone, text or from the business inbox rather
+  /// than through Reply via Email, so staff mark the enquiry by hand — and
+  /// can undo it. Only this clears the Website Inquiries badge.
+  Future<void> _toggleRepliedStatus() async {
+    final wasReplied = _isReplied;
+    try {
+      if (wasReplied) {
+        await _dataService.markInquiryUnreplied(widget.inquiry.id);
+      } else {
+        await _dataService.markInquiryReplied(widget.inquiry.id);
+      }
+      if (!mounted) return;
+      setState(() {
+        _isReplied = !wasReplied;
+        if (_isReplied) _isRead = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(wasReplied ? 'Marked as not replied' : 'Marked as replied')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update status: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _replyViaEmail() async {
     final inquiry = widget.inquiry;
     final subject = Uri.encodeComponent(
@@ -283,6 +311,26 @@ class _InquiryDetailScreenState extends State<InquiryDetailScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _toggleRepliedStatus,
+                icon: Picon(_isReplied ? PiconsDuotone.arrowClockwise : PiconsDuotone.checkCircle),
+                label: Text(_isReplied ? 'Mark as Not Replied' : 'Mark as Replied'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+            if (!_isReplied) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Already answered by phone, text or another inbox? Mark it as replied to clear it from the badge.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ],
         ),
       )),

@@ -304,6 +304,62 @@ class StaffTrainingRecord {
       );
 }
 
+/// A certification or background check (`/api/staff-certifications/`) — a
+/// DBS check first. No scan is stored, only what evidences the check.
+class StaffCertification {
+  final int id;
+  final int staffMemberId;
+  final String certType; // DBS
+  final String certTypeDisplay;
+  final String level; // BASIC | STANDARD | ENHANCED | ENHANCED_BARRED | ''
+  final String levelDisplay;
+  final String certificateNumber;
+  final DateTime? issueDate;
+  final DateTime? renewalDate;
+  final bool onUpdateService;
+  final String expiryStatus; // VALID | EXPIRING | EXPIRED | NONE
+  final String notes;
+
+  StaffCertification({
+    required this.id,
+    required this.staffMemberId,
+    this.certType = 'DBS',
+    this.certTypeDisplay = 'DBS check',
+    this.level = '',
+    this.levelDisplay = '',
+    this.certificateNumber = '',
+    this.issueDate,
+    this.renewalDate,
+    this.onUpdateService = false,
+    this.expiryStatus = 'NONE',
+    this.notes = '',
+  });
+
+  /// Choices the API accepts, in the order the form offers them.
+  static const Map<String, String> dbsLevels = {
+    'BASIC': 'Basic',
+    'STANDARD': 'Standard',
+    'ENHANCED': 'Enhanced',
+    'ENHANCED_BARRED': 'Enhanced with barred list(s)',
+  };
+
+  factory StaffCertification.fromJson(Map<String, dynamic> json) =>
+      StaffCertification(
+        id: json['id'],
+        staffMemberId: _int(json['staff_member']),
+        certType: json['cert_type'] ?? 'DBS',
+        certTypeDisplay: json['cert_type_display'] ?? 'DBS check',
+        level: json['level'] ?? '',
+        levelDisplay: json['level_display'] ?? '',
+        certificateNumber: json['certificate_number'] ?? '',
+        issueDate: _date(json['issue_date']),
+        renewalDate: _date(json['renewal_date']),
+        onUpdateService: json['on_update_service'] ?? false,
+        expiryStatus: json['expiry_status'] ?? 'NONE',
+        notes: json['notes'] ?? '',
+      );
+}
+
 /// One row of `GET /api/staff-hr/team_overview/` — everything the staff
 /// management list screen shows per person.
 class TeamMemberOverview {
@@ -320,6 +376,9 @@ class TeamMemberOverview {
   final int pendingDayOffRequests;
   final bool offSickToday;
   final int trainingExpiring;
+  final int certificationsExpiring;
+  /// Required certification types with nothing on file, e.g. `['DBS']`.
+  final List<String> missingCertifications;
   final DateTime? lastAppraisalDate;
   final DateTime? nextReviewDate;
   final String? nextMeetingTitle;
@@ -339,6 +398,8 @@ class TeamMemberOverview {
     this.pendingDayOffRequests = 0,
     this.offSickToday = false,
     this.trainingExpiring = 0,
+    this.certificationsExpiring = 0,
+    this.missingCertifications = const [],
     this.lastAppraisalDate,
     this.nextReviewDate,
     this.nextMeetingTitle,
@@ -363,6 +424,12 @@ class TeamMemberOverview {
       pendingDayOffRequests: (json['pending_day_off_requests'] as num?)?.toInt() ?? 0,
       offSickToday: json['off_sick_today'] ?? false,
       trainingExpiring: (json['training_expiring'] as num?)?.toInt() ?? 0,
+      certificationsExpiring:
+          (json['certifications_expiring'] as num?)?.toInt() ?? 0,
+      missingCertifications: (json['missing_certifications'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
       lastAppraisalDate: _date(json['last_appraisal_date']),
       nextReviewDate: _date(json['next_review_date']),
       nextMeetingTitle: meeting != null ? meeting['title'] : null,

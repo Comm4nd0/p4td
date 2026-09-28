@@ -186,6 +186,7 @@ abstract class DataService {
   Future<ContactInquiry> markInquiryRead(int inquiryId);
   Future<ContactInquiry> markInquiryUnread(int inquiryId);
   Future<ContactInquiry> markInquiryReplied(int inquiryId);
+  Future<ContactInquiry> markInquiryUnreplied(int inquiryId);
   Future<void> deleteInquiry(int inquiryId);
   Future<int> getUnreadInquiryCount();
 
@@ -420,6 +421,10 @@ abstract class DataService {
   Future<List<StaffTrainingRecord>> getStaffTrainingRecords({int? staffId});
   Future<StaffTrainingRecord> createStaffTrainingRecord(Map<String, dynamic> fields);
   Future<void> deleteStaffTrainingRecord(int id);
+  Future<List<StaffCertification>> getStaffCertifications({int? staffId});
+  Future<StaffCertification> createStaffCertification(Map<String, dynamic> fields);
+  Future<StaffCertification> updateStaffCertification(int id, Map<String, dynamic> fields);
+  Future<void> deleteStaffCertification(int id);
 
   // --- Safety & compliance register ---
   Future<List<ComplianceCheck>> getComplianceChecks({bool includeInactive = false});

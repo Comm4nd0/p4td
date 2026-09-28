@@ -19,7 +19,9 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
   final DataService _dataService = getIt<DataService>();
   List<ContactInquiry> _inquiries = [];
   bool _loading = true;
-  String _filter = 'UNREAD';
+  // Matches the Website Inquiries badge: an enquiry stays here until someone
+  // marks it replied, however it was answered.
+  String _filter = 'AWAITING';
 
   @override
   void initState() {
@@ -51,7 +53,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
 
   List<ContactInquiry> get _filteredInquiries {
     if (_filter == 'ALL') return _inquiries;
-    return _inquiries.where((i) => !i.isRead).toList();
+    return _inquiries.where((i) => !i.isReplied).toList();
   }
 
   @override
@@ -67,7 +69,7 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
             padding: const EdgeInsets.all(8),
             child: Row(
               children: [
-                _buildFilterChip('UNREAD', 'Unread'),
+                _buildFilterChip('AWAITING', 'Awaiting Reply'),
                 const SizedBox(width: 8),
                 _buildFilterChip('ALL', 'All'),
               ],
@@ -91,8 +93,8 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
                                       Picon(PiconsDuotone.envelope, size: 64, color: Colors.grey[400]),
                                       const SizedBox(height: 16),
                                       Text(
-                                        _filter == 'UNREAD'
-                                            ? 'No unread inquiries'
+                                        _filter == 'AWAITING'
+                                            ? 'No inquiries awaiting a reply'
                                             : 'No website inquiries yet',
                                         style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                                       ),
@@ -141,11 +143,60 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
     }
   }
 
+  Future<void> _toggleReplied(ContactInquiry inquiry) async {
+    try {
+      final updated = inquiry.isReplied
+          ? await _dataService.markInquiryUnreplied(inquiry.id)
+          : await _dataService.markInquiryReplied(inquiry.id);
+      if (!mounted) return;
+      setState(() {
+        final i = _inquiries.indexWhere((x) => x.id == inquiry.id);
+        if (i != -1) _inquiries[i] = updated;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(updated.isReplied
+            ? 'Marked ${inquiry.name} as replied'
+            : 'Marked ${inquiry.name} as not replied')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update status: $e')),
+        );
+      }
+    }
+  }
+
   Widget _buildInquiryCard(ContactInquiry inquiry) {
     return Dismissible(
       key: ValueKey(inquiry.id),
-      direction: DismissDirection.endToStart,
+      // Swipe right toggles replied (for replies sent by phone or another
+      // inbox); swipe left deletes.
+      direction: DismissDirection.horizontal,
       background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 24),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          color: inquiry.isReplied ? Colors.orange : Colors.green,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Picon(
+              inquiry.isReplied ? PiconsDuotone.arrowClockwise : PiconsDuotone.checkCircle,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              inquiry.isReplied ? 'Not replied' : 'Replied',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+      secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -155,7 +206,12 @@ class _InquiryListScreenState extends State<InquiryListScreen> {
         ),
         child: Picon(PiconsDuotone.trash, color: Colors.white),
       ),
-      confirmDismiss: (_) async {
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // Never dismiss: the card stays (or drops out of the filter on rebuild).
+          await _toggleReplied(inquiry);
+          return false;
+        }
         return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(

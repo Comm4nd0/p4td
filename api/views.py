@@ -5425,6 +5425,16 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
         self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as replied')
         return Response(ContactInquirySerializer(inquiry).data)
 
+    @action(detail=True, methods=['post'])
+    def mark_unreplied(self, request, pk=None):
+        """Undo a Mark as replied pressed by mistake — the enquiry goes back
+        on the badge. Leaves ``is_read`` alone: it has still been opened."""
+        inquiry = self.get_object()
+        inquiry.is_replied = False
+        inquiry.save()
+        self._log(inquiry, 'STATUS', f'Marked the website enquiry from {inquiry.name} as not replied')
+        return Response(ContactInquirySerializer(inquiry).data)
+
     @action(detail=False, methods=['get'])
     def unread_count(self, request):
         """Enquiries nobody has replied to yet — the Website Inquiries badge.
@@ -7530,11 +7540,11 @@ class StaffHRRecordViewSet(ActivityLogMixin,
     @action(detail=False, methods=['get'])
     def team_overview(self, request):
         """One row per staff member with everything the management screen's
-        list needs: pay, holiday, sickness, meetings, appraisal and training
-        status. The P4TD house account is skipped — it isn't an employee."""
+        list needs: pay, holiday, sickness, meetings, appraisal, training
+        and certification (DBS) status. The P4TD house account is skipped — it isn't an employee."""
         from .models import (
             StaffHRRecord, SicknessAbsence, StaffAppraisal, StaffMeeting,
-            StaffTrainingRecord, DayOffRequest,
+            StaffTrainingRecord, DayOffRequest, StaffCertification,
         )
         from .scheduling import HOUSE_STAFF_USERNAME
         from django.db.models import Count, Q
@@ -7572,6 +7582,17 @@ class StaffHRRecordViewSet(ActivityLogMixin,
                 expiry_date__lte=today + timezone.timedelta(days=60),
             ).values_list('staff_member').annotate(n=Count('id'))
         )
+        certs_expiring = dict(
+            StaffCertification.objects.filter(
+                staff_member__in=staff,
+                renewal_date__isnull=False,
+                renewal_date__lte=today + timezone.timedelta(days=60),
+            ).values_list('staff_member').annotate(n=Count('id'))
+        )
+        held_certs = {}
+        for staff_id, cert_type in StaffCertification.objects.filter(
+                staff_member__in=staff).values_list('staff_member_id', 'cert_type'):
+            held_certs.setdefault(staff_id, set()).add(cert_type)
         latest_appraisals = {}
         for a in StaffAppraisal.objects.filter(staff_member__in=staff).order_by('appraisal_date'):
             latest_appraisals[a.staff_member_id] = a
@@ -7612,6 +7633,12 @@ class StaffHRRecordViewSet(ActivityLogMixin,
                 'pending_day_off_requests': pending_requests.get(s.id, 0),
                 'off_sick_today': s.id in off_sick,
                 'training_expiring': expiring.get(s.id, 0),
+                'certifications_expiring': certs_expiring.get(s.id, 0),
+                # Required types (DBS) this person has nothing on file for.
+                'missing_certifications': [
+                    t for t in StaffCertification.REQUIRED_TYPES
+                    if t not in held_certs.get(s.id, ())
+                ],
                 'last_appraisal_date': appraisal.appraisal_date if appraisal else None,
                 'next_review_date': appraisal.next_review_date if appraisal else None,
                 'next_meeting': {
@@ -7859,6 +7886,50 @@ class StaffTrainingRecordViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         record = serializer.save(created_by=self.request.user)
         self.log_created(record, f"Recorded training for {person(record.staff_member)}: {record.name}"
                                  + (f' (expires {_uk(record.expiry_date)})' if record.expiry_date else ''))
+
+
+class StaffCertificationViewSet(ActivityLogMixin, viewsets.ModelViewSet):
+    """Certifications and checks (DBS). Managers manage all; staff can read
+    their own. The certificate number is deliberately left out of the
+    activity diff — the log is wider-read than the record."""
+
+    permission_classes = [IsAdminUser]
+    activity_category = 'STAFF'
+    activity_noun = 'certification for'
+    activity_fields = {
+        'cert_type': 'Type', 'level': 'Level', 'issue_date': 'Issued',
+        'renewal_date': 'Recheck due', 'on_update_service': 'Update Service', 'notes': 'Notes',
+    }
+
+    def activity_subject(self, obj):
+        return person(obj.staff_member)
+
+    def get_permissions(self):
+        if self.request.method not in SAFE_METHODS:
+            return [IsStaffManager()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        from .models import StaffCertification
+        qs = StaffCertification.objects.select_related('staff_member', 'created_by')
+        if not _is_staff_manager(self.request.user):
+            qs = qs.filter(staff_member=self.request.user)
+        staff_id = self.request.query_params.get('staff_member')
+        if staff_id:
+            qs = qs.filter(staff_member_id=staff_id)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import StaffCertificationSerializer
+        return StaffCertificationSerializer
+
+    def perform_create(self, serializer):
+        cert = serializer.save(created_by=self.request.user)
+        label = cert.get_cert_type_display()
+        if cert.level:
+            label += f' ({cert.get_level_display()})'
+        self.log_created(cert, f"Recorded {label} for {person(cert.staff_member)}"
+                               + (f' issued {_uk(cert.issue_date)}' if cert.issue_date else ''))
 
 
 # --- Safety & compliance register ---
