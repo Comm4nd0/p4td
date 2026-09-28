@@ -2362,6 +2362,63 @@ class StaffTrainingRecord(models.Model):
         return f"{self.name} — {self.staff_member.username}"
 
 
+class StaffCertification(models.Model):
+    """A certification or background check held by a staff member — a DBS
+    check first. Kept apart from ``StaffTrainingRecord`` because a check is
+    evidence about the person rather than a course, has its own level and
+    reference number, and the business expects everyone to hold one:
+    ``REQUIRED_TYPES`` are flagged on the team overview while missing.
+
+    No scan of the certificate is stored. A DBS certificate is criminal
+    records data; the number, level and dates are what an employer needs to
+    evidence the check, and nothing here has to be protected as a file.
+    Add the next type to ``CERT_TYPES`` (and to ``REQUIRED_TYPES`` if every
+    staff member must hold it)."""
+
+    CERT_TYPES = [
+        ('DBS', 'DBS check'),
+    ]
+    REQUIRED_TYPES = ('DBS',)
+    DBS_LEVELS = [
+        ('BASIC', 'Basic'),
+        ('STANDARD', 'Standard'),
+        ('ENHANCED', 'Enhanced'),
+        ('ENHANCED_BARRED', 'Enhanced with barred list(s)'),
+    ]
+
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='certifications')
+    cert_type = models.CharField(max_length=20, choices=CERT_TYPES, default='DBS')
+    level = models.CharField(max_length=20, choices=DBS_LEVELS, blank=True, default='')
+    certificate_number = models.CharField(max_length=50, blank=True, default='')
+    issue_date = models.DateField(null=True, blank=True)
+    renewal_date = models.DateField(
+        null=True, blank=True,
+        help_text='When it should be rechecked. A DBS certificate never expires itself; blank if not rechecked.')
+    on_update_service = models.BooleanField(
+        default=False, help_text='Subscribed to the DBS Update Service, so it can be status-checked online.')
+    notes = models.CharField(max_length=300, blank=True, default='')
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='certifications_added')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['cert_type', '-issue_date', '-id']
+
+    @property
+    def expiry_status(self):
+        """VALID, EXPIRING (recheck within 60 days), EXPIRED, or NONE (no recheck date)."""
+        if not self.renewal_date:
+            return 'NONE'
+        today = timezone.localdate()
+        if self.renewal_date < today:
+            return 'EXPIRED'
+        if self.renewal_date <= today + timezone.timedelta(days=60):
+            return 'EXPIRING'
+        return 'VALID'
+
+    def __str__(self):
+        return f"{self.get_cert_type_display()} — {self.staff_member.username}"
+
+
 # --- Staff management notifications ---
 
 @receiver(models.signals.m2m_changed, sender=StaffMeeting.attendees.through)

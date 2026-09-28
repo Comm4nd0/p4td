@@ -4238,6 +4238,21 @@ class ApiDataService implements DataService {
   @override
   Future<void> deleteStaffTrainingRecord(int id) => _staffHrDelete('/api/staff-training/$id/');
 
+  @override
+  Future<List<StaffCertification>> getStaffCertifications({int? staffId}) =>
+      _staffHrList('/api/staff-certifications/', StaffCertification.fromJson, staffId: staffId);
+
+  @override
+  Future<StaffCertification> createStaffCertification(Map<String, dynamic> fields) =>
+      _staffHrWrite('POST', '/api/staff-certifications/', fields, StaffCertification.fromJson);
+
+  @override
+  Future<StaffCertification> updateStaffCertification(int id, Map<String, dynamic> fields) =>
+      _staffHrWrite('PATCH', '/api/staff-certifications/$id/', fields, StaffCertification.fromJson);
+
+  @override
+  Future<void> deleteStaffCertification(int id) => _staffHrDelete('/api/staff-certifications/$id/');
+
   // --- Safety & compliance register ---
 
   @override

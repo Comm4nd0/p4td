@@ -118,6 +118,18 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           ),
         if (member.offSickToday)
           _chip('Off sick', AppColors.error, PiconsDuotone.firstAidKit),
+        for (final type in member.missingCertifications)
+          _chip(
+            type == 'DBS' ? 'No DBS' : 'No $type',
+            AppColors.error,
+            PiconsDuotone.identificationCard,
+          ),
+        if (member.certificationsExpiring > 0)
+          _chip(
+            'Recheck due',
+            AppColors.warning,
+            PiconsDuotone.identificationCard,
+          ),
         if (member.trainingExpiring > 0)
           _chip(
             'Training expiring',

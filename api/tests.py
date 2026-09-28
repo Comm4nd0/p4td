@@ -12037,7 +12037,7 @@ class StaffManagementTests(TestCase):
         self._login(self.owner)
         for url in ['/api/staff-hr/', '/api/staff-hr/team_overview/', '/api/staff-pay-rates/',
                     '/api/staff-meetings/', '/api/staff-appraisals/', '/api/staff-absences/',
-                    '/api/staff-training/']:
+                    '/api/staff-training/', '/api/staff-certifications/']:
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 403, url)
 
@@ -12226,6 +12226,66 @@ class StaffManagementTests(TestCase):
         }, format='json')
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['expiry_status'], 'EXPIRING')
+
+    # --- certifications (DBS) ---
+
+    def test_dbs_certification_crud_and_gating(self):
+        from .models import StaffCertification, DogChangeLog
+        self._login(self.manager)
+        resp = self.client.post('/api/staff-certifications/', {
+            'staff_member': self.worker.id, 'cert_type': 'DBS', 'level': 'ENHANCED',
+            'certificate_number': '001234567890', 'issue_date': '2025-03-01',
+            'renewal_date': (timezone.localdate() + timedelta(days=30)).isoformat(),
+            'on_update_service': True,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['cert_type_display'], 'DBS check')
+        self.assertEqual(resp.data['level_display'], 'Enhanced')
+        self.assertEqual(resp.data['expiry_status'], 'EXPIRING')
+        cert_id = resp.data['id']
+
+        # Logged under STAFF, without the certificate number.
+        entry = DogChangeLog.objects.filter(category='STAFF', action='CREATED').latest('id')
+        self.assertIn('DBS check (Enhanced)', entry.summary)
+        self.assertNotIn('001234567890', entry.summary)
+        resp = self.client.patch(f'/api/staff-certifications/{cert_id}/',
+                                 {'certificate_number': '999'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(DogChangeLog.objects.filter(summary__contains='999').exists())
+
+        # A recheck date before the issue date is refused.
+        resp = self.client.patch(f'/api/staff-certifications/{cert_id}/',
+                                 {'renewal_date': '2025-01-01'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+        other = User.objects.create_user(username='other3', password='pw', is_staff=True)
+        StaffCertification.objects.create(staff_member=other, cert_type='DBS', level='BASIC')
+
+        # Staff read only their own and cannot write.
+        self._login(self.worker)
+        resp = self.client.get('/api/staff-certifications/')
+        self.assertEqual([r['id'] for r in resp.data], [cert_id])
+        resp = self.client.post('/api/staff-certifications/', {
+            'staff_member': self.worker.id, 'cert_type': 'DBS',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/staff-certifications/{cert_id}/').status_code, 403)
+
+        self._login(self.owner)
+        self.assertEqual(self.client.get('/api/staff-certifications/').status_code, 403)
+
+    def test_team_overview_flags_missing_and_expiring_dbs(self):
+        from .models import StaffCertification
+        self._login(self.manager)
+        row = lambda: next(r for r in self.client.get('/api/staff-hr/team_overview/').data
+                           if r['username'] == 'worker')
+        self.assertEqual(row()['missing_certifications'], ['DBS'])
+        self.assertEqual(row()['certifications_expiring'], 0)
+        StaffCertification.objects.create(
+            staff_member=self.worker, cert_type='DBS', level='ENHANCED',
+            renewal_date=timezone.localdate() - timedelta(days=1))
+        self.assertEqual(row()['missing_certifications'], [])
+        self.assertEqual(row()['certifications_expiring'], 1)
 
     # --- team overview ---
 

@@ -1306,7 +1306,7 @@ class IncidentAdmin(admin.ModelAdmin):
 
 from .models import (
     StaffHRRecord, StaffPayRate, StaffMeeting, StaffAppraisal,
-    SicknessAbsence, StaffTrainingRecord,
+    SicknessAbsence, StaffTrainingRecord, StaffCertification,
 )
 
 
@@ -1348,6 +1348,13 @@ class SicknessAbsenceAdmin(admin.ModelAdmin):
 class StaffTrainingRecordAdmin(admin.ModelAdmin):
     list_display = ('staff_member', 'name', 'completed_date', 'expiry_date')
     search_fields = ('staff_member__username', 'staff_member__first_name', 'name')
+
+
+@admin.register(StaffCertification)
+class StaffCertificationAdmin(admin.ModelAdmin):
+    list_display = ('staff_member', 'cert_type', 'level', 'issue_date', 'renewal_date', 'on_update_service')
+    list_filter = ('cert_type', 'level', 'on_update_service')
+    search_fields = ('staff_member__username', 'staff_member__first_name', 'certificate_number')
 
 
 # --- Safety & compliance register ---
