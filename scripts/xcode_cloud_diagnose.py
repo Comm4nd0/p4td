@@ -114,6 +114,26 @@ if not products or not products.get("data"):
 for product in products["data"]:
     print(f"\n=== Product: {attr(product, 'name')} ({product['id']}) ===")
 
+    # Why a push started nothing: each workflow's enabled flag and what
+    # starts it, and whether Xcode Cloud can still see the repository.
+    workflows = get(f"/v1/ciProducts/{product['id']}/workflows?limit=50") or {}
+    for wf in workflows.get("data", []):
+        branch = attr(wf, "branchStartCondition") or {}
+        print(f"  workflow '{attr(wf, 'name')}': "
+              f"{'enabled' if attr(wf, 'isEnabled') else 'DISABLED'}, "
+              f"locked={attr(wf, 'isLockedForEditing')}, modified {attr(wf, 'lastModifiedDate')}, "
+              f"branch start={json.dumps(branch.get('source')) if branch else 'none'}, "
+              f"auto-cancel={branch.get('autoCancel') if branch else ''}, "
+              f"tag start={'yes' if attr(wf, 'tagStartCondition') else 'no'}")
+    repos = get(f"/v1/ciProducts/{product['id']}/primaryRepositories") or {}
+    for repo in repos.get("data", []):
+        print(f"  repository {attr(repo, 'ownerName')}/{attr(repo, 'repositoryName')} "
+              f"({attr(repo, 'httpCloneUrl')}), last accessed {attr(repo, 'lastAccessedDate')}")
+        refs = get(f"/v1/scmRepositories/{repo['id']}/gitReferences?limit=200") or {}
+        mains = [r for r in refs.get("data", []) if attr(r, 'kind') == 'BRANCH']
+        print(f"    branches Xcode Cloud sees: {', '.join(attr(r, 'name') for r in mains) or 'none'}"
+              f"{'' if refs else ' (gitReferences call failed)'}")
+
     runs = get(f"/v1/ciProducts/{product['id']}/buildRuns?sort=-number&limit={RUNS_TO_INSPECT}")
     if runs is None:
         # Some API versions reject the sort param; fall back to client-side.
