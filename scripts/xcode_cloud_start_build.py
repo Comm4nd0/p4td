@@ -29,7 +29,12 @@ import urllib.request
 import jwt  # PyJWT
 
 API = "https://api.appstoreconnect.apple.com"
-TAG = os.environ["TAG"]
+TAG = os.environ.get("TAG", "")
+# BRANCH instead of TAG builds a branch head (e.g. main when a push started nothing).
+BRANCH = os.environ.get("BRANCH", "")
+if bool(TAG) == bool(BRANCH):
+    sys.exit("Set exactly one of TAG or BRANCH.")
+REF_KIND, REF_NAME = ("TAG", TAG) if TAG else ("BRANCH", BRANCH)
 COMMIT_SHA = (os.environ.get("COMMIT_SHA") or "").lower()
 WORKFLOW_MATCH = os.environ.get("XCODE_CLOUD_WORKFLOW", "production").lower()
 REF_WAIT_SECONDS = int(os.environ.get("REF_WAIT_SECONDS", "300"))
@@ -131,14 +136,14 @@ deadline = time.time() + REF_WAIT_SECONDS
 ref = None
 while ref is None:
     for candidate in paged(f"/v1/scmRepositories/{repo['id']}/gitReferences?limit=200"):
-        if attr(candidate, "kind") == "TAG" and attr(candidate, "name") == TAG and not attr(candidate, "isDeleted"):
+        if attr(candidate, "kind") == REF_KIND and attr(candidate, "name") == REF_NAME and not attr(candidate, "isDeleted"):
             ref = candidate
             break
     if ref is None:
         if time.time() > deadline:
-            sys.exit(f"Xcode Cloud cannot see tag {TAG} in {attr(repo, 'ownerName')}/{attr(repo, 'repositoryName')} "
+            sys.exit(f"Xcode Cloud cannot see {REF_KIND.lower()} {REF_NAME} in {attr(repo, 'ownerName')}/{attr(repo, 'repositoryName')} "
                      f"after {REF_WAIT_SECONDS}s. Is it pushed?")
-        print(f"Tag {TAG} not visible to Xcode Cloud yet; waiting…")
+        print(f"{REF_KIND.title()} {REF_NAME} not visible to Xcode Cloud yet; waiting…")
         time.sleep(20)
 
 # 4. Start it.
@@ -153,7 +158,7 @@ created = call("POST", "/v1/ciBuildRuns", {
     },
 })
 run = created["data"]
-print(f"Started build {attr(run, 'number')} of '{attr(workflow, 'name')}' for {TAG} "
+print(f"Started build {attr(run, 'number')} of '{attr(workflow, 'name')}' for {REF_NAME} "
       f"({attr(run, 'executionProgress')}).")
 set_output("build_number", attr(run, "number"))
 set_output("started", "true")

@@ -13,7 +13,10 @@ on:
     inputs:
       tag:
         description: "The tag to build (e.g. v1.12.43)"
-        required: true
+        required: false
+      branch:
+        description: "Or a branch to build instead (e.g. main, when a push started nothing)"
+        required: false
 
 jobs:
   start:
@@ -33,6 +36,13 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           TAG: ${{ inputs.tag }}
+          BRANCH: ${{ inputs.branch }}
         run: |
-          git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG"
-          COMMIT_SHA="$(git rev-parse "$TAG^{commit}")" python3 scripts/xcode_cloud_start_build.py
+          if [ -n "$TAG" ]; then
+            git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG"
+            COMMIT_SHA="$(git rev-parse "$TAG^{commit}")"
+          else
+            git fetch --quiet origin "$BRANCH"
+            COMMIT_SHA="$(git rev-parse FETCH_HEAD)"
+          fi
+          COMMIT_SHA="$COMMIT_SHA" python3 scripts/xcode_cloud_start_build.py
