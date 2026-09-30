@@ -285,7 +285,7 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
   }
 
   /// A day of the week strip: a dot per dog booked in (teal for daycare,
-  /// purple for boarding), an amber dot for a request still waiting, and the
+  /// bright teal for an extra day, purple for boarding), an amber dot for a request still waiting, and the
   /// day's closure or "full" state in place of the dots.
   Widget _chip(DateTime date) {
     final info = widget.dayFor(date);
@@ -311,7 +311,7 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
       marker = Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          for (final d in dogs) _dot(d.boarding ? Colors.deepPurple : AppColors.primary),
+          for (final d in dogs) _dot(calendarEntryColor(d)),
           if (pending) _dot(AppColors.warning),
         ],
       );
@@ -363,7 +363,8 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
     if (info == null) return const [];
     return [
       if (info.closure != null) AppColors.error,
-      if (info.dogs.any((d) => !d.boarding)) AppColors.primary,
+      if (info.dogs.any((d) => !d.boarding && !d.extra)) AppColors.primary,
+      if (info.dogs.any((d) => d.extra)) AppColors.extraDay,
       if (info.dogs.any((d) => d.boarding)) Colors.deepPurple,
       if (info.pendingRequests.isNotEmpty) AppColors.warning,
     ];
@@ -520,9 +521,9 @@ class _DayPanel extends StatelessWidget {
       for (final dog in info.dogs) {
         rows.add(_row(context,
             icon: dog.boarding ? PiconsDuotone.bed : PiconsDuotone.pawPrint,
-            color: dog.boarding ? Colors.deepPurple : AppColors.primary,
+            color: calendarEntryColor(dog),
             title: dog.name,
-            subtitle: dog.boarding ? 'Boarding' : 'Daycare'));
+            subtitle: dog.describe(day)));
       }
       for (final request in info.pendingRequests) {
         final label = switch (request.requestType) {
@@ -610,3 +611,11 @@ class _DayPanel extends StatelessWidget {
     );
   }
 }
+
+/// A dog's colour on the owner calendars: purple boarding, bright teal for an
+/// extra day, brand teal for a regular daycare day.
+Color calendarEntryColor(CalendarDogEntry dog) => dog.boarding
+    ? Colors.deepPurple
+    : dog.extra
+        ? AppColors.extraDay
+        : AppColors.primary;

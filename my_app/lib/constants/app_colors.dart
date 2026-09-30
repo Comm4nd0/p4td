@@ -46,6 +46,10 @@ class AppColors {
   static const Color warning = Color(0xFFEF6C00); // orange
   static const Color info = Color(0xFF165144); // brand teal (replaces blue)
 
+  /// Extra days booked on top of a dog's regular weekdays, on every calendar.
+  /// A bright teal, well clear of the deep brand teal used for daycare.
+  static const Color extraDay = Color(0xFF00A5B5);
+
   // ── Neutral greys ──────────────────────────────────────────────────
   static const Color grey100 = Color(0xFFF5F5F5);
   static const Color grey200 = Color(0xFFEEEEEE);

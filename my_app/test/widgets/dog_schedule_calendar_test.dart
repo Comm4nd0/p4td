@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
+import 'package:paws4thoughtdogs/constants/app_colors.dart';
 import 'package:paws4thoughtdogs/models/closure_day.dart';
 import 'package:paws4thoughtdogs/models/invoice.dart';
 import 'package:paws4thoughtdogs/widgets/dog_schedule_calendar.dart';
@@ -120,7 +121,7 @@ void main() {
     expect(tapped, DateTime(2030, 6, 10));
   });
 
-  testWidgets('an extra day is yellow, a regular day green, and both tap as booked',
+  testWidgets('an extra day is teal, a regular day green, and both tap as booked',
       (tester) async {
     DateTime? tapped;
     await tester.pumpWidget(
@@ -135,7 +136,7 @@ void main() {
       return (container.decoration as BoxDecoration?)?.color;
     }
 
-    expect(fillOf('17'), const Color(0xFFFBC02D));
+    expect(fillOf('17'), AppColors.extraDay);
     expect(fillOf('10'), const Color(0xFF2E7D32));
 
     await tester.tap(find.text('17'));
@@ -210,6 +211,38 @@ void main() {
     expect(find.textContaining('Boarding day'), findsOneWidget);
     expect(bookedTapped, isNull);
     expect(freeTapped, isNull);
+  });
+
+  testWidgets('a one-night stay colours both days, draws one moon and names the night',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: DogScheduleCalendar(
+            firstDay: firstDay,
+            lastDay: DateTime(2030, 12, 31),
+            bookedDates: const {},
+            pendingAddDates: const {},
+            pendingRemoveDates: const {},
+            boardingDates: {DateTime(2030, 6, 20), DateTime(2030, 6, 21)},
+            pendingBoardingDates: const {},
+            boardingNights: {DateTime(2030, 6, 20)},
+            closures: const {},
+            isStaff: false,
+            onBookedDayTap: (_) {},
+            onFreeDayTap: (_) {},
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.byKey(const ValueKey('night-2030-6-20')), findsOneWidget);
+    expect(find.byKey(const ValueKey('night-2030-6-21')), findsNothing);
+    expect(find.text('Night boarding'), findsOneWidget);
+
+    await tester.tap(find.text('21'));
+    await tester.pump();
+    expect(find.textContaining('1 night, Thu 20 – Fri 21 Jun'), findsOneWidget);
   });
 
   group('past editing (payment managers)', () {

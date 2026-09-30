@@ -1,4 +1,37 @@
+import 'package:intl/intl.dart';
 import 'closure_day.dart';
+
+/// The approved boarding stay behind a boarding day.
+class CalendarBoardingStay {
+  final DateTime start;
+  final DateTime end;
+  final int nights;
+
+  CalendarBoardingStay({required this.start, required this.end, required this.nights});
+
+  static CalendarBoardingStay? fromJson(dynamic json) {
+    if (json is! Map<String, dynamic>) return null;
+    final start = DateTime.tryParse(json['start'] ?? '');
+    final end = DateTime.tryParse(json['end'] ?? '');
+    if (start == null || end == null) return null;
+    return CalendarBoardingStay(
+      start: start,
+      end: end,
+      nights: json['nights'] is int ? json['nights'] : end.difference(start).inDays,
+    );
+  }
+
+  static final DateFormat _dayMonth = DateFormat('EEE d MMM');
+  static final DateFormat _day = DateFormat('EEE d');
+
+  /// "1 night, Mon 6 – Tue 7 Oct" — the nights are what the stay is, two
+  /// coloured days on a calendar read as two nights otherwise.
+  String get summary {
+    final nightsLabel = nights == 1 ? '1 night' : '$nights nights';
+    final from = start.month == end.month ? _day.format(start) : _dayMonth.format(start);
+    return '$nightsLabel, $from – ${_dayMonth.format(end)}';
+  }
+}
 
 /// One of the caller's dogs attending on a given day.
 class CalendarDogEntry {
@@ -6,13 +39,39 @@ class CalendarDogEntry {
   final String name;
   final bool boarding;
 
-  CalendarDogEntry({required this.id, required this.name, required this.boarding});
+  /// Booked on a weekday that isn't one of the dog's regular days.
+  final bool extra;
+
+  /// The stay behind a boarding day; null otherwise (and from older servers).
+  final CalendarBoardingStay? boardingStay;
+
+  CalendarDogEntry({
+    required this.id,
+    required this.name,
+    required this.boarding,
+    this.extra = false,
+    this.boardingStay,
+  });
 
   factory CalendarDogEntry.fromJson(Map<String, dynamic> json) => CalendarDogEntry(
         id: json['id'].toString(),
         name: json['name'] ?? '',
         boarding: json['boarding'] == true,
+        extra: json['extra'] == true,
+        boardingStay: CalendarBoardingStay.fromJson(json['boarding_stay']),
       );
+
+  /// What the dog is in for on [day], for a day panel's subtitle.
+  String describe(DateTime day) {
+    if (!boarding) return extra ? 'Extra day' : 'Daycare';
+    final stay = boardingStay;
+    if (stay == null || stay.nights < 1) return 'Boarding';
+    bool same(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    if (same(day, stay.start)) return 'Arrives for boarding · ${stay.summary}';
+    if (same(day, stay.end)) return 'Goes home from boarding · ${stay.summary}';
+    return 'Boarding · ${stay.summary}';
+  }
 }
 
 class CalendarPendingRequest {
