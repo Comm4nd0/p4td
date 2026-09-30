@@ -671,7 +671,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
   /// The booked days that aren't one of the dog's regular weekdays — the
-  /// extra days, shown in yellow on the calendar. Judged against the current
+  /// extra days, shown in teal on the calendar. Judged against the current
   /// schedule, so a past day on a weekday the dog has since dropped shows as
   /// extra too.
   Set<DateTime> _extraDates(Set<DateTime> booked) {
@@ -713,6 +713,21 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       }
     }
     return dates;
+  }
+
+  /// The nights of this dog's boarding stays with [status], each keyed by
+  /// the evening it starts — every day of a stay but the last.
+  Set<DateTime> _boardingNights(BoardingRequestStatus status) {
+    final nights = <DateTime>{};
+    for (final request in _boardingRequests.where((r) => r.status == status)) {
+      var day = _dateOnly(request.startDate);
+      final end = _dateOnly(request.endDate);
+      while (day.isBefore(end)) {
+        nights.add(day);
+        day = DateTime(day.year, day.month, day.day + 1);
+      }
+    }
+    return nights;
   }
 
   Map<DateTime, ClosureDay> _closureMap() => {
@@ -2290,6 +2305,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                           pendingRemoveDates: _pendingRemoveDates(),
                           boardingDates: _boardingDates(BoardingRequestStatus.approved),
                           pendingBoardingDates: _boardingDates(BoardingRequestStatus.pending),
+                          boardingNights: _boardingNights(BoardingRequestStatus.approved),
+                          pendingBoardingNights: _boardingNights(BoardingRequestStatus.pending),
                           closures: _closureMap(),
                           isStaff: widget.isStaff,
                           allowPastEdits: _canEditPastDates,

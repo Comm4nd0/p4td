@@ -9,6 +9,7 @@ import '../utils/date_formats.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/grouped_section.dart';
 import '../widgets/page_body.dart';
+import 'dashboard/client_calendar_section.dart' show calendarEntryColor;
 
 /// Month view of the caller's booked daycare days, boarding stays, closures
 /// and full days — with a waitlist join/leave flow for full days.
@@ -86,7 +87,8 @@ class _MyCalendarScreenState extends State<MyCalendarScreen> {
     if (info == null) return const [];
     final markers = <Color>[];
     if (info.closure != null) markers.add(AppColors.error);
-    if (info.dogs.any((d) => !d.boarding)) markers.add(AppColors.primary);
+    if (info.dogs.any((d) => !d.boarding && !d.extra)) markers.add(AppColors.primary);
+    if (info.dogs.any((d) => d.extra)) markers.add(AppColors.extraDay);
     if (info.dogs.any((d) => d.boarding)) markers.add(Colors.deepPurple);
     if (info.pendingRequests.isNotEmpty) markers.add(AppColors.warning);
     if (info.waitlist.isNotEmpty) markers.add(AppColors.iosSecondaryLabel);
@@ -215,10 +217,10 @@ class _MyCalendarScreenState extends State<MyCalendarScreen> {
       children.add(ListTile(
         leading: Picon(
           dog.boarding ? PiconsDuotone.bed : PiconsDuotone.pawPrint,
-          color: dog.boarding ? Colors.deepPurple : AppColors.primary,
+          color: calendarEntryColor(dog),
         ),
         title: Text(dog.name),
-        subtitle: Text(dog.boarding ? 'Boarding' : 'Daycare'),
+        subtitle: Text(dog.describe(_selectedDay)),
       ));
     }
 
@@ -371,6 +373,7 @@ class _MyCalendarScreenState extends State<MyCalendarScreen> {
                 alignment: WrapAlignment.center,
                 children: [
                   _legendDot(AppColors.primary, 'Daycare'),
+                  _legendDot(AppColors.extraDay, 'Extra day'),
                   _legendDot(Colors.deepPurple, 'Boarding'),
                   _legendDot(AppColors.warning, 'Pending'),
                   _legendDot(AppColors.error, 'Closure'),

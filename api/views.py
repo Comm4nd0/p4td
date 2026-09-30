@@ -579,14 +579,34 @@ class DogViewSet(viewsets.ModelViewSet):
         if (end - start).days > 92:
             return Response({'detail': 'Date range too large (max 92 days).'}, status=400)
 
-        my_dogs = list(
+        my_dog_rows = list(
             Dog.objects.filter(Q(owner=request.user) | Q(additional_owners=request.user))
-            .distinct().values('id', 'name')
+            .distinct().values('id', 'name', 'daycare_days')
         )
+        my_dogs = [{'id': d['id'], 'name': d['name']} for d in my_dog_rows]
         my_dog_ids = {d['id'] for d in my_dogs}
         name_by_id = {d['id']: d['name'] for d in my_dogs}
+        regular_days_by_id = {d['id']: set(d['daycare_days'] or []) for d in my_dog_rows}
 
         index = ScheduleIndex(start, end)
+
+        # The approved stay behind each boarding day, so the app can say
+        # "1 night" rather than leave two coloured days to read as two nights.
+        stay_by_dog_day = {}
+        stay_rows = BoardingRequest.objects.filter(
+            status='APPROVED', dogs__id__in=my_dog_ids,
+            start_date__lte=end, end_date__gte=start,
+        ).values_list('dogs__id', 'start_date', 'end_date')
+        for dog_id, b_start, b_end in stay_rows:
+            if dog_id not in my_dog_ids:
+                continue
+            stay = {
+                'start': b_start.isoformat(),
+                'end': b_end.isoformat(),
+                'nights': (b_end - b_start).days,
+            }
+            for day in daterange(max(b_start, start), min(b_end, end)):
+                stay_by_dog_day[(dog_id, day)] = stay
 
         pending_by_date = defaultdict(list)
         pending_rows = DateChangeRequest.objects.filter(
@@ -616,7 +636,20 @@ class DogViewSet(viewsets.ModelViewSet):
             days.append({
                 'date': day.isoformat(),
                 'dogs': [
-                    {'id': dog_id, 'name': name_by_id[dog_id], 'boarding': dog_id in boarding}
+                    {
+                        'id': dog_id,
+                        'name': name_by_id[dog_id],
+                        'boarding': dog_id in boarding,
+                        # Booked on a weekday that isn't one of the dog's
+                        # regular days — an extra day, drawn in its own colour.
+                        'extra': (
+                            dog_id not in boarding
+                            and day.isoweekday() not in regular_days_by_id[dog_id]
+                        ),
+                        'boarding_stay': (
+                            stay_by_dog_day.get((dog_id, day)) if dog_id in boarding else None
+                        ),
+                    }
                     for dog_id in sorted(my_dog_ids & attending)
                 ],
                 'closure': (

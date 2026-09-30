@@ -4839,6 +4839,36 @@ class OwnerCalendarTests(TestCase):
         day = resp.data['days'][0]
         self.assertEqual([d['name'] for d in day['dogs']], ['Fido'])
 
+    def test_regular_day_is_not_extra(self):
+        day = self._day()
+        self.assertFalse(day['dogs'][0]['extra'])
+        self.assertIsNone(day['dogs'][0]['boarding_stay'])
+
+    def test_added_day_is_extra(self):
+        extra = self.target + timedelta(days=1)
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY',
+            new_date=extra, status='APPROVED',
+        )
+        resp = self.client.get(f'/api/dogs/calendar/?start={extra}&end={extra}')
+        self.assertTrue(resp.data['days'][0]['dogs'][0]['extra'])
+
+    def test_boarding_days_carry_the_stay_and_its_nights(self):
+        arrive = self.target + timedelta(days=1)
+        leave = arrive + timedelta(days=1)
+        stay = BoardingRequest.objects.create(
+            owner=self.owner, start_date=arrive, end_date=leave, status='APPROVED',
+        )
+        stay.dogs.add(self.dog)
+        resp = self.client.get(f'/api/dogs/calendar/?start={arrive}&end={leave}')
+        for day in resp.data['days']:
+            entry = day['dogs'][0]
+            self.assertTrue(entry['boarding'])
+            self.assertFalse(entry['extra'])
+            self.assertEqual(entry['boarding_stay'], {
+                'start': arrive.isoformat(), 'end': leave.isoformat(), 'nights': 1,
+            })
+
     def test_closure_marked_and_no_dogs(self):
         ClosureDay.objects.create(date=self.target, closure_type='CLOSED', reason='Bank Holiday')
         day = self._day()

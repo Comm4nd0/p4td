@@ -324,7 +324,14 @@ Additional non-router endpoints:
   dashboard seeds it with today's two months and fetches further months from
   `dogs/calendar/` as they scroll into view (the endpoint caps a call at 92
   days). Tapping through opens My Calendar on that day, where the waitlist
-  actions live. "Needs Your
+  actions live. **Every calendar tells regular days from extra days and counts
+  boarding in nights:** `dogs/calendar/` flags each dog's day `extra` (booked
+  on a weekday outside its `daycare_days`) and gives a boarding day its
+  `boarding_stay` (`start`/`end`/`nights`); extra days are
+  `AppColors.extraDay` teal everywhere, and a stay's days all stay coloured
+  (the dog is in daycare on arrival and departure) while the dog profile
+  calendar bridges each night with a moon arc and the day panels say
+  "1 night, Mon 6 – Tue 7 Oct". "Needs Your
   Attention" (`ClientAttention.compute`) lists only items with a count — add
   the next owner-facing nag there, not as a new section. Never surface
   incidents or live pickup status here: both are staff-only over the API.
