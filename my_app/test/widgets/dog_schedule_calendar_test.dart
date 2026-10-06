@@ -213,7 +213,7 @@ void main() {
     expect(freeTapped, isNull);
   });
 
-  testWidgets('a one-night stay colours both days, draws one moon and names the night',
+  testWidgets('a one-night stay colours both days and draws one moon',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -239,10 +239,192 @@ void main() {
     expect(find.byKey(const ValueKey('night-2030-6-20')), findsOneWidget);
     expect(find.byKey(const ValueKey('night-2030-6-21')), findsNothing);
     expect(find.text('Night boarding'), findsOneWidget);
+  });
 
-    await tester.tap(find.text('21'));
-    await tester.pump();
-    expect(find.textContaining('1 night, Thu 20 – Fri 21 Jun'), findsOneWidget);
+  group("a stay's edge days (full day around an overnight)", () {
+    // One night, Thu 20 → Fri 21 June 2030.
+    final overnightDays = {DateTime(2030, 6, 20), DateTime(2030, 6, 21)};
+    final overnightNight = {DateTime(2030, 6, 20)};
+
+    Widget buildStayCalendar({
+      Set<DateTime> bookedDates = const {},
+      Set<DateTime> extraDates = const {},
+      Set<DateTime> pendingAddDates = const {},
+      Set<DateTime> boardingDates = const {},
+      Set<DateTime> pendingBoardingDates = const {},
+      Set<DateTime> boardingNights = const {},
+      Set<DateTime> pendingBoardingNights = const {},
+      void Function(DateTime)? onBookedDayTap,
+      void Function(DateTime)? onFreeDayTap,
+      void Function(DateTime)? onBoardingDayTap,
+      bool isStaff = false,
+    }) {
+      return MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: DogScheduleCalendar(
+              firstDay: firstDay,
+              lastDay: DateTime(2030, 12, 31),
+              bookedDates: bookedDates,
+              extraDates: extraDates,
+              pendingAddDates: pendingAddDates,
+              pendingRemoveDates: const {},
+              boardingDates: boardingDates,
+              pendingBoardingDates: pendingBoardingDates,
+              boardingNights: boardingNights,
+              pendingBoardingNights: pendingBoardingNights,
+              closures: const {},
+              isStaff: isStaff,
+              onBookedDayTap: onBookedDayTap ?? (_) {},
+              onFreeDayTap: onFreeDayTap ?? (_) {},
+              onBoardingDayTap: onBoardingDayTap,
+            ),
+          ),
+        ),
+      );
+    }
+
+    BoxDecoration? decorationOf(WidgetTester tester, String day) {
+      final container = tester.widget<Container>(find.ancestor(
+        of: find.text(day),
+        matching: find.byType(Container),
+      ).first);
+      return container.decoration as BoxDecoration?;
+    }
+
+    testWidgets('owners tap the arrival and going-home days like free days',
+        (tester) async {
+      DateTime? freeTapped;
+      await tester.pumpWidget(buildStayCalendar(
+        boardingDates: overnightDays,
+        boardingNights: overnightNight,
+        onFreeDayTap: (d) => freeTapped = d,
+      ));
+
+      // Going-home day: the dog only boards into its morning, so an extra
+      // day (full day after the overnight) can be requested on it.
+      await tester.tap(find.text('21'));
+      expect(freeTapped, DateTime(2030, 6, 21));
+
+      // Arrival day is the mirror image (daycare day, then boards).
+      await tester.tap(find.text('20'));
+      expect(freeTapped, DateTime(2030, 6, 20));
+    });
+
+    testWidgets('a pending stay behaves the same', (tester) async {
+      DateTime? freeTapped;
+      await tester.pumpWidget(buildStayCalendar(
+        pendingBoardingDates: overnightDays,
+        pendingBoardingNights: overnightNight,
+        onFreeDayTap: (d) => freeTapped = d,
+      ));
+
+      await tester.tap(find.text('21'));
+      expect(freeTapped, DateTime(2030, 6, 21));
+    });
+
+    testWidgets('mid-stay days still explain (and name the stay)',
+        (tester) async {
+      DateTime? freeTapped;
+      await tester.pumpWidget(buildStayCalendar(
+        // Two nights, Thu 20 → Sat 22: day 21 boards on both sides.
+        boardingDates: {
+          DateTime(2030, 6, 20),
+          DateTime(2030, 6, 21),
+          DateTime(2030, 6, 22),
+        },
+        boardingNights: {DateTime(2030, 6, 20), DateTime(2030, 6, 21)},
+        onFreeDayTap: (d) => freeTapped = d,
+      ));
+
+      await tester.tap(find.text('21'));
+      await tester.pump();
+      expect(find.textContaining('2 nights, Thu 20 – Sat 22 Jun'), findsOneWidget);
+      expect(freeTapped, isNull);
+    });
+
+    testWidgets('staff taps on an edge day still open the stay',
+        (tester) async {
+      DateTime? boardingTapped;
+      DateTime? freeTapped;
+      await tester.pumpWidget(buildStayCalendar(
+        isStaff: true,
+        boardingDates: overnightDays,
+        boardingNights: overnightNight,
+        onBoardingDayTap: (d) => boardingTapped = d,
+        onFreeDayTap: (d) => freeTapped = d,
+      ));
+
+      await tester.tap(find.text('21'));
+      expect(boardingTapped, DateTime(2030, 6, 21));
+      expect(freeTapped, isNull);
+    });
+
+    testWidgets(
+        'an approved extra day on the going-home day renders half boarding, '
+        'half extra, taps as booked and earns its legend entry',
+        (tester) async {
+      DateTime? bookedTapped;
+      await tester.pumpWidget(buildStayCalendar(
+        boardingDates: overnightDays,
+        boardingNights: overnightNight,
+        bookedDates: {DateTime(2030, 6, 21)},
+        extraDates: {DateTime(2030, 6, 21)},
+        onBookedDayTap: (d) => bookedTapped = d,
+      ));
+
+      // Boarding half on the left — the night the dog wakes up from.
+      final gradient = decorationOf(tester, '21')?.gradient as LinearGradient?;
+      expect(gradient, isNotNull);
+      expect(gradient!.colors.first, Colors.deepPurple);
+      expect(gradient.colors.last, AppColors.extraDay);
+      expect(find.text('Boarding + extra day'), findsOneWidget);
+
+      await tester.tap(find.text('21'));
+      expect(bookedTapped, DateTime(2030, 6, 21));
+    });
+
+    testWidgets('an extra day on the arrival day puts the boarding half right',
+        (tester) async {
+      await tester.pumpWidget(buildStayCalendar(
+        boardingDates: overnightDays,
+        boardingNights: overnightNight,
+        bookedDates: {DateTime(2030, 6, 20)},
+        extraDates: {DateTime(2030, 6, 20)},
+      ));
+
+      final gradient = decorationOf(tester, '20')?.gradient as LinearGradient?;
+      expect(gradient, isNotNull);
+      expect(gradient!.colors.first, AppColors.extraDay);
+      expect(gradient.colors.last, Colors.deepPurple);
+    });
+
+    testWidgets(
+        'a pending extra-day request on the going-home day rings the day and '
+        'explains on tap', (tester) async {
+      DateTime? freeTapped;
+      await tester.pumpWidget(buildStayCalendar(
+        boardingDates: overnightDays,
+        boardingNights: overnightNight,
+        // A pending ADD_DAY also counts into booked/extra dates upstream.
+        bookedDates: {DateTime(2030, 6, 21)},
+        extraDates: {DateTime(2030, 6, 21)},
+        pendingAddDates: {DateTime(2030, 6, 21)},
+        onFreeDayTap: (d) => freeTapped = d,
+      ));
+
+      final decoration = decorationOf(tester, '21');
+      expect(decoration?.gradient, isNull);
+      expect(decoration?.color, Colors.deepPurple);
+      expect((decoration?.border as Border?)?.top.color, AppColors.warning);
+      // Not approved yet, so no split-day legend entry either.
+      expect(find.text('Boarding + extra day'), findsNothing);
+
+      await tester.tap(find.text('21'));
+      await tester.pump();
+      expect(find.textContaining('awaiting staff approval'), findsOneWidget);
+      expect(freeTapped, isNull);
+    });
   });
 
   group('past editing (payment managers)', () {

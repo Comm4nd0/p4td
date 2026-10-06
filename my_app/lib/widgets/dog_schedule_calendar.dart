@@ -18,8 +18,12 @@ import '../models/invoice.dart';
 /// Pending requests and facility closures are painted but not editable here —
 /// tapping them explains why in a snackbar. Boarding stays are the same unless
 /// [onBoardingDayTap] is set (staff), in which case tapping a boarding day
-/// fires it so the covering stay can be cancelled. All date sets must be
-/// normalised to midnight (the widget normalises its own lookups too).
+/// fires it so the covering stay can be cancelled — except a stay's edge days
+/// (arrival / going-home), which for owners tap like any other day: only one
+/// side of them touches a boarding night, so an extra daycare day can share
+/// the date (a full day after the overnight) and is drawn half boarding, half
+/// extra-day teal. All date sets must be normalised to midnight (the widget
+/// normalises its own lookups too).
 class DogScheduleCalendar extends StatefulWidget {
   final DateTime firstDay;
   final DateTime lastDay;
@@ -224,13 +228,32 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     return '${nights == 1 ? '1 night' : '$nights nights'}, $from – ${_stayDayMonth.format(end)}';
   }
 
+  /// Whether the dog boards (or has asked to board) the night starting on
+  /// [evening].
+  bool _boardsNight(DateTime evening) =>
+      widget.boardingNights.contains(evening) ||
+      widget.pendingBoardingNights.contains(evening);
+
+  /// A stay's edge day — the arrival or going-home day, touching a boarding
+  /// night on exactly one side. The other half of the day is free, so an
+  /// extra daycare day can share the date (a full day after an overnight,
+  /// or before one). Mid-stay days touch nights on both sides and a stay
+  /// with no nights at all stays fully covered either way.
+  bool _isStayEdgeDay(DateTime d) =>
+      _boardsNight(DateTime(d.year, d.month, d.day - 1)) != _boardsNight(d);
+
   void _onDayTapped(DateTime day) {
     final d = _norm(day);
     if (d.isBefore(_norm(DateTime.now())) && !widget.allowPastEdits) return;
 
     final closure = widget.closures[d];
-    if (widget.boardingDates.contains(d) ||
-        widget.pendingBoardingDates.contains(d)) {
+    final boardingCovers = widget.boardingDates.contains(d) ||
+        widget.pendingBoardingDates.contains(d);
+    // A stay's edge day is only half boarding, so owners' taps on it fall
+    // through to the normal booked/free handling below — that's how a full
+    // day after the overnight is requested, and then cancelled or moved.
+    // Staff taps keep opening the stay (they add days from the FAB).
+    if (boardingCovers && (widget.onBoardingDayTap != null || !_isStayEdgeDay(d))) {
       if (widget.onBoardingDayTap != null) {
         widget.onBoardingDayTap!(d);
       } else if (widget.boardingDates.contains(d)) {
@@ -263,13 +286,35 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     final d = _norm(day);
 
     Color? fill;
+    // With [fill], a second colour for the circle's right half: a stay's
+    // edge day shared with an extra daycare day renders half-and-half.
+    Color? fillRight;
     Color? border;
     Color? textColor;
     TextDecoration? decoration;
 
-    if (widget.boardingDates.contains(d)) {
+    final hasPendingChange = widget.pendingAddDates.contains(d) ||
+        widget.pendingRemoveDates.contains(d);
+    if (widget.boardingDates.contains(d) &&
+        widget.extraDates.contains(d) &&
+        !hasPendingChange &&
+        _isStayEdgeDay(d)) {
+      // An extra daycare day sharing its date with the stay's arrival or
+      // going-home day — a full day after (or before) the overnight. Half
+      // boarding, half extra day, the boarding half on the side its night
+      // touches: left when the dog wakes up boarding, right when it leaves
+      // to board that evening.
+      final morningBoards = _boardsNight(DateTime(d.year, d.month, d.day - 1));
+      fill = morningBoards ? _boarding : _extra;
+      fillRight = morningBoards ? _extra : _boarding;
+      textColor = Colors.white;
+    } else if (widget.boardingDates.contains(d)) {
       fill = _boarding;
       textColor = Colors.white;
+      // An owner's pending request sharing the stay's edge day (asking for
+      // a full day after the overnight, or to drop the booked day around
+      // it) — ring the day so the request shows against the purple.
+      if (hasPendingChange && _isStayEdgeDay(d)) border = _pending;
     } else if (widget.pendingBoardingDates.contains(d)) {
       border = _boarding;
       textColor = _boarding;
@@ -306,7 +351,13 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
       width: _circleSize,
       height: _circleSize,
       decoration: BoxDecoration(
-        color: fill,
+        color: fillRight == null ? fill : null,
+        gradient: fill != null && fillRight != null
+            ? LinearGradient(
+                colors: [fill, fill, fillRight, fillRight],
+                stops: const [0, 0.5, 0.5, 1],
+              )
+            : null,
         shape: BoxShape.circle,
         border: border != null
             ? Border.all(color: border, width: 1.5)
@@ -407,6 +458,35 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     });
   }
 
+  /// Whether the month data holds a day rendered half boarding, half extra
+  /// day — only then does its legend entry earn its place.
+  bool get _hasSplitDay => widget.boardingDates.any((d) =>
+      widget.extraDates.contains(d) &&
+      !widget.pendingAddDates.contains(d) &&
+      !widget.pendingRemoveDates.contains(d) &&
+      _isStayEdgeDay(d));
+
+  Widget _legendSplitDot(Color left, Color right, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [left, left, right, right],
+              stops: const [0, 0.5, 0.5, 1],
+            ),
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+      ],
+    );
+  }
+
   Widget _legendDot(Color color, String label, {bool outlined = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -471,6 +551,8 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
             _legendDot(_extra, 'Extra day'),
             _legendDot(_pending, 'Pending', outlined: true),
             _legendDot(_boarding, 'Boarding'),
+            if (_hasSplitDay)
+              _legendSplitDot(_boarding, _extra, 'Boarding + extra day'),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
