@@ -107,11 +107,11 @@ final List<_PermDef> _permissionCatalogue = [
   _PermDef(
     field: 'can_manage_vehicles',
     label: 'Manage Vehicles',
-    subtitle: 'Add/edit fleet vehicles, MOT/service dates & defect statuses',
+    subtitle: 'Add/edit fleet vehicles, MOT/service/tax dates & defect statuses',
     description:
-        'Add and edit fleet vehicles, keep MOT and service dates up to '
+        'Add and edit fleet vehicles, keep MOT, service and tax dates up to '
         'date, and update the status of reported vehicle defects. Gets '
-        'the MOT/service due reminders.',
+        'the MOT/service/tax due reminders.',
     icon: PiconsDuotone.van,
     getValue: (s) => s.canManageVehicles,
     setValue: (s, v) => s.canManageVehicles = v,

@@ -305,8 +305,8 @@ abstract class DataService {
   // Fleet (staff only; writes require can_manage_vehicles)
   Future<List<Vehicle>> getVehicles();
   Future<Vehicle> getVehicle(int id);
-  Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, Uint8List? imageBytes, String? imageName});
-  Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName});
+  Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, Uint8List? imageBytes, String? imageName});
+  Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName});
   Future<void> deleteVehicle(int id);
   Future<List<VehicleMaintenanceRecord>> getVehicleHistory(int vehicleId);
   Future<List<VehicleDefect>> getVehicleDefects({int? vehicleId, String? status});

@@ -1221,14 +1221,15 @@ class FacilityDefectSerializer(serializers.ModelSerializer):
 class VehicleSerializer(serializers.ModelSerializer):
     mot_status = serializers.CharField(read_only=True)
     service_status = serializers.CharField(read_only=True)
+    tax_status = serializers.CharField(read_only=True)
     open_defect_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Vehicle
         fields = [
             'id', 'name', 'registration', 'make', 'model', 'notes', 'image',
-            'status', 'mot_due_date', 'service_due_date', 'mot_status',
-            'service_status', 'open_defect_count', 'created_at', 'updated_at',
+            'status', 'mot_due_date', 'service_due_date', 'tax_due_date', 'mot_status',
+            'service_status', 'tax_status', 'open_defect_count', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 

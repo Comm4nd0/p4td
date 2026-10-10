@@ -34,6 +34,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   String _status = 'ACTIVE';
   DateTime? _motDueDate;
   DateTime? _serviceDueDate;
+  DateTime? _taxDueDate;
   Uint8List? _imageBytes;
   String? _imageName;
   bool _isSaving = false;
@@ -52,6 +53,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     _status = vehicle?.status ?? 'ACTIVE';
     _motDueDate = vehicle?.motDueDate;
     _serviceDueDate = vehicle?.serviceDueDate;
+    _taxDueDate = vehicle?.taxDueDate;
   }
 
   @override
@@ -117,8 +119,12 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     );
   }
 
-  Future<void> _pickDate(bool isMot) async {
-    final current = isMot ? _motDueDate : _serviceDueDate;
+  Future<void> _pickDate(String field) async {
+    final current = switch (field) {
+      'mot' => _motDueDate,
+      'service' => _serviceDueDate,
+      _ => _taxDueDate,
+    };
     final picked = await showDatePicker(
       context: context,
       initialDate: current ?? DateTime.now(),
@@ -127,10 +133,12 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     );
     if (picked != null) {
       setState(() {
-        if (isMot) {
+        if (field == 'mot') {
           _motDueDate = picked;
-        } else {
+        } else if (field == 'service') {
           _serviceDueDate = picked;
+        } else {
+          _taxDueDate = picked;
         }
       });
     }
@@ -156,6 +164,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
           status: _status,
           motDueDate: _motDueDate,
           serviceDueDate: _serviceDueDate,
+          taxDueDate: _taxDueDate,
           imageBytes: _imageBytes,
           imageName: _imageName,
         );
@@ -169,6 +178,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
           status: _status,
           motDueDate: _motDueDate,
           serviceDueDate: _serviceDueDate,
+          taxDueDate: _taxDueDate,
           imageBytes: _imageBytes,
           imageName: _imageName,
         );
@@ -262,9 +272,11 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
               onChanged: (value) => setState(() => _status = value ?? 'ACTIVE'),
             ),
             const SizedBox(height: 16),
-            _buildDateRow('MOT due date', _motDueDate, () => _pickDate(true)),
+            _buildDateRow('MOT due date', _motDueDate, () => _pickDate('mot')),
             const SizedBox(height: 8),
-            _buildDateRow('Service due date', _serviceDueDate, () => _pickDate(false)),
+            _buildDateRow('Service due date', _serviceDueDate, () => _pickDate('service')),
+            const SizedBox(height: 8),
+            _buildDateRow('Tax due date', _taxDueDate, () => _pickDate('tax')),
             const SizedBox(height: 16),
             TextFormField(
               controller: _notesController,

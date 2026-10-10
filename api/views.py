@@ -5566,7 +5566,7 @@ def _user_can_manage_vehicles(user):
 
 class VehicleViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     """Fleet vehicles. All staff can view; users with can_manage_vehicles
-    add/edit vehicles and update MOT/service due dates. Date changes are
+    add/edit vehicles and update MOT/service/tax due dates. Date changes are
     recorded as maintenance history and re-arm the reminder flags (reminders
     are sent by the daily send_fleet_reminders management command)."""
     permission_classes = [IsStaffReadOrVehicleManager]
@@ -5574,7 +5574,8 @@ class VehicleViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     activity_noun = 'vehicle'
     activity_fields = {
         'name': 'Name', 'registration': 'Registration', 'make': 'Make', 'model': 'Model',
-        'status': 'Status', 'mot_due_date': 'MOT due', 'service_due_date': 'Service due', 'notes': 'Notes',
+        'status': 'Status', 'mot_due_date': 'MOT due', 'service_due_date': 'Service due',
+        'tax_due_date': 'Tax due', 'notes': 'Notes',
     }
 
     def activity_subject(self, obj):
@@ -5601,36 +5602,23 @@ class VehicleViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         if image_file:
             serializer.validated_data['image'] = process_image(image_file, max_size=(1280, 1280))
 
-        old_mot = serializer.instance.mot_due_date
-        old_service = serializer.instance.service_due_date
+        old_dates = {
+            event: getattr(serializer.instance, f'{event}_due_date')
+            for event in ('mot', 'service', 'tax')
+        }
         before = self.activity_snapshot(serializer.instance)
         instance = serializer.save()
         self.log_updated(instance, before)
 
         maintenance_notes = self.request.data.get('maintenance_notes')
-        rearm_fields = []
-        if instance.mot_due_date != old_mot:
-            VehicleMaintenanceRecord.objects.create(
-                vehicle=instance, event_type='MOT',
-                previous_due_date=old_mot, new_due_date=instance.mot_due_date,
-                notes=maintenance_notes, created_by=self.request.user,
-            )
-            instance.mot_reminder_30_sent = False
-            instance.mot_reminder_7_sent = False
-            instance.mot_overdue_notice_sent = False
-            rearm_fields += ['mot_reminder_30_sent', 'mot_reminder_7_sent', 'mot_overdue_notice_sent']
-        if instance.service_due_date != old_service:
-            VehicleMaintenanceRecord.objects.create(
-                vehicle=instance, event_type='SERVICE',
-                previous_due_date=old_service, new_due_date=instance.service_due_date,
-                notes=maintenance_notes, created_by=self.request.user,
-            )
-            instance.service_reminder_30_sent = False
-            instance.service_reminder_7_sent = False
-            instance.service_overdue_notice_sent = False
-            rearm_fields += ['service_reminder_30_sent', 'service_reminder_7_sent', 'service_overdue_notice_sent']
-        if rearm_fields:
-            instance.save(update_fields=rearm_fields)
+        for event, previous_due_date in old_dates.items():
+            new_due_date = getattr(instance, f'{event}_due_date')
+            if new_due_date != previous_due_date:
+                VehicleMaintenanceRecord.objects.create(
+                    vehicle=instance, event_type=event.upper(),
+                    previous_due_date=previous_due_date, new_due_date=new_due_date,
+                    notes=maintenance_notes, created_by=self.request.user,
+                )
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):

@@ -11,10 +11,12 @@ class Vehicle {
   final String status;
   final DateTime? motDueDate;
   final DateTime? serviceDueDate;
+  final DateTime? taxDueDate;
 
   /// null (no date) | 'overdue' | 'due_soon' | 'ok' (computed server-side)
   final String? motStatus;
   final String? serviceStatus;
+  final String? taxStatus;
   final int openDefectCount;
 
   Vehicle({
@@ -28,8 +30,10 @@ class Vehicle {
     this.status = 'ACTIVE',
     this.motDueDate,
     this.serviceDueDate,
+    this.taxDueDate,
     this.motStatus,
     this.serviceStatus,
+    this.taxStatus,
     this.openDefectCount = 0,
   });
 
@@ -60,8 +64,12 @@ class Vehicle {
       serviceDueDate: json['service_due_date'] != null
           ? DateTime.parse(json['service_due_date'])
           : null,
+      taxDueDate: json['tax_due_date'] != null
+          ? DateTime.parse(json['tax_due_date'])
+          : null,
       motStatus: json['mot_status'],
       serviceStatus: json['service_status'],
+      taxStatus: json['tax_status'],
       openDefectCount: json['open_defect_count'] ?? 0,
     );
   }

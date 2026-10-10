@@ -5079,11 +5079,14 @@ class FleetVehicleTests(TestCase):
             {
                 'name': 'Red Van', 'registration': 'XY99 ZZZ',
                 'mot_due_date': (date.today() + timedelta(days=200)).isoformat(),
+                'tax_due_date': (date.today() + timedelta(days=100)).isoformat(),
             },
             format='json',
         )
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['mot_status'], 'ok')
+        self.assertEqual(resp.data['tax_status'], 'ok')
+        self.assertEqual(resp.data['tax_due_date'], (date.today() + timedelta(days=100)).isoformat())
         self.assertEqual(resp.data['status'], 'ACTIVE')
 
     def test_plain_staff_cannot_delete_vehicle(self):
@@ -5134,6 +5137,103 @@ class FleetVehicleTests(TestCase):
         self.assertEqual(soon.mot_status, 'due_soon')
         self.assertEqual(fine.mot_status, 'ok')
         self.assertIsNone(none_set.mot_status)
+
+    def test_tax_updates_preserve_other_dates_and_record_history(self):
+        vehicle = self._create_vehicle(
+            mot_due_date=date.today() + timedelta(days=90),
+            service_due_date=date.today() + timedelta(days=60),
+            tax_due_date=date.today() - timedelta(days=1),
+            tax_reminder_30_sent=True, tax_reminder_7_sent=True, tax_overdue_notice_sent=True,
+            service_reminder_30_sent=True,
+        )
+        self.client.force_authenticate(self.manager)
+        next_due = date.today() + timedelta(days=365)
+        response = self.client.patch(f'/api/vehicles/{vehicle.id}/', {
+            'tax_due_date': next_due.isoformat(),
+            'maintenance_notes': 'Tax renewed',
+        }, format='multipart')
+        self.assertEqual(response.status_code, 200)
+        vehicle.refresh_from_db()
+        self.assertEqual(vehicle.tax_due_date, next_due)
+        self.assertEqual(vehicle.mot_due_date, date.today() + timedelta(days=90))
+        self.assertEqual(vehicle.service_due_date, date.today() + timedelta(days=60))
+        self.assertTrue(vehicle.service_reminder_30_sent)
+        self.assertFalse(vehicle.tax_reminder_30_sent)
+        self.assertFalse(vehicle.tax_reminder_7_sent)
+        self.assertFalse(vehicle.tax_overdue_notice_sent)
+        record = vehicle.maintenance_records.get()
+        self.assertEqual(record.event_type, 'TAX')
+        self.assertEqual(record.previous_due_date, date.today() - timedelta(days=1))
+        self.assertEqual(record.new_due_date, next_due)
+        self.assertEqual(record.notes, 'Tax renewed')
+        self.assertEqual(record.created_by, self.manager)
+        log = DogChangeLog.objects.get(category='FLEET', action='UPDATED')
+        self.assertEqual(log.actor, self.manager)
+        self.assertEqual(log.changes[0]['field'], 'tax_due_date')
+
+        # Re-saving an unchanged date must not duplicate the history.
+        self.client.patch(f'/api/vehicles/{vehicle.id}/', {
+            'tax_due_date': next_due.isoformat(),
+        }, format='json')
+        self.assertEqual(vehicle.maintenance_records.count(), 1)
+        self.client.force_authenticate(self.staff)
+        history = self.client.get(f'/api/vehicles/{vehicle.id}/history/')
+        self.assertEqual(history.data[0]['event_type'], 'TAX')
+        detail = self.client.get(f'/api/vehicles/{vehicle.id}/')
+        self.assertEqual(detail.data['tax_due_date'], next_due.isoformat())
+
+    def test_tax_date_is_optional_validated_and_manager_only(self):
+        vehicle = self._create_vehicle()
+        url = f'/api/vehicles/{vehicle.id}/'
+        self.client.force_authenticate(self.manager)
+        response = self.client.get(url)
+        self.assertIsNone(response.data['tax_due_date'])
+        self.assertIsNone(response.data['tax_status'])
+        response = self.client.patch(url, {'tax_due_date': 'invalid'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('tax_due_date', response.data)
+        due_date = date.today().isoformat()
+        for user in (self.staff, self.owner):
+            self.client.force_authenticate(user)
+            response = self.client.patch(url, {'tax_due_date': due_date}, format='json')
+            self.assertEqual(response.status_code, 403)
+        self.client.force_authenticate(self.manager)
+        self.client.patch(url, {'tax_due_date': due_date}, format='json')
+        response = self.client.patch(url, {'notes': 'Unrelated edit'}, format='json')
+        self.assertEqual(response.data['tax_due_date'], due_date)
+        response = self.client.patch(url, {'tax_due_date': None}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data['tax_due_date'])
+        self.assertIsNone(response.data['tax_status'])
+
+    def test_tax_status_boundaries(self):
+        from .models import Vehicle
+        today = timezone.localdate()
+        for days, expected in ((None, None), (-1, 'overdue'), (0, 'due_soon'),
+                               (30, 'due_soon'), (31, 'ok')):
+            with self.subTest(days=days):
+                due = today + timedelta(days=days) if days is not None else None
+                self.assertEqual(Vehicle(tax_due_date=due).tax_status, expected)
+
+    def test_partial_date_saves_rearm_only_the_changed_reminders(self):
+        for event in ('mot', 'service', 'tax'):
+            with self.subTest(event=event):
+                date_field = f'{event}_due_date'
+                flags = [f'{event}_reminder_30_sent', f'{event}_reminder_7_sent',
+                         f'{event}_overdue_notice_sent']
+                vehicle = self._create_vehicle(registration=event, **{
+                    date_field: date.today(), **dict.fromkeys(flags, True),
+                })
+                # An unrelated partial save must leave reminders armed as before.
+                setattr(vehicle, date_field, date.today() + timedelta(days=365))
+                vehicle.notes = 'Updated notes'
+                vehicle.save(update_fields=['notes'])
+                stored = type(vehicle).objects.get(pk=vehicle.pk)
+                self.assertTrue(all(getattr(stored, flag) for flag in flags))
+                self.assertEqual(getattr(stored, date_field), date.today())
+                vehicle.save(update_fields=[date_field])
+                vehicle.refresh_from_db()
+                self.assertTrue(all(not getattr(vehicle, flag) for flag in flags))
 
 
 class VehicleDefectTests(TestCase):
@@ -5528,6 +5628,48 @@ class FleetReminderCommandTests(TestCase):
         vehicle.refresh_from_db()
         self.assertTrue(vehicle.mot_reminder_30_sent)
         self.assertFalse(vehicle.mot_reminder_7_sent)
+
+    @patch('api.management.commands.send_fleet_reminders.send_push_notification')
+    def test_tax_reminders_progress_once_per_milestone_and_rearm(self, push):
+        import io
+        from .models import Vehicle
+        today = timezone.localdate()
+        vehicle = Vehicle.objects.create(
+            name='Tax Van', registration='TAX1', tax_due_date=today + timedelta(days=30),
+        )
+        for elapsed, title, expected_flags in (
+            (0, 'Tax due for renewal', (True, False, False)),
+            (23, 'Tax due soon', (True, True, False)),
+            (31, 'Tax overdue', (True, True, True)),
+        ):
+            with self.subTest(elapsed=elapsed), patch(
+                'api.management.commands.send_fleet_reminders.timezone.localdate',
+                return_value=today + timedelta(days=elapsed),
+            ):
+                push.reset_mock()
+                call_command('send_fleet_reminders', stdout=io.StringIO())
+                push.assert_called_once()
+                self.assertEqual(push.call_args.args[0], self.manager)
+                self.assertEqual(push.call_args.args[1], title)
+                self.assertEqual(push.call_args.args[3]['event'], 'tax')
+                self.assertEqual(push.call_args.args[3]['vehicle_id'], str(vehicle.id))
+                vehicle.refresh_from_db()
+                self.assertEqual((vehicle.tax_reminder_30_sent, vehicle.tax_reminder_7_sent,
+                                  vehicle.tax_overdue_notice_sent), expected_flags)
+                call_command('send_fleet_reminders', stdout=io.StringIO())
+                push.assert_called_once()
+
+        vehicle.tax_due_date = today + timedelta(days=365)
+        vehicle.save()
+        push.reset_mock()
+        # Future and unset tax dates do not send reminders.
+        Vehicle.objects.create(name='No Tax Date', registration='NONE')
+        call_command('send_fleet_reminders', stdout=io.StringIO())
+        push.assert_not_called()
+        with patch('api.management.commands.send_fleet_reminders.timezone.localdate',
+                   return_value=today + timedelta(days=335)):
+            call_command('send_fleet_reminders', stdout=io.StringIO())
+        push.assert_called_once()
 
 
 class SupportStaffUnreadTests(TestCase):

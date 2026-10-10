@@ -1008,15 +1008,15 @@ class VehicleMaintenanceRecordInline(admin.TabularInline):
 
 @admin.register(Vehicle)
 class VehicleAdmin(admin.ModelAdmin):
-    list_display = ('name', 'registration', 'status', 'mot_due_date', 'mot_badge', 'service_due_date', 'service_badge', 'open_defects', 'image_preview')
-    list_filter = ('status', 'mot_due_date', 'service_due_date')
+    list_display = ('name', 'registration', 'status', 'mot_due_date', 'mot_badge', 'service_due_date', 'service_badge', 'tax_due_date', 'tax_badge', 'open_defects', 'image_preview')
+    list_filter = ('status', 'mot_due_date', 'service_due_date', 'tax_due_date')
     search_fields = ('name', 'registration', 'make', 'model')
     readonly_fields = ('created_at', 'updated_at', 'image_preview_large')
     list_per_page = 30
     inlines = [VehicleDefectInline, VehicleMaintenanceRecordInline]
     fieldsets = (
         (None, {'fields': ('name', 'registration', 'make', 'model', 'status', 'notes', 'image', 'image_preview_large')}),
-        ('Maintenance', {'fields': ('mot_due_date', 'service_due_date')}),
+        ('Maintenance', {'fields': ('mot_due_date', 'service_due_date', 'tax_due_date')}),
         ('Metadata', {'fields': ('created_at', 'updated_at')}),
     )
 
@@ -1043,6 +1043,10 @@ class VehicleAdmin(admin.ModelAdmin):
     def service_badge(self, obj):
         return self._due_badge(obj.service_status)
     service_badge.short_description = 'Service'
+
+    def tax_badge(self, obj):
+        return self._due_badge(obj.tax_status)
+    tax_badge.short_description = 'Tax'
 
     def open_defects(self, obj):
         return obj._open_defects

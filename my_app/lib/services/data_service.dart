@@ -3256,6 +3256,7 @@ class ApiDataService implements DataService {
     String? status,
     DateTime? motDueDate,
     DateTime? serviceDueDate,
+    DateTime? taxDueDate,
     String? maintenanceNotes,
   }) {
     if (name != null) fields['name'] = name;
@@ -3269,6 +3270,9 @@ class ApiDataService implements DataService {
     }
     if (serviceDueDate != null) {
       fields['service_due_date'] = serviceDueDate.toIso8601String().split('T').first;
+    }
+    if (taxDueDate != null) {
+      fields['tax_due_date'] = taxDueDate.toIso8601String().split('T').first;
     }
     if (maintenanceNotes != null) fields['maintenance_notes'] = maintenanceNotes;
   }
@@ -3329,6 +3333,7 @@ class ApiDataService implements DataService {
     String? status,
     DateTime? motDueDate,
     DateTime? serviceDueDate,
+    DateTime? taxDueDate,
     Uint8List? imageBytes,
     String? imageName,
   }) async {
@@ -3343,6 +3348,7 @@ class ApiDataService implements DataService {
       status: status,
       motDueDate: motDueDate,
       serviceDueDate: serviceDueDate,
+      taxDueDate: taxDueDate,
     );
     return _sendVehicleRequest(
       'POST',
@@ -3364,6 +3370,7 @@ class ApiDataService implements DataService {
     String? status,
     DateTime? motDueDate,
     DateTime? serviceDueDate,
+    DateTime? taxDueDate,
     String? maintenanceNotes,
     Uint8List? imageBytes,
     String? imageName,
@@ -3379,6 +3386,7 @@ class ApiDataService implements DataService {
       status: status,
       motDueDate: motDueDate,
       serviceDueDate: serviceDueDate,
+      taxDueDate: taxDueDate,
       maintenanceNotes: maintenanceNotes,
     );
     return _sendVehicleRequest(

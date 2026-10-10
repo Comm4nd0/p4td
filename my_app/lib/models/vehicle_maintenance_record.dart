@@ -1,7 +1,7 @@
 class VehicleMaintenanceRecord {
   final int id;
 
-  /// 'MOT' | 'SERVICE'
+  /// 'MOT' | 'SERVICE' | 'TAX'
   final String eventType;
   final DateTime? previousDueDate;
   final DateTime? newDueDate;
@@ -19,7 +19,12 @@ class VehicleMaintenanceRecord {
     required this.createdAt,
   });
 
-  String get eventLabel => eventType == 'MOT' ? 'MOT' : 'Service';
+  String get eventLabel => switch (eventType) {
+        'MOT' => 'MOT',
+        'SERVICE' => 'Service',
+        'TAX' => 'Tax',
+        _ => eventType,
+      };
 
   factory VehicleMaintenanceRecord.fromJson(Map<String, dynamic> json) {
     return VehicleMaintenanceRecord(

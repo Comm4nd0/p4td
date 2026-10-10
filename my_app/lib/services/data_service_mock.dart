@@ -632,10 +632,10 @@ class MockDataService implements DataService {
   Future<Vehicle> getVehicle(int id) async =>
       Vehicle(id: id, name: 'Test Van', registration: 'TE57 VAN');
   @override
-  Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, Uint8List? imageBytes, String? imageName}) async =>
+  Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, Uint8List? imageBytes, String? imageName}) async =>
       Vehicle(id: 1, name: name, registration: registration);
   @override
-  Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName}) async =>
+  Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName}) async =>
       Vehicle(id: id, name: name ?? 'Test Van', registration: registration ?? 'TE57 VAN');
   @override
   Future<void> deleteVehicle(int id) async {}

@@ -1,9 +1,9 @@
-"""Send push reminders for vehicle MOT and servicing due dates.
+"""Send push reminders for vehicle MOT, servicing and tax due dates.
 
 Designed to run daily from cron. Each milestone (30 days out, 7 days out,
 overdue) notifies staff with can_manage_vehicles exactly once — bookkeeping
 flags on the vehicle make reruns no-ops. Flags are re-armed when the
-corresponding due date is updated (see VehicleViewSet.perform_update).
+corresponding due date is updated (see Vehicle.save).
 """
 from datetime import timedelta
 
@@ -17,7 +17,7 @@ from api.cron_heartbeat import ping_heartbeat
 
 
 class Command(BaseCommand):
-    help = 'Send vehicle MOT/service due reminders to fleet managers (run daily).'
+    help = 'Send vehicle MOT/service/tax due reminders to fleet managers (run daily).'
 
     def _notify_managers(self, vehicle, event, title, body):
         data = {
@@ -42,6 +42,8 @@ class Command(BaseCommand):
              'mot_reminder_30_sent', 'mot_reminder_7_sent', 'mot_overdue_notice_sent'),
             ('Service', 'service', 'service_due_date',
              'service_reminder_30_sent', 'service_reminder_7_sent', 'service_overdue_notice_sent'),
+            ('Tax', 'tax', 'tax_due_date',
+             'tax_reminder_30_sent', 'tax_reminder_7_sent', 'tax_overdue_notice_sent'),
         ]
 
         for label, event, date_field, flag_30, flag_7, flag_overdue in milestones:
@@ -98,9 +100,10 @@ class Command(BaseCommand):
                 vehicle.save(update_fields=[flag_30])
                 self._notify_managers(
                     vehicle, event,
-                    f'{label} due for booking',
+                    f'{label} due for renewal' if event == 'tax' else f'{label} due for booking',
                     f"{vehicle.name} ({vehicle.registration}) {label} is due on "
-                    f"{due.strftime('%d %b %Y')}. Time to book it in!",
+                    f"{due.strftime('%d %b %Y')}. "
+                    + ("Time to renew it!" if event == 'tax' else "Time to book it in!"),
                 )
                 sent += 1
 

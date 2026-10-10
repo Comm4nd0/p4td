@@ -133,9 +133,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: notesController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Notes (optional)',
-                hintText: 'e.g. Passed MOT, serviced at garage',
+                hintText: field == 'tax'
+                    ? 'e.g. Tax renewed for 12 months'
+                    : 'e.g. Passed MOT, serviced at garage',
               ),
               maxLines: 2,
             ),
@@ -161,6 +163,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         widget.vehicleId,
         motDueDate: field == 'mot' ? picked : null,
         serviceDueDate: field == 'service' ? picked : null,
+        taxDueDate: field == 'tax' ? picked : null,
         maintenanceNotes: notes.isEmpty ? null : notes,
       );
       _loadAll();
@@ -233,7 +236,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 controller: notesController,
                 decoration: InputDecoration(
                   labelText: 'Notes (optional)',
-                  hintText: field == 'mot' ? 'e.g. Passed, one advisory on rear tyres' : 'e.g. Full service at Marlow Motors',
+                  hintText: switch (field) {
+                    'mot' => 'e.g. Passed, one advisory on rear tyres',
+                    'tax' => 'e.g. Tax renewed for 12 months',
+                    _ => 'e.g. Full service at Marlow Motors',
+                  },
                 ),
                 maxLines: 2,
               ),
@@ -261,6 +268,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         widget.vehicleId,
         motDueDate: field == 'mot' ? next : null,
         serviceDueDate: field == 'service' ? next : null,
+        taxDueDate: field == 'tax' ? next : null,
         maintenanceNotes: notes.isEmpty ? '$label done ${ukDate(today)}' : notes,
       );
       if (mounted) {
@@ -428,11 +436,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('MOT & Servicing', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text('MOT, Servicing & Tax', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
             _buildDueRow('MOT', 'mot', vehicle.motDueDate, vehicle.motStatus),
             const Divider(height: 20),
             _buildDueRow('Service', 'service', vehicle.serviceDueDate, vehicle.serviceStatus),
+            const Divider(height: 20),
+            _buildDueRow('Tax', 'tax', vehicle.taxDueDate, vehicle.taxStatus),
           ],
         ),
       ),

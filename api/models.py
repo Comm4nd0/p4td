@@ -19,7 +19,7 @@ class UserProfile(models.Model):
     can_reply_queries = models.BooleanField(default=False, help_text='Designates whether this user can reply to support queries.')
     can_manage_staff = models.BooleanField(default=False, help_text='Designates whether this user can manage staff: the Staff Management section (pay, employment details, meetings, appraisals, sickness and training records), plus setting working days and approving/denying time off requests.')
     can_view_inquiries = models.BooleanField(default=False, help_text='Designates whether this user can view and respond to website contact inquiries.')
-    can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service dates and defect statuses.')
+    can_manage_vehicles = models.BooleanField(default=False, help_text='Designates whether this user can manage fleet vehicles, MOT/service/tax dates and defect statuses.')
     can_manage_payments = models.BooleanField(default=False, help_text='Designates whether this user can manage customer invoices and record payments.')
     can_manage_boarding = models.BooleanField(default=False, help_text='Designates whether this user can approve/deny and edit boarding requests.')
     can_manage_compliance = models.BooleanField(default=False, help_text='Designates whether this user can manage the safety & compliance register (add/edit checks and schedules) and receive due-check reminders. Any staff member can record a completed check.')
@@ -1360,7 +1360,7 @@ class Vehicle(models.Model):
 
     All staff can view vehicles and report defects; users with the
     can_manage_vehicles profile flag maintain the fleet (add/edit vehicles,
-    update MOT/service dates, change defect statuses). MOT and service due
+    update MOT/service/tax dates, change defect statuses). MOT, service and tax due
     dates trigger reminders via the send_fleet_reminders command, run daily
     from cron.
     """
@@ -1381,6 +1381,7 @@ class Vehicle(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
     mot_due_date = models.DateField(null=True, blank=True)
     service_due_date = models.DateField(null=True, blank=True)
+    tax_due_date = models.DateField(null=True, blank=True)
 
     # Reminder bookkeeping so the daily command never notifies twice for the
     # same milestone. Re-armed when the corresponding due date changes.
@@ -1390,6 +1391,9 @@ class Vehicle(models.Model):
     service_reminder_30_sent = models.BooleanField(default=False)
     service_reminder_7_sent = models.BooleanField(default=False)
     service_overdue_notice_sent = models.BooleanField(default=False)
+    tax_reminder_30_sent = models.BooleanField(default=False)
+    tax_reminder_7_sent = models.BooleanField(default=False)
+    tax_overdue_notice_sent = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1399,24 +1403,31 @@ class Vehicle(models.Model):
         indexes = [
             models.Index(fields=['mot_due_date']),
             models.Index(fields=['service_due_date']),
+            models.Index(fields=['tax_due_date']),
         ]
 
     def save(self, *args, **kwargs):
-        # Re-arm MOT/service reminder flags when the corresponding due date
-        # changes, centrally instead of relying on each caller (B22).
+        # Re-arm reminders on every date change, including partial saves and
+        # admin edits, so the next renewal gets its own reminders.
         if self.pk:
+            update_fields = kwargs.get('update_fields')
             old = type(self).objects.filter(pk=self.pk).values(
-                'mot_due_date', 'service_due_date'
+                'mot_due_date', 'service_due_date', 'tax_due_date'
             ).first()
             if old:
-                if old['mot_due_date'] != self.mot_due_date:
-                    self.mot_reminder_30_sent = False
-                    self.mot_reminder_7_sent = False
-                    self.mot_overdue_notice_sent = False
-                if old['service_due_date'] != self.service_due_date:
-                    self.service_reminder_30_sent = False
-                    self.service_reminder_7_sent = False
-                    self.service_overdue_notice_sent = False
+                for event in ('mot', 'service', 'tax'):
+                    date_field = f'{event}_due_date'
+                    if update_fields is not None and date_field not in update_fields:
+                        continue
+                    if old[date_field] != getattr(self, date_field):
+                        flags = [f'{event}_reminder_30_sent', f'{event}_reminder_7_sent',
+                                 f'{event}_overdue_notice_sent']
+                        for flag in flags:
+                            setattr(self, flag, False)
+                        if update_fields is not None:
+                            update_fields = set(update_fields).union(flags)
+                if update_fields is not None:
+                    kwargs['update_fields'] = update_fields
         super().save(*args, **kwargs)
 
     def _date_status(self, due_date):
@@ -1438,15 +1449,20 @@ class Vehicle(models.Model):
     def service_status(self):
         return self._date_status(self.service_due_date)
 
+    @property
+    def tax_status(self):
+        return self._date_status(self.tax_due_date)
+
     def __str__(self):
         return f"{self.name} ({self.registration})"
 
 
 class VehicleMaintenanceRecord(models.Model):
-    """History entry created whenever a vehicle's MOT or service due date changes."""
+    """History entry created whenever a vehicle's MOT, service or tax due date changes."""
     EVENT_CHOICES = [
         ('MOT', 'MOT'),
         ('SERVICE', 'Service'),
+        ('TAX', 'Tax'),
     ]
 
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='maintenance_records')

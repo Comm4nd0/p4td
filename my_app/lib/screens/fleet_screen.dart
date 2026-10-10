@@ -23,7 +23,7 @@ Color dueStatusColor(String? status) {
   }
 }
 
-/// Small pill showing how a MOT/service date is doing, e.g. "MOT overdue".
+/// Small pill showing how a MOT/service/tax date is doing, e.g. "MOT overdue".
 class DueBadge extends StatelessWidget {
   final String label;
   final String? status;
@@ -272,15 +272,21 @@ class _FleetScreenState extends State<FleetScreen> with WidgetsBindingObserver {
                           DueBadge(label: 'MOT', status: vehicle.motStatus),
                         if (vehicle.serviceStatus != null)
                           DueBadge(label: 'Service', status: vehicle.serviceStatus),
+                        if (vehicle.taxStatus != null)
+                          DueBadge(label: 'Tax', status: vehicle.taxStatus),
                       ],
                     ),
-                    if (vehicle.motDueDate != null || vehicle.serviceDueDate != null) ...[
+                    if (vehicle.motDueDate != null ||
+                        vehicle.serviceDueDate != null ||
+                        vehicle.taxDueDate != null) ...[
                       const SizedBox(height: 4),
                       Text(
                         [
                           if (vehicle.motDueDate != null) 'MOT: ${ukDate(vehicle.motDueDate!)}',
                           if (vehicle.serviceDueDate != null)
                             'Service: ${ukDate(vehicle.serviceDueDate!)}',
+                          if (vehicle.taxDueDate != null)
+                            'Tax: ${ukDate(vehicle.taxDueDate!)}',
                         ].join('  ·  '),
                         style: TextStyle(color: Colors.grey[500], fontSize: 11),
                       ),
