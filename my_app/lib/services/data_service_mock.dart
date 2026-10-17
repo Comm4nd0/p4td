@@ -355,7 +355,7 @@ class MockDataService implements DataService {
   @override
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date}) async => [];
   @override
-  Future<void> acknowledgeCompatibilityConflict({required DateTime date, required int dogAId, required int dogBId}) async {}
+  Future<void> acknowledgeCompatibilityConflict({required DateTime date, required int dogAId, required int dogBId, List<int> dogIds = const []}) async {}
 
   @override
   Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date}) async =>
@@ -534,7 +534,7 @@ class MockDataService implements DataService {
   @override
   Future<List<DogNote>> getDogNotes({int? dogId, String? noteType}) async => [];
   @override
-  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, required DogNoteType noteType, required String text, bool isPositive = true}) async => throw UnimplementedError();
+  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, List<int> extraDogIds = const [], required DogNoteType noteType, required String text, bool isPositive = true}) async => throw UnimplementedError();
   @override
   Future<void> updateDogNote(int noteId, {String? text, bool? isPositive}) async {}
   @override

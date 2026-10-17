@@ -65,10 +65,18 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
     );
     if (result == null) return;
 
+    // More than one dog makes one group note: the first is related_dog, the
+    // rest extra_dogs. The server reads a negative one as "fine in any
+    // smaller mix, not all of them together".
+    final relatedIds = ((result['related_dogs'] as List<Dog>?) ?? const <Dog>[])
+        .map((d) => int.tryParse(d.id))
+        .whereType<int>()
+        .toList();
     try {
       await _dataService.createDogNote(
         dogId: widget.dogId,
-        relatedDogId: result['related_dog_id'],
+        relatedDogId: relatedIds.isEmpty ? null : relatedIds.first,
+        extraDogIds: relatedIds.skip(1).toList(),
         noteType: result['note_type'],
         text: result['text'],
         isPositive: result['is_positive'],
@@ -137,8 +145,10 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
   }
 
   String? _otherDogNameForCurrent(DogNote note) {
-    if (note.dogId != widget.dogId) return note.dogName;
-    return note.relatedDogName;
+    final names = note.otherDogNames(widget.dogId);
+    if (names.isEmpty) return null;
+    if (names.length == 1) return names.single;
+    return '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
   }
 
   PiconDuotoneData _iconForType(DogNoteType type) {
@@ -249,18 +259,29 @@ class _DogNotesScreenState extends State<DogNotesScreen> {
                               if (_otherDogNameForCurrent(note) != null) ...[
                                 const SizedBox(height: 8),
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Picon(PiconsDuotone.pawPrint, size: 16, color: AppColors.grey600),
                                     const SizedBox(width: 4),
-                                    Text(
-                                      'With ${_otherDogNameForCurrent(note)}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.grey700,
+                                    Expanded(
+                                      child: Text(
+                                        'With ${_otherDogNameForCurrent(note)}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.grey700,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
+                                if (note.isGroup && !note.isPositive)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 20, top: 2),
+                                    child: Text(
+                                      'Fine in any pair — just not all ${note.extraDogIds.length + 2} together',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                    ),
+                                  ),
                               ],
                               const SizedBox(height: 8),
                               Text(note.text, style: const TextStyle(fontSize: 15)),
@@ -298,7 +319,7 @@ class _AddDogNoteDialog extends StatefulWidget {
 class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
   DogNoteType _noteType = DogNoteType.compatibility;
   bool _isPositive = true;
-  Dog? _relatedDog;
+  final List<Dog> _relatedDogs = [];
   final _textController = TextEditingController();
 
   List<Dog> get _otherDogs =>
@@ -355,11 +376,35 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
             ),
             if (_noteType == DogNoteType.compatibility && _otherDogs.isNotEmpty) ...[
               const SizedBox(height: 16),
-              _RelatedDogTypeahead(
+              _RelatedDogsPicker(
                 otherDogs: _otherDogs,
-                selected: _relatedDog,
-                onSelected: (dog) => setState(() => _relatedDog = dog),
+                selected: _relatedDogs,
+                onAdded: (dog) => setState(() => _relatedDogs.add(dog)),
               ),
+              if (_relatedDogs.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final dog in _relatedDogs)
+                      InputChip(
+                        label: Text(dog.name),
+                        avatar: const Picon(PiconsDuotone.pawPrint, size: 16),
+                        onDeleted: () => setState(() => _relatedDogs.remove(dog)),
+                      ),
+                  ],
+                ),
+                if (_relatedDogs.length > 1) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _isPositive
+                        ? '${widget.dogName} and these ${_relatedDogs.length} dogs get on as a group.'
+                        : 'Fine in any pair — flagged only when ${widget.dogName} and all ${_relatedDogs.length} of these are in together.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ],
             ],
             const SizedBox(height: 16),
             TextField(
@@ -383,7 +428,9 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
                     'note_type': _noteType,
                     'text': _textController.text.trim(),
                     'is_positive': _isPositive,
-                    'related_dog_id': _relatedDog != null ? int.tryParse(_relatedDog!.id) : null,
+                    'related_dogs': _noteType == DogNoteType.compatibility
+                        ? List<Dog>.of(_relatedDogs)
+                        : const <Dog>[],
                   });
                 },
           child: const Text('Add'),
@@ -393,55 +440,60 @@ class _AddDogNoteDialogState extends State<_AddDogNoteDialog> {
   }
 }
 
-class _RelatedDogTypeahead extends StatefulWidget {
+/// Search field that adds each picked dog to [selected] and clears itself,
+/// so any number of dogs can go on one note. Dogs already picked are left
+/// out of the suggestions.
+class _RelatedDogsPicker extends StatefulWidget {
   final List<Dog> otherDogs;
-  final Dog? selected;
-  final ValueChanged<Dog?> onSelected;
+  final List<Dog> selected;
+  final ValueChanged<Dog> onAdded;
 
-  const _RelatedDogTypeahead({
+  const _RelatedDogsPicker({
     required this.otherDogs,
     required this.selected,
-    required this.onSelected,
+    required this.onAdded,
   });
 
   @override
-  State<_RelatedDogTypeahead> createState() => _RelatedDogTypeaheadState();
+  State<_RelatedDogsPicker> createState() => _RelatedDogsPickerState();
 }
 
-class _RelatedDogTypeaheadState extends State<_RelatedDogTypeahead> {
+class _RelatedDogsPickerState extends State<_RelatedDogsPicker> {
+  TextEditingController? _fieldController;
+
   @override
   Widget build(BuildContext context) {
+    final pickedIds = widget.selected.map((d) => d.id).toSet();
     return Autocomplete<Dog>(
-      initialValue: TextEditingValue(text: widget.selected?.name ?? ''),
       displayStringForOption: (Dog d) => d.name,
       optionsBuilder: (TextEditingValue value) {
         final query = value.text.trim().toLowerCase();
-        if (query.isEmpty) return widget.otherDogs;
-        return widget.otherDogs.where((d) => d.name.toLowerCase().contains(query));
+        final available = widget.otherDogs.where((d) => !pickedIds.contains(d.id));
+        if (query.isEmpty) return available;
+        return available.where((d) => d.name.toLowerCase().contains(query));
       },
-      onSelected: widget.onSelected,
+      onSelected: (dog) {
+        widget.onAdded(dog);
+        _fieldController?.clear();
+      },
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        _fieldController = controller;
         return TextField(
           controller: controller,
           focusNode: focusNode,
           decoration: InputDecoration(
-            labelText: 'Related Dog (optional)',
+            labelText: widget.selected.isEmpty
+                ? 'Related Dogs (optional)'
+                : 'Add another dog',
             hintText: 'Search by name',
-            prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),            suffixIcon: controller.text.isEmpty
+            prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
+            suffixIcon: controller.text.isEmpty
                 ? null
                 : IconButton(
                     icon: Picon(PiconsDuotone.x, size: 18),
-                    onPressed: () {
-                      controller.clear();
-                      widget.onSelected(null);
-                    },
+                    onPressed: controller.clear,
                   ),
           ),
-          onChanged: (value) {
-            if (widget.selected != null && value != widget.selected!.name) {
-              widget.onSelected(null);
-            }
-          },
         );
       },
       optionsViewBuilder: (context, onSelected, options) {

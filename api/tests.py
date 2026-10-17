@@ -3090,6 +3090,42 @@ class DogNoteTests(TestCase):
         note.refresh_from_db()
         self.assertEqual(note.text, 'Original')
 
+    def test_group_compatibility_note(self):
+        """Several dogs on one note: fine in any pair, not all together. It is
+        one note, shown on every dog's profile it names."""
+        dog3 = Dog.objects.create(owner=self.owner, name='Max')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post('/api/dog-notes/', {
+            'dog': self.dog1.id,
+            'related_dog': self.dog2.id,
+            'extra_dogs': [dog3.id],
+            'note_type': 'COMPATIBILITY',
+            'text': 'Not all three together',
+            'is_positive': False,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['extra_dog_names'], ['Max'])
+        self.assertEqual(DogNote.objects.count(), 1)
+        for dog in (self.dog1, self.dog2, dog3):
+            listed = self.client.get(f'/api/dog-notes/?dog_id={dog.id}').data
+            self.assertEqual([n['id'] for n in listed], [resp.data['id']], dog.name)
+        log = DogChangeLog.objects.filter(dog=self.dog1, action='NOTE').first()
+        self.assertIn('with Bella and Max, not all together', log.summary)
+
+    def test_group_note_needs_a_compatibility_pair_and_distinct_dogs(self):
+        dog3 = Dog.objects.create(owner=self.owner, name='Max')
+        self.client.login(username='staff', password='pw')
+        base = {'dog': self.dog1.id, 'note_type': 'COMPATIBILITY', 'text': 'x', 'is_positive': False}
+        for payload in (
+            {**base, 'extra_dogs': [dog3.id]},  # no related_dog
+            {**base, 'note_type': 'BEHAVIORAL', 'related_dog': self.dog2.id, 'extra_dogs': [dog3.id]},
+            {**base, 'related_dog': self.dog2.id, 'extra_dogs': [self.dog2.id]},
+            {**base, 'related_dog': self.dog2.id, 'extra_dogs': [self.dog1.id]},
+        ):
+            resp = self.client.post('/api/dog-notes/', payload, format='json')
+            self.assertEqual(resp.status_code, 400, payload)
+        self.assertFalse(DogNote.objects.exists())
+
     def test_behavioral_note_does_not_leak_via_related_dog(self):
         # Behavioural notes are unidirectional even when they reference a related dog.
         DogNote.objects.create(
@@ -3189,6 +3225,65 @@ class CompatibilityConflictTests(TestCase):
         DailyDogAssignment.objects.create(dog=self.dog2, staff_member=self.staff_a, date=self.today + timedelta(days=1))
         conflict = self.client.get(f'/api/daily-assignments/compatibility_conflicts/?date={tomorrow}').data['conflicts'][0]
         self.assertIsNone(conflict['acknowledged_by_name'])
+
+    def test_group_note_flags_only_when_every_dog_is_in(self):
+        """A compatibility note naming extra dogs is about the group: any two
+        of them together is fine, all of them together is the conflict."""
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=False,
+            text='Too much as a three', created_by=self.staff_a,
+        ).extra_dogs.add(self.dog3)
+        url = f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}&scope=all'
+        self.client.login(username='staffa', password='pw')
+
+        self._assign(self.dog1, self.staff_a)
+        self._assign(self.dog2, self.staff_a)
+        self.assertEqual(self.client.get(url).data['conflicts'], [])
+
+        self._assign(self.dog3, self.staff_b)
+        conflicts = self.client.get(url).data['conflicts']
+        self.assertEqual(len(conflicts), 1)
+        conflict = conflicts[0]
+        self.assertEqual(conflict['scope'], 'SAME_DAY')
+        self.assertEqual(sorted(d['name'] for d in conflict['dogs']), ['Buddy', 'Max', 'Rex'])
+        self.assertEqual(conflict['reasons'], ['Too much as a three'])
+        # Older apps read the pair fields; they hold the two lowest ids.
+        lowest = sorted((self.dog1.id, self.dog2.id, self.dog3.id))[:2]
+        self.assertEqual([conflict['dog_a_id'], conflict['dog_b_id']], lowest)
+
+        # Same pickup group only when all three share the driver.
+        DailyDogAssignment.objects.filter(dog=self.dog3).update(staff_member=self.staff_a)
+        group_only = self.client.get(url.replace('&scope=all', '')).data['conflicts']
+        self.assertEqual(len(group_only), 1)
+        self.assertEqual(group_only[0]['scope'], 'SAME_GROUP')
+
+    def test_group_and_pair_conflicts_are_acknowledged_separately(self):
+        self._conflict_today()
+        self._assign(self.dog3, self.staff_a)
+        DogNote.objects.create(
+            dog=self.dog1, related_dog=self.dog2,
+            note_type='COMPATIBILITY', is_positive=False,
+            text='Not all three', created_by=self.staff_a,
+        ).extra_dogs.add(self.dog3)
+        url = f'/api/daily-assignments/compatibility_conflicts/?date={self.today.isoformat()}'
+        self.client.login(username='staffa', password='pw')
+        conflicts = self.client.get(url).data['conflicts']
+        self.assertEqual(sorted(len(c['dogs']) for c in conflicts), [2, 3])
+
+        resp = self.client.post('/api/daily-assignments/acknowledge_conflict/', {
+            'date': self.today.isoformat(),
+            'dogs': [self.dog3.id, self.dog1.id, self.dog2.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['dogs'], sorted((self.dog1.id, self.dog2.id, self.dog3.id)))
+        log = DogChangeLog.objects.filter(category='SCHEDULE', action='STATUS').first()
+        self.assertIn('Rex', log.summary)
+        self.assertIn('Max', log.summary)
+
+        by_size = {len(c['dogs']): c for c in self.client.get(url).data['conflicts']}
+        self.assertEqual(by_size[3]['acknowledged_by_name'], 'Alice')
+        self.assertIsNone(by_size[2]['acknowledged_by_name'])
 
     def test_acknowledge_conflict_validates_the_pair(self):
         self.client.login(username='staffa', password='pw')

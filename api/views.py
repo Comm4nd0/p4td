@@ -2575,10 +2575,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         """List pairs of incompatible dogs attending daycare on a given date.
 
         Two dogs are incompatible when at least one negative COMPATIBILITY
-        DogNote links them. Each pair that is in on the day is reported once
+        DogNote links them. A note naming ``extra_dogs`` is about a group —
+        fine in any smaller combination — and is reported only when every
+        dog in it is in, as one conflict whose ``dogs`` lists them all
+        (``dog_a``/``dog_b`` are its two lowest ids, for apps before
+        1.12.51). Each pair or group that is in on the day is reported once
         with a ``scope``:
 
-        * ``SAME_GROUP`` — both dogs are booked to the same driver, so they
+        * ``SAME_GROUP`` — the dogs are all booked to the same driver, so they
           share a pickup and drop-off run as well as the day.
         * ``SAME_DAY`` — the dogs are in the daycare on the same day but under
           different drivers (or one has no driver yet, or is brought in by its
@@ -2641,31 +2645,49 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             .filter(~Q(related_dog=None))
             .filter(dog_id__in=assignment_by_dog, related_dog_id__in=assignment_by_dog)
             .select_related('dog', 'related_dog')
+            .prefetch_related('extra_dogs')
         )
+        # Keyed by the sorted ids of every dog the note names: a pair for an
+        # ordinary note, the whole group for one with extra_dogs. A group
+        # counts only when all of it is in.
         incompat = {}
         for note in negative_notes:
-            key = tuple(sorted((note.dog_id, note.related_dog_id)))
-            incompat.setdefault(key, []).append(note)
+            ids = note.group_dog_ids()
+            if any(i not in assignment_by_dog for i in ids):
+                continue
+            incompat.setdefault(tuple(sorted(ids)), []).append(note)
 
-        # Who has already acknowledged which pair today, so the app can
-        # spotlight only the pairs nobody has looked at yet.
+        # Who has already acknowledged which pair or group today, so the app
+        # can spotlight only the conflicts nobody has looked at yet.
         acks = {
-            (ack.dog_a_id, ack.dog_b_id): ack
+            (ack.dog_a_id, ack.dog_b_id, ack.group_key): ack
             for ack in ConflictAcknowledgement.objects.filter(date=target_date)
             .select_related('acknowledged_by')
         }
 
         conflicts = []
-        for (dog_a_id, dog_b_id), notes in incompat.items():
+        for dog_ids, notes in incompat.items():
+            dog_a_id, dog_b_id = dog_ids[0], dog_ids[1]
             a_assignment = assignment_by_dog[dog_a_id]
             b_assignment = assignment_by_dog[dog_b_id]
             a_group = group_key(a_assignment)
-            same_group = a_group is not None and a_group == group_key(b_assignment)
+            same_group = a_group is not None and all(
+                group_key(assignment_by_dog[i]) == a_group for i in dog_ids
+            )
             if not same_group and scope == 'group':
                 continue
             shared_staff = a_assignment.staff_member if same_group else None
-            ack = acks.get((dog_a_id, dog_b_id))
+            ack = acks.get((dog_a_id, dog_b_id, ConflictAcknowledgement.key_for(dog_ids)))
             conflicts.append({
+                'dogs': [
+                    {
+                        'id': i,
+                        'name': assignment_by_dog[i].dog.name,
+                        'staff_id': assignment_by_dog[i].staff_member_id,
+                        'staff_name': staff_name(assignment_by_dog[i].staff_member),
+                    }
+                    for i in dog_ids
+                ],
                 'acknowledged_by_name': staff_name(ack.acknowledged_by) if ack else None,
                 'acknowledged_at': ack.acknowledged_at.isoformat() if ack else None,
                 'scope': 'SAME_GROUP' if same_group else 'SAME_DAY',
@@ -2693,7 +2715,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     def acknowledge_conflict(self, request):
         """Record that a staff member has seen a grouping conflict and is
         handling it. Body: ``date`` (optional, defaults to today), ``dog_a``
-        and ``dog_b`` (the pair, either way round). Idempotent: a pair already
+        and ``dog_b`` (the pair, either way round), or ``dogs`` (every id of a
+        group conflict, any order). Idempotent: a conflict already
         acknowledged for the day keeps its first acknowledger. Any staff
         member can do it — it is a "someone has this" flag for the whole
         team, and the dashboard stops spotlighting the pair once set.
@@ -2703,32 +2726,42 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         target_date, error = self._parse_date(request)
         if error:
             return error
+        group = request.data.get('dogs')
         try:
-            dog_a_id, dog_b_id = ConflictAcknowledgement.pair(request.data.get('dog_a'), request.data.get('dog_b'))
+            if group:
+                ids = sorted({int(i) for i in group})
+                if len(ids) != len(group):
+                    raise ValueError
+            else:
+                ids = list(ConflictAcknowledgement.pair(request.data.get('dog_a'), request.data.get('dog_b')))
         except (TypeError, ValueError):
-            return Response({'detail': 'dog_a and dog_b are required.'}, status=drf_status.HTTP_400_BAD_REQUEST)
-        if dog_a_id == dog_b_id:
+            return Response({'detail': 'dog_a and dog_b (or dogs) are required.'}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if len(set(ids)) < 2:
             return Response({'detail': 'dog_a and dog_b must differ.'}, status=drf_status.HTTP_400_BAD_REQUEST)
-        dogs = {d.id: d for d in Dog.objects.filter(id__in=(dog_a_id, dog_b_id))}
-        if len(dogs) != 2:
+        dogs = {d.id: d for d in Dog.objects.filter(id__in=ids)}
+        if len(dogs) != len(ids):
             return Response({'detail': 'Dog not found.'}, status=drf_status.HTTP_404_NOT_FOUND)
+        dog_a_id, dog_b_id = ids[0], ids[1]
 
         ack, created = ConflictAcknowledgement.objects.get_or_create(
             date=target_date, dog_a=dogs[dog_a_id], dog_b=dogs[dog_b_id],
+            group_key=ConflictAcknowledgement.key_for(ids),
             defaults={'acknowledged_by': request.user},
         )
         if created:
+            names = [dogs[i].name for i in ids]
+            joined = f'{", ".join(names[:-1])} and {names[-1]}'
             log_activity(
-                'SCHEDULE', f'{dogs[dog_a_id].name} & {dogs[dog_b_id].name}', action='STATUS',
+                'SCHEDULE', ' & '.join(names), action='STATUS',
                 actor=request.user,
-                summary=f'Acknowledged the grouping conflict between {dogs[dog_a_id].name} '
-                        f'and {dogs[dog_b_id].name} for {_uk(target_date)}',
+                summary=f'Acknowledged the grouping conflict between {joined} for {_uk(target_date)}',
             )
         by = ack.acknowledged_by
         return Response({
             'date': target_date.isoformat(),
             'dog_a_id': dog_a_id,
             'dog_b_id': dog_b_id,
+            'dogs': ids,
             'acknowledged_by_name': (by.first_name or by.username) if by else None,
             'acknowledged_at': ack.acknowledged_at.isoformat(),
         }, status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK)
@@ -4414,15 +4447,19 @@ class DogNoteViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         from django.db.models import Q
         from .models import DogNote
-        queryset = DogNote.objects.select_related('dog', 'related_dog', 'created_by')
+        queryset = (
+            DogNote.objects.select_related('dog', 'related_dog', 'created_by')
+            .prefetch_related('extra_dogs')
+        )
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
-            # Compatibility notes describe a relationship between two dogs and
-            # should surface on both dogs' profiles.
+            # Compatibility notes describe a relationship between dogs and
+            # should surface on every dog's profile they name.
             queryset = queryset.filter(
                 Q(dog_id=dog_id)
                 | Q(note_type='COMPATIBILITY', related_dog_id=dog_id)
-            )
+                | Q(note_type='COMPATIBILITY', extra_dogs__id=dog_id)
+            ).distinct()
         note_type = self.request.query_params.get('note_type')
         if note_type:
             queryset = queryset.filter(note_type=note_type)
@@ -4435,11 +4472,16 @@ class DogNoteViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         note = serializer.save(created_by=self.request.user)
         text = ' '.join(note.text.split())
+        extra = list(note.extra_dogs.all())
+        group = ''
+        if extra:
+            others = [note.related_dog.name] + [d.name for d in extra]
+            group = f' (with {", ".join(others[:-1])} and {others[-1]}, not all together)'
         log_change(
             note.dog,
             action='NOTE',
             actor=self.request.user,
-            summary=f'Added a {note.get_note_type_display().lower()} note: {text}',
+            summary=f'Added a {note.get_note_type_display().lower()} note{group}: {text}',
         )
 
 
