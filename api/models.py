@@ -553,7 +553,10 @@ class ConflictAcknowledgement(models.Model):
     tapping OK should quiet it for the whole team, and reinstalling the app
     must not bring it back. One row per day per pair of dogs, stored with
     the lower dog id first so the pair is found whichever way round it comes.
-    Nothing is undone by it — the conflict banner still shows the pair.
+    A conflict about a group of three or more (``DogNote.extra_dogs``) keeps
+    its two lowest ids in ``dog_a``/``dog_b`` and the whole sorted group in
+    ``group_key``, so it never shares a row with a pair conflict between two
+    of its dogs. Nothing is undone by it — the conflict banner still shows it.
     """
     date = models.DateField()
     dog_a = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='+')
@@ -562,14 +565,22 @@ class ConflictAcknowledgement(models.Model):
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='conflict_acknowledgements')
     acknowledged_at = models.DateTimeField(auto_now_add=True)
+    # '' for a pair, else the group's sorted dog ids joined by commas.
+    group_key = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
-        unique_together = ('date', 'dog_a', 'dog_b')
+        unique_together = ('date', 'dog_a', 'dog_b', 'group_key')
         ordering = ['date', 'dog_a_id', 'dog_b_id']
 
     @staticmethod
     def pair(dog_a_id, dog_b_id):
         return tuple(sorted((int(dog_a_id), int(dog_b_id))))
+
+    @staticmethod
+    def key_for(dog_ids):
+        """``group_key`` for a conflict between ``dog_ids``: '' for a pair."""
+        ids = sorted({int(i) for i in dog_ids})
+        return '' if len(ids) <= 2 else ','.join(str(i) for i in ids)
 
     def __str__(self):
         return f"Conflict {self.dog_a_id}/{self.dog_b_id} on {self.date} acknowledged"
@@ -670,6 +681,11 @@ class DogNote(models.Model):
 
     dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='notes')
     related_dog = models.ForeignKey(Dog, on_delete=models.CASCADE, null=True, blank=True, related_name='related_notes')
+    # A COMPATIBILITY note about a group rather than a pair: ``dog``,
+    # ``related_dog`` and these are fine in any smaller combination, and the
+    # note applies only when every one of them is in together. Empty for an
+    # ordinary pair note.
+    extra_dogs = models.ManyToManyField(Dog, blank=True, related_name='group_notes')
     note_type = models.CharField(max_length=15, choices=NOTE_TYPE_CHOICES)
     text = models.TextField()
     is_positive = models.BooleanField(default=True, help_text='Whether this is a positive or negative note (e.g. gets along vs does not get along)')
@@ -679,6 +695,15 @@ class DogNote(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+    def group_dog_ids(self):
+        """Every dog the note is about, ``dog`` first. Uses the prefetched
+        ``extra_dogs`` when there is one."""
+        ids = [self.dog_id]
+        if self.related_dog_id:
+            ids.append(self.related_dog_id)
+        ids.extend(d.id for d in self.extra_dogs.all() if d.id not in ids)
+        return ids
 
     def __str__(self):
         if self.related_dog:

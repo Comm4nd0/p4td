@@ -152,6 +152,7 @@ abstract class DataService {
     required DateTime date,
     required int dogAId,
     required int dogBId,
+    List<int> dogIds = const [],
   });
 
   /// Photo-tagging progress for a day: how many of the day's dogs have been
@@ -227,7 +228,7 @@ abstract class DataService {
 
   // Dog Notes
   Future<List<DogNote>> getDogNotes({int? dogId, String? noteType});
-  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, required DogNoteType noteType, required String text, bool isPositive = true});
+  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, List<int> extraDogIds = const [], required DogNoteType noteType, required String text, bool isPositive = true});
   Future<void> updateDogNote(int noteId, {String? text, bool? isPositive});
   Future<void> deleteDogNote(int noteId);
 

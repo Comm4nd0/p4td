@@ -540,7 +540,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Future<List<CompatibilityConflict>> _acknowledgeConflict(CompatibilityConflict conflict) async {
     final date = _selectedDate;
     await _dataService.acknowledgeCompatibilityConflict(
-        date: date, dogAId: conflict.dogAId, dogBId: conflict.dogBId);
+        date: date,
+        dogAId: conflict.dogAId,
+        dogBId: conflict.dogBId,
+        dogIds: conflict.isGroup ? conflict.dogs.map((d) => d.id).toList() : const []);
     await _loadConflicts(date);
     _loadRecentChanges();
     return _dayData(date).conflicts;
@@ -585,13 +588,15 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         ));
       }
     }
-    final unacknowledged = day.conflicts.where((c) => !c.isAcknowledged).length;
+    final open = day.conflicts.where((c) => !c.isAcknowledged);
+    final unacknowledged = open.length;
+    final noun = open.any((c) => c.isGroup) ? 'group' : 'pair';
     if (unacknowledged > 0 && widget.canAssignDogs) {
       steps.add(SpotlightStep(
         id: 'conflicts',
         targetKey: _conflictSpotKey,
         title: 'Grouping conflicts to check',
-        message: '$unacknowledged ${unacknowledged == 1 ? 'pair of dogs that don\'t get on is' : 'pairs of dogs that don\'t get on are'} '
+        message: '$unacknowledged ${unacknowledged == 1 ? '$noun of dogs that don\'t get on is' : '${noun}s of dogs that don\'t get on are'} '
             'in today and nobody has acknowledged it. Regroup them or acknowledge that you have it in hand.',
         actionLabel: 'Review',
         onAction: () => _reviewConflictsFromSpotlight(),

@@ -133,4 +133,45 @@ void main() {
           findsOneWidget);
     });
   });
+
+  group('group conflicts', () {
+    Map<String, dynamic> json() => {
+          'scope': 'SAME_DAY',
+          'staff_member_id': null,
+          'staff_member_name': '',
+          'dog_a_id': 1,
+          'dog_a_name': 'Rex',
+          'dog_a_staff_name': 'Sam',
+          'dog_b_id': 2,
+          'dog_b_name': 'Buddy',
+          'dog_b_staff_name': 'Sam',
+          'dogs': [
+            {'id': 1, 'name': 'Rex', 'staff_id': 5, 'staff_name': 'Sam'},
+            {'id': 2, 'name': 'Buddy', 'staff_id': 5, 'staff_name': 'Sam'},
+            {'id': 3, 'name': 'Luna', 'staff_id': null, 'staff_name': null},
+          ],
+          'reasons': ['Too much as a three'],
+        };
+
+    test('reads every dog in the group', () {
+      final c = CompatibilityConflict.fromJson(json());
+      expect(c.isGroup, isTrue);
+      expect(c.dogNames, 'Rex + Buddy + Luna');
+      expect(compatibilityConflictSummary([c]), '1 conflict in the daycare on the same day');
+    });
+
+    test('a pair without a dogs list still has both dogs', () {
+      final c = _sameGroup();
+      expect(c.isGroup, isFalse);
+      expect(c.dogs.map((d) => d.name), ['Rex', 'Buddy']);
+    });
+
+    testWidgets('the dialog names all of them and says any pair is fine',
+        (tester) async {
+      await _open(tester, [CompatibilityConflict.fromJson(json())]);
+      expect(find.text('Rex + Buddy + Luna'), findsOneWidget);
+      expect(find.text('Fine in any pair, not all 3 together'), findsOneWidget);
+      expect(find.textContaining('Luna: no driver yet'), findsOneWidget);
+    });
+  });
 }

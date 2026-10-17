@@ -903,12 +903,34 @@ class WaitlistEntrySerializer(serializers.ModelSerializer):
 class DogNoteSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
     related_dog_name = serializers.CharField(source='related_dog.name', read_only=True, default=None)
+    extra_dog_names = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = DogNote
-        fields = ['id', 'dog', 'dog_name', 'related_dog', 'related_dog_name', 'note_type', 'text', 'is_positive', 'created_by', 'created_by_name', 'created_at', 'updated_at']
+        fields = ['id', 'dog', 'dog_name', 'related_dog', 'related_dog_name', 'extra_dogs', 'extra_dog_names', 'note_type', 'text', 'is_positive', 'created_by', 'created_by_name', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_by', 'created_by_name', 'created_at', 'updated_at']
+        extra_kwargs = {'extra_dogs': {'required': False}}
+
+    def get_extra_dog_names(self, obj):
+        return [d.name for d in obj.extra_dogs.all()]
+
+    def validate(self, attrs):
+        """A group is a compatibility note with ``related_dog`` set plus the
+        rest in ``extra_dogs``; nobody may appear in it twice."""
+        extra = attrs.get('extra_dogs')
+        if extra:
+            note_type = attrs.get('note_type', getattr(self.instance, 'note_type', None))
+            dog = attrs.get('dog', getattr(self.instance, 'dog', None))
+            related = attrs.get('related_dog', getattr(self.instance, 'related_dog', None))
+            if note_type != 'COMPATIBILITY' or related is None:
+                raise serializers.ValidationError({
+                    'extra_dogs': 'Only a compatibility note with a related dog can name more dogs.',
+                })
+            ids = [d.id for d in extra]
+            if len(set(ids)) != len(ids) or {dog.id, related.id} & set(ids):
+                raise serializers.ValidationError({'extra_dogs': 'Each dog can be in the group once.'})
+        return attrs
 
     def get_created_by_name(self, obj):
         if obj.created_by:

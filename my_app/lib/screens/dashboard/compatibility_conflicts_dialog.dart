@@ -5,7 +5,8 @@ import '../../constants/app_colors.dart';
 import '../../services/data_service.dart';
 
 /// One-line summary for the dashboard banner: how many incompatible pairs
-/// share a pickup group and how many are merely in on the same day.
+/// (or groups — dogs fine in any smaller mix, not all together) share a
+/// pickup group and how many are merely in on the same day.
 ///
 /// The distinction matters to whoever is reading it. A same-group pair rides
 /// in the same van and needs one of them reassigning; a same-day pair is
@@ -14,7 +15,8 @@ import '../../services/data_service.dart';
 String compatibilityConflictSummary(List<CompatibilityConflict> conflicts) {
   final sameGroup = conflicts.where((c) => c.isSameGroup).length;
   final sameDay = conflicts.length - sameGroup;
-  String pairs(int n) => n == 1 ? '1 pair' : '$n pairs';
+  final noun = conflicts.any((c) => c.isGroup) ? 'conflict' : 'pair';
+  String pairs(int n) => n == 1 ? '1 $noun' : '$n ${noun}s';
   if (sameDay == 0) {
     return '${pairs(sameGroup)} in the same pickup group';
   }
@@ -138,8 +140,7 @@ class _ConflictsDialogState extends State<_ConflictsDialog> {
               ...sameDay.map((c) => row(
                     c,
                     [
-                      _driverLine(c.dogAName, c.dogAStaffName),
-                      _driverLine(c.dogBName, c.dogBStaffName),
+                      for (final d in c.dogs) _driverLine(d.name, d.staffName),
                       if (c.reasons.isNotEmpty) c.reasons.first,
                     ].join('\n'),
                   )),
@@ -148,7 +149,7 @@ class _ConflictsDialogState extends State<_ConflictsDialog> {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  'Acknowledging tells the team someone has seen the pair and is handling it. The warning stays until the dogs are regrouped.',
+                  'Acknowledging tells the team someone has seen the conflict and is handling it. The warning stays until the dogs are regrouped.',
                   style: TextStyle(fontSize: 12, color: AppColors.grey600),
                 ),
               ),
@@ -233,7 +234,7 @@ class _ConflictRow extends StatelessWidget {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '${conflict.dogAName} + ${conflict.dogBName}',
+                conflict.dogNames,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
@@ -263,6 +264,14 @@ class _ConflictRow extends StatelessWidget {
                       child: const Text('Acknowledge', style: TextStyle(fontSize: 12)),
                     ),
           ]),
+          if (conflict.isGroup)
+            Padding(
+              padding: const EdgeInsets.only(left: 22, top: 2),
+              child: Text(
+                'Fine in any pair, not all ${conflict.dogs.length} together',
+                style: TextStyle(fontSize: 12, color: Colors.orange.shade800, fontWeight: FontWeight.w600),
+              ),
+            ),
           if (detail != null && detail!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(left: 22, top: 2),

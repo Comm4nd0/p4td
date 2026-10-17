@@ -1714,6 +1714,7 @@ class ApiDataService implements DataService {
     required DateTime date,
     required int dogAId,
     required int dogBId,
+    List<int> dogIds = const [],
   }) async {
     final headers = await _getHeaders();
     final response = await http.post(
@@ -1723,6 +1724,7 @@ class ApiDataService implements DataService {
         'date': '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
         'dog_a': dogAId,
         'dog_b': dogBId,
+        if (dogIds.length > 2) 'dogs': dogIds,
       }),
     );
     if (response.statusCode != 200 && response.statusCode != 201) {
@@ -2703,7 +2705,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, required DogNoteType noteType, required String text, bool isPositive = true}) async {
+  Future<DogNote> createDogNote({required int dogId, int? relatedDogId, List<int> extraDogIds = const [], required DogNoteType noteType, required String text, bool isPositive = true}) async {
     final headers = await _getHeaders();
     final body = <String, dynamic>{
       'dog': dogId,
@@ -2712,6 +2714,7 @@ class ApiDataService implements DataService {
       'is_positive': isPositive,
     };
     if (relatedDogId != null) body['related_dog'] = relatedDogId;
+    if (extraDogIds.isNotEmpty) body['extra_dogs'] = extraDogIds;
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/dog-notes/'),
       headers: headers,

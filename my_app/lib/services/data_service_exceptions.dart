@@ -80,6 +80,17 @@ enum CompatibilityConflictScope {
   sameDay,
 }
 
+/// One dog in a [CompatibilityConflict], with who drives it that day.
+class ConflictDog {
+  final int id;
+  final String name;
+
+  /// Null when the dog has no driver yet.
+  final String? staffName;
+
+  const ConflictDog({required this.id, required this.name, this.staffName});
+}
+
 class CompatibilityConflict {
   final CompatibilityConflictScope scope;
 
@@ -95,6 +106,11 @@ class CompatibilityConflict {
   final String dogBName;
   final String? dogBStaffName;
   final List<String> reasons;
+
+  /// Every dog in the conflict: the pair, or all of a group note's dogs
+  /// (fine in any smaller mix, not all together). [dogAId]/[dogBId] are its
+  /// first two. Built from the pair when the server sends no list.
+  final List<ConflictDog> dogs;
 
   /// Who on the team has said "I've seen this and I'm handling it" today,
   /// and when. Null until someone does. The dashboard spotlights a pair
@@ -113,9 +129,19 @@ class CompatibilityConflict {
     required this.dogBName,
     this.dogBStaffName,
     required this.reasons,
+    List<ConflictDog>? dogs,
     this.acknowledgedByName,
     this.acknowledgedAt,
-  });
+  }) : dogs = dogs ??
+            [
+              ConflictDog(id: dogAId, name: dogAName, staffName: dogAStaffName),
+              ConflictDog(id: dogBId, name: dogBName, staffName: dogBStaffName),
+            ];
+
+  bool get isGroup => dogs.length > 2;
+
+  /// "Rex + Buddy", or "Rex + Buddy + Max" for a group.
+  String get dogNames => dogs.map((d) => d.name).join(' + ');
 
   bool get isSameGroup => scope == CompatibilityConflictScope.sameGroup;
   bool get isAcknowledged => acknowledgedByName != null;
@@ -142,6 +168,16 @@ class CompatibilityConflict {
       reasons: (json['reasons'] as List<dynamic>? ?? [])
           .map((r) => r.toString())
           .toList(),
+      dogs: json['dogs'] is List
+          ? (json['dogs'] as List<dynamic>)
+              .whereType<Map<String, dynamic>>()
+              .map((d) => ConflictDog(
+                    id: _optInt(d['id']) ?? 0,
+                    name: d['name']?.toString() ?? '',
+                    staffName: d['staff_name']?.toString(),
+                  ))
+              .toList()
+          : null,
       acknowledgedByName: json['acknowledged_by_name']?.toString(),
       acknowledgedAt: json['acknowledged_at'] != null
           ? DateTime.tryParse(json['acknowledged_at'].toString())
