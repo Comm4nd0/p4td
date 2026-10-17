@@ -52,6 +52,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _notifyBookings = true;
   bool _notifyDogUpdates = true;
   bool _notifyMessages = true;
+  bool _notifySchedule = true;
 
   // Staff identity colour ('#RRGGBB', '' = automatic palette colour).
   String _staffColor = '';
@@ -143,6 +144,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _notifyBookings = profile.notifyBookings;
         _notifyDogUpdates = profile.notifyDogUpdates;
         _notifyMessages = profile.notifyMessages;
+        _notifySchedule = profile.notifySchedule;
         _staffColor = profile.staffColor;
         _accounts = accounts;
         _activeAccountId = activeId;
@@ -294,6 +296,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         notifyBookings: _notifyBookings,
         notifyDogUpdates: _notifyDogUpdates,
         notifyMessages: _notifyMessages,
+        notifySchedule: _notifySchedule,
       );
 
       await _dataService.updateProfile(updatedProfile);
@@ -848,6 +851,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           value: _notifyMessages,
                           onChanged: (val) => setState(() => _notifyMessages = val),
                         ),
+                        if (_profile!.isStaff)
+                          SwitchListTile.adaptive(
+                            title: const Text('Schedule Changes'),
+                            subtitle: const Text("Tomorrow's changes at 6pm, and late changes as they happen"),
+                            secondary: Picon(PiconsDuotone.arrowsLeftRight),
+                            value: _notifySchedule,
+                            onChanged: (val) => setState(() => _notifySchedule = val),
+                          ),
                         if (!_profile!.isStaff) ...[
                           SwitchListTile.adaptive(
                             title: const Text('Traffic Alerts'),
@@ -858,7 +869,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           SwitchListTile.adaptive(
                             title: const Text('Booking Updates'),
-                            subtitle: const Text('Date changes and boarding requests'),
+                            subtitle: const Text('Date changes, boarding and day reminders'),
                             secondary: Picon(PiconsDuotone.calendar),
                             value: _notifyBookings,
                             onChanged: (val) => setState(() => _notifyBookings = val),

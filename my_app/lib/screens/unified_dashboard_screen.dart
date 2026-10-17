@@ -51,6 +51,8 @@ import 'facility_defects_screen.dart';
 import 'incidents_screen.dart';
 import 'log_incident_screen.dart';
 import 'fleet_screen.dart';
+import 'dashboard/day_changes_section.dart';
+import '../models/day_changes.dart';
 import 'staff_management_screen.dart';
 import 'staff_permissions_screen.dart';
 import 'customer_payments_screen.dart';
@@ -121,6 +123,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   final GlobalKey _dropOffSpotKey = GlobalKey(debugLabel: 'spot-drop-off');
   final GlobalKey _collectionSpotKey = GlobalKey(debugLabel: 'spot-collection');
   final GlobalKey _conflictSpotKey = GlobalKey(debugLabel: 'spot-conflicts');
+  final GlobalKey _changesSpotKey = GlobalKey(debugLabel: 'spot-changes');
 
   /// Steps put off with Not now, for this session only: they come back the
   /// next time the app opens if still outstanding.
@@ -448,6 +451,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadRoadworks(date);
     _loadPhotoTagging(date);
     _loadOwnerHandovers(date);
+    _loadDayChanges(date);
 
     // Pre-cache adjacent dates so swiping is instant.
     if (prefetchAdjacent) _prefetchAdjacentDates(date);
@@ -495,6 +499,30 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Failed to load photo tagging: $e');
+    }
+  }
+
+  /// How the day differs from the routine. Silent on failure like the
+  /// loaders above: the section simply doesn't render.
+  Future<void> _loadDayChanges(DateTime date) async {
+    try {
+      final changes = await _dataService.getDayChanges(date: date);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] =
+            _dayData(date).copyWith(dayChanges: changes));
+      }
+    } catch (e) {
+      debugPrint('Failed to load day changes: $e');
+    }
+  }
+
+  /// Got it: the viewer has seen every late change on their run that day.
+  Future<void> _confirmDayChanges() async {
+    final date = _selectedDate;
+    final changes = await _dataService.acknowledgeDayChanges(date: date);
+    if (mounted) {
+      setState(() => _dayCache[_dayKey(date)] =
+          _dayData(date).copyWith(dayChanges: changes));
     }
   }
 
@@ -551,7 +579,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   /// What the spotlight should point at on today's board, in order: the
   /// morning drop-off leg with nobody on it, the collection leg likewise,
-  /// then grouping conflicts nobody has acknowledged. Each is gated on the
+  /// late changes to the viewer's run they haven't confirmed (made after the
+  /// 18:00 summary), then grouping conflicts nobody has acknowledged. Each is gated on the
   /// time of day so a leg that has happened doesn't nag all afternoon, and
   /// on the widget being on screen (a GlobalKey with no context is a card
   /// that isn't rendered — no dogs on that leg, or another date showing).
@@ -587,6 +616,19 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           onAction: () => _assignHandoverFromSpotlight(OwnerHandoverLeg.collection),
         ));
       }
+    }
+    final toConfirm = day.dayChanges?.needsConfirming ?? const <DayChange>[];
+    if (toConfirm.isNotEmpty) {
+      final names = toConfirm.map((c) => c.dogName).toSet().join(', ');
+      steps.add(SpotlightStep(
+        id: 'day_changes',
+        targetKey: _changesSpotKey,
+        title: toConfirm.length == 1 ? 'Your run changed late' : 'Your run changed late — ${toConfirm.length} changes',
+        message: 'Since last night\'s summary: $names. '
+            'Check the changes below so nobody is collected who isn\'t coming, or left behind.',
+        actionLabel: 'Got it',
+        onAction: _confirmDayChanges,
+      ));
     }
     final open = day.conflicts.where((c) => !c.isAcknowledged);
     final unacknowledged = open.length;
@@ -1361,6 +1403,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                         _buildSavedDataBanner(day),
                         _buildUnassignedBanner(_selectedDate),
                         _buildCompatibilityWarning(_selectedDate),
+                        DayChangesSection(
+                          key: _isToday(_selectedDate) ? _changesSpotKey : null,
+                          changes: day.dayChanges,
+                          onConfirm: _confirmDayChanges,
+                        ),
                         _buildOverviewMetrics(assignments),
                         OwnerHandoverSection(
                           status: day.handovers,
@@ -2513,6 +2560,10 @@ class DayData {
   /// The day's owner drop-offs and collections and who is meeting the owners,
   /// or null until it loads (or when the fetch failed — the cards hide).
   final OwnerHandoverStatus? handovers;
+
+  /// How the day differs from the routine, or null until it loads (or when
+  /// the fetch failed — the section hides).
+  final DayChanges? dayChanges;
   final ClosureDay? closure;
   final bool loading;
   final Object? error;
@@ -2541,6 +2592,7 @@ class DayData {
     this.roadworks = const [],
     this.tagging,
     this.handovers,
+    this.dayChanges,
     this.closure,
     this.loading = false,
     this.error,
@@ -2557,6 +2609,7 @@ class DayData {
     List<RoadworkIssue>? roadworks,
     PhotoTaggingStatus? tagging,
     OwnerHandoverStatus? handovers,
+    DayChanges? dayChanges,
     ClosureDay? closure,
     bool clearClosure = false,
     bool? loading,
@@ -2575,6 +2628,7 @@ class DayData {
       roadworks: roadworks ?? this.roadworks,
       tagging: tagging ?? this.tagging,
       handovers: handovers ?? this.handovers,
+      dayChanges: dayChanges ?? this.dayChanges,
       closure: clearClosure ? null : (closure ?? this.closure),
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),

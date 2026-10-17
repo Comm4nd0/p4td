@@ -264,6 +264,15 @@ class NotificationService {
         _navigateToHome(initialRoute: 'dogs');
         break;
 
+      // Changes to the routine, opened on the day they are about. Staff (the
+      // 18:00 summary and late changes) get the dashboard on that date, with
+      // its Changes section; owners (an extra-day / day-off reminder) get My
+      // Calendar on that day.
+      case 'schedule_change':
+      case 'schedule_reminder':
+        _navigateToHome(initialRoute: type, routePayload: data['date'] as String?);
+        break;
+
       // Incidents — staff only (the incident log is never shown to owners);
       // HomeScreen drops the route for anyone who isn't staff.
       case 'incident':

@@ -98,7 +98,7 @@ def _user_has_preference(user, category):
     """Check whether the user has the given notification category enabled.
 
     category must be one of: 'feed', 'traffic', 'bookings', 'dog_updates',
-    'messages'.
+    'messages', 'schedule' (staff: changes to the day's routine).
     Returns True when no profile exists (default to sending).
     """
     if category is None:
@@ -660,3 +660,77 @@ def send_staff_notification(title, body, data=None, permission=None, exclude_use
     for user in recipients:
         send_push_notification(user, title, body, data,
                                ignore_working_hours=ignore_working_hours)
+
+
+def schedule_change_recipients(day, exclude_user=None):
+    """Who hears about a change to ``day``'s routine: everyone due to work it
+    (``scheduling.working_staff_for_date`` — the daycare pattern, not the
+    push filter's general availability, and for that day rather than today),
+    plus staff with ``receives_business_alerts`` whatever their pattern."""
+    from django.contrib.auth.models import User
+    from .scheduling import working_staff_for_date
+
+    people = {u.id: u for u in working_staff_for_date(day)}
+    alerts = User.objects.filter(
+        is_staff=True, is_active=True, profile__receives_business_alerts=True,
+    )
+    for user in alerts:
+        people.setdefault(user.id, user)
+    if exclude_user is not None:
+        people.pop(exclude_user.id, None)
+    return list(people.values())
+
+
+def day_word(day):
+    """'today', 'tomorrow' or 'Fri 24 Oct'."""
+    from datetime import timedelta
+    from django.utils import timezone
+
+    today = timezone.localdate()
+    if day == today:
+        return 'today'
+    if day == today + timedelta(days=1):
+        return 'tomorrow'
+    return day.strftime('%a %d %b')
+
+
+def notify_late_schedule_change(dog, day, actor=None):
+    """Push everyone working ``day`` about a change to ``dog``'s day that the
+    18:00 summary has already missed (``scheduling.is_late_change_day``).
+
+    Called beside the write by every path that changes whether, or how, a dog
+    comes in: an approved date change, Remove from day, a transport override,
+    a dog put on a day by hand. Earlier changes wait for the summary. The
+    person who made the change is not pushed about it. Best-effort: a failure
+    here must never undo the change. Returns how many people were pushed.
+    """
+    from .scheduling import change_short_text, day_changes, is_late_change_day
+
+    try:
+        if not is_late_change_day(day):
+            return 0
+        changes = [c for c in day_changes(day) if c['dog_id'] == dog.id]
+        when = day_word(day)
+        if changes:
+            body = '; '.join(change_short_text(c) for c in changes)
+        else:
+            # The change undid an earlier one — the dog is back to its routine.
+            body = f'{dog.name} is back to the usual routine.'
+        if actor is not None:
+            body += f' (by {actor.first_name or actor.username})'
+        title = f'Change for {when}: {dog.name}'
+        data = {
+            'type': 'schedule_change',
+            'date': day.isoformat(),
+            'dog_id': str(dog.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        recipients = schedule_change_recipients(day, exclude_user=actor)
+        for user in recipients:
+            send_push_notification(
+                user, title, body, data, category='schedule', ignore_working_hours=True,
+            )
+        return len(recipients)
+    except Exception as exc:
+        logger.error(f'Failed to send late schedule change push: {exc}', exc_info=True)
+        return 0

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/day_changes.dart';
 import '../models/roadwork_issue.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
@@ -72,10 +73,15 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   bool _reordering = false;
   bool _openingMap = false;
 
+  /// This staff member's regular dogs who aren't on the list today
+  /// (cancelled, or with the boarding carer) — shown as "not today" cards.
+  List<DayChange> _notToday = const [];
+
   @override
   void initState() {
     super.initState();
     _assignments = List.of(widget.assignments);
+    _loadNotToday();
     // If any assignment has a non-zero sort_order, the user has previously
     // customised the order — default to custom sort to honour it.
     final hasCustomOrder = _assignments.any((a) => a.sortOrder != 0);
@@ -122,7 +128,19 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     }
   }
 
+  Future<void> _loadNotToday() async {
+    final staffId = widget.staffMemberId;
+    if (staffId == null) return;
+    try {
+      final changes = await _dataService.getDayChanges(date: widget.date);
+      if (mounted) setState(() => _notToday = changes.missingFrom(staffId));
+    } catch (e) {
+      debugPrint('Failed to load day changes: $e');
+    }
+  }
+
   Future<void> _reloadAssignments() async {
+    _loadNotToday();
     try {
       final all = await _dataService.getTodayAssignments(date: widget.date);
       if (mounted) {
@@ -473,7 +491,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
           children: [
             RoadworkBanner(issues: widget.roadworks),
             Expanded(
-              child: _assignments.isEmpty
+              child: _assignments.isEmpty && _notToday.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -545,6 +563,18 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: LinearProgressIndicator(),
+            ),
+          ),
+        // Regular dogs who are NOT coming today. First, because a dog
+        // missing from a familiar list is the easiest change to overlook.
+        if (_notToday.isNotEmpty)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => NotTodayCard(change: _notToday[index]),
+                childCount: _notToday.length,
+              ),
             ),
           ),
         // Reorderable staff pickups section
@@ -625,6 +655,58 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       statusFontSize: 12,
       statusCaretSize: 16,
       statusChipCompact: false,
+    );
+  }
+}
+
+
+/// A greyed, struck-through card for a dog that is normally on this list on
+/// this weekday but isn't today — so the gap is seen, not just absent.
+class NotTodayCard extends StatelessWidget {
+  final DayChange change;
+
+  const NotTodayCard({super.key, required this.change});
+
+  @override
+  Widget build(BuildContext context) {
+    final grey = Colors.grey.shade600;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Colors.grey.shade100,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade300),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(children: [
+          Picon(
+            change.isCancelled ? PiconsDuotone.calendarX : PiconsDuotone.house,
+            size: 28,
+            color: grey,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                change.dogName,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: grey,
+                  decoration: TextDecoration.lineThrough,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Not today — ${change.description}',
+                style: TextStyle(fontSize: 13, color: grey),
+              ),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }

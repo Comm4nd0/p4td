@@ -14582,3 +14582,260 @@ class DogInvoiceCoverageTests(TestCase):
         self.assertEqual(entry['xero_invoice_number'], 'INV-0042')
         self.assertEqual((entry['status'], entry['status_display']), ('SENT', 'Sent'))
         self.assertTrue(entry['is_overdue'])
+
+
+class DayChangesTests(TestCase):
+    """scheduling.day_changes and everything built on it — the roster's
+    day_changes field, changes/ + acknowledge_changes/, the 18:00
+    send_tomorrow_changes summary and the late-change push. Staff work from
+    routine, so only what differs from a dog's normal weekday is reported."""
+
+    def setUp(self):
+        from .models import ScheduleChangeAcknowledgement  # noqa: F401
+        self.owner = User.objects.create_user(username='owner@example.com', password='pw', first_name='Olive')
+        self.co_owner = User.objects.create_user(username='co@example.com', password='pw', first_name='Cal')
+        self.sam = User.objects.create_user(username='sam', password='pw', is_staff=True, first_name='Sam')
+        self.sam.profile.can_assign_dogs = True
+        self.sam.profile.can_manage_requests = True
+        self.sam.profile.save()
+        self.jo = User.objects.create_user(username='jo', password='pw', is_staff=True, first_name='Jo')
+        self.client = APIClient()
+        self.client.force_authenticate(self.sam)
+        # A Wednesday at least a week out, so the roster materialises and
+        # nothing counts as late unless a test says so.
+        day = date.today() + timedelta(days=7)
+        while day.isoweekday() != 3:
+            day += timedelta(days=1)
+        self.wed = day
+        self.fri = day + timedelta(days=2)
+
+    def _dog(self, name, days=(1, 3), **kw):
+        kw.setdefault('schedule_type', 'weekly')
+        return Dog.objects.create(owner=self.owner, name=name, daycare_days=list(days), **kw)
+
+    def _approved(self, dog, kind, original=None, new=None):
+        return DateChangeRequest.objects.create(
+            dog=dog, request_type=kind, original_date=original, new_date=new,
+            status='APPROVED', approved_by=self.sam, approved_at=timezone.now())
+
+    def _kinds(self, day):
+        from .scheduling import day_changes
+        return {(c['dog_name'], c['kind']) for c in day_changes(day)}
+
+    # -- day_changes ---------------------------------------------------------
+
+    def test_regular_day_is_not_a_change(self):
+        dog = self._dog('Bella')
+        DailyDogAssignment.objects.create(dog=dog, staff_member=self.sam, date=self.wed)
+        self.assertEqual(self._kinds(self.wed), set())
+
+    def test_cancel_and_extra_day(self):
+        bella = self._dog('Bella')
+        rex = self._dog('Rex')
+        self._approved(bella, 'CANCEL', original=self.wed)
+        self._approved(rex, 'ADD_DAY', new=self.fri)
+        from .scheduling import day_changes
+        wed = day_changes(self.wed)
+        self.assertEqual([(c['dog_name'], c['kind']) for c in wed], [('Bella', 'CANCELLED')])
+        self.assertEqual(wed[0]['changed_by_name'], 'Sam')
+        self.assertEqual(self._kinds(self.fri), {('Rex', 'EXTRA')})
+
+    def test_change_reports_both_dates(self):
+        bella = self._dog('Bella')
+        self._approved(bella, 'CHANGE', original=self.wed, new=self.fri)
+        from .scheduling import day_changes
+        [off] = day_changes(self.wed)
+        [on] = day_changes(self.fri)
+        self.assertEqual((off['kind'], on['kind']), ('CANCELLED', 'EXTRA'))
+        self.assertTrue(off['detail'].startswith('Moved to'))
+        self.assertTrue(on['detail'].startswith('Moved from'))
+
+    def test_staff_removal_names_who_did_it(self):
+        bella = self._dog('Bella')
+        resp = self.client.post('/api/daily-assignments/mark_removed/',
+                                {'dog_id': bella.id, 'date': self.wed.isoformat()}, format='json')
+        self.assertEqual(resp.status_code, 204)
+        from .scheduling import day_changes
+        [change] = day_changes(self.wed)
+        self.assertEqual(change['kind'], 'CANCELLED')
+        self.assertEqual(change['changed_by_name'], 'Sam')
+
+    def test_transport_override(self):
+        bella = self._dog('Bella')
+        row = DailyDogAssignment.objects.create(dog=bella, staff_member=self.sam, date=self.wed)
+        resp = self.client.patch(f'/api/daily-assignments/{row.id}/transport/',
+                                 {'owner_brings': True}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._kinds(self.wed), {('Bella', 'TRANSPORT')})
+        # An override that matches the default is not a change.
+        row.owner_brings = False
+        row.save()
+        self.assertEqual(self._kinds(self.wed), set())
+
+    def test_boarding_edges_and_mid_stay(self):
+        bella = self._dog('Bella', days=(1, 2, 3, 4, 5))
+        br = BoardingRequest.objects.create(
+            owner=self.owner, start_date=self.wed - timedelta(days=1),
+            end_date=self.wed + timedelta(days=1), status='APPROVED')
+        br.dogs.add(bella)
+        self.assertEqual(self._kinds(self.wed - timedelta(days=1)), {('Bella', 'BOARDING_START')})
+        self.assertEqual(self._kinds(self.wed), {('Bella', 'BOARDING')})
+        self.assertEqual(self._kinds(self.wed + timedelta(days=1)), {('Bella', 'BOARDING_END')})
+
+    def test_fortnightly_and_ad_hoc_never_flag_a_cancel(self):
+        fort = self._dog('Fort', schedule_type='fortnightly')
+        DailyDogAssignment.objects.create(dog=fort, staff_member=self.sam, date=self.wed, status='REMOVED')
+        # Ad-hoc dog with stale daycare_days and no booking: not "in".
+        self._dog('Adhoc', schedule_type='ad_hoc')
+        self.assertEqual(self._kinds(self.wed), set())
+
+    def test_closed_day_reports_nothing(self):
+        bella = self._dog('Bella')
+        self._approved(bella, 'CANCEL', original=self.wed)
+        ClosureDay.objects.create(date=self.wed, closure_type='CLOSED', reason='Holiday')
+        self.assertEqual(self._kinds(self.wed), set())
+
+    # -- API -----------------------------------------------------------------
+
+    def test_roster_rows_carry_their_change(self):
+        rex = self._dog('Rex')
+        DailyDogAssignment.objects.create(dog=rex, staff_member=self.sam, date=self.fri)
+        resp = self.client.get(f'/api/daily-assignments/today/?date={self.fri.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        [row] = resp.data
+        self.assertEqual(row['day_changes'], ['EXTRA'])
+
+    def test_changes_endpoint_marks_mine_late_and_acknowledged(self):
+        bella = self._dog('Bella')
+        DogWeekdayPickup.objects.create(dog=bella, weekday=3, staff_member=self.sam)
+        self._approved(bella, 'CANCEL', original=self.wed)
+        resp = self.client.get(f'/api/daily-assignments/changes/?date={self.wed.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        [change] = resp.data['changes']
+        self.assertTrue(change['mine'])
+        self.assertEqual(change['usual_staff_name'], 'Sam')
+        self.assertFalse(change['late'])  # made a week ahead
+        self.assertFalse(change['acknowledged'])
+
+        resp = self.client.post('/api/daily-assignments/acknowledge_changes/', {
+            'date': self.wed.isoformat(), 'changes': [{'dog': bella.id, 'kind': 'CANCELLED'}],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['changes'][0]['acknowledged'])
+
+        # Per person: Jo has not confirmed it, and it isn't on Jo's run.
+        self.client.force_authenticate(self.jo)
+        [change] = self.client.get(
+            f'/api/daily-assignments/changes/?date={self.wed.isoformat()}').data['changes']
+        self.assertFalse(change['acknowledged'])
+        self.assertFalse(change['mine'])
+
+    def test_change_after_the_summary_is_late(self):
+        from .scheduling import changes_cutoff
+        bella = self._dog('Bella')
+        req = self._approved(bella, 'CANCEL', original=self.wed)
+        DateChangeRequest.objects.filter(pk=req.pk).update(
+            approved_at=changes_cutoff(self.wed) + timedelta(minutes=5))
+        [change] = self.client.get(
+            f'/api/daily-assignments/changes/?date={self.wed.isoformat()}').data['changes']
+        self.assertTrue(change['late'])
+
+    def test_owners_cannot_read_changes(self):
+        self.client.force_authenticate(self.owner)
+        resp = self.client.get(f'/api/daily-assignments/changes/?date={self.wed.isoformat()}')
+        self.assertEqual(resp.status_code, 403)
+
+    # -- 18:00 summary ---------------------------------------------------------
+
+    @patch('api.management.commands.send_tomorrow_changes.send_push_notification')
+    def test_summary_silent_when_nothing_differs(self, mock_push):
+        bella = self._dog('Bella')
+        DailyDogAssignment.objects.create(dog=bella, staff_member=self.sam, date=self.wed)
+        call_command('send_tomorrow_changes', date=self.wed.isoformat())
+        mock_push.assert_not_called()
+
+    @patch('api.management.commands.send_tomorrow_changes.send_push_notification')
+    def test_summary_to_working_staff_own_run_first_and_owner_reminders(self, mock_push):
+        bella = self._dog('Bella')
+        bella.additional_owners.add(self.co_owner)
+        rex = self._dog('Rex')
+        DogWeekdayPickup.objects.create(dog=bella, weekday=3, staff_member=self.sam)
+        self._approved(bella, 'CANCEL', original=self.wed)
+        self._approved(rex, 'ADD_DAY', new=self.wed - timedelta(days=1))  # not this day
+        tom = self._dog('Tom')
+        row = DailyDogAssignment.objects.create(dog=tom, staff_member=self.jo, date=self.wed)
+        row.owner_brings = True
+        row.save()
+        off = User.objects.create_user(username='off', password='pw', is_staff=True)
+        StaffAvailability.objects.create(
+            staff_member=off, day_of_week=3, is_available=False, is_available_daycare=False)
+        boss = User.objects.create_user(username='boss', password='pw', is_staff=True)
+        boss.profile.receives_business_alerts = True
+        boss.profile.save()
+        StaffAvailability.objects.create(
+            staff_member=boss, day_of_week=3, is_available=False, is_available_daycare=False)
+
+        call_command('send_tomorrow_changes', date=self.wed.isoformat())
+
+        by_user = {c.args[0].username: c for c in mock_push.call_args_list}
+        self.assertNotIn('off', by_user)
+        self.assertIn('boss', by_user)
+        sam_body = by_user['sam'].args[2]
+        self.assertTrue(sam_body.startswith('Yours: −Bella'))
+        self.assertIn('Also: Tom', sam_body)
+        self.assertTrue(by_user['jo'].args[2].startswith('Yours: Tom'))
+        self.assertEqual(by_user['sam'].kwargs['category'], 'schedule')
+        self.assertTrue(by_user['sam'].kwargs['ignore_working_hours'])
+        # Owners: Bella's cancel reaches both owners; Tom's transport doesn't.
+        owner_calls = [c for c in mock_push.call_args_list if not c.args[0].is_staff]
+        self.assertEqual(
+            sorted(c.args[0].username for c in owner_calls),
+            ['co@example.com', 'owner@example.com'])
+        self.assertIn("Bella isn't booked in", owner_calls[0].args[2])
+        self.assertEqual(owner_calls[0].kwargs['category'], 'bookings')
+
+    # -- late-change push ------------------------------------------------------
+
+    @patch('api.notifications.send_push_notification')
+    @patch('api.scheduling.is_late_change_day', return_value=True)
+    def test_late_approval_pushes_the_days_team(self, _late, mock_push):
+        bella = self._dog('Bella')
+        req = DateChangeRequest.objects.create(dog=bella, request_type='CANCEL', original_date=self.wed)
+        resp = self.client.post(f'/api/date-change-requests/{req.id}/change_status/',
+                                {'status': 'APPROVED'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        schedule_calls = [c for c in mock_push.call_args_list if c.kwargs.get('category') == 'schedule']
+        self.assertEqual([c.args[0].username for c in schedule_calls], ['jo'])  # not the approver
+        self.assertIn('Bella', schedule_calls[0].args[1])
+        self.assertIn('−Bella', schedule_calls[0].args[2])
+
+    @patch('api.notifications.send_push_notification')
+    def test_change_well_ahead_waits_for_the_summary(self, mock_push):
+        bella = self._dog('Bella')
+        self.client.post('/api/daily-assignments/mark_removed/',
+                         {'dog_id': bella.id, 'date': self.wed.isoformat()}, format='json')
+        self.assertFalse([c for c in mock_push.call_args_list if c.kwargs.get('category') == 'schedule'])
+
+    @patch('api.notifications.send_push_notification')
+    @patch('api.scheduling.is_late_change_day', return_value=True)
+    def test_claiming_a_regular_dog_is_not_a_change(self, _late, mock_push):
+        bella = self._dog('Bella')
+        rex = self._dog('Rex', days=(5,))
+        self.client.post('/api/daily-assignments/assign_to_me/',
+                         {'dog_ids': [bella.id], 'date': self.wed.isoformat()}, format='json')
+        self.assertFalse([c for c in mock_push.call_args_list if c.kwargs.get('category') == 'schedule'])
+        self.client.post('/api/daily-assignments/assign_to_me/',
+                         {'dog_ids': [rex.id], 'date': self.wed.isoformat()}, format='json')
+        schedule_calls = [c for c in mock_push.call_args_list if c.kwargs.get('category') == 'schedule']
+        self.assertEqual(len(schedule_calls), 1)
+        self.assertIn('+Rex', schedule_calls[0].args[2])
+
+    def test_is_late_change_day(self):
+        from datetime import datetime, time
+        from .scheduling import is_late_change_day
+        today = date(2026, 10, 14)
+        at = lambda h: timezone.make_aware(datetime.combine(today, time(h)))  # noqa: E731
+        self.assertTrue(is_late_change_day(today, now=at(9)))
+        self.assertFalse(is_late_change_day(today + timedelta(days=1), now=at(17)))
+        self.assertTrue(is_late_change_day(today + timedelta(days=1), now=at(18)))
+        self.assertFalse(is_late_change_day(today + timedelta(days=2), now=at(20)))

@@ -37,6 +37,7 @@ import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
 import '../models/roadwork_issue.dart';
 import '../models/photo_tagging_status.dart';
+import '../models/day_changes.dart';
 import '../models/owner_handover_status.dart';
 import '../models/staff_hr.dart';
 import '../models/compliance.dart';
@@ -1707,6 +1708,39 @@ class ApiDataService implements DataService {
           .toList();
     }
     throw Exception('Failed to load compatibility conflicts: ${response.statusCode}');
+  }
+
+  @override
+  Future<DayChanges> getDayChanges({DateTime? date}) async {
+    final response = await _get(Uri.parse(
+        '${AuthService.baseUrl}/api/daily-assignments/changes/${_dateParam(date)}'));
+    if (response.statusCode == 200) {
+      return DayChanges.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception('Failed to load day changes: ${response.statusCode}');
+  }
+
+  @override
+  Future<DayChanges> acknowledgeDayChanges({
+    required DateTime date,
+    List<DayChange>? changes,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/acknowledge_changes/'),
+      headers: headers,
+      body: json.encode({
+        'date': _dateBody(date),
+        if (changes != null)
+          'changes': [
+            for (final c in changes) {'dog': c.dogId, 'kind': c.kind},
+          ],
+      }),
+    );
+    if (response.statusCode == 200) {
+      return DayChanges.fromJson(json.decode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception('Failed to confirm changes: ${response.statusCode}');
   }
 
   @override

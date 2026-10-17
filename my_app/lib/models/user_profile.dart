@@ -26,6 +26,8 @@ class UserProfile {
   final bool notifyBookings;
   final bool notifyDogUpdates;
   final bool notifyMessages;
+  /// Staff: tomorrow's changes at 18:00 and late changes to the routine.
+  final bool notifySchedule;
 
   /// Whether the server has a postcode-lookup provider configured (controls
   /// whether the "look up postcode" button shows on the vet field).
@@ -60,6 +62,7 @@ class UserProfile {
     this.notifyBookings = true,
     this.notifyDogUpdates = true,
     this.notifyMessages = true,
+    this.notifySchedule = true,
     this.postcodeLookupEnabled = false,
     this.staffColor = '',
   });
@@ -91,6 +94,7 @@ class UserProfile {
       notifyBookings: json['notify_bookings'] ?? true,
       notifyDogUpdates: json['notify_dog_updates'] ?? true,
       notifyMessages: json['notify_messages'] ?? true,
+      notifySchedule: json['notify_schedule'] ?? true,
       postcodeLookupEnabled: json['postcode_lookup_enabled'] ?? false,
       staffColor: json['staff_color'] ?? '',
     );
@@ -107,6 +111,7 @@ class UserProfile {
       'notify_bookings': notifyBookings,
       'notify_dog_updates': notifyDogUpdates,
       'notify_messages': notifyMessages,
+      'notify_schedule': notifySchedule,
     };
   }
 }
