@@ -110,7 +110,10 @@ $SSH_CMD "$HETZNER_HOST" "
     ( crontab -l 2>/dev/null | grep -v 'send_end_of_day_alerts'; echo \"\$EOD_CRON\" ) | crontab -
 
     echo '>>> Setting up tomorrow-changes summary cron job...'
-    CHANGES_CRON='0 18 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_tomorrow_changes >> /var/log/p4td-changes.log 2>&1'
+    # 18:00 UK time, which is what scheduling.CHANGES_SUMMARY_HOUR means. The
+    # host clock is UTC, so fire at 17:00 and 18:00 UTC and run on the one that
+    # is 18:00 in London, whatever the clocks are doing.
+    CHANGES_CRON='0 17,18 * * * [ \"\$(TZ=Europe/London date +\%H)\" = 18 ] && cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_tomorrow_changes >> /var/log/p4td-changes.log 2>&1'
     ( crontab -l 2>/dev/null | grep -v 'send_tomorrow_changes'; echo \"\$CHANGES_CRON\" ) | crontab -
 
     echo '=== Deployment complete ==='
