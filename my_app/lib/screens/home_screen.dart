@@ -303,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // the roster for staff, today-and-next-visit for owners. Done here
         // rather than as the index default so the tab's body is built for
         // the right role from the start.
-        if (widget.initialRoute == null && _currentIndex == 1) {
+        if ((widget.initialRoute == null || _opensDashboard) && _currentIndex == 1) {
           setState(() => _currentIndex = 2);
         }
         // Load pending requests count and subscribe to notifications
@@ -405,6 +405,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadInboxCounts();
   }
 
+  /// Pushes about a day's changes land on the Dashboard tab.
+  bool get _opensDashboard =>
+      widget.initialRoute == 'schedule_change' || widget.initialRoute == 'schedule_reminder';
+
+  /// The day a schedule push is about (its `date`), or null.
+  DateTime? get _deepLinkDate =>
+      _opensDashboard ? DateTime.tryParse(widget.routePayload ?? '') : null;
+
   /// Navigate to the deep-link target screen after profile/permissions are loaded.
   void _handleInitialRoute() {
     if (_initialRouteHandled || widget.initialRoute == null) return;
@@ -504,6 +512,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           break;
         case 'feed':
           setState(() => _currentIndex = 1);
+          break;
+        case 'schedule_change':
+          // Staff: the Dashboard opens on the date itself (initialDate).
+          break;
+        case 'schedule_reminder':
+          if (!_isStaff) {
+            _push(MaterialPageRoute(
+              builder: (_) => MyCalendarScreen(initialDay: _deepLinkDate),
+            ));
+          }
           break;
         case 'payments':
           // Staff payment managers land on the management screen; owners on
@@ -652,6 +670,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     isSuperuser: _isSuperuser,
                     myUserId: _myUserId,
                     initialStaffId: _dogGroupsStaffFilter,
+                    initialDate: _deepLinkDate,
                     onSwitchToFeed: () => setState(() => _currentIndex = 1),
                   );
     return UpgradeAlert(

@@ -711,3 +711,259 @@ def release_dropped_weekdays(dog, weekdays, *, actor=None):
     )
     return dates
 
+
+
+# =============================================================================
+# THE DAY'S CHANGES — what differs from a dog's routine
+# =============================================================================
+#
+# Staff work from routine ("Bella is Mondays and Wednesdays"), and the mistakes
+# happen on the exceptions: the Wednesday she is cancelled, the Friday she is
+# added, the day her owner drops her off instead of the van collecting her.
+# ``day_changes`` compares one date with what each dog normally does on that
+# weekday and returns only the differences. It is the single source for the
+# card badges, the "not today" cards on a driver's list, the dashboard's
+# Changes section, the 18:00 summary push and the late-change push — put the
+# next kind of change here, not beside it.
+
+# The evening summary (``send_tomorrow_changes``) goes out at this hour. A
+# change to a day made after the summary for it was sent — or on the day
+# itself — is "late": nobody has been told, so it gets its own push and the
+# dashboard asks the driver it affects to confirm it.
+CHANGES_SUMMARY_HOUR = 18
+
+CHANGE_EXTRA = 'EXTRA'
+CHANGE_CANCELLED = 'CANCELLED'
+CHANGE_TRANSPORT = 'TRANSPORT'
+CHANGE_BOARDING_START = 'BOARDING_START'
+CHANGE_BOARDING = 'BOARDING'
+CHANGE_BOARDING_END = 'BOARDING_END'
+
+# Display order: the ones that put a dog on or take it off a run first.
+CHANGE_KIND_ORDER = (
+    CHANGE_CANCELLED, CHANGE_EXTRA, CHANGE_TRANSPORT,
+    CHANGE_BOARDING_START, CHANGE_BOARDING, CHANGE_BOARDING_END,
+)
+
+
+def changes_cutoff(day):
+    """The moment the evening summary for ``day`` went out (18:00 the day
+    before, local time). A change made after it is late."""
+    from datetime import datetime, time
+
+    eve = day - timedelta(days=1)
+    return timezone.make_aware(datetime.combine(eve, time(CHANGES_SUMMARY_HOUR)))
+
+
+def is_late_change_day(day, now=None):
+    """True when a change to ``day`` made now would miss the evening summary:
+    the day is today, or it is tomorrow and the summary has already gone."""
+    now = now or timezone.now()
+    today = timezone.localdate(now)
+    if day == today:
+        return True
+    return day == today + timedelta(days=1) and now >= changes_cutoff(day)
+
+
+def is_regular_day(dog, weekday):
+    """The dog normally comes on this weekday. Ad-hoc dogs have no routine."""
+    return dog.schedule_type != 'ad_hoc' and weekday in (dog.daycare_days or [])
+
+
+def _staff_label(user):
+    if user is None:
+        return None
+    return user.first_name or user.username
+
+
+def day_changes(day):
+    """Every way ``day`` differs from the dogs' routine, as a list of dicts.
+
+    One entry per (dog, kind):
+
+    * ``EXTRA`` — the dog is in, but the weekday isn't one of its regular
+      days (an approved extra day, the new date of a move, a dog staff put on
+      by hand, any ad-hoc dog's day).
+    * ``CANCELLED`` — a regular day the dog isn't coming (an approved
+      cancellation, the old date of a move, staff removed it). Only for
+      weekly dogs: fortnightly dogs are still projected as coming every week
+      (see the module docstring), so their off week would flag every time
+      and teach staff to ignore the list.
+    * ``TRANSPORT`` — a per-day override says the owner brings or collects
+      when they normally don't, or the other way round.
+    * ``BOARDING_START`` / ``BOARDING_END`` — a stay begins or ends today.
+    * ``BOARDING`` — mid-stay on one of the dog's regular days: it is in, but
+      with the boarding carer rather than on its usual driver's run.
+
+    Each entry names the staff member the dog normally rides with that weekday
+    (``usual_staff_*``, from ``DogWeekdayPickup``) and the one it is with today
+    (``staff_*``), plus who made the change and when, where that is known.
+    Nothing is reported for a CLOSED day — everyone is off, and the closure is
+    already the news.
+    """
+    from .models import (
+        DailyDogAssignment, DateChangeRequest, Dog, DogChangeLog, DogWeekdayPickup,
+    )
+
+    index = ScheduleIndex(day - timedelta(days=1), day + timedelta(days=1))
+    closure = index.closure(day)
+    if closure and closure.closure_type == 'CLOSED':
+        return []
+
+    weekday = day.isoweekday()
+    adds = index.adds_by_date.get(day, set())
+    cancels = index.cancels_by_date.get(day, set())
+    removed = index.removed_assignments_by_date.get(day, set())
+    active = index.active_assignments_by_date.get(day, set())
+    boarding = index.boarding_dog_ids(day)
+    boarding_before = index.boarding_dog_ids(day - timedelta(days=1))
+    boarding_after = index.boarding_dog_ids(day + timedelta(days=1))
+
+    rows = {
+        row.dog_id: row
+        for row in DailyDogAssignment.objects.filter(date=day).select_related('staff_member')
+    }
+    usual = {
+        entry.dog_id: entry.staff_member
+        for entry in DogWeekdayPickup.objects.filter(weekday=weekday).select_related('staff_member')
+    }
+
+    # Candidates: anything that could possibly differ. Regular dogs are only
+    # interesting when cancelled, removed, boarding or carrying an override.
+    candidate_ids = adds | cancels | removed | active | boarding
+    dogs = {d.id: d for d in Dog.objects.filter(id__in=candidate_ids)}
+
+    found = []  # (dog, kind, detail, source)
+    for dog_id, dog in dogs.items():
+        regular = is_regular_day(dog, weekday)
+        row = rows.get(dog_id)
+        is_boarding = dog_id in boarding
+        attending = (
+            ((regular and dog_id not in cancels) or dog_id in adds or dog_id in active)
+            and dog_id not in removed
+        ) or is_boarding
+
+        if is_boarding:
+            if dog_id not in boarding_before:
+                found.append((dog, CHANGE_BOARDING_START, 'Boarding starts', 'boarding'))
+            elif dog_id not in boarding_after:
+                found.append((dog, CHANGE_BOARDING_END, 'Boarding ends — goes home', 'boarding'))
+            elif regular:
+                found.append((dog, CHANGE_BOARDING, 'Boarding — not on the usual run', 'boarding'))
+        elif attending and not regular:
+            found.append((dog, CHANGE_EXTRA, 'Extra day', 'request' if dog_id in adds else 'log'))
+        elif not attending and regular and dog.schedule_type == 'weekly':
+            if dog_id in removed:
+                found.append((dog, CHANGE_CANCELLED, 'Taken off today by staff', 'log'))
+            else:
+                found.append((dog, CHANGE_CANCELLED, 'Cancelled', 'request'))
+
+        if attending and row is not None and row.status != 'REMOVED':
+            transport = []
+            if row.owner_brings is not None and row.owner_brings != dog.owner_brings_default:
+                transport.append('owner brings' if row.owner_brings else 'staff collect from home')
+            if row.owner_collects is not None and row.owner_collects != dog.owner_collects_default:
+                transport.append('owner collects' if row.owner_collects else 'staff take home')
+            if transport:
+                detail = ', '.join(transport)
+                found.append((dog, CHANGE_TRANSPORT, detail[0].upper() + detail[1:], 'log'))
+
+    if not found:
+        return []
+
+    # Who made each change and when. Approved requests carry it; staff
+    # removals, hand-adds and transport overrides are found on the SCHEDULE
+    # log, whose summaries name the date the way _uk writes it.
+    request_ids = {dog.id for dog, _, _, source in found if source == 'request'}
+    latest_request = {}
+    if request_ids:
+        qs = (
+            DateChangeRequest.objects
+            .filter(status='APPROVED', dog_id__in=request_ids)
+            .filter(Q(original_date=day) | Q(new_date=day))
+            .select_related('approved_by')
+        )
+        for req in qs:
+            key = (req.approved_at or req.created_at, req.id)
+            if req.dog_id not in latest_request or key > latest_request[req.dog_id][0]:
+                latest_request[req.dog_id] = (key, req)
+
+    label = day.strftime('%d/%m/%Y')
+    log_ids = {dog.id for dog, _, _, source in found if source == 'log'}
+    latest_log = {}
+    if log_ids:
+        entries = (
+            DogChangeLog.objects
+            .filter(category='SCHEDULE', dog_id__in=log_ids, summary__contains=label)
+            .order_by('created_at')
+        )
+        for entry in entries:
+            if 'transport' in entry.summary.lower():
+                latest_log[(entry.dog_id, CHANGE_TRANSPORT)] = entry
+            else:
+                latest_log[(entry.dog_id, 'other')] = entry
+
+    changes = []
+    for dog, kind, detail, source in found:
+        changed_by = changed_at = None
+        if source == 'request' and dog.id in latest_request:
+            req = latest_request[dog.id][1]
+            changed_by = _staff_label(req.approved_by)
+            changed_at = req.approved_at or req.created_at
+            if req.request_type == 'CHANGE':
+                if req.original_date == day:
+                    detail = f"Moved to {req.new_date.strftime('%a %d %b')}"
+                else:
+                    detail = f"Moved from {req.original_date.strftime('%a %d %b')}"
+            elif kind == CHANGE_EXTRA:
+                detail = 'Extra day'
+            elif kind == CHANGE_CANCELLED:
+                detail = 'Day cancelled'
+        elif source == 'log':
+            entry = latest_log.get((dog.id, CHANGE_TRANSPORT if kind == CHANGE_TRANSPORT else 'other'))
+            if entry is not None:
+                changed_by = entry.actor_name or None
+                changed_at = entry.created_at
+            elif kind == CHANGE_EXTRA:
+                detail = 'Extra day'
+        row = rows.get(dog.id)
+        today_staff = (
+            row.staff_member
+            if row is not None and row.status not in ('REMOVED', 'UNASSIGNED') else None
+        )
+        usual_staff = usual.get(dog.id) if is_regular_day(dog, weekday) else None
+        changes.append({
+            'dog_id': dog.id,
+            'dog_name': dog.name,
+            'kind': kind,
+            'detail': detail,
+            'usual_staff_id': usual_staff.id if usual_staff else None,
+            'usual_staff_name': _staff_label(usual_staff),
+            'staff_id': today_staff.id if today_staff else None,
+            'staff_name': _staff_label(today_staff),
+            'changed_by_name': changed_by,
+            'changed_at': changed_at,
+        })
+
+    changes.sort(key=lambda c: (CHANGE_KIND_ORDER.index(c['kind']), c['dog_name'].lower()))
+    return changes
+
+
+def change_involves(change, user_id):
+    """The change is on this staff member's run: the dog normally rides with
+    them on this weekday, or rides with them today."""
+    return user_id is not None and user_id in (change['usual_staff_id'], change['staff_id'])
+
+
+def change_short_text(change):
+    """'−Bella (cancelled)' — one change as it reads in a push body."""
+    kind = change['kind']
+    name = change['dog_name']
+    if kind == CHANGE_CANCELLED:
+        return f'−{name} ({change["detail"].lower()})'
+    if kind == CHANGE_EXTRA:
+        with_whom = f', with {change["staff_name"]}' if change['staff_name'] else ', no driver yet'
+        return f'+{name} ({change["detail"].lower()}{with_whom})'
+    if kind == CHANGE_TRANSPORT:
+        return f'{name}: {change["detail"].lower()}'
+    return f'{name}: {change["detail"].lower()}'

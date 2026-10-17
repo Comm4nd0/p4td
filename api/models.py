@@ -58,6 +58,7 @@ class UserProfile(models.Model):
     notify_bookings = models.BooleanField(default=True, help_text='Receive updates on date change and boarding requests.')
     notify_dog_updates = models.BooleanField(default=True, help_text='Receive updates when your dog is picked up, at daycare, or dropped off.')
     notify_messages = models.BooleanField(default=True, help_text='Receive a push when a message thread with the daycare gets a reply (staff: when a client writes in).')
+    notify_schedule = models.BooleanField(default=True, help_text="Staff: receive the 18:00 summary of tomorrow's changes to the routine (extra days, cancellations, transport) and a push when a change lands late.")
 
     # Legal acceptance — recorded when the user agrees to the Privacy Policy at
     # sign-up. Null for accounts created before this was required (e.g. staff).
@@ -584,6 +585,29 @@ class ConflictAcknowledgement(models.Model):
 
     def __str__(self):
         return f"Conflict {self.dog_a_id}/{self.dog_b_id} on {self.date} acknowledged"
+
+
+class ScheduleChangeAcknowledgement(models.Model):
+    """A staff member has seen a late change to their run for a day.
+
+    ``scheduling.day_changes`` lists how a day differs from the routine; a
+    change made after the 18:00 summary for its day (or on the day) reached
+    nobody, so the dashboard spotlights it to the driver it affects until they
+    tap Got it. Unlike ``ConflictAcknowledgement`` this is per person: one
+    driver confirming does not tell another driver whose run also changed.
+    """
+    date = models.DateField()
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='+')
+    kind = models.CharField(max_length=20)
+    staff_member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='schedule_change_acknowledgements')
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('date', 'dog', 'kind', 'staff_member')
+        ordering = ['date', 'dog_id']
+
+    def __str__(self):
+        return f"{self.kind} for dog {self.dog_id} on {self.date} seen by {self.staff_member_id}"
 
 
 class OwnerHandoverDuty(models.Model):

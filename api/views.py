@@ -122,6 +122,24 @@ def _log_assignment(assignment, actor, summary, action='ASSIGNED'):
     log_change(assignment.dog, category='SCHEDULE', action=action, actor=actor, summary=summary)
 
 
+def _notify_late_change(dog, days, actor):
+    """Tell the day's team about a change the 18:00 summary has missed —
+    ``notifications.notify_late_schedule_change``, once per affected date."""
+    from .notifications import notify_late_schedule_change
+    for day in sorted({d for d in days if d is not None}):
+        notify_late_schedule_change(dog, day, actor=actor)
+
+
+def _date_request_days(instance):
+    """The dates an approved date-change request changes."""
+    days = []
+    if instance.request_type in ('CANCEL', 'CHANGE'):
+        days.append(instance.original_date)
+    if instance.request_type in ('ADD_DAY', 'CHANGE'):
+        days.append(instance.new_date)
+    return days
+
+
 def _apply_schedule_change(dog, old_daycare_days, old_schedule_type, *, actor):
     """After a dog's ``daycare_days``/``schedule_type`` were saved: release the
     weekdays it no longer comes on — roster entry *and* the future days already
@@ -1678,6 +1696,7 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
 
         log_change(instance.dog, category='BOOKINGS', action='APPROVED', actor=self.request.user,
                    summary=f'Added {_date_request_desc(instance)}')
+        _notify_late_change(instance.dog, _date_request_days(instance), self.request.user)
 
         # Notify dog owners (best-effort, after the transaction commits — a push
         # failure must never roll back the approval).
@@ -1788,6 +1807,8 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             action={'APPROVED': 'APPROVED', 'DENIED': 'DENIED'}.get(new_status, 'STATUS'),
             summary=f'{new_status.title()} {_date_request_desc(instance)}',
         )
+        if new_status == 'APPROVED':
+            _notify_late_change(instance.dog, _date_request_days(instance), request.user)
 
         # Send push notification to all owners — after commit, best-effort.
         try:
@@ -2356,6 +2377,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         else:
             summary = f'Put {assignment.dog.name} back on {_uk(assignment.date)}'
         _log_assignment(assignment, self.request.user, summary, action='STATUS')
+        _notify_late_change(assignment.dog, [assignment.date], self.request.user)
 
     def _require_payments_permission_for_past_billing_change(self, when, old_status, new_status):
         from django.utils import timezone
@@ -2389,6 +2411,17 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         ctx['boarding_dog_ids'] = boarding_ids(target_date)
         ctx['boarding_prev_dog_ids'] = boarding_ids(target_date - timedelta(days=1))
         ctx['boarding_next_dog_ids'] = boarding_ids(target_date + timedelta(days=1))
+        return ctx
+
+    def _roster_context(self, target_date):
+        """The boarding sets plus each dog's ``scheduling.day_changes`` kinds,
+        so every roster row can carry its EXTRA DAY / transport badge."""
+        from .scheduling import day_changes
+        ctx = self._boarding_context(target_date)
+        kinds = {}
+        for change in day_changes(target_date):
+            kinds.setdefault(change['dog_id'], []).append(change['kind'])
+        ctx['day_change_kinds'] = kinds
         return ctx
 
     def perform_create(self, serializer):
@@ -2554,7 +2587,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return error
         self._materialize_roster_for_date(target_date)
         assignments = self.get_queryset().filter(date=target_date).exclude(status__in=['REMOVED', 'UNASSIGNED'])
-        serializer = self.get_serializer(assignments, many=True, context=self._boarding_context(target_date))
+        serializer = self.get_serializer(assignments, many=True, context=self._roster_context(target_date))
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -2567,7 +2600,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         assignments = self.get_queryset().filter(
             staff_member=request.user, date=target_date
         ).exclude(status__in=['REMOVED', 'UNASSIGNED'])
-        serializer = self.get_serializer(assignments, many=True, context=self._boarding_context(target_date))
+        serializer = self.get_serializer(assignments, many=True, context=self._roster_context(target_date))
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
@@ -2765,6 +2798,91 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             'acknowledged_by_name': (by.first_name or by.username) if by else None,
             'acknowledged_at': ack.acknowledged_at.isoformat(),
         }, status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK)
+
+    def _changes_payload(self, target_date, user):
+        """``scheduling.day_changes`` for the viewer: each change says whether
+        it is on their run (``mine``), whether it landed after the 18:00
+        summary for the day (``late``) and whether they have confirmed it."""
+        from .models import ScheduleChangeAcknowledgement
+        from .scheduling import change_involves, changes_cutoff, day_changes
+
+        cutoff = changes_cutoff(target_date)
+        acked = set(
+            ScheduleChangeAcknowledgement.objects
+            .filter(date=target_date, staff_member=user)
+            .values_list('dog_id', 'kind')
+        )
+        changes = []
+        for change in day_changes(target_date):
+            changed_at = change['changed_at']
+            changes.append({
+                **change,
+                'changed_at': changed_at.isoformat() if changed_at else None,
+                'mine': change_involves(change, user.id),
+                'late': bool(changed_at and changed_at > cutoff),
+                'acknowledged': (change['dog_id'], change['kind']) in acked,
+            })
+        return {
+            'date': target_date.isoformat(),
+            'weekday': target_date.strftime('%A'),
+            'summary_sent_at': cutoff.isoformat(),
+            'changes': changes,
+        }
+
+    @action(detail=False, methods=['get'])
+    def changes(self, request):
+        """How ``?date=`` (default today) differs from the dogs' routine —
+        extra days, cancellations, transport overrides, boarding edges — see
+        ``scheduling.day_changes``. Feeds the dashboard's Changes section, the
+        badges and "not today" cards on a driver's list, and the spotlight
+        that asks a driver to confirm a late change to their run."""
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        self._materialize_roster_for_date(target_date)
+        return Response(self._changes_payload(target_date, request.user))
+
+    @action(detail=False, methods=['post'])
+    def acknowledge_changes(self, request):
+        """The signed-in staff member has seen changes to their run. Body:
+        ``date`` (default today) and optionally ``changes`` —
+        ``[{"dog": id, "kind": "CANCELLED"}, ...]``; without it, every late
+        change on their run that day. Per person and idempotent. Returns the
+        refreshed ``changes/`` payload."""
+        from .models import ScheduleChangeAcknowledgement
+        from .scheduling import change_involves, changes_cutoff, day_changes
+
+        date_str = request.data.get('date')
+        if date_str:
+            from datetime import date as date_cls
+            try:
+                target_date = date_cls.fromisoformat(date_str)
+            except ValueError:
+                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        else:
+            target_date = timezone.localdate()
+
+        current = day_changes(target_date)
+        wanted = request.data.get('changes')
+        if wanted is None:
+            cutoff = changes_cutoff(target_date)
+            pairs = {
+                (c['dog_id'], c['kind']) for c in current
+                if change_involves(c, request.user.id)
+                and c['changed_at'] and c['changed_at'] > cutoff
+            }
+        else:
+            try:
+                pairs = {(int(item['dog']), str(item['kind'])) for item in wanted}
+            except (TypeError, ValueError, KeyError):
+                return Response({'detail': 'changes must be a list of {dog, kind}.'}, status=400)
+            known = {(c['dog_id'], c['kind']) for c in current}
+            pairs &= known
+        for dog_id, kind in pairs:
+            ScheduleChangeAcknowledgement.objects.get_or_create(
+                date=target_date, dog_id=dog_id, kind=kind, staff_member=request.user,
+            )
+        return Response(self._changes_payload(target_date, request.user))
 
     @action(detail=False, methods=['get'])
     def photo_tagging(self, request):
@@ -3038,6 +3156,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             log_change(assignment.dog, category='SCHEDULE', action='UPDATED', actor=request.user, changes=changes,
                        summary=f'Updated transport for {assignment.dog.name} on {_uk(assignment.date)}: '
                                + ', '.join(c['label'].lower() for c in changes))
+            _notify_late_change(assignment.dog, [assignment.date], request.user)
         return Response(self.get_serializer(assignment).data)
 
     @action(detail=False, methods=['get'])
@@ -3138,9 +3257,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
             return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
+        from .scheduling import is_regular_day
         weekday = target_date.isoweekday()
         is_past = target_date < timezone.localdate()
         created = []
+        newly_in = []  # rows that put the dog on the day, not just named a driver
         skipped = []
         for dog_id in dog_ids:
             try:
@@ -3181,7 +3302,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
+                if not is_regular_day(dog, weekday):
+                    newly_in.append(assignment)
             elif assignment.status in ('REMOVED', 'UNASSIGNED'):
+                if assignment.status == 'REMOVED':
+                    newly_in.append(assignment)
                 assignment.status = 'ASSIGNED'
                 assignment.staff_member = request.user
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
@@ -3192,6 +3317,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         for assignment in created:
             _log_assignment(assignment, request.user,
                             f'Assigned {assignment.dog.name} to {person(assignment.staff_member)} for {_uk(target_date)}')
+        # A dog put on a day it doesn't normally come (or back on one it was
+        # taken off) changes the routine; claiming a regular dog doesn't.
+        for assignment in newly_in:
+            _notify_late_change(assignment.dog, [target_date], request.user)
         serializer = self.get_serializer(created, many=True)
         data = serializer.data
         if skipped:
@@ -3246,9 +3375,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
             return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
+        from .scheduling import is_regular_day
         weekday = target_date.isoweekday()
         is_past = target_date < timezone.localdate()
         created = []
+        newly_in = []  # rows that put the dog on the day, not just named a driver
         skipped = []
         for dog_id in dog_ids:
             try:
@@ -3284,7 +3415,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             )
             if was_created:
                 created.append(assignment)
+                if not is_regular_day(dog, weekday):
+                    newly_in.append(assignment)
             elif assignment.status in ('REMOVED', 'UNASSIGNED'):
+                if assignment.status == 'REMOVED':
+                    newly_in.append(assignment)
                 assignment.status = 'ASSIGNED'
                 assignment.staff_member = target_staff
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
@@ -3295,6 +3430,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         for assignment in created:
             _log_assignment(assignment, request.user,
                             f'Assigned {assignment.dog.name} to {person(assignment.staff_member)} for {_uk(target_date)}')
+        # A dog put on a day it doesn't normally come (or back on one it was
+        # taken off) changes the routine; claiming a regular dog doesn't.
+        for assignment in newly_in:
+            _notify_late_change(assignment.dog, [target_date], request.user)
         serializer = self.get_serializer(created, many=True)
         data = serializer.data
         if skipped:
@@ -3355,6 +3494,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             assignment.status = 'REMOVED'
             assignment.save(update_fields=['status', 'updated_at'])
         _log_assignment(assignment, request.user, f'Removed {dog.name} from {_uk(target_date)}', action='STATUS')
+        _notify_late_change(dog, [target_date], request.user)
 
         # Removing a dog frees a spot — let the waitlist know. Not for past
         # days: nobody can be offered a spot on a day that already happened.

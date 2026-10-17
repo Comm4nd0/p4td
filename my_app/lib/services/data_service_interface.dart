@@ -155,6 +155,16 @@ abstract class DataService {
     List<int> dogIds = const [],
   });
 
+  /// How a day differs from the dogs' routine (extra days, cancellations,
+  /// transport overrides, boarding), each marked for the viewer.
+  Future<DayChanges> getDayChanges({DateTime? date});
+  /// Confirm late changes on the viewer's run — the given ones, or every
+  /// late one on their run that day when [changes] is null. Per person.
+  Future<DayChanges> acknowledgeDayChanges({
+    required DateTime date,
+    List<DayChange>? changes,
+  });
+
   /// Photo-tagging progress for a day: how many of the day's dogs have been
   /// tagged in feed media posted that day, and which still need tagging.
   Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date});

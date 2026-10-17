@@ -109,6 +109,11 @@ class DailyDogAssignment {
   final TimeOfDay? effectiveOwnerCollectsTime;
   final int sortOrder;
 
+  /// How this dog's day differs from its routine — the server's
+  /// `day_changes` kinds (`EXTRA`, `TRANSPORT`, `BOARDING_START`, ...). Empty
+  /// on a normal day.
+  final List<String> dayChanges;
+
   DailyDogAssignment({
     required this.id,
     required this.dogId,
@@ -136,6 +141,7 @@ class DailyDogAssignment {
     this.effectiveOwnerBringsTime,
     this.effectiveOwnerCollectsTime,
     this.sortOrder = 0,
+    this.dayChanges = const [],
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -168,8 +174,18 @@ class DailyDogAssignment {
       effectiveOwnerBringsTime: parseApiTime(json['effective_owner_brings_time']),
       effectiveOwnerCollectsTime: parseApiTime(json['effective_owner_collects_time']),
       sortOrder: json['sort_order'] ?? 0,
+      dayChanges: (json['day_changes'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
     );
   }
+
+  /// Not one of the dog's regular days (an extra day, or an ad-hoc dog).
+  bool get isExtraDay => dayChanges.contains('EXTRA');
+
+  /// A one-off transport override today differs from the dog's usual.
+  bool get hasTransportChange => dayChanges.contains('TRANSPORT');
 
   /// Staff collect this dog from home this morning. Never true when the
   /// owner brings it; for boarding dogs only on the first day of the stay
@@ -236,6 +252,7 @@ class DailyDogAssignment {
       effectiveOwnerBringsTime: effectiveOwnerBringsTime ?? this.effectiveOwnerBringsTime,
       effectiveOwnerCollectsTime: effectiveOwnerCollectsTime ?? this.effectiveOwnerCollectsTime,
       sortOrder: sortOrder ?? this.sortOrder,
+      dayChanges: dayChanges,
     );
   }
 }

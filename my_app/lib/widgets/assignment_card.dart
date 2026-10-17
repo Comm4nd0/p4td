@@ -356,8 +356,11 @@ class AssignmentCard extends StatelessWidget {
                 ],
               ),
               SizedBox(height: rowSpacing),
-              // Transport indicators (owner brings / collects)
-              if (assignment.effectiveOwnerBrings ||
+              // Changes to the routine first (extra day, one-off transport),
+              // then the transport indicators (owner brings / collects).
+              if (assignment.isExtraDay ||
+                  assignment.hasTransportChange ||
+                  assignment.effectiveOwnerBrings ||
                   assignment.effectiveOwnerCollects)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
@@ -365,6 +368,18 @@ class AssignmentCard extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 4,
                     children: [
+                      if (assignment.isExtraDay)
+                        const RoutineChangeChip(
+                          label: 'Extra day',
+                          icon: PiconsDuotone.plusCircle,
+                          color: AppColors.extraDay,
+                        ),
+                      if (assignment.hasTransportChange)
+                        const RoutineChangeChip(
+                          label: 'Transport changed today',
+                          icon: PiconsDuotone.arrowsLeftRight,
+                          color: AppColors.warning,
+                        ),
                       if (assignment.effectiveOwnerBrings)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -527,5 +542,45 @@ Color _statusColor(AssignmentStatus status) {
       return AppColors.primary;
     case AssignmentStatus.droppedOff:
       return Colors.green;
+  }
+}
+
+
+/// A bold chip for a way today differs from the dog's routine — staff work
+/// from routine, so these have to stand out from the everyday chips.
+class RoutineChangeChip extends StatelessWidget {
+  final String label;
+  final Object icon; // a Picons glyph
+  final Color color;
+
+  const RoutineChangeChip({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Picon(icon, size: 14, color: Colors.white),
+        const SizedBox(width: 4),
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.4,
+            color: Colors.white,
+          ),
+        ),
+      ]),
+    );
   }
 }

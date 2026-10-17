@@ -109,6 +109,10 @@ $SSH_CMD "$HETZNER_HOST" "
     EOD_CRON='30 17 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_end_of_day_alerts >> /var/log/p4td-eod.log 2>&1'
     ( crontab -l 2>/dev/null | grep -v 'send_end_of_day_alerts'; echo \"\$EOD_CRON\" ) | crontab -
 
+    echo '>>> Setting up tomorrow-changes summary cron job...'
+    CHANGES_CRON='0 18 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_tomorrow_changes >> /var/log/p4td-changes.log 2>&1'
+    ( crontab -l 2>/dev/null | grep -v 'send_tomorrow_changes'; echo \"\$CHANGES_CRON\" ) | crontab -
+
     echo '=== Deployment complete ==='
 "
 

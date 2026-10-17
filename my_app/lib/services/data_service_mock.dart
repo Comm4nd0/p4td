@@ -358,6 +358,13 @@ class MockDataService implements DataService {
   Future<void> acknowledgeCompatibilityConflict({required DateTime date, required int dogAId, required int dogBId, List<int> dogIds = const []}) async {}
 
   @override
+  Future<DayChanges> getDayChanges({DateTime? date}) async =>
+      DayChanges(date: date ?? DateTime.now(), weekday: '', changes: const []);
+  @override
+  Future<DayChanges> acknowledgeDayChanges({required DateTime date, List<DayChange>? changes}) async =>
+      DayChanges(date: date, weekday: '', changes: const []);
+
+  @override
   Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date}) async =>
       const PhotoTaggingStatus(total: 0, tagged: 0, untagged: []);
 
