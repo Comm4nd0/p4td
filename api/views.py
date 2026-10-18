@@ -37,7 +37,8 @@ def dog_listing_queryset():
     """Dog queryset with everything DogSerializer renders already loaded.
 
     Shared so that every endpoint returning dogs gets the same constant query
-    count. In particular `future_removed_assignments` must be prefetched:
+    count. In particular `future_removed_assignments` (and likewise
+    `future_active_assignments`, for `assigned_dates`) must be prefetched:
     without it, DogSerializer.get_cancelled_dates falls through to a per-dog
     query, which is ~30 extra round-trips on the staff dashboard's hottest
     endpoint (unassigned_dogs) — it built its own queryset and missed this.
@@ -49,12 +50,20 @@ def dog_listing_queryset():
         ).only('id', 'dog_id', 'date', 'status'),
         to_attr='future_removed_assignments',
     )
+    active_assignments = Prefetch(
+        'daily_assignments',
+        queryset=DailyDogAssignment.objects.filter(
+            date__gte=timezone.localdate()
+        ).exclude(status='REMOVED').only('id', 'dog_id', 'date', 'status'),
+        to_attr='future_active_assignments',
+    )
     certificates = Prefetch(
         'vaccination_certificates',
         queryset=VaccinationCertificate.objects.only('id', 'dog_id', 'vaccination_date', 'created_at'),
     )
     return Dog.objects.select_related('owner__profile').prefetch_related(
-        'vaccinations', 'additional_owners__profile', removed_assignments, certificates
+        'vaccinations', 'additional_owners__profile', removed_assignments,
+        active_assignments, certificates,
     )
 
 
@@ -690,18 +699,18 @@ class DogViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='past-attendance')
     def past_attendance(self, request, pk=None):
-        """Staff-only: dates the dog actually attended before today.
+        """Dates the dog actually attended before today.
 
         GET /api/dogs/{id}/past-attendance/?from=YYYY-MM-DD
 
         Attendance is the roster history invoicing bills from: every
-        DailyDogAssignment whose status is not REMOVED. The range defaults to
-        the last 12 months, matching how far back the schedule calendar lets
-        payment managers scroll.
+        DailyDogAssignment whose status is not REMOVED — a day a staff member
+        was assigned the dog counts whether or not it was a regular day. The
+        range defaults to the last 12 months, how far back the profile
+        calendar scrolls. Staff see any dog; owners and co-owners their own
+        (``get_object`` is scoped), the same days ``dogs/calendar/`` already
+        shows them.
         """
-        if not request.user.is_staff:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only staff can view past attendance.")
         from datetime import date as date_cls, timedelta
 
         dog = self.get_object()

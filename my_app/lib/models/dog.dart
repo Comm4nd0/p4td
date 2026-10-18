@@ -260,6 +260,10 @@ class Dog {
   /// assignments with no matching cancellation request). The profile drops
   /// these from the dog's upcoming booked dates so it matches the dashboard.
   final List<DateTime> cancelledDates;
+  /// Upcoming dates the dog is on the day's board (any non-REMOVED
+  /// assignment). Assigning a dog to a staff member books it in exactly like
+  /// an extra day, so the profile adds these to the dog's booked dates.
+  final List<DateTime> assignedDates;
 
   Dog({
     required this.id,
@@ -296,6 +300,7 @@ class Dog {
     this.isSpayed = false,
     this.dailyRate,
     this.cancelledDates = const [],
+    this.assignedDates = const [],
   });
 
   /// The owner needs to attach a vaccination certificate: none on file, or
@@ -355,6 +360,7 @@ class Dog {
     bool? isSpayed,
     double? dailyRate,
     List<DateTime>? cancelledDates,
+    List<DateTime>? assignedDates,
   }) {
     return Dog(
       id: id ?? this.id,
@@ -391,6 +397,7 @@ class Dog {
       isSpayed: isSpayed ?? this.isSpayed,
       dailyRate: dailyRate ?? this.dailyRate,
       cancelledDates: cancelledDates ?? this.cancelledDates,
+      assignedDates: assignedDates ?? this.assignedDates,
     );
   }
 }

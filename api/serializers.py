@@ -166,6 +166,7 @@ class DogSerializer(serializers.ModelSerializer):
     certificate_status = serializers.SerializerMethodField()
     certificate_needed_since = serializers.SerializerMethodField()
     cancelled_dates = serializers.SerializerMethodField()
+    assigned_dates = serializers.SerializerMethodField()
 
     #: Written by staff, about the dog, for staff: where it sits in the van and
     #: candid handling notes. The app already hides them from owners; the API
@@ -186,8 +187,8 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
-        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'assigned_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates', 'assigned_dates']
         extra_kwargs = {
             'owner': {'required': False},
             'additional_owners': {'required': False},
@@ -262,6 +263,29 @@ class DogSerializer(serializers.ModelSerializer):
             rows = obj.daily_assignments.filter(
                 status='REMOVED', date__gte=timezone.localdate()
             )
+        return sorted({a.date.isoformat() for a in rows})
+
+    def get_assigned_dates(self, obj):
+        """Upcoming dates the dog is on the day's board (any non-REMOVED
+        DailyDogAssignment), today onwards.
+
+        Putting a dog on a day — assigning it to a staff member, Add Dog to
+        Day — books it in exactly like an approved extra day: the roster,
+        ``ScheduleIndex`` and invoicing all count the row. The app's profile
+        calendar projects bookings from ``daycare_days`` and requests, so
+        without these dates a day staff added by hand never showed there.
+
+        Reads ``obj.future_active_assignments`` when the viewset has
+        prefetched it; otherwise falls back to a query.
+        """
+        prefetched = getattr(obj, 'future_active_assignments', None)
+        if prefetched is not None:
+            rows = prefetched
+        else:
+            from django.utils import timezone
+            rows = obj.daily_assignments.filter(
+                date__gte=timezone.localdate()
+            ).exclude(status='REMOVED')
         return sorted({a.date.isoformat() for a in rows})
 
     def validate_daycare_days(self, value):

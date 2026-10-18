@@ -253,7 +253,8 @@ class PastDateEditTests(TestCase):
 
 
 class DogPastAttendanceTests(TestCase):
-    """Staff-only endpoint feeding the profile calendar's past booked days."""
+    """Endpoint feeding the profile calendar's past booked days: staff see any
+    dog, owners only their own."""
 
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
@@ -261,10 +262,22 @@ class DogPastAttendanceTests(TestCase):
         self.dog = Dog.objects.create(owner=self.owner, name='Fido')
         self.client = APIClient()
 
-    def test_owner_cannot_view(self):
+    def test_owner_sees_own_dogs_assigned_days(self):
+        # A day staff assigned the dog on, off its regular days, is a booked
+        # day the owner was charged for — it must show on their calendar.
+        assigned = date.today() - timedelta(days=4)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=assigned, status='ASSIGNED')
         self.client.login(username='owner', password='pw')
         resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['dates'], [assigned.isoformat()])
+
+    def test_other_owner_cannot_view(self):
+        User.objects.create_user(username='stranger', password='pw')
+        self.client.login(username='stranger', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
+        self.assertEqual(resp.status_code, 404)
 
     def test_staff_sees_attended_dates_only(self):
         attended = date.today() - timedelta(days=4)
@@ -826,6 +839,58 @@ class DogCancelledDatesTests(TestCase):
         resp = self.client.get(f'/api/dogs/{self.dog.id}/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['cancelled_dates'], [])
+
+
+class DogAssignedDatesTests(TestCase):
+    """Putting a dog on a day (assigning it to a staff member) books it in like
+    an extra day, so the profile calendar must show it and invoicing must
+    charge it — the calendar used to project only daycare_days and requests."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Mondays only, so any other weekday is an extra day.
+        self.dog = Dog.objects.create(owner=self.owner, name='Fido', daycare_days=[1])
+        self.client = APIClient()
+
+    def test_upcoming_assigned_day_listed_for_owner_and_staff(self):
+        today = timezone.localdate()
+        assigned = today + timedelta(days=3)
+        unassigned = today + timedelta(days=4)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=assigned, status='ASSIGNED')
+        DailyDogAssignment.objects.create(dog=self.dog, date=unassigned, status='UNASSIGNED')
+        DailyDogAssignment.objects.create(dog=self.dog, date=today, status='PICKED_UP')
+        for username in ('owner', 'staff'):
+            self.client.login(username=username, password='pw')
+            resp = self.client.get(f'/api/dogs/{self.dog.id}/')
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(
+                resp.data['assigned_dates'],
+                [today.isoformat(), assigned.isoformat(), unassigned.isoformat()])
+            listed = self.client.get('/api/dogs/')
+            rows = listed.data['results'] if isinstance(listed.data, dict) else listed.data
+            row = next(r for r in rows if r['id'] == self.dog.id)
+            self.assertEqual(row['assigned_dates'], resp.data['assigned_dates'])
+
+    def test_removed_and_past_rows_excluded(self):
+        today = timezone.localdate()
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=today + timedelta(days=2), status='REMOVED')
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=today - timedelta(days=2), status='DROPPED_OFF')
+        self.client.login(username='owner', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/')
+        self.assertEqual(resp.data['assigned_dates'], [])
+
+    def test_assigned_extra_day_is_booked_and_charged(self):
+        from .billing import booked_days_for_month
+        wednesday = date(2027, 3, 3)
+        self.assertEqual(wednesday.isoweekday(), 3)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=wednesday, status='ASSIGNED')
+        booked = {d for d, _ in booked_days_for_month(2027, 3)[self.dog]}
+        self.assertIn(wednesday, booked)
 
 
 class DogCRUDTests(TestCase):

@@ -237,6 +237,7 @@ class ApiDataService implements DataService {
         isSpayed: json['is_spayed'] ?? false,
         dailyRate: double.tryParse(json['daily_rate']?.toString() ?? ''),
         cancelledDates: parseApiDateList(json['cancelled_dates']),
+        assignedDates: parseApiDateList(json['assigned_dates']),
       );
     }).toList();
   }
@@ -1036,6 +1037,7 @@ class ApiDataService implements DataService {
       ownerDetails: ownerDetails,
       additionalOwners: additionalOwnersList,
       cancelledDates: parseApiDateList(data['cancelled_dates']),
+      assignedDates: parseApiDateList(data['assigned_dates']),
     );
   }
 

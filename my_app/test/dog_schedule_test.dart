@@ -181,6 +181,36 @@ void main() {
       expect(dates.contains(DateTime(2026, 6, 29)), isTrue);
     });
 
+    test('a day staff assigned the dog to is booked, request or not', () {
+      // Assigning a dog to a staff member on a non-regular day books it in
+      // like an extra day; there is no ADD_DAY request behind it.
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: {1},
+        requests: const [],
+        staffAssignedDates: [DateTime(2026, 6, 24, 8)],
+      );
+      expect(dates.contains(DateTime(2026, 6, 24)), isTrue);
+    });
+
+    test('an assignment outlives an older approved cancellation', () {
+      // The server counts the board row whatever the requests say, so a dog
+      // cancelled for a day and then put back on it by staff is booked.
+      final dates = upcomingDaycareDates(
+        now: now,
+        daycareWeekdays: {1},
+        requests: [
+          _req(
+            type: RequestType.cancel,
+            status: RequestStatus.approved,
+            originalDate: DateTime(2026, 6, 22),
+          ),
+        ],
+        staffAssignedDates: [DateTime(2026, 6, 22)],
+      );
+      expect(dates.contains(DateTime(2026, 6, 22)), isTrue);
+    });
+
     test('staff-removed dates are matched at day granularity', () {
       // A removed date carrying a time component still matches the midnight date.
       final dates = upcomingDaycareDates(
