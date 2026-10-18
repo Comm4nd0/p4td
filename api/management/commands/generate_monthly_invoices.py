@@ -8,15 +8,16 @@ period are skipped, so reruns create nothing new. Each draft is also raised
 as a DRAFT in Xero when connected, so it can be finished there. Staff with
 can_manage_payments get a push prompting them to review and send the drafts.
 """
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import CommandError
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api import billing
 from api.cron_heartbeat import ping_heartbeat
 from api.notifications import send_staff_notification
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = 'Generate draft invoices for a month: its booked days plus last month\'s unbilled extras (default: the current month). Run on the 1st.'
 
     def add_arguments(self, parser):

@@ -11,15 +11,15 @@ The flags re-arm when a new completion is logged (see
 models.rearm_compliance_reminders), starting the next cycle's reminders.
 """
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api.models import ComplianceCheckType
 from api.notifications import send_push_notification
 from api.cron_heartbeat import ping_heartbeat
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = 'Send due/overdue compliance check reminders to compliance managers (run daily).'
 
     def _notify(self, check, event, title, body):

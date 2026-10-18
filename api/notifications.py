@@ -36,6 +36,23 @@ def _executor():
     return _push_executor
 
 
+def wait_for_pushes():
+    """Block until every queued push has been handed to FCM.
+
+    The web tier never needs this: the process outlives the pool. A management
+    command does not — its main thread returns straight after queueing, Python
+    starts shutting down, and the pool thread's ``messaging.send_each`` (which
+    starts a thread pool of its own) then fails with "cannot schedule new
+    futures after interpreter shutdown". Every cron push was lost that way.
+    ``PushCommand`` calls this when a command finishes.
+    """
+    global _push_executor
+    if _push_executor is None:
+        return
+    executor, _push_executor = _push_executor, None
+    executor.shutdown(wait=True)
+
+
 def initialize_firebase():
     global _firebase_app
     if _firebase_app:

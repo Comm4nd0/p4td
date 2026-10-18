@@ -4,15 +4,15 @@ Designed to run daily from cron. Each overdue invoice reminds its owner
 exactly once — the overdue_reminder_sent flag makes reruns no-ops (marked
 before dispatch, preferring at-most-once like the other reminder crons).
 """
-from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api.cron_heartbeat import ping_heartbeat
 from api.models import Invoice
 from api.notifications import send_push_notification
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = 'Send overdue payment reminders to invoice owners (run daily).'
 
     def handle(self, *args, **options):

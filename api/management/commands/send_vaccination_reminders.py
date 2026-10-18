@@ -20,15 +20,15 @@ dashboard's Dog health row (``dogs/<id>/remind_certificate/``).
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api.models import Dog, VaccinationRecord
 from api.notifications import notify_certificate_needed, send_push_notification
 from api.cron_heartbeat import ping_heartbeat
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = 'Send vaccination expiry reminders to dog owners (run daily).'
 
     def _notify_owners(self, record, title, body):

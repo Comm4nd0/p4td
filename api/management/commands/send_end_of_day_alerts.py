@@ -20,9 +20,9 @@ working-day filter so the owner's day off doesn't swallow the warning.
 """
 from datetime import datetime
 
-from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api.models import ClosureDay, DailyDogAssignment
 from api.notifications import send_staff_notification
 from api.cron_heartbeat import ping_heartbeat
@@ -40,7 +40,7 @@ def _name_list(dogs):
     return ', '.join(names)
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = "Push an end-of-day exception summary to business-alert staff (run daily near closing)."
 
     def add_arguments(self, parser):
