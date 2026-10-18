@@ -140,8 +140,10 @@ DateTime calendarLastDay(DateTime now, {required bool isStaff}) => isStaff
 /// Earliest date selectable on the dog's daycare calendar.
 ///
 /// Past days are attendance history that feeds invoicing, so only staff who
-/// can manage payments may scroll back (a year, matching the server's
-/// past-attendance window). Everyone else starts at today.
+/// can manage payments may pick them (a year back, matching the server's
+/// past-attendance window). Everyone else starts at today. The profile
+/// calendar also scrolls back for anyone once the dog's past attendance has
+/// loaded — read-only, since its taps on past days need [canEditPastDates].
 DateTime calendarFirstDay(DateTime now, {required bool canEditPastDates}) =>
     canEditPastDates
         ? DateTime(now.year - 1, now.month, now.day)

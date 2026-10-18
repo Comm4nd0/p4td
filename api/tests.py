@@ -253,7 +253,8 @@ class PastDateEditTests(TestCase):
 
 
 class DogPastAttendanceTests(TestCase):
-    """Staff-only endpoint feeding the profile calendar's past booked days."""
+    """Endpoint feeding the profile calendar's past booked days: staff see any
+    dog, owners only their own."""
 
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
@@ -261,10 +262,22 @@ class DogPastAttendanceTests(TestCase):
         self.dog = Dog.objects.create(owner=self.owner, name='Fido')
         self.client = APIClient()
 
-    def test_owner_cannot_view(self):
+    def test_owner_sees_own_dogs_assigned_days(self):
+        # A day staff assigned the dog on, off its regular days, is a booked
+        # day the owner was charged for — it must show on their calendar.
+        assigned = date.today() - timedelta(days=4)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff, date=assigned, status='ASSIGNED')
         self.client.login(username='owner', password='pw')
         resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['dates'], [assigned.isoformat()])
+
+    def test_other_owner_cannot_view(self):
+        User.objects.create_user(username='stranger', password='pw')
+        self.client.login(username='stranger', password='pw')
+        resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
+        self.assertEqual(resp.status_code, 404)
 
     def test_staff_sees_attended_dates_only(self):
         attended = date.today() - timedelta(days=4)

@@ -68,9 +68,11 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   int? _myUserId;
 
   // Payment managers can edit past days (attendance history feeding
-  // invoicing); the calendar then scrolls back a year and paints the days the
-  // dog actually attended.
+  // invoicing). Everyone else may still scroll the calendar back a year to
+  // see the days the dog actually attended — every day it was on the board,
+  // assigned to a staff member or not — once that history has loaded.
   bool _canEditPastDates = false;
+  bool _pastAttendanceLoaded = false;
   Set<DateTime> _pastAttendance = {};
   // Which invoice charges each day — payment managers only.
   Map<DateTime, InvoiceCoverage>? _invoiceCoverage;
@@ -85,6 +87,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     _loadBoardingRequests();
     _loadClosureDays();
     _loadCertificates();
+    _loadPastAttendance();
     if (widget.isStaff) {
       _loadPastEditability();
       _loadIncidents();
@@ -226,36 +229,40 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     }
   }
 
-  /// Staff with the payments permission may edit past calendar days. When
-  /// that's the case, also fetch the dog's actual past attendance so the
-  /// calendar paints history accurately (materialized roster, staff removals),
-  /// not just the recurring schedule.
-  Future<void> _loadPastEditability() async {
+  /// The dog's actual past attendance (every non-REMOVED board row, so a day
+  /// a staff member was assigned the dog counts whether or not it was a
+  /// regular day), for everyone who can open the profile. The calendar
+  /// scrolls back over it read-only.
+  Future<void> _loadPastAttendance() async {
     try {
-      final profile = await _dataService.getProfile();
-      if (!profile.canManagePayments && !profile.isSuperuser) return;
       final attendance = await _dataService.getDogPastAttendance(_dog.id);
       if (mounted) {
         setState(() {
-          _canEditPastDates = true;
+          _pastAttendanceLoaded = true;
           _pastAttendance = attendance.map(_dateOnly).toSet();
         });
       }
-      await _loadInvoiceCoverage();
     } catch (_) {
       // Non-fatal: the calendar just stays today-onwards.
     }
   }
 
-  Future<void> _reloadPastAttendance() async {
-    if (!_canEditPastDates) return;
+  /// Staff with the payments permission may also edit past calendar days and
+  /// see which invoice charges each one.
+  Future<void> _loadPastEditability() async {
     try {
-      final attendance = await _dataService.getDogPastAttendance(_dog.id);
-      if (mounted) {
-        setState(() => _pastAttendance = attendance.map(_dateOnly).toSet());
-      }
-    } catch (_) {}
-    await _loadInvoiceCoverage();
+      final profile = await _dataService.getProfile();
+      if (!profile.canManagePayments && !profile.isSuperuser) return;
+      if (mounted) setState(() => _canEditPastDates = true);
+      await _loadInvoiceCoverage();
+    } catch (_) {
+      // Non-fatal: past days just stay read-only.
+    }
+  }
+
+  Future<void> _reloadPastAttendance() async {
+    await _loadPastAttendance();
+    if (_canEditPastDates) await _loadInvoiceCoverage();
   }
 
   /// Best-effort: the markers are a convenience on top of the calendar, so
@@ -2301,7 +2308,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ),
                         child: DogScheduleCalendar(
                           firstDay: calendarFirstDay(DateTime.now(),
-                              canEditPastDates: _canEditPastDates),
+                              canEditPastDates:
+                                  _canEditPastDates || _pastAttendanceLoaded),
                           lastDay: calendarLastDay(DateTime.now(), isStaff: widget.isStaff),
                           bookedDates: {...upcomingDates, ..._pastAttendance},
                           extraDates: _extraDates({...upcomingDates, ..._pastAttendance}),
