@@ -37,7 +37,8 @@ def dog_listing_queryset():
     """Dog queryset with everything DogSerializer renders already loaded.
 
     Shared so that every endpoint returning dogs gets the same constant query
-    count. In particular `future_removed_assignments` must be prefetched:
+    count. In particular `future_removed_assignments` (and likewise
+    `future_active_assignments`, for `assigned_dates`) must be prefetched:
     without it, DogSerializer.get_cancelled_dates falls through to a per-dog
     query, which is ~30 extra round-trips on the staff dashboard's hottest
     endpoint (unassigned_dogs) — it built its own queryset and missed this.
@@ -49,12 +50,20 @@ def dog_listing_queryset():
         ).only('id', 'dog_id', 'date', 'status'),
         to_attr='future_removed_assignments',
     )
+    active_assignments = Prefetch(
+        'daily_assignments',
+        queryset=DailyDogAssignment.objects.filter(
+            date__gte=timezone.localdate()
+        ).exclude(status='REMOVED').only('id', 'dog_id', 'date', 'status'),
+        to_attr='future_active_assignments',
+    )
     certificates = Prefetch(
         'vaccination_certificates',
         queryset=VaccinationCertificate.objects.only('id', 'dog_id', 'vaccination_date', 'created_at'),
     )
     return Dog.objects.select_related('owner__profile').prefetch_related(
-        'vaccinations', 'additional_owners__profile', removed_assignments, certificates
+        'vaccinations', 'additional_owners__profile', removed_assignments,
+        active_assignments, certificates,
     )
 
 

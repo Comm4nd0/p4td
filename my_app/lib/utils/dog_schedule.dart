@@ -40,12 +40,18 @@ bool requestSupersedes(DateChangeRequest a, DateChangeRequest b) {
 /// dashboard. The server deletes these markers when a later re-add is
 /// approved, so they always represent the latest word on their date.
 ///
+/// [staffAssignedDates] are days the dog is on the day's board (server-side
+/// non-REMOVED assignments) — assigning a dog to a staff member books it in
+/// like an extra day, request or not. They are added after the requests are
+/// applied, as the server's roster projection does.
+///
 /// The returned list is normalised to midnight and sorted ascending.
 List<DateTime> upcomingDaycareDates({
   required DateTime now,
   required Set<int> daycareWeekdays,
   required List<DateChangeRequest> requests,
   Iterable<DateTime> staffRemovedDates = const [],
+  Iterable<DateTime> staffAssignedDates = const [],
   int monthsAhead = 3,
 }) {
   final today = DateTime(now.year, now.month, now.day);
@@ -100,6 +106,9 @@ List<DateTime> upcomingDaycareDates({
   }
   dates.addAll(addedDates);
   dates.removeAll(removedDates);
+  dates.addAll(staffAssignedDates
+      .map(norm)
+      .where((d) => !d.isBefore(today) && d.isBefore(windowEnd)));
 
   // Staff "remove from day" actions create REMOVED assignments without a
   // cancellation request, so subtract them too — otherwise the profile keeps

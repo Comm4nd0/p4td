@@ -663,6 +663,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       daycareWeekdays: _dog.daysInDaycare.map((d) => d.dayNumber).toSet(),
       requests: _requests,
       staffRemovedDates: _dog.cancelledDates,
+      staffAssignedDates: _dog.assignedDates,
       // Staff can browse (and edit) years ahead; owners a few months.
       monthsAhead: widget.isStaff ? 60 : 3,
     );
@@ -1032,6 +1033,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
     // Build set of dates the dog is already booked for
     final bookedWeekdays = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
+    // Days staff have put the dog on the board are booked, request or not.
+    final assignedDates = _dog.assignedDates.map(_dateOnly).toSet();
 
     // Latest pending/approved ADD_DAY request per date
     final latestAddByDate = <DateTime, DateChangeRequest>{};
@@ -1064,6 +1067,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       // Past days go by the actual attendance record, not the recurring
       // schedule — that's what payment managers are correcting.
       if (normalized.isBefore(today)) return _pastAttendance.contains(normalized);
+      if (assignedDates.contains(normalized)) return true;
       final add = latestAddByDate[normalized];
       final cancel = latestCancelByDate[normalized];
       // An approved cancellation un-books the day, unless a later ADD_DAY
