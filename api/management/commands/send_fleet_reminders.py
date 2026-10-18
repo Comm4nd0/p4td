@@ -8,15 +8,15 @@ corresponding due date is updated (see Vehicle.save).
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api.models import Vehicle
 from api.notifications import send_push_notification
 from api.cron_heartbeat import ping_heartbeat
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = 'Send vehicle MOT/service/tax due reminders to fleet managers (run daily).'
 
     def _notify_managers(self, vehicle, event, title, body):

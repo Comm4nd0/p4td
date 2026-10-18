@@ -14904,3 +14904,44 @@ class DayChangesTests(TestCase):
         self.assertFalse(is_late_change_day(today + timedelta(days=1), now=at(17)))
         self.assertTrue(is_late_change_day(today + timedelta(days=1), now=at(18)))
         self.assertFalse(is_late_change_day(today + timedelta(days=2), now=at(20)))
+
+
+class PushCommandTests(TestCase):
+    """Cron commands must not exit before their pushes have gone.
+
+    Pushes run on a background pool; a command that returned straight away let
+    the interpreter shut down underneath it, and FCM's ``send_each`` then failed
+    with "cannot schedule new futures after interpreter shutdown" — every cron
+    push was lost.
+    """
+
+    PUSH_COMMANDS = [
+        'generate_monthly_invoices', 'send_compliance_reminders',
+        'send_end_of_day_alerts', 'send_fleet_reminders', 'send_invoice_reminders',
+        'send_tomorrow_changes', 'send_vaccination_reminders', 'sync_xero_invoices',
+    ]
+
+    def test_wait_for_pushes_runs_queued_work(self):
+        import time as time_mod
+        from . import notifications
+        ran = []
+        notifications._executor().submit(lambda: (time_mod.sleep(0.1), ran.append(1)))
+        notifications.wait_for_pushes()
+        self.assertEqual(ran, [1])
+        self.assertIsNone(notifications._push_executor)
+        # A later push gets a fresh pool.
+        self.assertIsNotNone(notifications._executor())
+        notifications.wait_for_pushes()
+
+    def test_push_commands_wait_for_their_pushes(self):
+        from django.core.management import load_command_class
+        from .management.push_command import PushCommand
+        for name in self.PUSH_COMMANDS:
+            with self.subTest(command=name):
+                self.assertIsInstance(load_command_class('api', name), PushCommand)
+
+    def test_command_waits_even_when_it_sends_nothing(self):
+        from io import StringIO
+        with patch('api.management.push_command.wait_for_pushes') as waited:
+            call_command('send_tomorrow_changes', '--date', '2026-01-04', stdout=StringIO())
+        waited.assert_called_once()

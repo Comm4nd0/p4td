@@ -6,13 +6,13 @@ been approved there become SENT here (deleted there: VOID); open
 ledger, and owners get a receipt push when their invoice becomes fully paid.
 Instant no-op when Xero is not connected.
 """
-from django.core.management.base import BaseCommand
 
+from api.management.push_command import PushCommand
 from api import billing
 from api.cron_heartbeat import ping_heartbeat
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = 'Sync open invoice payment status from Xero (run every 30 minutes).'
 
     def handle(self, *args, **options):

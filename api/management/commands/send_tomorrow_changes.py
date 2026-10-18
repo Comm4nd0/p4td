@@ -19,9 +19,9 @@ Changes made after this has run reach the team as they happen
 """
 from datetime import datetime, timedelta
 
-from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from api.management.push_command import PushCommand
 from api.cron_heartbeat import ping_heartbeat
 from api.models import Dog
 from api.notifications import (
@@ -64,7 +64,7 @@ def owner_reminder_text(dog_name, kind, when):
     return 'Day off reminder', f"{dog_name} isn't booked in for daycare {when}."
 
 
-class Command(BaseCommand):
+class Command(PushCommand):
     help = "Push tomorrow's changes to the routine to the team, and reminders to owners (run daily at 18:00)."
 
     def add_arguments(self, parser):
