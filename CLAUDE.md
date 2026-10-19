@@ -426,9 +426,9 @@ longer than Play allows, so it cannot simply be copied.
 >
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
-> | Live on the App Store | **1.12.48** | `1ed7485` (merged as `61e6cdd`) | Released 2026-10-01; verified against Apple's UK listing and lookup API on 2026-10-14. Clearer calendars, enquiry reply status and staff DBS records. |
+> | Live on the App Store | **1.12.50** | `befb053` | Released 2026-10-15; verified against Apple's UK lookup API on 2026-10-19. Vehicle tax tracking with due dates, renewal history and reminders. |
 > | Live on Google Play | **1.12.43** | `4803cad` | Build 487, full production rollout; verified in Play Console on 2026-10-14. |
-> | Release in progress | 1.12.50 | `befb053` | Tag `v1.12.50` pushed 2026-10-14. Android build 494; Xcode Cloud Production build 626. Vehicle tax tracking with due dates, renewal history and reminders. Store review and public availability must be verified separately. |
+> | Release in progress | 1.12.55 | see tag `v1.12.55` | Tag pushed 2026-10-19. Calendars show staff-assigned and past days, the day's changes to the routine (6pm summary, late-change pushes, owner reminders), group compatibility notes. Notes diffed from `befb053`. Store review and public availability must be verified separately. Android 1.12.50 (build 494) promotion not yet verified in Play Console. |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
