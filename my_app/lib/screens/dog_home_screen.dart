@@ -32,6 +32,9 @@ import 'invoice_detail_screen.dart';
 import '../constants/app_colors.dart';
 import '../widgets/page_body.dart';
 import '../widgets/owner_picker.dart';
+import '../widgets/app_sheets.dart';
+import '../widgets/boarding_request_card.dart' show promptBoardingChangeDeclineReason;
+import 'request_boarding_screen.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -50,6 +53,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   bool _loadingRequests = false;
   List<BoardingRequest> _boardingRequests = [];
   bool _loadingBoardingRequests = false;
+  /// Staff with can_manage_boarding may edit a stay's dates here and review
+  /// an owner's requested change; other staff can only cancel.
+  bool _canManageBoarding = false;
   List<ClosureDay> _closureDays = [];
   // Staff-only: the incidents this dog has been named on. Owners never see
   // this section and the endpoint refuses them anyway.
@@ -89,6 +95,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     _loadCertificates();
     _loadPastAttendance();
     if (widget.isStaff) {
+      _loadBoardingPermission();
       _loadPastEditability();
       _loadIncidents();
       _loadLastChange();
@@ -244,6 +251,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       }
     } catch (_) {
       // Non-fatal: the calendar just stays today-onwards.
+    }
+  }
+
+  Future<void> _loadBoardingPermission() async {
+    try {
+      final profile = await _dataService.getProfile();
+      if (mounted && (profile.canManageBoarding || profile.isSuperuser)) {
+        setState(() => _canManageBoarding = true);
+      }
+    } catch (_) {
+      // Non-fatal: the boarding rows just stay cancel/delete only.
     }
   }
 
@@ -1596,16 +1614,38 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                       ),
                     ),
                   ),
+                  if (request.hasPendingChange) ...[
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'CHANGE ASKED: ${ukDate(request.requestedStartDate!)} - ${ukDate(request.requestedEndDate!)}',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 10, color: Colors.orange[800], fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                   if (request.specialInstructions != null && request.specialInstructions!.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Picon(PiconsDuotone.notepad, size: 14, color: Colors.grey[500]),
                   ],
                 ],
               ),
+              onTap: _canManageBoarding && request.hasPendingChange
+                  ? () => _reviewBoardingChange(request)
+                  : null,
               trailing: widget.isStaff
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (_canManageBoarding &&
+                            (request.status == BoardingRequestStatus.pending ||
+                                request.status == BoardingRequestStatus.approved))
+                          IconButton(
+                            icon: Picon(PiconsDuotone.pencilSimple, size: 18, color: AppColors.primary),
+                            tooltip: 'Edit dates',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _editBoardingRequest(request),
+                          ),
                         // Cancelling is open to all staff; the permanent
                         // delete stays a boarding-manager cleanup tool
                         // (enforced server-side).
@@ -1633,8 +1673,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     );
   }
 
-  /// Staff tapped a boarding-covered day on the schedule calendar: offer to
-  /// cancel the stay covering it (approved stays first, then pending ones).
+  /// Staff tapped a boarding-covered day on the schedule calendar: act on the
+  /// stay covering it (approved stays first, then pending ones) — boarding
+  /// managers choose edit/review/cancel, other staff can cancel.
   void _onBoardingDayTap(DateTime date) {
     final d = DateTime(date.year, date.month, date.day);
     bool covers(BoardingRequest r) {
@@ -1653,7 +1694,87 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       if (r.status == BoardingRequestStatus.pending) request ??= r;
     }
     if (request == null) return;
-    _cancelBoardingRequest(request);
+    if (_canManageBoarding) {
+      _boardingDayActions(request);
+    } else {
+      _cancelBoardingRequest(request);
+    }
+  }
+
+  /// Boarding managers tapping a boarding day: add or drop days, review the
+  /// owner's requested change, or cancel the stay.
+  Future<void> _boardingDayActions(BoardingRequest request) async {
+    final choice = await showAppActionSheet<String>(
+      context,
+      title: 'Boarding ${ukDate(request.startDate)} - ${ukDate(request.endDate)}',
+      message: request.hasPendingChange
+          ? 'Owner asked for ${ukDate(request.requestedStartDate!)} - ${ukDate(request.requestedEndDate!)}'
+          : null,
+      actions: [
+        if (request.hasPendingChange)
+          const AppSheetAction(label: 'Review requested change', value: 'review'),
+        const AppSheetAction(label: 'Edit dates', value: 'edit'),
+        const AppSheetAction(label: 'Cancel booking', value: 'cancel', isDestructive: true),
+      ],
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case 'review':
+        await _reviewBoardingChange(request);
+      case 'edit':
+        await _editBoardingRequest(request);
+      case 'cancel':
+        await _cancelBoardingRequest(request);
+    }
+  }
+
+  /// Change a stay's dates/instructions (boarding managers). Moving an
+  /// approved stay moves its daycare attendance with it, server-side.
+  Future<void> _editBoardingRequest(BoardingRequest request) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => RequestBoardingScreen(existing: request)),
+    );
+    if (changed == true && mounted) _loadBoardingRequests();
+  }
+
+  /// Approve or decline the dates an owner asked to move their stay to.
+  Future<void> _reviewBoardingChange(BoardingRequest request) async {
+    final start = request.requestedStartDate!;
+    final end = request.requestedEndDate!;
+    final nights = end.difference(start).inDays;
+    final note = request.changeNote;
+    final choice = await showAppActionSheet<bool>(
+      context,
+      title: 'Move boarding to ${ukDate(start)} - ${ukDate(end)}?',
+      message: 'Booked: ${ukDate(request.startDate)} - ${ukDate(request.endDate)}. '
+          'Requested: $nights night${nights == 1 ? '' : 's'}.'
+          '${note != null && note.isNotEmpty ? '\n"$note"' : ''}',
+      actions: const [
+        AppSheetAction(label: 'Approve change', value: true),
+        AppSheetAction(label: 'Decline change', value: false, isDestructive: true),
+      ],
+    );
+    if (choice == null || !mounted) return;
+    String? reason;
+    if (!choice) {
+      reason = await promptBoardingChangeDeclineReason(context);
+      if (reason == null) return;
+    }
+    try {
+      await _dataService.reviewBoardingChange(request.id, approve: choice, reason: reason);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(choice ? 'Booking moved to the new dates' : 'Change declined'),
+        backgroundColor: AppColors.success,
+      ));
+      _loadBoardingRequests();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update: $e'), backgroundColor: AppColors.error),
+      );
+    }
   }
 
   /// Cancel a booked stay (the owner rang up, the dog isn't coming), after

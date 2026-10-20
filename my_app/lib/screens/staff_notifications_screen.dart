@@ -163,6 +163,24 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     }
   }
 
+  static bool _boardingAwaitingReview(BoardingRequest r) =>
+      r.status == BoardingRequestStatus.pending || r.hasPendingChange;
+
+  Future<void> _reviewBoardingChange(BoardingRequest request, {required bool approve}) async {
+    String? reason;
+    if (!approve) {
+      reason = await promptBoardingChangeDeclineReason(context);
+      if (reason == null) return; // backed out
+    }
+    try {
+      await _dataService.reviewBoardingChange(request.id, approve: approve, reason: reason);
+      showSuccess(approve ? 'Booking moved to the new dates' : 'Change declined — the booking stays as it was');
+      _loadRequests();
+    } catch (e) {
+      showError('Failed to update: $e');
+    }
+  }
+
   /// Edit the dates/instructions of a booking (any status — staff only).
   Future<void> _editBoarding(BoardingRequest request) async {
     final changed = await Navigator.push<bool>(
@@ -177,7 +195,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final pendingDateCount = _dateRequests.where((r) => r.status == RequestStatus.pending).length;
-    final pendingBoardingCount = _boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
+    final pendingBoardingCount = _boardingRequests.where(_boardingAwaitingReview).length;
 
     return DefaultTabController(
       length: 2,
@@ -295,7 +313,10 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
   }
 
   Widget _buildBoardingList() {
-    final filtered = _filterList(_boardingRequests, (r) => r.status);
+    // A date change on an approved stay waits on a manager like a new request.
+    final filtered = _filter == 'PENDING'
+        ? _boardingRequests.where(_boardingAwaitingReview).toList()
+        : _filterList(_boardingRequests, (r) => r.status);
 
     if (filtered.isEmpty) return _buildEmptyState();
 
@@ -591,6 +612,8 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
       onSetPending: canManage ? () => _updateBoardingStatus(request, 'PENDING') : null,
       onDelete: canManage ? () => _deleteBoarding(request) : null,
       onEdit: canManage ? () => _editBoarding(request) : null,
+      onApproveChange: canManage ? () => _reviewBoardingChange(request, approve: true) : null,
+      onDenyChange: canManage ? () => _reviewBoardingChange(request, approve: false) : null,
     );
   }
 

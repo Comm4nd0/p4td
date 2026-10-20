@@ -124,8 +124,10 @@ class DashboardCounts extends ChangeNotifier {
       var pendingBoarding = 0;
       if (canManageBoarding) {
         final boardingRequests = await _dataService.getBoardingRequests();
+        // A date change the owner asked for on an approved stay waits on
+        // a manager just like a new request.
         pendingBoarding = boardingRequests
-            .where((r) => r.status == BoardingRequestStatus.pending)
+            .where((r) => r.status == BoardingRequestStatus.pending || r.hasPendingChange)
             .length;
       }
       pendingRequestCount = pendingDateCount + pendingBoarding;

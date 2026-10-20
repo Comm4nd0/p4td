@@ -2026,7 +2026,7 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         # All staff keep read access — the day board and Boarding Tonight rely
         # on this data for care logistics. Managing requests (approve/deny/
         # edit/delete) additionally requires profile.can_manage_boarding.
-        base = BoardingRequest.objects.select_related('owner', 'approved_by').prefetch_related(
+        base = BoardingRequest.objects.select_related('owner', 'approved_by', 'change_requested_by').prefetch_related(
             'dogs', 'history__changed_by'
         )
         if self.request.user.is_staff:
@@ -2089,40 +2089,17 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                           f'Updated {_boarding_desc(instance)}: ' + ', '.join(c['label'].lower() for c in changes),
                           changes=changes)
 
-        # Moving the dates (or the dogs) of an approved stay moves its daycare
-        # attendance with it: days the stay no longer covers are released,
-        # days it still covers keep whatever progress they already have.
+        # A manager editing the stay onto the dates the owner asked for has
+        # answered that request; any other edit leaves it for review.
         if (
-            instance.status == 'APPROVED'
-            and (instance.start_date != old_start or instance.end_date != old_end
-                 or set(instance.dogs.values_list('id', flat=True)) != old_dog_ids)
+            instance.has_pending_change
+            and instance.requested_start_date == instance.start_date
+            and instance.requested_end_date == instance.end_date
         ):
-            from .scheduling import (
-                boarding_daycare_dates, clear_boarding_daycare_assignments,
-                sync_boarding_daycare_assignments,
-            )
-            try:
-                dropped = (
-                    set(boarding_daycare_dates(old_start, old_end))
-                    - set(boarding_daycare_dates(instance.start_date, instance.end_date))
-                )
-                # Dogs taken off the booking are cleared over the whole old
-                # range; the remaining dogs only lose the days that went away.
-                # (A dog dropped from one stay but still covered by another is
-                # re-booked by materialize_boarding_for_date on the next load.)
-                removed_dogs = old_dog_ids - set(instance.dogs.values_list('id', flat=True))
-                if removed_dogs:
-                    from .models import DailyDogAssignment
-                    DailyDogAssignment.objects.filter(
-                        dog_id__in=removed_dogs,
-                        date__in=boarding_daycare_dates(old_start, old_end),
-                        from_boarding=True,
-                    ).delete()
-                if dropped:
-                    clear_boarding_daycare_assignments(instance, dates=sorted(dropped))
-                sync_boarding_daycare_assignments(instance)
-            except Exception as e:
-                print(f"Failed to move boarding daycare attendance: {e}")
+            instance.clear_change_request()
+            instance.save()
+
+        self._move_boarding_attendance(instance, old_start, old_end, old_dog_ids)
 
         # Let the owner know when staff move the dates of their booking.
         if (
@@ -2130,26 +2107,66 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             and self.request.user != instance.owner
             and (instance.start_date != old_start or instance.end_date != old_end)
         ):
-            try:
-                from .notifications import send_push_notification
-                dogs = ', '.join(d.name for d in instance.dogs.all())
-                body = (
-                    f"The dates for {dogs}'s boarding have been updated to "
-                    f"{instance.start_date.strftime('%d/%m/%Y')} - {instance.end_date.strftime('%d/%m/%Y')}."
-                )
-                send_push_notification(
-                    instance.owner,
-                    'Boarding Booking Updated',
-                    body,
-                    {
-                        'type': 'boarding_request_update',
-                        'id': str(instance.id),
-                        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-                    },
-                    category='bookings',
-                )
-            except Exception as e:
-                print(f"Failed to send push notification: {e}")
+            self._notify_owner_dates_moved(instance)
+
+    def _move_boarding_attendance(self, instance, old_start, old_end, old_dog_ids):
+        """Moving the dates (or the dogs) of an approved stay moves its daycare
+        attendance with it: days the stay no longer covers are released, days
+        it still covers keep whatever progress they already have."""
+        if not (
+            instance.status == 'APPROVED'
+            and (instance.start_date != old_start or instance.end_date != old_end
+                 or set(instance.dogs.values_list('id', flat=True)) != old_dog_ids)
+        ):
+            return
+        from .scheduling import (
+            boarding_daycare_dates, clear_boarding_daycare_assignments,
+            sync_boarding_daycare_assignments,
+        )
+        try:
+            dropped = (
+                set(boarding_daycare_dates(old_start, old_end))
+                - set(boarding_daycare_dates(instance.start_date, instance.end_date))
+            )
+            # Dogs taken off the booking are cleared over the whole old
+            # range; the remaining dogs only lose the days that went away.
+            # (A dog dropped from one stay but still covered by another is
+            # re-booked by materialize_boarding_for_date on the next load.)
+            removed_dogs = old_dog_ids - set(instance.dogs.values_list('id', flat=True))
+            if removed_dogs:
+                from .models import DailyDogAssignment
+                DailyDogAssignment.objects.filter(
+                    dog_id__in=removed_dogs,
+                    date__in=boarding_daycare_dates(old_start, old_end),
+                    from_boarding=True,
+                ).delete()
+            if dropped:
+                clear_boarding_daycare_assignments(instance, dates=sorted(dropped))
+            sync_boarding_daycare_assignments(instance)
+        except Exception as e:
+            print(f"Failed to move boarding daycare attendance: {e}")
+
+    def _notify_owner_dates_moved(self, instance):
+        try:
+            from .notifications import send_push_notification
+            dogs = ', '.join(d.name for d in instance.dogs.all())
+            body = (
+                f"The dates for {dogs}'s boarding have been updated to "
+                f"{instance.start_date.strftime('%d/%m/%Y')} - {instance.end_date.strftime('%d/%m/%Y')}."
+            )
+            send_push_notification(
+                instance.owner,
+                'Boarding Booking Updated',
+                body,
+                {
+                    'type': 'boarding_request_update',
+                    'id': str(instance.id),
+                    'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                },
+                category='bookings',
+            )
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
 
     def _resolve_assigned_staff(self, staff_id):
         """Resolve a staff user id to a User, or None. Ignores non-staff ids."""
@@ -2285,6 +2302,10 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             if assigned_staff is not None:
                 instance.assigned_staff = assigned_staff
         instance.status = new_status
+        # A date change only means something on an approved stay; once it is
+        # denied, cancelled or reopened the owner's request is moot.
+        if new_status != 'APPROVED' and instance.has_pending_change:
+            instance.clear_change_request()
         instance.save()
 
         # Approving books the stay into daycare; anything else (denied,
@@ -2336,6 +2357,182 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                       else f'Cleared the carer for {_boarding_desc(instance)}')
         return Response(self.get_serializer(instance).data)
 
+
+    # --- Owner date-change requests on an approved stay ----------------------
+    #
+    # Owners amend a PENDING request directly (perform_update). Once a stay is
+    # approved it drives daycare attendance and billing, so an owner who wants
+    # to add or drop days asks instead: request_change records the proposed
+    # dates on the booking, a boarding manager approves or denies them with
+    # review_change, and nothing moves until they do. Only days after today
+    # can change — a stay that has started keeps its arrival date.
+
+    @staticmethod
+    def _owner_change_error(instance, new_start, new_end, today):
+        if instance.end_date < today:
+            return 'This stay has already finished.'
+        if new_start > new_end:
+            return "The departure date can't be before the arrival date."
+        if new_start == instance.start_date and new_end == instance.end_date:
+            return 'Those are the dates already booked.'
+        if new_start != instance.start_date:
+            if instance.start_date <= today:
+                return "The stay has already started, so the arrival date can't change."
+            if new_start <= today:
+                return 'The new arrival date must be after today.'
+        if new_end != instance.end_date and new_end <= today:
+            return 'The new departure date must be after today.'
+        return None
+
+    def _notify_boarding_managers(self, instance, title, body):
+        try:
+            from django.contrib.auth.models import User
+            from .notifications import send_push_notification
+            data = {
+                'type': 'boarding_request',
+                'id': str(instance.id),
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            }
+            for user in User.objects.filter(is_staff=True, profile__can_manage_boarding=True):
+                send_push_notification(user, title, body, data, category='bookings')
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+
+    @action(detail=True, methods=['post'])
+    def request_change(self, request, pk=None):
+        """Owner asks to move an approved stay's dates (``start_date``,
+        ``end_date``, optional ``note``). Replaces any earlier pending ask."""
+        if request.user.is_staff:
+            return Response(
+                {'detail': 'Staff edit the booking directly instead of requesting a change.'},
+                status=400,
+            )
+        instance = self.get_object()
+        if instance.status != 'APPROVED':
+            return Response(
+                {'detail': 'Only an approved booking can have a change requested — edit a pending request directly.'},
+                status=400,
+            )
+        serializer = self.get_serializer(
+            instance,
+            data={'start_date': request.data.get('start_date'), 'end_date': request.data.get('end_date')},
+            partial=True,
+        )
+        # Field parsing plus the overlap check against the dogs' other stays.
+        serializer.is_valid(raise_exception=True)
+        new_start = serializer.validated_data.get('start_date')
+        new_end = serializer.validated_data.get('end_date')
+        if new_start is None or new_end is None:
+            return Response({'detail': 'Both start_date and end_date are required.'}, status=400)
+
+        from django.utils import timezone
+        from .serializers import owner_display_name
+        error = self._owner_change_error(instance, new_start, new_end, timezone.localdate())
+        if error:
+            return Response({'detail': error}, status=400)
+
+        instance.requested_start_date = new_start
+        instance.requested_end_date = new_end
+        instance.change_note = (request.data.get('note') or '').strip()
+        instance.change_requested_by = request.user
+        instance.change_requested_at = timezone.now()
+        instance.save()
+
+        _log_boarding(instance, request.user, 'UPDATED',
+                      f'Asked to move {_boarding_desc(instance)} to {_uk(new_start)}–{_uk(new_end)}')
+        self._notify_boarding_managers(
+            instance,
+            'Boarding Change Requested',
+            f"{owner_display_name(request.user)} asked to change "
+            f"{', '.join(d.name for d in instance.dogs.all())}'s boarding to "
+            f"{new_start.strftime('%d/%m/%Y')} - {new_end.strftime('%d/%m/%Y')}.",
+        )
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=['post'])
+    def withdraw_change(self, request, pk=None):
+        """Owner takes back their pending date-change request."""
+        if request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Staff review a change with review_change.')
+        instance = self.get_object()
+        if not instance.has_pending_change:
+            return Response({'detail': 'There is no change request to withdraw.'}, status=400)
+        instance.clear_change_request()
+        instance.save()
+        _log_boarding(instance, request.user, 'UPDATED',
+                      f'Withdrew the change request for {_boarding_desc(instance)}')
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=['post'])
+    def review_change(self, request, pk=None):
+        """Boarding manager approves (``decision=APPROVE``) or denies
+        (``decision=DENY``, optional ``reason``) the owner's requested dates.
+        Approving moves the stay exactly as an edit would — attendance follows."""
+        if not _user_can_manage_boarding(request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('You do not have permission to manage boarding requests.')
+        instance = self.get_object()
+        if not instance.has_pending_change:
+            return Response({'detail': 'There is no change request to review.'}, status=400)
+        decision = (request.data.get('decision') or '').upper()
+        if decision not in ('APPROVE', 'DENY'):
+            return Response({'detail': 'decision must be APPROVE or DENY.'}, status=400)
+
+        from .notifications import send_push_notification
+        dogs = ', '.join(d.name for d in instance.dogs.all())
+        push_data = {
+            'type': 'boarding_request_update',
+            'id': str(instance.id),
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        asked = f'{_uk(instance.requested_start_date)}–{_uk(instance.requested_end_date)}'
+
+        if decision == 'DENY':
+            reason = (request.data.get('reason') or '').strip()
+            instance.clear_change_request()
+            instance.save()
+            _log_boarding(instance, request.user, 'DENIED',
+                          f'Declined the change to {asked} for {_boarding_desc(instance)} ({person(instance.owner)})'
+                          + (f': {reason}' if reason else ''))
+            try:
+                body = f"Your requested change to {dogs}'s boarding wasn't approved — the booking stays {instance.start_date.strftime('%d/%m/%Y')} - {instance.end_date.strftime('%d/%m/%Y')}."
+                if reason:
+                    body += f' {reason}'
+                send_push_notification(instance.owner, 'Boarding Change Declined', body, push_data, category='bookings')
+            except Exception as e:
+                print(f"Failed to send push notification: {e}")
+            return Response(self.get_serializer(instance).data)
+
+        # Validate the dates as an edit by this manager would be validated —
+        # another stay may have been booked over them since the owner asked.
+        old_start, old_end = instance.start_date, instance.end_date
+        old_dog_ids = set(instance.dogs.values_list('id', flat=True))
+        date_fields = {'start_date': 'Start', 'end_date': 'End'}
+        before = snapshot_fields(instance, date_fields)
+        serializer = self.get_serializer(
+            instance,
+            data={'start_date': instance.requested_start_date, 'end_date': instance.requested_end_date},
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        instance.clear_change_request()
+        instance.save()
+        self._move_boarding_attendance(instance, old_start, old_end, old_dog_ids)
+        _log_boarding(instance, request.user, 'APPROVED',
+                      f'Approved the owner\'s change: {dogs} now boarding {_uk(instance.start_date)}–{_uk(instance.end_date)} '
+                      f'(was {_uk(old_start)}–{_uk(old_end)}, {person(instance.owner)})',
+                      changes=diff_fields(before, snapshot_fields(instance, date_fields), date_fields))
+        try:
+            send_push_notification(
+                instance.owner, 'Boarding Change Approved',
+                f"{dogs}'s boarding is now {instance.start_date.strftime('%d/%m/%Y')} - {instance.end_date.strftime('%d/%m/%Y')}.",
+                push_data, category='bookings',
+            )
+        except Exception as e:
+            print(f"Failed to send push notification: {e}")
+        return Response(self.get_serializer(instance).data)
 
 class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = DailyDogAssignmentSerializer

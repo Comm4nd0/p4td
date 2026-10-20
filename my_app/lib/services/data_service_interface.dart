@@ -95,6 +95,12 @@ abstract class DataService {
     DateTime? endDate,
     String? specialInstructions,
   });
+  /// Owner: ask to move an approved stay to new dates (staff approve).
+  Future<void> requestBoardingChange(int requestId, {required DateTime startDate, required DateTime endDate, String? note});
+  /// Owner: take back a pending date-change request.
+  Future<void> withdrawBoardingChange(int requestId);
+  /// Boarding manager: approve or decline the owner's requested dates.
+  Future<void> reviewBoardingChange(int requestId, {required bool approve, String? reason});
   Future<void> createBoardingRequest({
     required List<int> dogIds,
     required DateTime startDate,

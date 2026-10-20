@@ -349,7 +349,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       var pendingBoardingCount = 0;
       if (_canManageBoarding) {
         final boardingRequests = await _dataService.getBoardingRequests();
-        pendingBoardingCount = boardingRequests.where((r) => r.status == BoardingRequestStatus.pending).length;
+        // Includes date changes owners asked for on approved stays.
+        pendingBoardingCount = boardingRequests
+            .where((r) => r.status == BoardingRequestStatus.pending || r.hasPendingChange)
+            .length;
       }
 
       if (mounted) {

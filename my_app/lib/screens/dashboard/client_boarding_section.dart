@@ -112,6 +112,7 @@ class ClientBoardingSection extends StatelessWidget {
       pending ? 'Awaiting approval' : 'Confirmed',
       if (phase != null) phase,
       if (!pending && carer != null) 'with $carer',
+      if (request.hasPendingChange) 'date change requested',
     ];
     final statusColor = pending ? AppColors.warning : AppColors.success;
 

@@ -9,12 +9,14 @@ import '../utils/date_formats.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/boarding_request_card.dart';
 import '../widgets/skeleton_loaders.dart';
+import 'request_boarding_change_screen.dart';
 import 'request_boarding_screen.dart';
 import '../widgets/page_body.dart';
 
 /// Boarding requests screen with List and Calendar tabs.
 ///
-/// For owners this shows their own requests (edit/cancel while pending).
+/// For owners this shows their own requests (edit/cancel while pending, and
+/// ask to change the dates of an approved stay that hasn't finished).
 /// For staff with the manage-boarding permission it's the full Manage
 /// Boarding section: approve/deny/set pending, edit dates, delete, and a
 /// working calendar — tap a day to see its stays, tap a stay to act on it.
@@ -100,8 +102,13 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
     return _events[DateTime(day.year, day.month, day.day)] ?? [];
   }
 
+  /// Waiting on a manager: a new request, or a date change on an approved stay.
+  static bool _awaitingReview(BoardingRequest r) =>
+      r.status == BoardingRequestStatus.pending || r.hasPendingChange;
+
   List<BoardingRequest> get _filteredRequests {
     if (_filter == 'ALL') return _requests;
+    if (_filter == 'PENDING') return _requests.where(_awaitingReview).toList();
     final status = BoardingRequestStatus.values.firstWhere(
       (s) => s.name.toUpperCase() == _filter,
       orElse: () => BoardingRequestStatus.pending,
@@ -216,6 +223,46 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
     }
   }
 
+  Future<void> _requestChange(BoardingRequest request) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => RequestBoardingChangeScreen(booking: request)),
+    );
+    if (changed == true) await _loadRequests();
+  }
+
+  Future<void> _withdrawChange(BoardingRequest request) async {
+    try {
+      await _dataService.withdrawBoardingChange(request.id);
+      showSuccess('Change request withdrawn');
+      await _loadRequests();
+    } catch (e) {
+      showError('Failed to withdraw: $e');
+    }
+  }
+
+  Future<void> _approveChange(BoardingRequest request) async {
+    try {
+      await _dataService.reviewBoardingChange(request.id, approve: true);
+      showSuccess('Booking moved to the new dates');
+      await _loadRequests();
+    } catch (e) {
+      showError('Failed to approve: $e');
+    }
+  }
+
+  Future<void> _denyChange(BoardingRequest request) async {
+    final reason = await promptBoardingChangeDeclineReason(context);
+    if (reason == null) return; // cancelled
+    try {
+      await _dataService.reviewBoardingChange(request.id, approve: false, reason: reason);
+      showSuccess('Change declined — the booking stays as it was');
+      await _loadRequests();
+    } catch (e) {
+      showError('Failed to decline: $e');
+    }
+  }
+
   Future<void> _edit(BoardingRequest request) async {
     final changed = await Navigator.push<bool>(
       context,
@@ -228,7 +275,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pendingCount = _requests.where((r) => r.status == BoardingRequestStatus.pending).length;
+    final pendingCount = _requests.where(_awaitingReview).length;
 
     return DefaultTabController(
       length: 2,
@@ -395,6 +442,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
       // Owners can amend/withdraw their own request while it's pending.
       onEdit: (_canManage || !widget.isStaff) ? () => _edit(request) : null,
       onCancel: !widget.isStaff ? () => _cancelOwn(request) : null,
+      onRequestChange: !widget.isStaff ? () => _requestChange(request) : null,
+      onWithdrawChange: !widget.isStaff ? () => _withdrawChange(request) : null,
+      onApproveChange: _canManage ? () => _approveChange(request) : null,
+      onDenyChange: _canManage ? () => _denyChange(request) : null,
     );
   }
 
@@ -431,7 +482,8 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
               final statuses = <BoardingRequestStatus>{for (final e in events) e.status};
               final dots = [
                 if (statuses.contains(BoardingRequestStatus.approved)) Colors.green,
-                if (statuses.contains(BoardingRequestStatus.pending)) Colors.orange,
+                if (statuses.contains(BoardingRequestStatus.pending) || events.any((e) => e.hasPendingChange))
+                  Colors.orange,
               ];
               if (dots.isEmpty) return null;
 
@@ -544,6 +596,10 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
               onDelete: _canManage ? () => closeThen(() => _delete(request)) : null,
               onEdit: (_canManage || !widget.isStaff) ? () => closeThen(() => _edit(request)) : null,
               onCancel: !widget.isStaff ? () => closeThen(() => _cancelOwn(request)) : null,
+              onRequestChange: !widget.isStaff ? () => closeThen(() => _requestChange(request)) : null,
+              onWithdrawChange: !widget.isStaff ? () => closeThen(() => _withdrawChange(request)) : null,
+              onApproveChange: _canManage ? () => closeThen(() => _approveChange(request)) : null,
+              onDenyChange: _canManage ? () => closeThen(() => _denyChange(request)) : null,
             ),
           ),
         );

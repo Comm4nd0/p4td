@@ -409,6 +409,15 @@ class BoardingRequest(models.Model):
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='approved_boarding_requests')
     approved_at = models.DateTimeField(null=True, blank=True)
     assigned_staff = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='assigned_boarding_requests', help_text='Staff member the dog boards with.')
+    # An owner asking to move an approved stay's dates (add or drop days).
+    # The booking keeps its current dates — and its daycare attendance and
+    # billing — until a boarding manager approves; see
+    # BoardingRequestViewSet.request_change / review_change. Both null = none.
+    requested_start_date = models.DateField(null=True, blank=True)
+    requested_end_date = models.DateField(null=True, blank=True)
+    change_note = models.TextField(blank=True, default='')
+    change_requested_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    change_requested_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -417,6 +426,17 @@ class BoardingRequest(models.Model):
 
     def __str__(self):
         return f"Boarding Request by {self.owner.username} for {self.start_date} to {self.end_date}"
+
+    @property
+    def has_pending_change(self):
+        return self.requested_start_date is not None and self.requested_end_date is not None
+
+    def clear_change_request(self):
+        self.requested_start_date = None
+        self.requested_end_date = None
+        self.change_note = ''
+        self.change_requested_by = None
+        self.change_requested_at = None
 
 class BoardingRequestHistory(models.Model):
     request = models.ForeignKey(BoardingRequest, on_delete=models.CASCADE, related_name='history')

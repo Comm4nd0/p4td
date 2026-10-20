@@ -1579,6 +1579,50 @@ class ApiDataService implements DataService {
     }
   }
 
+  Future<void> _postBoardingAction(int requestId, String action, Map<String, dynamic> body, String fallback) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/boarding-requests/$requestId/$action/'),
+      headers: headers,
+      body: json.encode(body),
+    );
+    if (response.statusCode != 200) {
+      String errorMessage = fallback;
+      try {
+        final errorData = json.decode(response.body);
+        if (errorData is Map && errorData.isNotEmpty) {
+          final first = errorData['detail'] ?? errorData.values.first;
+          errorMessage = first is List && first.isNotEmpty ? first.first.toString() : first.toString();
+        }
+      } catch (_) {
+        errorMessage = 'Server error (${response.statusCode})';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
+  @override
+  Future<void> requestBoardingChange(int requestId, {required DateTime startDate, required DateTime endDate, String? note}) {
+    return _postBoardingAction(requestId, 'request_change', {
+      'start_date': startDate.toIso8601String().split('T').first,
+      'end_date': endDate.toIso8601String().split('T').first,
+      if (note != null && note.isNotEmpty) 'note': note,
+    }, 'Failed to request the change');
+  }
+
+  @override
+  Future<void> withdrawBoardingChange(int requestId) {
+    return _postBoardingAction(requestId, 'withdraw_change', {}, 'Failed to withdraw the change');
+  }
+
+  @override
+  Future<void> reviewBoardingChange(int requestId, {required bool approve, String? reason}) {
+    return _postBoardingAction(requestId, 'review_change', {
+      'decision': approve ? 'APPROVE' : 'DENY',
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
+    }, 'Failed to review the change');
+  }
+
   /// Set or change which staff member a boarding dog stays with. Pass null to
   /// clear the assignment.
   Future<void> assignBoardingStaff(int requestId, int? staffId) async {

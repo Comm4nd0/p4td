@@ -9,7 +9,9 @@ import 'request_timeline.dart';
 /// Manage Boarding screen: header, dates, carer, instructions, timeline,
 /// plus the management actions (approve/deny/set pending/edit/delete) when
 /// the viewer can manage requests, or edit/cancel for an owner's own
-/// pending request.
+/// pending request. An approved stay the owner wants to move shows their
+/// requested dates, with approve/decline for managers and request/withdraw
+/// for the owner.
 class BoardingRequestCard extends StatelessWidget {
   final BoardingRequest request;
 
@@ -30,6 +32,16 @@ class BoardingRequestCard extends StatelessWidget {
   /// by the caller). Only rendered while the request is pending.
   final VoidCallback? onCancel;
 
+  /// Owner asking to move an approved stay's dates (or editing that ask).
+  final VoidCallback? onRequestChange;
+
+  /// Owner taking back their pending date-change request.
+  final VoidCallback? onWithdrawChange;
+
+  /// Boarding manager approving / declining the owner's requested dates.
+  final VoidCallback? onApproveChange;
+  final VoidCallback? onDenyChange;
+
   const BoardingRequestCard({
     super.key,
     required this.request,
@@ -41,11 +53,16 @@ class BoardingRequestCard extends StatelessWidget {
     this.onDelete,
     this.onEdit,
     this.onCancel,
+    this.onRequestChange,
+    this.onWithdrawChange,
+    this.onApproveChange,
+    this.onDenyChange,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isPending = request.status == BoardingRequestStatus.pending;
+    // A requested date change needs a manager just like a new request does.
+    final isPending = request.status == BoardingRequestStatus.pending || request.hasPendingChange;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -150,6 +167,10 @@ class BoardingRequestCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (request.hasPendingChange) ...[
+              const SizedBox(height: 12),
+              _buildChangeRequest(),
+            ],
             const SizedBox(height: 12),
             RequestTimeline(
               status: request.status.toString().split('.').last,
@@ -195,7 +216,31 @@ class BoardingRequestCard extends StatelessWidget {
                     ),
                 ],
               ),
-            ] else if (isPending && (onEdit != null || onCancel != null)) ...[
+            ] else if (request.status == BoardingRequestStatus.approved &&
+                request.isUnfinished &&
+                (onRequestChange != null || onWithdrawChange != null)) ...[
+              // Owner's approved stay: ask staff to move the dates.
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (request.hasPendingChange && onWithdrawChange != null)
+                    TextButton(
+                      onPressed: onWithdrawChange,
+                      style: TextButton.styleFrom(foregroundColor: Colors.red),
+                      child: const Text('Withdraw change'),
+                    ),
+                  const SizedBox(width: 8),
+                  if (onRequestChange != null)
+                    OutlinedButton.icon(
+                      onPressed: onRequestChange,
+                      icon: Picon(PiconsDuotone.calendarDots, size: 18),
+                      label: Text(request.hasPendingChange ? 'Edit change' : 'Change dates'),
+                    ),
+                ],
+              ),
+            ] else if (request.status == BoardingRequestStatus.pending &&
+                (onEdit != null || onCancel != null)) ...[
               // Owner's own pending request: they can still amend or withdraw it.
               const SizedBox(height: 16),
               Row(
@@ -222,6 +267,112 @@ class BoardingRequestCard extends StatelessWidget {
       ),
     );
   }
+}
+
+extension on BoardingRequestCard {
+  /// The owner's requested dates beside the booked ones, with the manager's
+  /// approve/decline when they can act on it.
+  Widget _buildChangeRequest() {
+    final start = request.requestedStartDate!;
+    final end = request.requestedEndDate!;
+    final nights = end.difference(start).inDays;
+    final note = request.changeNote;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Picon(PiconsDuotone.arrowsClockwise, size: 16, color: Colors.orange.shade800),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  canManage && request.changeRequestedByName != null
+                      ? '${request.changeRequestedByName} asked to change the dates'
+                      : 'Date change requested — awaiting approval',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${ukDateWithDay(start)} - ${ukDateWithDay(end)}',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          Text(
+            '$nights night${nights == 1 ? '' : 's'} (booked: ${ukDate(request.startDate)} - ${ukDate(request.endDate)})',
+            style: TextStyle(color: Colors.grey[700], fontSize: 12),
+          ),
+          if (note != null && note.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('"$note"', style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic)),
+          ],
+          if (canManage && (onApproveChange != null || onDenyChange != null)) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onDenyChange != null)
+                  OutlinedButton(
+                    onPressed: onDenyChange,
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                    child: const Text('Decline'),
+                  ),
+                const SizedBox(width: 8),
+                if (onApproveChange != null)
+                  FilledButton(
+                    onPressed: onApproveChange,
+                    child: const Text('Approve change'),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Ask a manager for an optional reason before declining an owner's date
+/// change. Returns null when they back out, otherwise the (possibly empty)
+/// reason, which is added to the owner's push.
+Future<String?> promptBoardingChangeDeclineReason(BuildContext context) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Decline date change?'),
+      content: TextField(
+        controller: controller,
+        decoration: const InputDecoration(
+          labelText: 'Reason for the owner (optional)',
+          hintText: "e.g. We're fully booked that weekend",
+        ),
+        maxLines: 2,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Back'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, controller.text.trim()),
+          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          child: const Text('Decline'),
+        ),
+      ],
+    ),
+  );
+  controller.dispose();
+  return result;
 }
 
 /// Pill badge showing a boarding request's status in its status colour.

@@ -2877,6 +2877,186 @@ class BoardingRequestTests(TestCase):
         self.assertIn(resp.status_code, (401, 403))
 
 
+
+class BoardingChangeRequestTests(TestCase):
+    """Owners ask to move an approved stay's dates; a boarding manager
+    approves or denies. Only days after today can change."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.staff.profile.can_manage_boarding = True
+        self.staff.profile.save()
+        self.plain_staff = User.objects.create_user(username='plain', password='pw', is_staff=True)
+        # Boarding attendance is booked against the house account.
+        User.objects.create_user(username='P4TD', password='pw', is_staff=True, first_name='P4TD')
+        self.dog = Dog.objects.create(owner=self.owner, name='Bella')
+        self.today = timezone.localdate()
+        self.client = APIClient()
+
+    def _stay(self, start_offset, end_offset, status='APPROVED', dog=None):
+        br = BoardingRequest.objects.create(
+            owner=self.owner, status=status,
+            start_date=self.today + timedelta(days=start_offset),
+            end_date=self.today + timedelta(days=end_offset),
+        )
+        br.dogs.add(dog or self.dog)
+        return br
+
+    def _ask(self, br, start_offset, end_offset, note=''):
+        self.client.login(username='owner', password='pw')
+        return self.client.post(f'/api/boarding-requests/{br.id}/request_change/', {
+            'start_date': str(self.today + timedelta(days=start_offset)),
+            'end_date': str(self.today + timedelta(days=end_offset)),
+            'note': note,
+        }, format='json')
+
+    def test_owner_requests_change_and_booking_keeps_its_dates(self):
+        br = self._stay(10, 14)
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self._ask(br, 10, 16, note='Back two days later')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertTrue(resp.data['has_pending_change'])
+        self.assertEqual(resp.data['requested_end_date'], str(self.today + timedelta(days=16)))
+        self.assertEqual(resp.data['change_note'], 'Back two days later')
+        br.refresh_from_db()
+        self.assertEqual(br.end_date, self.today + timedelta(days=14))
+        # Boarding managers are told; ordinary staff are not.
+        pushed = [c.args[0] for c in mock_push.call_args_list]
+        self.assertIn(self.staff, pushed)
+        self.assertNotIn(self.plain_staff, pushed)
+
+    def test_change_only_on_approved_booking(self):
+        br = self._stay(10, 14, status='PENDING')
+        resp = self._ask(br, 10, 16)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_started_stay_cannot_move_its_arrival(self):
+        br = self._stay(-2, 3)
+        resp = self._ask(br, -1, 3)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('already started', resp.data['detail'])
+
+    def test_started_stay_can_extend_or_shorten_future_days(self):
+        br = self._stay(-2, 3)
+        self.assertEqual(self._ask(br, -2, 6).status_code, 200)
+        self.assertEqual(self._ask(br, -2, 1).status_code, 200)
+
+    def test_cannot_move_departure_to_today_or_earlier(self):
+        br = self._stay(-2, 3)
+        resp = self._ask(br, -2, 0)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_cannot_move_arrival_to_today(self):
+        br = self._stay(5, 8)
+        self.assertEqual(self._ask(br, 0, 8).status_code, 400)
+        self.assertEqual(self._ask(br, 1, 8).status_code, 200)
+
+    def test_finished_stay_cannot_change(self):
+        br = self._stay(-6, -2)
+        resp = self._ask(br, -6, 4)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('finished', resp.data['detail'])
+
+    def test_unchanged_dates_rejected(self):
+        br = self._stay(10, 14)
+        self.assertEqual(self._ask(br, 10, 14).status_code, 400)
+
+    def test_change_overlapping_another_stay_rejected(self):
+        br = self._stay(10, 14)
+        self._stay(16, 20)
+        self.assertEqual(self._ask(br, 10, 17).status_code, 400)
+
+    def test_other_owner_cannot_request_change(self):
+        br = self._stay(10, 14)
+        User.objects.create_user(username='stranger', password='pw')
+        self.client.login(username='stranger', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/request_change/', {
+            'start_date': str(self.today + timedelta(days=10)),
+            'end_date': str(self.today + timedelta(days=16)),
+        }, format='json')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_owner_can_withdraw_change(self):
+        br = self._stay(10, 14)
+        self._ask(br, 10, 16)
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/withdraw_change/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['has_pending_change'])
+
+    def test_manager_approves_change_and_attendance_follows(self):
+        br = self._stay(10, 14)
+        self._ask(br, 10, 18)
+        self.client.login(username='staff', password='pw')
+        with patch('api.notifications.send_push_notification') as mock_push:
+            resp = self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {'decision': 'APPROVE'}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        br.refresh_from_db()
+        self.assertEqual(br.end_date, self.today + timedelta(days=18))
+        self.assertFalse(br.has_pending_change)
+        self.assertIn(self.owner, [c.args[0] for c in mock_push.call_args_list])
+        # Every weekday of the new stay is booked into daycare from boarding.
+        from .scheduling import boarding_daycare_dates
+        booked = set(DailyDogAssignment.objects.filter(dog=self.dog, from_boarding=True).values_list('date', flat=True))
+        self.assertEqual(booked, set(boarding_daycare_dates(br.start_date, br.end_date)))
+
+    def test_approving_a_shorter_stay_releases_dropped_days(self):
+        br = self._stay(10, 18)
+        from .scheduling import sync_boarding_daycare_assignments, boarding_daycare_dates
+        sync_boarding_daycare_assignments(br)
+        self._ask(br, 10, 12)
+        self.client.login(username='staff', password='pw')
+        self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {'decision': 'APPROVE'}, format='json')
+        booked = set(DailyDogAssignment.objects.filter(dog=self.dog, from_boarding=True).values_list('date', flat=True))
+        self.assertEqual(booked, set(boarding_daycare_dates(self.today + timedelta(days=10), self.today + timedelta(days=12))))
+
+    def test_manager_denies_change(self):
+        br = self._stay(10, 14)
+        self._ask(br, 10, 18)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {
+            'decision': 'DENY', 'reason': 'We are full that week.',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertEqual(br.end_date, self.today + timedelta(days=14))
+        self.assertFalse(br.has_pending_change)
+
+    def test_staff_without_permission_cannot_review(self):
+        br = self._stay(10, 14)
+        self._ask(br, 10, 18)
+        self.client.login(username='plain', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {'decision': 'APPROVE'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_cancelling_stay_clears_pending_change(self):
+        br = self._stay(10, 14)
+        self._ask(br, 10, 18)
+        self.client.login(username='staff', password='pw')
+        self.client.post(f'/api/boarding-requests/{br.id}/change_status/', {'status': 'CANCELLED'}, format='json')
+        br.refresh_from_db()
+        self.assertFalse(br.has_pending_change)
+
+    def test_manager_edit_onto_requested_dates_clears_request(self):
+        br = self._stay(10, 14)
+        self._ask(br, 10, 18)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/', {
+            'end_date': str(self.today + timedelta(days=18)),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['has_pending_change'])
+
+    def test_manager_can_edit_started_stay_directly(self):
+        br = self._stay(-3, 3)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/boarding-requests/{br.id}/', {
+            'end_date': str(self.today + timedelta(days=5)),
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        br.refresh_from_db()
+        self.assertEqual(br.end_date, self.today + timedelta(days=5))
+
 class SupportQueryTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

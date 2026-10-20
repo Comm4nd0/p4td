@@ -523,11 +523,21 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
     assigned_staff_name = serializers.SerializerMethodField()
     history = BoardingRequestHistorySerializer(many=True, read_only=True)
     dogs = serializers.PrimaryKeyRelatedField(many=True, queryset=Dog.objects.all())
+    # The owner's pending request to move an approved stay's dates. Written
+    # only through request_change/review_change/withdraw_change.
+    has_pending_change = serializers.BooleanField(read_only=True)
+    change_requested_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = BoardingRequest
-        fields = ['id', 'owner', 'owner_name', 'dogs', 'dog_names', 'start_date', 'end_date', 'special_instructions', 'status', 'approved_by_name', 'approved_at', 'assigned_staff', 'assigned_staff_name', 'created_at', 'updated_at', 'history']
-        read_only_fields = ['owner', 'status', 'approved_by_name', 'approved_at', 'assigned_staff', 'assigned_staff_name', 'created_at', 'updated_at', 'history']
+        fields = ['id', 'owner', 'owner_name', 'dogs', 'dog_names', 'start_date', 'end_date', 'special_instructions', 'status', 'approved_by_name', 'approved_at', 'assigned_staff', 'assigned_staff_name', 'created_at', 'updated_at', 'history',
+                  'has_pending_change', 'requested_start_date', 'requested_end_date', 'change_note', 'change_requested_by_name', 'change_requested_at']
+        read_only_fields = ['owner', 'status', 'approved_by_name', 'approved_at', 'assigned_staff', 'assigned_staff_name', 'created_at', 'updated_at', 'history',
+                            'requested_start_date', 'requested_end_date', 'change_note', 'change_requested_at']
+
+    def get_change_requested_by_name(self, obj):
+        who = obj.change_requested_by
+        return owner_display_name(who) if who else None
 
     def get_dog_names(self, obj):
         return [dog.name for dog in obj.dogs.all()]
