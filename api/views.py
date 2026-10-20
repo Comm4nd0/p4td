@@ -139,6 +139,36 @@ def _notify_late_change(dog, days, actor):
         notify_late_schedule_change(dog, day, actor=actor)
 
 
+def _boarding_day_role(day, span):
+    """Where ``day`` falls in a stay spanning ``span`` (start, end) — arrival,
+    departure, a night in between — or None outside it (or with no stay)."""
+    if span is None or not (span[0] <= day <= span[1]):
+        return None
+    return 'START' if day == span[0] else 'END' if day == span[1] else 'MID'
+
+
+def _notify_boarding_late_change(old_span, old_dog_ids, new_span, new_dog_ids, actor):
+    """A booked stay moved, appeared or went away: push the team about each
+    dog whose today or tomorrow now looks different (arriving, leaving,
+    boarding, or not boarding any more) once the 18:00 summary has gone.
+    Pass a span only for an *approved* stay — anything else books nothing."""
+    from datetime import timedelta
+    from django.utils import timezone
+    from .scheduling import is_late_change_day
+
+    today = timezone.localdate()
+    late_days = [d for d in (today, today + timedelta(days=1)) if is_late_change_day(d)]
+    if not late_days:
+        return
+    old_dog_ids, new_dog_ids = set(old_dog_ids), set(new_dog_ids)
+    for dog in Dog.objects.filter(id__in=old_dog_ids | new_dog_ids):
+        before = old_span if dog.id in old_dog_ids else None
+        after = new_span if dog.id in new_dog_ids else None
+        days = [d for d in late_days if _boarding_day_role(d, before) != _boarding_day_role(d, after)]
+        if days:
+            _notify_late_change(dog, days, actor)
+
+
 def _date_request_days(instance):
     """The dates an approved date-change request changes."""
     days = []
@@ -2054,7 +2084,10 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         # Release the daycare attendance this stay booked before the stay (and
         # its dog list) is gone — afterwards there is nothing left to derive it
         # from, and the rows would sit on the roster forever.
-        if instance.status == 'APPROVED':
+        was_booked = instance.status == 'APPROVED'
+        span = (instance.start_date, instance.end_date)
+        dog_ids = set(instance.dogs.values_list('id', flat=True))
+        if was_booked:
             from .scheduling import clear_boarding_daycare_assignments
             try:
                 clear_boarding_daycare_assignments(instance)
@@ -2063,6 +2096,8 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         verb = 'Deleted' if self.request.user.is_staff else 'Withdrew'
         _log_boarding(instance, self.request.user, 'DELETED', f'{verb} {_boarding_desc(instance)}')
         instance.delete()
+        if was_booked:
+            _notify_boarding_late_change(span, dog_ids, None, set(), self.request.user)
 
     def perform_update(self, serializer):
         # Owners can amend their own request only while it's still PENDING —
@@ -2100,6 +2135,12 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             instance.save()
 
         self._move_boarding_attendance(instance, old_start, old_end, old_dog_ids)
+        if instance.status == 'APPROVED':
+            _notify_boarding_late_change(
+                (old_start, old_end), old_dog_ids,
+                (instance.start_date, instance.end_date), set(instance.dogs.values_list('id', flat=True)),
+                self.request.user,
+            )
 
         # Let the owner know when staff move the dates of their booking.
         if (
@@ -2230,6 +2271,10 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             to_status='APPROVED',
         )
         self._sync_boarding_attendance(instance)
+        _notify_boarding_late_change(
+            None, set(), (instance.start_date, instance.end_date),
+            set(instance.dogs.values_list('id', flat=True)), self.request.user,
+        )
         self._notify_owner_boarding_status(instance, 'APPROVED')
         _log_boarding(instance, self.request.user, 'APPROVED', f'Booked {_boarding_desc(instance)} for {person(owner)}')
 
@@ -2311,6 +2356,14 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         # Approving books the stay into daycare; anything else (denied,
         # cancelled, re-opened to pending) takes those bookings back out.
         self._sync_boarding_attendance(instance)
+        if 'APPROVED' in (old_status, new_status):
+            span = (instance.start_date, instance.end_date)
+            dog_ids = set(instance.dogs.values_list('id', flat=True))
+            _notify_boarding_late_change(
+                span if old_status == 'APPROVED' else None, dog_ids,
+                span if new_status == 'APPROVED' else None, dog_ids,
+                request.user,
+            )
 
         self._notify_owner_boarding_status(instance, new_status)
 
@@ -2393,8 +2446,13 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                 'id': str(instance.id),
                 'click_action': 'FLUTTER_NOTIFICATION_CLICK',
             }
-            for user in User.objects.filter(is_staff=True, profile__can_manage_boarding=True):
-                send_push_notification(user, title, body, data, category='bookings')
+            # Uncategorised, like a new boarding request: a request waiting
+            # on a manager is work, not something a manager can mute.
+            managers = User.objects.filter(
+                Q(is_superuser=True) | Q(is_staff=True, profile__can_manage_boarding=True)
+            ).distinct()
+            for user in managers:
+                send_push_notification(user, title, body, data)
         except Exception as e:
             print(f"Failed to send push notification: {e}")
 
@@ -2504,6 +2562,19 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
                 print(f"Failed to send push notification: {e}")
             return Response(self.get_serializer(instance).data)
 
+        # The ask may have gone stale while it waited (the asked-for arrival
+        # is now in the past, or the stay has started) — apply the same rule
+        # the owner was held to when asking.
+        from django.utils import timezone
+        stale = self._owner_change_error(
+            instance, instance.requested_start_date, instance.requested_end_date, timezone.localdate(),
+        )
+        if stale:
+            return Response(
+                {'detail': f'{stale} Decline the request, or edit the booking directly.'},
+                status=400,
+            )
+
         # Validate the dates as an edit by this manager would be validated —
         # another stay may have been booked over them since the owner asked.
         old_start, old_end = instance.start_date, instance.end_date
@@ -2520,6 +2591,9 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         instance.clear_change_request()
         instance.save()
         self._move_boarding_attendance(instance, old_start, old_end, old_dog_ids)
+        _notify_boarding_late_change(
+            (old_start, old_end), old_dog_ids, (instance.start_date, instance.end_date), old_dog_ids, request.user,
+        )
         _log_boarding(instance, request.user, 'APPROVED',
                       f'Approved the owner\'s change: {dogs} now boarding {_uk(instance.start_date)}–{_uk(instance.end_date)} '
                       f'(was {_uk(old_start)}–{_uk(old_end)}, {person(instance.owner)})',

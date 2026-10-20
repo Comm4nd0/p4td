@@ -86,13 +86,19 @@ void main() {
       canManage: true,
       onApproveChange: () => approved = true,
       onDenyChange: () {},
+      onDeny: () {},
+      onSetPending: () {},
       onEdit: () {},
     )));
     expect(find.text('Jo Bloggs asked to change the dates'), findsOneWidget);
     expect(find.text('"Flight moved"'), findsOneWidget);
     await tester.tap(find.text('Approve change'));
     expect(approved, isTrue);
-    expect(find.text('Decline'), findsOneWidget);
+    expect(find.text('Decline change'), findsOneWidget);
+    // The stay-level Deny would deny the whole booking — hidden while the
+    // change waits, so the two can't be confused.
+    expect(find.text('Deny'), findsNothing);
+    expect(find.text('Set Pending'), findsNothing);
     // Managers still have the direct edit.
     expect(find.byTooltip('Edit dates & instructions'), findsOneWidget);
   });

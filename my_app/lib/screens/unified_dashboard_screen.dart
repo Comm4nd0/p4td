@@ -1408,6 +1408,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                           key: _isToday(_selectedDate) ? _changesSpotKey : null,
                           changes: day.dayChanges,
                           onConfirm: _confirmDayChanges,
+                          onDogTap: _openChangedDog,
                         ),
                         _buildOverviewMetrics(assignments),
                         OwnerHandoverSection(
@@ -2414,6 +2415,21 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       dogName: index < request.dogNames.length ? request.dogNames[index] : null,
       onReassign: widget.canAssignDogs ? () => _reassignBoarding(request) : null,
       onEditBooking: widget.canManageBoarding ? () => _editBoarding(request) : null,
+    );
+    if (dog == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DogHomeScreen(dog: dog, isStaff: true)),
+    );
+  }
+
+  /// A dog in "Changes vs a normal day": its quick info, and on to the full
+  /// profile from there.
+  Future<void> _openChangedDog(DayChange change) async {
+    final dog = await DogQuickInfoSheet.show(
+      context,
+      dogId: change.dogId.toString(),
+      dogName: change.dogName,
     );
     if (dog == null || !mounted) return;
     await Navigator.push(

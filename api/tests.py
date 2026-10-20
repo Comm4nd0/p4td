@@ -3057,6 +3057,80 @@ class BoardingChangeRequestTests(TestCase):
         br.refresh_from_db()
         self.assertEqual(br.end_date, self.today + timedelta(days=5))
 
+    def test_stale_request_cannot_be_approved(self):
+        # Asked to arrive two days early; the manager only gets to it once
+        # that arrival date has passed.
+        br = self._stay(5, 8)
+        self.assertEqual(self._ask(br, 3, 8).status_code, 200)
+        BoardingRequest.objects.filter(pk=br.pk).update(requested_start_date=self.today - timedelta(days=1))
+        self.client.login(username='staff', password='pw')
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {'decision': 'APPROVE'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('Decline the request', resp.data['detail'])
+        br.refresh_from_db()
+        self.assertEqual(br.start_date, self.today + timedelta(days=5))
+        self.assertTrue(br.has_pending_change)
+        # Declining it still works.
+        resp = self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {'decision': 'DENY'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+    @patch('api.scheduling.is_late_change_day', return_value=True)
+    def test_late_approved_change_pushes_the_team(self, _late):
+        # Leaving tomorrow instead of in five days: tomorrow changes, today doesn't.
+        br = self._stay(-2, 5)
+        self.assertEqual(self._ask(br, -2, 1).status_code, 200)
+        self.client.login(username='staff', password='pw')
+        with patch('api.views._notify_late_change') as late:
+            resp = self.client.post(f'/api/boarding-requests/{br.id}/review_change/', {'decision': 'APPROVE'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        late.assert_called_once_with(self.dog, [self.today + timedelta(days=1)], self.staff)
+
+    @patch('api.scheduling.is_late_change_day', return_value=True)
+    def test_far_off_change_waits_for_the_summary(self, _late):
+        br = self._stay(10, 14)
+        self.client.login(username='staff', password='pw')
+        with patch('api.views._notify_late_change') as late:
+            self.client.patch(f'/api/boarding-requests/{br.id}/', {
+                'end_date': str(self.today + timedelta(days=16)),
+            }, format='json')
+        late.assert_not_called()
+
+    @patch('api.scheduling.is_late_change_day', return_value=True)
+    def test_cancelling_a_stay_in_progress_pushes_the_team(self, _late):
+        br = self._stay(-1, 4)
+        self.client.login(username='plain', password='pw')
+        with patch('api.views._notify_late_change') as late:
+            resp = self.client.post(f'/api/boarding-requests/{br.id}/change_status/', {'status': 'CANCELLED'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        late.assert_called_once_with(
+            self.dog, [self.today, self.today + timedelta(days=1)], self.plain_staff,
+        )
+
+    def test_change_request_reaches_superusers_and_cannot_be_muted(self):
+        boss = User.objects.create_superuser(username='boss', password='pw', email='boss@example.com')
+        br = self._stay(10, 14)
+        with patch('api.notifications.send_push_notification') as mock_push:
+            self._ask(br, 10, 16)
+        calls = {c.args[0]: c for c in mock_push.call_args_list}
+        self.assertIn(boss, calls)
+        self.assertIn(self.staff, calls)
+        self.assertIsNone(calls[self.staff].kwargs.get('category'))
+
+    def test_co_owner_sees_the_asker_by_first_name(self):
+        self.owner.first_name, self.owner.last_name = 'Jo', 'Bloggs'
+        self.owner.save()
+        partner = User.objects.create_user(username='partner@example.com', password='pw')
+        self.dog.additional_owners.add(partner)
+        br = self._stay(10, 14)
+        self._ask(br, 10, 16)
+        self.client.login(username='partner@example.com', password='pw')
+        resp = self.client.get(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.data['change_requested_by_name'], 'Jo')
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/boarding-requests/{br.id}/')
+        self.assertEqual(resp.data['change_requested_by_name'], 'Jo Bloggs')
+
+
 class SupportQueryTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

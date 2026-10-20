@@ -167,3 +167,6 @@ get-pip.py
 *:Zone.Identifier
 *:mshield
 
+
+# Written by my_app/ios/ci_scripts/ci_post_xcodebuild.sh on Xcode Cloud
+my_app/ios/TestFlight/

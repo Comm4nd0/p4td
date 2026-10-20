@@ -197,12 +197,19 @@ class BoardingRequestCard extends StatelessWidget {
                       visualDensity: VisualDensity.compact,
                     ),
                   const Spacer(),
-                  if (request.status != BoardingRequestStatus.pending && onSetPending != null)
+                  // While the owner's date change is waiting, its own
+                  // Decline / Approve change are the only decisions shown —
+                  // a stay-level Deny beside them would deny the whole booking.
+                  if (!request.hasPendingChange &&
+                      request.status != BoardingRequestStatus.pending &&
+                      onSetPending != null)
                     TextButton(
                       onPressed: onSetPending,
                       child: const Text('Set Pending'),
                     ),
-                  if (request.status != BoardingRequestStatus.denied && onDeny != null)
+                  if (!request.hasPendingChange &&
+                      request.status != BoardingRequestStatus.denied &&
+                      onDeny != null)
                     OutlinedButton(
                       onPressed: onDeny,
                       style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
@@ -324,7 +331,7 @@ extension on BoardingRequestCard {
                   OutlinedButton(
                     onPressed: onDenyChange,
                     style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                    child: const Text('Decline'),
+                    child: const Text('Decline change'),
                   ),
                 const SizedBox(width: 8),
                 if (onApproveChange != null)
