@@ -932,7 +932,8 @@ def notify_staff_boarding_request(sender, instance, created, **kwargs):
         # the booking themselves — there's nothing for managers to action.
         if instance.status != 'PENDING':
             return
-        owner_name = instance.owner.username
+        from .serializers import owner_display_name
+        owner_name = owner_display_name(instance.owner)
         title = "New Boarding Request"
         body = f"{owner_name} requested boarding from {instance.start_date} to {instance.end_date}."
         data = {
@@ -941,7 +942,11 @@ def notify_staff_boarding_request(sender, instance, created, **kwargs):
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
         from django.contrib.auth.models import User
-        for user in User.objects.filter(is_staff=True, profile__can_manage_boarding=True):
+        from django.db.models import Q
+        managers = User.objects.filter(
+            Q(is_superuser=True) | Q(is_staff=True, profile__can_manage_boarding=True)
+        ).distinct()
+        for user in managers:
             send_push_notification(user, title, body, data)
 
 # --- User Notifications (Status Changes) ---

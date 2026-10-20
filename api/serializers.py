@@ -536,8 +536,16 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
                             'requested_start_date', 'requested_end_date', 'change_note', 'change_requested_at']
 
     def get_change_requested_by_name(self, obj):
+        # Staff see clients by full name; a co-owner sees the other owner by
+        # first name only, like every other client-to-client surface.
         who = obj.change_requested_by
-        return owner_display_name(who) if who else None
+        if who is None:
+            return None
+        request = self.context.get('request')
+        if request is not None and request.user.is_staff:
+            return owner_display_name(who)
+        from .notifications import public_display_name
+        return public_display_name(who)
 
     def get_dog_names(self, obj):
         return [dog.name for dog in obj.dogs.all()]

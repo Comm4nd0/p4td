@@ -59,4 +59,18 @@ void main() {
     expect(find.text('Bella'), findsOneWidget);
     expect(find.text('Not today — Day cancelled · by Sam'), findsOneWidget);
   });
+
+  testWidgets('tapping a dog hands its change to onDogTap', (tester) async {
+    DayChange? tapped;
+    await tester.pumpWidget(_wrap(DayChangesSection(
+      changes: DayChanges(
+        date: DateTime(2026, 10, 22),
+        weekday: 'Wednesday',
+        changes: [_change('Bella', DayChange.extra)],
+      ),
+      onDogTap: (c) => tapped = c,
+    )));
+    await tester.tap(find.text('Bella'));
+    expect(tapped?.dogName, 'Bella');
+  });
 }

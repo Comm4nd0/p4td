@@ -13,11 +13,14 @@ import '../../models/day_changes.dart';
 /// late ones (made after the 18:00 summary for the day) are marked Late, and
 /// while any late change on the viewer's run is unconfirmed the card is
 /// outlined and offers Got it ([onConfirm]). Hidden when nothing differs.
+/// Tapping a row hands its change to [onDogTap] — the dashboard opens the
+/// dog's quick info there.
 class DayChangesSection extends StatefulWidget {
   final DayChanges? changes;
   final Future<void> Function()? onConfirm;
+  final ValueChanged<DayChange>? onDogTap;
 
-  const DayChangesSection({super.key, required this.changes, this.onConfirm});
+  const DayChangesSection({super.key, required this.changes, this.onConfirm, this.onDogTap});
 
   @override
   State<DayChangesSection> createState() => _DayChangesSectionState();
@@ -67,7 +70,11 @@ class _DayChangesSectionState extends State<DayChangesSection> {
           ),
           if (_expanded) ...[
             const Divider(height: 1),
-            for (final change in changes.changes) DayChangeRow(change: change),
+            for (final change in changes.changes)
+              DayChangeRow(
+                change: change,
+                onTap: widget.onDogTap == null ? null : () => widget.onDogTap!(change),
+              ),
             if (toConfirm.isNotEmpty && widget.onConfirm != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
@@ -116,8 +123,9 @@ class _DayChangesSectionState extends State<DayChangesSection> {
 /// One change: what happened to which dog, whose run it touches, who did it.
 class DayChangeRow extends StatelessWidget {
   final DayChange change;
+  final VoidCallback? onTap;
 
-  const DayChangeRow({super.key, required this.change});
+  const DayChangeRow({super.key, required this.change, this.onTap});
 
   static (Object, Color, String) styleFor(String kind) {
     switch (kind) {
@@ -141,7 +149,7 @@ class DayChangeRow extends StatelessWidget {
       if (change.staffName != null) 'today ${change.staffName}',
       if (change.isExtra && change.staffName == null) 'no driver yet',
     ];
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
@@ -169,8 +177,14 @@ class DayChangeRow extends StatelessWidget {
             padding: EdgeInsets.only(left: 6, top: 2),
             child: Picon(PiconsDuotone.checkCircle, size: 18, color: AppColors.success),
           ),
+        if (onTap != null)
+          const Padding(
+            padding: EdgeInsets.only(left: 4, top: 2),
+            child: Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+          ),
       ]),
     );
+    return onTap == null ? row : InkWell(onTap: onTap, child: row);
   }
 
   Widget _tag(String text, Color color) => Container(
