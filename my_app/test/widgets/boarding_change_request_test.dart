@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paws4thoughtdogs/models/boarding_request.dart';
+import 'package:paws4thoughtdogs/models/dog.dart';
 import 'package:paws4thoughtdogs/widgets/boarding_request_card.dart';
+import 'package:paws4thoughtdogs/widgets/dog_quick_info_sheet.dart';
 
 DateTime _day(int offset) {
   final now = DateTime.now();
@@ -93,5 +95,18 @@ void main() {
     expect(find.text('Decline'), findsOneWidget);
     // Managers still have the direct edit.
     expect(find.byTooltip('Edit dates & instructions'), findsOneWidget);
+  });
+
+  testWidgets('dashboard boarding sheet shows Edit booking only when given', (tester) async {
+    final dog = Dog(id: '3', name: 'Bella', ownerId: '2');
+    var edited = false;
+    await tester.pumpWidget(_wrap(DogQuickInfoSheet(dog: dog, onEditBooking: () => edited = true)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Edit boarding booking'));
+    expect(edited, isTrue);
+
+    await tester.pumpWidget(_wrap(DogQuickInfoSheet(dog: dog)));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Edit boarding booking'), findsNothing);
   });
 }

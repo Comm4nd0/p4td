@@ -33,8 +33,20 @@ class DogQuickInfoSheet extends StatefulWidget {
   /// isn't buried under it). Pass null when the viewer lacks permission.
   final VoidCallback? onReassign;
 
+  /// When set (boarding rows, for staff with can_manage_boarding), an edit
+  /// button beside reassign opens the boarding booking. Closes the sheet
+  /// first, like [onReassign].
+  final VoidCallback? onEditBooking;
+
   const DogQuickInfoSheet(
-      {super.key, this.dog, this.assignment, this.dogId, this.dogName, this.dogImageUrl, this.onReassign})
+      {super.key,
+      this.dog,
+      this.assignment,
+      this.dogId,
+      this.dogName,
+      this.dogImageUrl,
+      this.onReassign,
+      this.onEditBooking})
       : assert(dog != null || assignment != null || dogId != null,
             'Provide a dog, an assignment, or a dogId');
 
@@ -44,7 +56,8 @@ class DogQuickInfoSheet extends StatefulWidget {
       String? dogId,
       String? dogName,
       String? dogImageUrl,
-      VoidCallback? onReassign}) {
+      VoidCallback? onReassign,
+      VoidCallback? onEditBooking}) {
     return showModalBottomSheet<Dog>(
       context: context,
       isScrollControlled: true,
@@ -54,7 +67,8 @@ class DogQuickInfoSheet extends StatefulWidget {
           dogId: dogId,
           dogName: dogName,
           dogImageUrl: dogImageUrl,
-          onReassign: onReassign),
+          onReassign: onReassign,
+          onEditBooking: onEditBooking),
     );
   }
 
@@ -261,6 +275,15 @@ class _DogQuickInfoSheetState extends State<DogQuickInfoSheet> {
                 ],
               ),
             ),
+            if (widget.onEditBooking != null)
+              IconButton(
+                icon: const Picon(PiconsDuotone.pencilSimple),
+                tooltip: 'Edit boarding booking',
+                onPressed: () {
+                  Navigator.pop(context);
+                  widget.onEditBooking!();
+                },
+              ),
             if (widget.onReassign != null)
               IconButton(
                 icon: const Picon(PiconsDuotone.arrowsLeftRight),

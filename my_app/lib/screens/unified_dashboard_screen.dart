@@ -43,6 +43,7 @@ import 'pickup_map_screen.dart';
 import 'staff_dog_detail_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'boarding_request_list_screen.dart';
+import 'request_boarding_screen.dart';
 import 'query_list_screen.dart';
 import 'inquiry_list_screen.dart';
 import 'booking_requests_screen.dart';
@@ -2381,8 +2382,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     );
   }
 
-  /// Tap on a boarding row: the dog's quick-info popup, with the reassign
-  /// shortcut in its header (permission-gated) and full-profile navigation.
+  /// Tap on a boarding row: the dog's quick-info popup, with the reassign and
+  /// edit-booking shortcuts in its header (each permission-gated) and
+  /// full-profile navigation.
   /// Requests covering several dogs go through a small chooser first.
   Future<void> _showBoardingDogInfo(BoardingRequest request) async {
     var index = 0;
@@ -2411,12 +2413,23 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       dogId: request.dogIds[index].toString(),
       dogName: index < request.dogNames.length ? request.dogNames[index] : null,
       onReassign: widget.canAssignDogs ? () => _reassignBoarding(request) : null,
+      onEditBooking: widget.canManageBoarding ? () => _editBoarding(request) : null,
     );
     if (dog == null || !mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => DogHomeScreen(dog: dog, isStaff: true)),
     );
+  }
+
+  /// Add or drop days on the stay (boarding managers). Moving an approved
+  /// stay moves its daycare days with it, server-side.
+  Future<void> _editBoarding(BoardingRequest request) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => RequestBoardingScreen(existing: request)),
+    );
+    if (changed == true && mounted) await _counts.refresh();
   }
 
   Future<void> _reassignBoarding(BoardingRequest request) async {
