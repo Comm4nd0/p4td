@@ -65,7 +65,11 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
   static DateTime _date(DateTime d) => DateTime(d.year, d.month, d.day);
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
-  static DateTime _monday(DateTime d) => _date(d).subtract(Duration(days: d.weekday - 1));
+  static DateTime _monday(DateTime d) => DateTime(d.year, d.month, d.day - (d.weekday - 1));
+
+  /// [d] moved by [days] calendar days. Adding a 24-hour Duration instead
+  /// lands on 23:00 the same day across the October clock change.
+  static DateTime _addDays(DateTime d, int days) => DateTime(d.year, d.month, d.day + days);
 
   void _reportRange() {
     switch (_mode) {
@@ -73,14 +77,14 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
         widget.onVisibleRange(_selected, _selected);
       case CalendarViewMode.week:
         final monday = _monday(_selected);
-        widget.onVisibleRange(monday, monday.add(const Duration(days: 6)));
+        widget.onVisibleRange(monday, _addDays(monday, 6));
       case CalendarViewMode.month:
         // The grid pads the month out to whole weeks either side.
         final first = DateTime(_focused.year, _focused.month, 1);
         final last = DateTime(_focused.year, _focused.month + 1, 0);
         widget.onVisibleRange(
-          first.subtract(const Duration(days: 6)),
-          last.add(const Duration(days: 6)),
+          _addDays(first, -6),
+          _addDays(last, 6),
         );
     }
   }
@@ -98,7 +102,7 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
     final days = _mode == CalendarViewMode.week ? 7 : 1;
     setState(() {
       _direction = direction;
-      _selected = _selected.add(Duration(days: days * direction));
+      _selected = _addDays(_selected, days * direction);
       _focused = _selected;
     });
     _reportRange();
@@ -254,7 +258,7 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
 
   Widget _buildWeek() {
     final monday = _monday(_selected);
-    final sunday = monday.add(const Duration(days: 6));
+    final sunday = _addDays(monday, 6);
     final title = monday.month == sunday.month
         ? '${monday.day} – ${_shortDate.format(sunday)}'
         : '${_shortDate.format(monday)} – ${_shortDate.format(sunday)}';
@@ -267,7 +271,7 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
           child: Row(
             children: [
               for (var i = 0; i < 7; i++)
-                Expanded(child: _chip(monday.add(Duration(days: i)))),
+                Expanded(child: _chip(_addDays(monday, i))),
             ],
           ),
         ),

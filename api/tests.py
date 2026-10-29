@@ -15199,3 +15199,278 @@ class PushCommandTests(TestCase):
         with patch('api.management.push_command.wait_for_pushes') as waited:
             call_command('send_tomorrow_changes', '--date', '2026-01-04', stdout=StringIO())
         waited.assert_called_once()
+
+
+class RouteSolverTests(TestCase):
+    """api.routing on its own — no database, no OpenRouteService."""
+
+    def _line(self, n):
+        # Stops 1..n on a line out from the base (0), one minute apart; going
+        # out and back costs the same.
+        return [[abs(i - j) * 60.0 for j in range(n + 1)] for i in range(n + 1)]
+
+    def test_best_order_visits_a_line_in_order(self):
+        from .routing import best_order
+        order, seconds = best_order([3, 1, 2], self._line(3))
+        self.assertIn(order, ([1, 2, 3], [3, 2, 1]))
+        self.assertEqual(seconds, 6 * 60)
+
+    def test_best_order_heuristic_handles_long_runs(self):
+        from .routing import best_order
+        stops = list(range(1, 15))  # past the brute-force limit
+        order, seconds = best_order(stops[::-1], self._line(14))
+        self.assertEqual(seconds, 28 * 60)
+        self.assertEqual(sorted(order), stops)
+
+    def _two_clusters(self):
+        # 0 base; 1-3 east, 4-6 west, each side ten minutes from the base and a
+        # minute apart within a cluster; crossing sides goes through the base.
+        side = {1: 'E', 2: 'E', 3: 'E', 4: 'W', 5: 'W', 6: 'W'}
+
+        def t(i, j):
+            if i == j:
+                return 0.0
+            if i == 0 or j == 0:
+                return 600.0
+            return 60.0 if side[i] == side[j] else 1200.0
+        return [[t(i, j) for j in range(7)] for i in range(7)]
+
+    def test_plan_moves_a_dog_to_the_driver_already_nearby(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5)]
+        dogs.append(PlanDog(6, 6, 1, stop=6))  # a west dog on the east run
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        routes = {r.staff_id: set(r.assignment_ids) for r in plan.routes}
+        self.assertEqual(routes, {1: {1, 2, 3}, 2: {4, 5, 6}})
+
+    def test_plan_leaves_the_board_alone_when_it_is_already_right(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5, 6)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        self.assertEqual({r.staff_id: set(r.assignment_ids) for r in plan.routes},
+                         {1: {1, 2, 3}, 2: {4, 5, 6}})
+
+    def test_plan_respects_capacity(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in range(1, 7)]
+        plan = plan_routes(dogs, [PlanDriver(1, capacity=3), PlanDriver(2, capacity=3)],
+                           self._two_clusters())
+        self.assertEqual([r.load for r in plan.routes], [3, 3])
+        self.assertEqual(plan.over_capacity, [])
+
+    def test_plan_keeps_a_household_in_one_van(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        # Two dogs at stop 6 on the east run; both go west together.
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5)]
+        dogs += [PlanDog(6, 6, 1, stop=6), PlanDog(7, 7, 1, stop=6)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        west = next(r for r in plan.routes if r.staff_id == 2)
+        self.assertTrue({6, 7} <= set(west.assignment_ids))
+
+    def test_plan_splits_incompatible_dogs(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5, 6)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters(),
+                           conflicts=[{1, 2}])
+        routes = {r.staff_id: set(r.assignment_ids) for r in plan.routes}
+        self.assertFalse({1, 2} <= routes[1] or {1, 2} <= routes[2])
+        self.assertEqual(plan.conflicts, [])
+
+    def test_plan_never_moves_a_pinned_dog(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5)]
+        dogs.append(PlanDog(6, 6, 1, stop=6, pinned=True))  # already collected
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        east = next(r for r in plan.routes if r.staff_id == 1)
+        self.assertIn(6, east.assignment_ids)
+
+
+def _straight_line_matrix(points):
+    from .routing import _haversine_seconds
+    return [[0.0 if a == b else _haversine_seconds(a, b) for b in points] for a in points]
+
+
+@override_settings(OPENROUTESERVICE_API_KEY='test-key', ROUTING_BASE_POSTCODE='SL7 1AA')
+class RoutePlanningApiTests(TestCase):
+    """optimise_route / route_plan_drivers / plan_routes / apply_route_plan,
+    with OpenRouteService replaced by straight-line times."""
+
+    BASE = (51.5, -0.8)
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        patcher = patch('api.routing.fetch_drive_times', side_effect=_straight_line_matrix)
+        self.fetch = patcher.start()
+        self.addCleanup(patcher.stop)
+        base = patch('api.routing.base_location', return_value=self.BASE)
+        base.start()
+        self.addCleanup(base.stop)
+
+        self.day = date(2026, 11, 2)  # a Monday
+        self.owner = User.objects.create_user(username='rpowner', password='pw')
+        self.alice = User.objects.create_user(username='rpa', password='pw', is_staff=True, first_name='Alice')
+        self.alice.profile.can_assign_dogs = True
+        self.alice.profile.save()
+        self.bob = User.objects.create_user(username='rpb', password='pw', is_staff=True, first_name='Bob')
+        self.client = APIClient()
+
+    def _dog(self, name, lng, staff, order=0, status='ASSIGNED'):
+        dog = Dog.objects.create(owner=self.owner, name=name, latitude=51.5, longitude=lng)
+        a = DailyDogAssignment.objects.create(
+            dog=dog, date=self.day, staff_member=staff, sort_order=order, status=status)
+        return dog, a
+
+    def test_status_reports_whether_configured(self):
+        self.client.force_authenticate(self.bob)
+        self.assertTrue(self.client.get('/api/daily-assignments/route_planning_status/').data['enabled'])
+        with override_settings(OPENROUTESERVICE_API_KEY=''):
+            self.assertFalse(self.client.get('/api/daily-assignments/route_planning_status/').data['enabled'])
+
+    def test_optimise_route_suggests_the_shorter_order_and_saves_nothing(self):
+        # A line east of the base, saved zig-zagging: far, near, middle.
+        _, far = self._dog('Far', -0.5, self.bob, order=0)
+        _, near = self._dog('Near', -0.7, self.bob, order=1)
+        _, mid = self._dog('Mid', -0.6, self.bob, order=2)
+        self.client.force_authenticate(self.bob)
+        resp = self.client.post(f'/api/daily-assignments/optimise_route/?date={self.day}', {}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(resp.data['assignment_ids'], ([near.id, mid.id, far.id], [far.id, mid.id, near.id]))
+        self.assertLess(resp.data['optimised_minutes'], resp.data['current_minutes'])
+        far.refresh_from_db()
+        self.assertEqual(far.sort_order, 0)
+
+    def test_optimise_route_puts_unlocated_dogs_last(self):
+        self._dog('A', -0.7, self.bob)
+        self._dog('B', -0.6, self.bob)
+        lost, _ = self._dog('Lost', None, self.bob)
+        self.client.force_authenticate(self.bob)
+        resp = self.client.post(f'/api/daily-assignments/optimise_route/?date={self.day}', {}, format='json')
+        self.assertEqual(resp.data['dogs'][-1]['name'], 'Lost')
+        self.assertEqual(resp.data['unlocated'], ['Lost'])
+
+    def test_optimise_another_drivers_route_needs_can_assign_dogs(self):
+        self._dog('A', -0.7, self.alice)
+        self._dog('B', -0.6, self.alice)
+        self.client.force_authenticate(self.bob)
+        resp = self.client.post(f'/api/daily-assignments/optimise_route/?date={self.day}',
+                                {'staff_member_id': self.alice.id}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_optimise_route_503_when_not_configured(self):
+        self._dog('A', -0.7, self.bob)
+        self._dog('B', -0.6, self.bob)
+        self.client.force_authenticate(self.bob)
+        from .routing import RoutingNotConfigured
+        with patch('api.routing.base_location', side_effect=RoutingNotConfigured('off')):
+            resp = self.client.post(f'/api/daily-assignments/optimise_route/?date={self.day}', {}, format='json')
+        self.assertEqual(resp.status_code, 503)
+
+    def test_plan_routes_moves_the_stray_dog_and_saves_nothing(self):
+        for i, lng in enumerate((-0.6, -0.58, -0.56)):
+            self._dog(f'East{i}', lng, self.alice, order=i)
+        for i, lng in enumerate((-1.0, -1.02)):
+            self._dog(f'West{i}', lng, self.bob, order=i)
+        stray, stray_row = self._dog('Stray', -1.04, self.alice, order=3)
+        self.client.force_authenticate(self.alice)
+        resp = self.client.post(
+            f'/api/daily-assignments/plan_routes/?date={self.day}',
+            {'drivers': [{'staff_member_id': self.alice.id, 'capacity': None},
+                         {'staff_member_id': self.bob.id, 'capacity': 6}]},
+            format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        bob_route = next(r for r in resp.data['routes'] if r['staff_member_id'] == self.bob.id)
+        moved = [d for d in bob_route['dogs'] if d['moved']]
+        self.assertEqual([(d['name'], d['from_staff_member_name']) for d in moved], [('Stray', 'Alice')])
+        self.assertEqual(bob_route['load'], 3)
+        stray_row.refresh_from_db()
+        self.assertEqual(stray_row.staff_member, self.alice)
+
+    def test_plan_routes_needs_can_assign_dogs(self):
+        self._dog('A', -0.7, self.bob)
+        self.client.force_authenticate(self.bob)
+        resp = self.client.post(f'/api/daily-assignments/plan_routes/?date={self.day}',
+                                {'drivers': [{'staff_member_id': self.bob.id}]}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_plan_routes_keeps_incompatible_dogs_apart(self):
+        a, _ = self._dog('Ace', -0.6, self.alice)
+        b, _ = self._dog('Bea', -0.6, self.alice)
+        self._dog('Cub', -0.62, self.bob)
+        DogNote.objects.create(dog=a, related_dog=b, note_type='COMPATIBILITY', is_positive=False,
+                               text='Fight', created_by=self.alice)
+        self.client.force_authenticate(self.alice)
+        resp = self.client.post(
+            f'/api/daily-assignments/plan_routes/?date={self.day}',
+            {'drivers': [{'staff_member_id': self.alice.id}, {'staff_member_id': self.bob.id}]},
+            format='json')
+        self.assertEqual(resp.data['conflicts'], [])
+        for route in resp.data['routes']:
+            self.assertFalse({'Ace', 'Bea'} <= {d['name'] for d in route['dogs']})
+
+    def test_route_plan_drivers_lists_vehicle_and_capacity(self):
+        from .models import Vehicle
+        Vehicle.objects.create(name='Big van', registration='AB12CDE', dog_capacity=10, usual_driver=self.bob)
+        self._dog('A', -0.7, self.bob)
+        self.client.force_authenticate(self.alice)
+        resp = self.client.get(f'/api/daily-assignments/route_plan_drivers/?date={self.day}')
+        bob = next(r for r in resp.data if r['staff_member_id'] == self.bob.id)
+        self.assertEqual((bob['vehicle_name'], bob['capacity'], bob['dogs_now'], bob['selected']),
+                         ('Big van', 10, 1, True))
+
+    def test_apply_route_plan_moves_orders_and_assigns(self):
+        a, a_row = self._dog('A', -0.7, self.alice, order=0)
+        b, b_row = self._dog('B', -0.6, self.alice, order=1)
+        c, c_row = self._dog('C', -0.5, None, status='UNASSIGNED')
+        self.client.force_authenticate(self.alice)
+        resp = self.client.post(
+            f'/api/daily-assignments/apply_route_plan/?date={self.day}',
+            {'routes': [{'staff_member_id': self.alice.id, 'dog_ids': [b.id]},
+                        {'staff_member_id': self.bob.id, 'dog_ids': [c.id, a.id]}]},
+            format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data['moved'], 2)
+        for row in (a_row, b_row, c_row):
+            row.refresh_from_db()
+        self.assertEqual((b_row.staff_member, b_row.sort_order), (self.alice, 0))
+        self.assertEqual((c_row.staff_member, c_row.status, c_row.sort_order), (self.bob, 'ASSIGNED', 0))
+        self.assertEqual((a_row.staff_member, a_row.sort_order), (self.bob, 1))
+        self.assertFalse(DogWeekdayPickup.objects.filter(dog=a).exists())
+        self.assertTrue(DogChangeLog.objects.filter(category='SCHEDULE', dog_name='Route plan').exists())
+
+    def test_apply_route_plan_leaves_a_collected_dog_with_its_driver(self):
+        dog, row = self._dog('A', -0.7, self.alice, status='PICKED_UP')
+        self.client.force_authenticate(self.alice)
+        resp = self.client.post(
+            f'/api/daily-assignments/apply_route_plan/?date={self.day}',
+            {'routes': [{'staff_member_id': self.bob.id, 'dog_ids': [dog.id]}]}, format='json')
+        self.assertEqual(resp.data['skipped'][0]['reason'], 'Already on the move')
+        row.refresh_from_db()
+        self.assertEqual(row.staff_member, self.alice)
+
+    def test_drive_times_are_cached(self):
+        self._dog('A', -0.7, self.bob)
+        self._dog('B', -0.6, self.bob)
+        self.client.force_authenticate(self.bob)
+        for _ in range(2):
+            self.client.post(f'/api/daily-assignments/optimise_route/?date={self.day}', {}, format='json')
+        self.assertEqual(self.fetch.call_count, 1)
+
+    def test_vehicle_carries_capacity_and_usual_driver(self):
+        from .models import Vehicle
+        manager = User.objects.create_user(username='rpm', password='pw', is_staff=True)
+        manager.profile.can_manage_vehicles = True
+        manager.profile.save()
+        v = Vehicle.objects.create(name='Small car', registration='XY12ZZZ')
+        self.client.force_authenticate(manager)
+        resp = self.client.patch(f'/api/vehicles/{v.id}/',
+                                 {'dog_capacity': 4, 'usual_driver': self.bob.id}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual((resp.data['dog_capacity'], resp.data['usual_driver_name']), (4, 'Bob'))
+        resp = self.client.patch(f'/api/vehicles/{v.id}/', {'usual_driver': self.owner.id}, format='json')
+        self.assertEqual(resp.status_code, 400)

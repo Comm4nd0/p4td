@@ -151,6 +151,25 @@ abstract class DataService {
   Future<Map<String, dynamic>> autoAssign({DateTime? date});
   Future<void> sendTrafficAlert(String alertType, {DateTime? date, String? detail, List<int>? dogIds});
   Future<void> reorderAssignments(List<int> assignmentIds);
+
+  /// Whether the server has route planning (an OpenRouteService key and the
+  /// base postcode). False hides Optimise route and Plan Routes.
+  Future<bool> isRoutePlanningEnabled();
+
+  /// The quickest order for one driver's run on [date]. A suggestion only —
+  /// save it with [reorderAssignments].
+  Future<RouteOptimisation> optimiseRoute({required int staffMemberId, DateTime? date});
+
+  /// Staff Plan Routes can share [date] between, with their usual vehicles.
+  Future<List<RoutePlanDriver>> getRoutePlanDrivers({DateTime? date});
+
+  /// Suggest how to share [date]'s dogs between [drivers] (staff id →
+  /// capacity, null = no limit) and order each run. Saves nothing.
+  Future<RoutePlan> planRoutes({required Map<int, int?> drivers, DateTime? date});
+
+  /// Put an accepted plan on the board for [date] only: staff id → dog ids
+  /// in visiting order. Returns how many dogs moved.
+  Future<int> applyRoutePlan({required Map<int, List<int>> routes, DateTime? date});
   Future<List<CompatibilityConflict>> getCompatibilityConflicts({DateTime? date});
   /// Mark a grouping conflict as seen and handled for the day, for the whole
   /// team. Idempotent; the first acknowledger is kept.
@@ -325,6 +344,8 @@ abstract class DataService {
   Future<Vehicle> createVehicle({required String name, required String registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, Uint8List? imageBytes, String? imageName});
   Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName});
   Future<void> deleteVehicle(int id);
+  /// Set the route-planning fields on a vehicle; null clears either.
+  Future<Vehicle> updateVehicleRouting(int id, {int? dogCapacity, int? usualDriverId});
   Future<List<VehicleMaintenanceRecord>> getVehicleHistory(int vehicleId);
   Future<List<VehicleDefect>> getVehicleDefects({int? vehicleId, String? status});
   Future<VehicleDefect> getVehicleDefect(int id);

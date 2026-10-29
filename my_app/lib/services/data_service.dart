@@ -28,6 +28,7 @@ import '../models/vaccination_record.dart';
 import '../models/vaccination_certificate.dart';
 import '../models/owner_calendar.dart';
 import '../models/vehicle.dart';
+import '../models/route_plan.dart';
 import '../models/vehicle_defect.dart';
 import '../models/facility_defect.dart';
 import '../models/incident.dart';
@@ -2222,6 +2223,70 @@ class ApiDataService implements DataService {
     }
   }
 
+  String _errorDetail(http.Response response, String fallback) {
+    try {
+      final errorData = json.decode(response.body);
+      if (errorData is Map && errorData['detail'] != null) return errorData['detail'].toString();
+    } catch (_) {}
+    return fallback;
+  }
+
+  @override
+  Future<bool> isRoutePlanningEnabled() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/route_planning_status/'));
+    if (response.statusCode != 200) return false;
+    final data = json.decode(response.body);
+    return data is Map && data['enabled'] == true;
+  }
+
+  @override
+  Future<RouteOptimisation> optimiseRoute({required int staffMemberId, DateTime? date}) async {
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/optimise_route/${_dateParam(date)}'),
+      headers: await _getHeaders(),
+      body: json.encode({'staff_member_id': staffMemberId}),
+    );
+    if (response.statusCode != 200) throw Exception(_errorDetail(response, 'Failed to optimise the route'));
+    return RouteOptimisation.fromJson(json.decode(response.body));
+  }
+
+  @override
+  Future<List<RoutePlanDriver>> getRoutePlanDrivers({DateTime? date}) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/route_plan_drivers/${_dateParam(date)}'));
+    if (response.statusCode != 200) throw Exception(_errorDetail(response, 'Failed to load drivers'));
+    return (json.decode(response.body) as List).map((d) => RoutePlanDriver.fromJson(d)).toList();
+  }
+
+  @override
+  Future<RoutePlan> planRoutes({required Map<int, int?> drivers, DateTime? date}) async {
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/plan_routes/${_dateParam(date)}'),
+      headers: await _getHeaders(),
+      body: json.encode({
+        'drivers': [
+          for (final e in drivers.entries) {'staff_member_id': e.key, 'capacity': e.value},
+        ],
+      }),
+    );
+    if (response.statusCode != 200) throw Exception(_errorDetail(response, 'Failed to plan routes'));
+    return RoutePlan.fromJson(json.decode(response.body));
+  }
+
+  @override
+  Future<int> applyRoutePlan({required Map<int, List<int>> routes, DateTime? date}) async {
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/apply_route_plan/${_dateParam(date)}'),
+      headers: await _getHeaders(),
+      body: json.encode({
+        'routes': [
+          for (final e in routes.entries) {'staff_member_id': e.key, 'dog_ids': e.value},
+        ],
+      }),
+    );
+    if (response.statusCode != 200) throw Exception(_errorDetail(response, 'Failed to apply the plan'));
+    return (json.decode(response.body)['moved'] as num?)?.toInt() ?? 0;
+  }
+
   // --- Support Queries ---
 
   @override
@@ -3479,6 +3544,17 @@ class ApiDataService implements DataService {
       imageBytes,
       imageName,
     );
+  }
+
+  @override
+  Future<Vehicle> updateVehicleRouting(int id, {int? dogCapacity, int? usualDriverId}) async {
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/vehicles/$id/'),
+      headers: await _getHeaders(),
+      body: json.encode({'dog_capacity': dogCapacity, 'usual_driver': usualDriverId}),
+    );
+    if (response.statusCode != 200) throw Exception('Failed to save vehicle: ${response.body}');
+    return Vehicle.fromJson(json.decode(response.body));
   }
 
   @override

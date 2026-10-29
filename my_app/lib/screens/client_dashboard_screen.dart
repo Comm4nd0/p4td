@@ -155,7 +155,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
   Future<void> _ensureCalendarRange(DateTime start, DateTime end) async {
     _visibleRange = (start, end);
     var missing = false;
-    for (var d = start; !d.isAfter(end); d = d.add(const Duration(days: 1))) {
+    for (var d = start; !d.isAfter(end); d = DateTime(d.year, d.month, d.day + 1)) {
       if (!_calendarDays.containsKey(_dayKey(d))) {
         missing = true;
         break;
