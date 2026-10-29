@@ -578,7 +578,9 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
           } catch (_) {
             failedDates.add(current);
           }
-          current = current.add(const Duration(days: 1));
+          // Calendar days, not 24h: across a clock change a Duration step
+          // repeats a day and drops the last one.
+          current = DateTime(current.year, current.month, current.day + 1);
         }
       } finally {
         // Always resync, so whatever *did* get created is visible.

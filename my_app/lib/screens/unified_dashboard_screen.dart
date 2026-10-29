@@ -27,6 +27,7 @@ import '../widgets/quick_actions_fab.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
 import 'dashboard/boarding_section.dart';
+import 'dashboard/route_plan_screen.dart';
 import 'dashboard/change_log_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
 import '../widgets/spotlight_coach.dart';
@@ -155,6 +156,10 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   bool _recentChangesLoading = true;
   bool _recentChangesFailed = false;
 
+  /// Plan Routes needs an OpenRouteService key on the server; hidden until
+  /// the check says it's there.
+  bool _routePlanningEnabled = false;
+
   @override
   void initState() {
     super.initState();
@@ -175,6 +180,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadClosureDays();
     _counts.refresh();
     _loadRecentChanges();
+    _checkRoutePlanning();
     // Refresh automatically when signal returns mid-route, so stale
     // cache-served data clears without a manual pull.
     ConnectivityStatus().isOnline.addListener(_onConnectivityChanged);
@@ -253,10 +259,13 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     const pastDays = 7;   // 1 week back
     const totalDays = 28; // overall strip length
 
-    final anchor = DateTime(centerDate.year, centerDate.month, centerDate.day);
-    final start = anchor.subtract(const Duration(days: pastDays));
-
-    return List.generate(totalDays, (i) => start.add(Duration(days: i)));
+    // Step by calendar day, not by 24-hour Duration: across the October clock
+    // change midnight + 24h lands on 23:00 the same day, which showed Sunday
+    // twice and put every later day one behind.
+    return List.generate(
+      totalDays,
+      (i) => DateTime(centerDate.year, centerDate.month, centerDate.day - pastDays + i),
+    );
   }
 
   /// Whether [date] is a daycare day. Daycare runs Monday–Friday; weekend days
@@ -1285,6 +1294,27 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to reassign dogs: $e')));
     }
+  }
+
+  // ─── Plan routes ──────────────────────────────────────────────────
+
+  Future<void> _checkRoutePlanning() async {
+    if (!widget.canAssignDogs) return;
+    try {
+      final enabled = await _dataService.isRoutePlanningEnabled();
+      if (mounted) setState(() => _routePlanningEnabled = enabled);
+    } catch (_) {
+      // Leave the action hidden.
+    }
+  }
+
+  /// "Plan Routes" quick action: suggest how to share the selected day's
+  /// dogs between drivers and the order of each run (RoutePlanScreen).
+  Future<void> _openRoutePlan() async {
+    final applied = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => RoutePlanScreen(date: _selectedDate)),
+    );
+    if (applied == true && mounted) await _reloadSelectedDay();
   }
 
   // ─── Log an incident ──────────────────────────────────────────────
@@ -2516,6 +2546,12 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             icon: PiconsDuotone.arrowsLeftRight,
             label: 'Swap Staff',
             onPressed: _showSwapStaffDialog,
+          ),
+        if (widget.canAssignDogs && daycareDay && _routePlanningEnabled)
+          QuickFabAction(
+            icon: PiconsDuotone.van,
+            label: 'Plan Routes',
+            onPressed: _openRoutePlan,
           ),
         if (widget.canManagePayments)
           QuickFabAction(

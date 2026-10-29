@@ -1456,6 +1456,17 @@ class Vehicle(models.Model):
     mot_due_date = models.DateField(null=True, blank=True)
     service_due_date = models.DateField(null=True, blank=True)
     tax_due_date = models.DateField(null=True, blank=True)
+    # Route planning (api/routing.py): how many dogs fit, and who normally
+    # drives it, so Plan Routes knows each driver's van without being told.
+    dog_capacity = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Most dogs this vehicle carries on one run. Empty = not set (no limit when planning routes).',
+    )
+    usual_driver = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='usual_vehicles',
+        help_text='Staff member who normally drives this vehicle.',
+    )
 
     # Reminder bookkeeping so the daily command never notifies twice for the
     # same milestone. Re-armed when the corresponding due date changes.

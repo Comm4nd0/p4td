@@ -91,7 +91,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
 
       for (var day = request.startDate;
           !day.isAfter(request.endDate);
-          day = day.add(const Duration(days: 1))) {
+          day = DateTime(day.year, day.month, day.day + 1)) {
         final dateKey = DateTime(day.year, day.month, day.day);
         (_events[dateKey] ??= []).add(request);
       }

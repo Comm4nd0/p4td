@@ -472,6 +472,23 @@ class MockDataService implements DataService {
   Future<void> reorderAssignments(List<int> assignmentIds) async {}
 
   @override
+  Future<bool> isRoutePlanningEnabled() async => false;
+
+  @override
+  Future<RouteOptimisation> optimiseRoute({required int staffMemberId, DateTime? date}) async =>
+      RouteOptimisation(staffMemberId: staffMemberId, assignmentIds: const [], dogs: const [], currentMinutes: 0, optimisedMinutes: 0);
+
+  @override
+  Future<List<RoutePlanDriver>> getRoutePlanDrivers({DateTime? date}) async => const [];
+
+  @override
+  Future<RoutePlan> planRoutes({required Map<int, int?> drivers, DateTime? date}) async =>
+      const RoutePlan(routes: []);
+
+  @override
+  Future<int> applyRoutePlan({required Map<int, List<int>> routes, DateTime? date}) async => 0;
+
+  @override
   Future<List<SupportQuery>> getSupportQueries() async => [];
   @override
   Future<SupportQuery> getSupportQuery(int queryId) async => throw UnimplementedError();
@@ -653,6 +670,10 @@ class MockDataService implements DataService {
   @override
   Future<Vehicle> updateVehicle(int id, {String? name, String? registration, String? make, String? model, String? notes, String? status, DateTime? motDueDate, DateTime? serviceDueDate, DateTime? taxDueDate, String? maintenanceNotes, Uint8List? imageBytes, String? imageName}) async =>
       Vehicle(id: id, name: name ?? 'Test Van', registration: registration ?? 'TE57 VAN');
+  @override
+  Future<Vehicle> updateVehicleRouting(int id, {int? dogCapacity, int? usualDriverId}) async =>
+      Vehicle(id: id, name: '', registration: '', dogCapacity: dogCapacity, usualDriverId: usualDriverId);
+
   @override
   Future<void> deleteVehicle(int id) async {}
   @override

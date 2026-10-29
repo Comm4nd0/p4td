@@ -4372,6 +4372,392 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         return Response({'detail': 'Order saved.'})
 
+    # ─── Route planning (api/routing.py) ─────────────────────────────────
+    #
+    # Suggestions only: optimise_route and plan_routes change nothing. The app
+    # shows the result and saves an accepted order through reorder/, or an
+    # accepted plan through apply_route_plan/.
+
+    @staticmethod
+    def _routing_error(exc):
+        from .routing import RoutingNotConfigured
+        status = 503 if isinstance(exc, RoutingNotConfigured) else 502
+        return Response({'detail': str(exc)}, status=status)
+
+    @staticmethod
+    def _route_minutes(seconds):
+        return round(seconds / 60)
+
+    @staticmethod
+    def _is_house_account(user):
+        from .scheduling import HOUSE_STAFF_USERNAME
+        return user is not None and HOUSE_STAFF_USERNAME in (
+            (user.username or '').lower(), (user.first_name or '').lower())
+
+    def _route_matrix(self, dogs):
+        """Drive times between the base and every located dog in ``dogs``.
+        Returns ``(matrix, stop_of)`` — ``stop_of`` maps dog id to its matrix
+        index (the base is 0); unlocated dogs are left out."""
+        from .routing import base_location, drive_times, point_of
+        points = [base_location()]
+        index_of_point = {points[0]: 0}
+        stop_of = {}
+        for dog in dogs:
+            point = point_of(dog.latitude, dog.longitude)
+            if point is None:
+                continue
+            if point not in index_of_point:
+                index_of_point[point] = len(points)
+                points.append(point)
+            stop_of[dog.id] = index_of_point[point]
+        return drive_times(points), stop_of
+
+    @staticmethod
+    def _current_run_seconds(assignments, stop_of, matrix):
+        """The run as the list stands now, in its saved order."""
+        from .routing import tour_seconds
+        order = []
+        for a in sorted(assignments, key=lambda a: (a.sort_order, a.dog.name)):
+            stop = stop_of.get(a.dog_id)
+            if stop is not None and stop not in order:
+                order.append(stop)
+        return tour_seconds(order, matrix)
+
+    @action(detail=False, methods=['get'])
+    def route_planning_status(self, request):
+        """Whether Optimise route / Plan Routes are available, so the app can
+        hide them on a server without an OpenRouteService key."""
+        from .routing import is_configured
+        return Response({'enabled': is_configured()})
+
+    @action(detail=False, methods=['post'])
+    def optimise_route(self, request):
+        """Suggest the quickest order for one driver's dogs on a date, from
+        and back to the daycare base. Saves nothing.
+
+        ``?date=`` (default today); body ``staff_member_id`` (default the
+        caller). Anyone may optimise their own list; another
+        driver's needs ``can_assign_dogs``. Only dogs staff drive on at least
+        one leg are routed — the same rows the app lets you drag.
+
+        Returns ``assignment_ids`` in the suggested order (dogs with no
+        location last, in their current order), ``current_minutes`` and
+        ``optimised_minutes`` for the run, and ``unlocated`` dog names.
+        """
+        from .routing import RoutingError, best_order
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        staff_id = request.data.get('staff_member_id') or request.user.id
+        try:
+            staff_id = int(staff_id)
+        except (TypeError, ValueError):
+            return Response({'detail': 'staff_member_id must be an integer.'}, status=400)
+        if staff_id != request.user.id and not getattr(request.user.profile, 'can_assign_dogs', False):
+            return Response({'detail': "You do not have permission to change another driver's route."}, status=403)
+
+        rows = [
+            a for a in DailyDogAssignment.objects.filter(date=target_date, staff_member_id=staff_id)
+            .exclude(status__in=('REMOVED', 'UNASSIGNED')).select_related('dog')
+            if a.needs_staff_pickup or a.needs_staff_dropoff
+        ]
+        if len(rows) < 2:
+            return Response({'detail': 'There need to be at least two dogs on the run to optimise it.'}, status=400)
+        try:
+            matrix, stop_of = self._route_matrix([a.dog for a in rows])
+        except RoutingError as exc:
+            return self._routing_error(exc)
+
+        order, seconds = best_order({stop_of[a.dog_id] for a in rows if a.dog_id in stop_of}, matrix)
+        position = {stop: n for n, stop in enumerate(order)}
+        current = sorted(rows, key=lambda a: (a.sort_order, a.dog.name))
+        suggested = sorted(
+            current,
+            key=lambda a: (a.dog_id not in stop_of, position.get(stop_of.get(a.dog_id), 0), current.index(a)),
+        )
+        return Response({
+            'staff_member_id': staff_id,
+            'date': target_date.isoformat(),
+            'assignment_ids': [a.id for a in suggested],
+            'dogs': [
+                {'assignment_id': a.id, 'dog_id': a.dog_id, 'name': a.dog.name, 'located': a.dog_id in stop_of}
+                for a in suggested
+            ],
+            'current_minutes': self._route_minutes(self._current_run_seconds(rows, stop_of, matrix)),
+            'optimised_minutes': self._route_minutes(seconds),
+            'unlocated': [a.dog.name for a in suggested if a.dog_id not in stop_of],
+        })
+
+    def _route_plan_day(self, target_date):
+        """The day as Plan Routes sees it: ``(rows, waiting)`` — the day's
+        assignment rows that staff drive on at least one leg (house account
+        and REMOVED left out), and the dogs coming in that have no row yet,
+        as unsaved rows so the same pickup/drop-off rules apply."""
+        self._materialize_roster_for_date(target_date)
+        rows = [
+            a for a in DailyDogAssignment.objects.filter(date=target_date)
+            .exclude(status='REMOVED').select_related('dog', 'staff_member')
+            if not self._is_house_account(a.staff_member)
+            and (a.needs_staff_pickup or a.needs_staff_dropoff)
+        ]
+        from .scheduling import ScheduleIndex
+        scheduled = Dog.objects.filter(
+            id__in=ScheduleIndex(target_date, target_date).attending_dog_ids(target_date))
+        has_row = DailyDogAssignment.objects.filter(date=target_date).values_list('dog_id', flat=True)
+        waiting = [
+            a for a in (DailyDogAssignment(dog=dog, date=target_date, status='UNASSIGNED')
+                        for dog in scheduled.exclude(id__in=has_row))
+            if a.needs_staff_pickup or a.needs_staff_dropoff
+        ]
+        return rows, waiting
+
+    @staticmethod
+    def _negative_groups(dog_ids):
+        """Sets of dog ids that mustn't all share a van: every negative
+        compatibility note (pair or group) whose dogs are all in ``dog_ids``."""
+        from .models import DogNote
+        dog_ids = set(dog_ids)
+        notes = (
+            DogNote.objects.filter(note_type='COMPATIBILITY', is_positive=False)
+            .exclude(related_dog=None)
+            .filter(dog_id__in=dog_ids, related_dog_id__in=dog_ids)
+            .prefetch_related('extra_dogs')
+        )
+        groups = []
+        for note in notes:
+            ids = set(note.group_dog_ids())
+            if ids <= dog_ids and ids not in groups:
+                groups.append(ids)
+        return groups
+
+    @action(detail=False, methods=['get'])
+    def route_plan_drivers(self, request):
+        """Who Plan Routes can share the day between, for the app's driver
+        picker: every active staff member, with their usual vehicle and its
+        capacity, how many dogs they have on the day, and ``selected`` — due
+        in that day (``working_staff_for_date``) or already holding dogs.
+        Needs ``can_assign_dogs``. ``?date=`` as usual."""
+        if not getattr(request.user.profile, 'can_assign_dogs', False):
+            return Response({'detail': 'You do not have permission to assign dogs.'}, status=403)
+        from .models import Vehicle
+        from .scheduling import working_staff_for_date
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        rows, _ = self._route_plan_day(target_date)
+        holding = {}
+        for a in rows:
+            if a.staff_member_id and a.status != 'UNASSIGNED':
+                holding[a.staff_member_id] = holding.get(a.staff_member_id, 0) + 1
+        working = {u.id for u in working_staff_for_date(target_date)}
+        vehicles = {}
+        for v in Vehicle.objects.filter(usual_driver__isnull=False).exclude(status='OFF_ROAD').order_by('name'):
+            vehicles.setdefault(v.usual_driver_id, v)
+        staff = [
+            u for u in User.objects.filter(is_staff=True, is_active=True).order_by('first_name', 'username')
+            if not self._is_house_account(u)
+        ]
+        return Response([
+            {
+                'staff_member_id': u.id,
+                'name': u.first_name or u.username,
+                'vehicle_id': vehicles[u.id].id if u.id in vehicles else None,
+                'vehicle_name': vehicles[u.id].name if u.id in vehicles else None,
+                'capacity': vehicles[u.id].dog_capacity if u.id in vehicles else None,
+                'dogs_now': holding.get(u.id, 0),
+                'working': u.id in working,
+                'selected': u.id in working or u.id in holding,
+            }
+            for u in staff
+        ])
+
+    @action(detail=False, methods=['post'])
+    def plan_routes(self, request):
+        """Suggest how to share the day's dogs between drivers, and the order
+        of each run. Saves nothing.
+
+        ``?date=``; body ``drivers`` — ``[{staff_member_id, capacity}]``
+        (capacity null = no limit), normally from ``route_plan_drivers``.
+        Every dog staff drive on the day is planned, including ones still
+        waiting for a driver. A dog stays with its current driver unless
+        moving it saves real driving (``routing.MOVE_PENALTY_SECONDS``);
+        dogs already collected or returned, and dogs with no location, stay
+        where they are. Dogs on a negative compatibility note are kept out of
+        one van where that's possible. Needs ``can_assign_dogs``.
+        """
+        if not getattr(request.user.profile, 'can_assign_dogs', False):
+            return Response({'detail': 'You do not have permission to assign dogs.'}, status=403)
+        from .routing import PlanDog, PlanDriver, RoutingError, plan_routes
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+
+        raw = request.data.get('drivers')
+        if not isinstance(raw, list) or not raw:
+            return Response({'detail': 'drivers must be a non-empty list.'}, status=400)
+        drivers = []
+        try:
+            for entry in raw:
+                capacity = entry.get('capacity')
+                capacity = int(capacity) if capacity not in (None, '') else None
+                if capacity is not None and capacity < 1:
+                    raise ValueError
+                drivers.append(PlanDriver(int(entry['staff_member_id']), capacity))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return Response({'detail': 'Each driver needs a staff_member_id and a positive capacity or null.'}, status=400)
+        if len({d.staff_id for d in drivers}) != len(drivers):
+            return Response({'detail': 'A driver is listed twice.'}, status=400)
+        names = {
+            u.id: u.first_name or u.username
+            for u in User.objects.filter(id__in=[d.staff_id for d in drivers], is_staff=True)
+        }
+        if len(names) != len(drivers):
+            return Response({'detail': 'Staff member not found.'}, status=404)
+
+        rows, waiting = self._route_plan_day(target_date)
+        everyone = rows + waiting
+        if not everyone:
+            return Response({'detail': 'No dogs need driving on this day.'}, status=400)
+        try:
+            matrix, stop_of = self._route_matrix([a.dog for a in everyone])
+        except RoutingError as exc:
+            return self._routing_error(exc)
+
+        def current_driver(a):
+            return a.staff_member_id if a.status != 'UNASSIGNED' else None
+
+        plan_dogs = [
+            PlanDog(
+                assignment_id=a.dog_id,  # keyed by dog: waiting dogs have no row yet
+                dog_id=a.dog_id,
+                current_staff_id=current_driver(a),
+                stop=stop_of.get(a.dog_id),
+                pickup=a.needs_staff_pickup,
+                dropoff=a.needs_staff_dropoff,
+                pinned=a.status in ('PICKED_UP', 'DROPPED_OFF'),
+            )
+            for a in everyone
+        ]
+        plan = plan_routes(
+            plan_dogs, drivers, matrix,
+            conflicts=self._negative_groups(a.dog_id for a in everyone),
+        )
+
+        by_dog = {a.dog_id: a for a in everyone}
+        staff_names = {a.staff_member_id: a.staff_member.first_name or a.staff_member.username
+                       for a in rows if a.staff_member is not None}
+        staff_names.update(names)
+        routes = []
+        for route in plan.routes:
+            current_rows = [a for a in rows if current_driver(a) == route.staff_id]
+            dogs = []
+            for dog_id in route.assignment_ids:
+                a = by_dog[dog_id]
+                previous = current_driver(a)
+                dogs.append({
+                    'dog_id': dog_id,
+                    'assignment_id': a.id,
+                    'name': a.dog.name,
+                    'located': dog_id in stop_of,
+                    'pinned': a.status in ('PICKED_UP', 'DROPPED_OFF'),
+                    'moved': previous != route.staff_id,
+                    'from_staff_member_id': previous,
+                    'from_staff_member_name': staff_names.get(previous) if previous else None,
+                })
+            routes.append({
+                'staff_member_id': route.staff_id,
+                'staff_member_name': names[route.staff_id],
+                'capacity': route.capacity,
+                'load': route.load,
+                'minutes': self._route_minutes(route.seconds),
+                'current_minutes': self._route_minutes(self._current_run_seconds(current_rows, stop_of, matrix)),
+                'dogs': dogs,
+            })
+        return Response({
+            'date': target_date.isoformat(),
+            'routes': routes,
+            'unplaced': [
+                {'dog_id': dog_id, 'name': by_dog[dog_id].dog.name,
+                 'reason': 'No location on file' if dog_id not in stop_of
+                 else 'With a driver who is not on this plan'}
+                for dog_id in plan.unplaced
+            ],
+            'conflicts': [sorted(by_dog[i].dog.name for i in group) for group in plan.conflicts],
+            'over_capacity': [names[s] for s in plan.over_capacity],
+        })
+
+    @action(detail=False, methods=['post'])
+    def apply_route_plan(self, request):
+        """Put an accepted Plan Routes suggestion on the board.
+
+        ``?date=``; body ``routes`` — ``[{staff_member_id, dog_ids}]`` with
+        each run's dogs in visiting order. For this day only: each dog is
+        moved to its driver as ``reassign`` would with ``just_this_day`` (a
+        dog still waiting for a driver gets one), and the run's order is
+        saved. The weekly roster is untouched. Dogs already collected or
+        returned keep their driver. All in one transaction. Needs
+        ``can_assign_dogs``.
+        """
+        if not getattr(request.user.profile, 'can_assign_dogs', False):
+            return Response({'detail': 'You do not have permission to assign dogs.'}, status=403)
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        routes = request.data.get('routes')
+        if not isinstance(routes, list) or not routes:
+            return Response({'detail': 'routes must be a non-empty list.'}, status=400)
+        try:
+            parsed = [(int(r['staff_member_id']), [int(d) for d in r['dog_ids']]) for r in routes]
+        except (KeyError, TypeError, ValueError):
+            return Response({'detail': 'Each route needs a staff_member_id and a list of dog_ids.'}, status=400)
+        all_dogs = [d for _, dogs in parsed for d in dogs]
+        if len(set(all_dogs)) != len(all_dogs):
+            return Response({'detail': 'A dog is on more than one route.'}, status=400)
+        staff = {u.id: u for u in User.objects.filter(id__in=[s for s, _ in parsed], is_staff=True)}
+        if len(staff) != len({s for s, _ in parsed}):
+            return Response({'detail': 'Staff member not found.'}, status=404)
+        dogs = {d.id: d for d in Dog.objects.filter(id__in=all_dogs)}
+        if len(dogs) != len(all_dogs):
+            return Response({'detail': 'Dog not found.'}, status=404)
+
+        from django.db import transaction
+        moved, skipped = 0, []
+        with transaction.atomic():
+            existing = {
+                a.dog_id: a for a in DailyDogAssignment.objects.select_for_update()
+                .filter(date=target_date, dog_id__in=all_dogs).select_related('dog', 'staff_member')
+            }
+            for staff_id, dog_ids in parsed:
+                driver = staff[staff_id]
+                for position, dog_id in enumerate(dog_ids):
+                    a = existing.get(dog_id)
+                    if a is None:
+                        a = DailyDogAssignment.objects.create(
+                            dog=dogs[dog_id], date=target_date, staff_member=driver,
+                            status='ASSIGNED', sort_order=position)
+                        _log_assignment(a, request.user,
+                                        f'Assigned {a.dog.name} to {person(driver)} for {_uk(target_date)} (route plan)')
+                        moved += 1
+                        continue
+                    if a.status == 'REMOVED':
+                        skipped.append({'dog_id': dog_id, 'dog': a.dog.name, 'reason': 'Not coming in that day'})
+                        continue
+                    if a.status in ('PICKED_UP', 'DROPPED_OFF') and a.staff_member_id != staff_id:
+                        skipped.append({'dog_id': dog_id, 'dog': a.dog.name, 'reason': 'Already on the move'})
+                        continue
+                    if a.status == 'UNASSIGNED' or a.staff_member_id != staff_id:
+                        previous = a.staff_member if a.status != 'UNASSIGNED' else None
+                        a.status = 'ASSIGNED' if a.status == 'UNASSIGNED' else a.status
+                        self._reassign_assignment(a, driver, 'just_this_day', request.user)
+                        self._log_reassign(a, previous, driver, 'just_this_day')
+                        moved += 1
+                    DailyDogAssignment.objects.filter(id=a.id).update(sort_order=position)
+            log_activity('SCHEDULE', 'Route plan', action='ASSIGNED', actor=request.user,
+                         summary=f'Applied a route plan for {_uk(target_date)} across '
+                                 f'{len(parsed)} driver{"s" if len(parsed) != 1 else ""}: '
+                                 f'{moved} dog{"s" if moved != 1 else ""} moved')
+        return Response({'moved': moved, 'skipped': skipped})
+
     @action(detail=False, methods=['post'])
     def send_traffic_alert(self, request):
         """Send a traffic delay notification to owners on the requesting staff member's route."""
@@ -6038,6 +6424,7 @@ class VehicleViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         'name': 'Name', 'registration': 'Registration', 'make': 'Make', 'model': 'Model',
         'status': 'Status', 'mot_due_date': 'MOT due', 'service_due_date': 'Service due',
         'tax_due_date': 'Tax due', 'notes': 'Notes',
+        'dog_capacity': 'Dog capacity', 'usual_driver': 'Usual driver',
     }
 
     def activity_subject(self, obj):
@@ -6049,7 +6436,7 @@ class VehicleViewSet(ActivityLogMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         from .models import Vehicle
-        return Vehicle.objects.prefetch_related('defects')
+        return Vehicle.objects.select_related('usual_driver').prefetch_related('defects')
 
     def perform_create(self, serializer):
         image_file = serializer.validated_data.get('image')

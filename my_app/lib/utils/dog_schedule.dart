@@ -102,7 +102,7 @@ List<DateTime> upcomingDaycareDates({
     if (daycareWeekdays.contains(current.weekday)) {
       dates.add(norm(current));
     }
-    current = current.add(const Duration(days: 1));
+    current = DateTime(current.year, current.month, current.day + 1);
   }
   dates.addAll(addedDates);
   dates.removeAll(removedDates);

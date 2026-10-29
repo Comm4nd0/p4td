@@ -457,6 +457,15 @@ ROADWORK_MATCH_RADIUS_M = float(os.environ.get('ROADWORK_MATCH_RADIUS_M', '400')
 
 POSTCODE_LOOKUP_PROVIDER = os.environ.get('POSTCODE_LOOKUP_PROVIDER', 'getaddress')
 
+# ── Route planning (OpenRouteService) ────────────────────────────────────────
+# Drive times between pickup addresses for "Optimise route" on a driver's list
+# and "Plan Routes" on the dashboard (api/routing.py). Free key from
+# https://openrouteservice.org/dev/#/signup. Every run starts and ends at the
+# daycare base, given as its postcode. Both blank = the feature is off and the
+# app hides its buttons.
+OPENROUTESERVICE_API_KEY = os.environ.get('OPENROUTESERVICE_API_KEY', '')
+ROUTING_BASE_POSTCODE = os.environ.get('ROUTING_BASE_POSTCODE', '')
+
 # =============================================================================
 # XERO ACCOUNTING INTEGRATION (optional)
 # =============================================================================

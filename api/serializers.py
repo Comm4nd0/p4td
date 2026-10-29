@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
@@ -1295,6 +1296,9 @@ class VehicleSerializer(serializers.ModelSerializer):
     service_status = serializers.CharField(read_only=True)
     tax_status = serializers.CharField(read_only=True)
     open_defect_count = serializers.SerializerMethodField()
+    usual_driver = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_staff=True), allow_null=True, required=False)
+    usual_driver_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Vehicle
@@ -1302,8 +1306,13 @@ class VehicleSerializer(serializers.ModelSerializer):
             'id', 'name', 'registration', 'make', 'model', 'notes', 'image',
             'status', 'mot_due_date', 'service_due_date', 'tax_due_date', 'mot_status',
             'service_status', 'tax_status', 'open_defect_count', 'created_at', 'updated_at',
+            'dog_capacity', 'usual_driver', 'usual_driver_name',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_usual_driver_name(self, obj):
+        driver = obj.usual_driver
+        return (driver.first_name or driver.username) if driver else None
 
     def get_open_defect_count(self, obj):
         # Count in Python from the prefetched defects to avoid a per-vehicle query

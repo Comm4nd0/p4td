@@ -141,6 +141,7 @@ void main() {
     await open(tester, AddEditVehicleScreen(vehicle: service.vehicle));
     await tester.ensureVisible(find.text('Tax due date'));
     expect(find.text(ukDate(service.vehicle.taxDueDate!)), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Save Changes'), 200, scrollable: find.byType(Scrollable).first);
     await tapVisible(tester, find.text('Save Changes'));
     expect(service.savedTaxDate, service.vehicle.taxDueDate);
     expect(service.savedMotDate, service.vehicle.motDueDate);

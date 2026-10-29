@@ -6,6 +6,7 @@ import '../constants/pickup_map.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/day_changes.dart';
 import '../models/roadwork_issue.dart';
+import '../models/route_plan.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../services/cache_service.dart';
@@ -73,6 +74,11 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
   bool _reordering = false;
   bool _openingMap = false;
 
+  /// Optimise route needs an OpenRouteService key on the server; until the
+  /// check answers, the button stays hidden.
+  bool _routePlanningEnabled = false;
+  bool _optimising = false;
+
   /// This staff member's regular dogs who aren't on the list today
   /// (cancelled, or with the boarding carer) — shown as "not today" cards.
   List<DayChange> _notToday = const [];
@@ -90,6 +96,70 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     }
     _restoreSortPreference();
     _applySorting();
+    _checkRoutePlanning();
+  }
+
+  Future<void> _checkRoutePlanning() async {
+    if (!widget.canAssignDogs || widget.staffMemberId == null) return;
+    try {
+      final enabled = await _dataService.isRoutePlanningEnabled();
+      if (mounted) setState(() => _routePlanningEnabled = enabled);
+    } catch (_) {
+      // Leave the button hidden.
+    }
+  }
+
+  /// Ask the server for the quickest order of this run, show it, and save it
+  /// as the list's custom order only if staff accept.
+  Future<void> _optimiseRoute() async {
+    setState(() => _optimising = true);
+    RouteOptimisation result;
+    try {
+      result = await _dataService.optimiseRoute(staffMemberId: widget.staffMemberId!, date: widget.date);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _optimising = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _optimising = false);
+
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => _OptimisedRouteDialog(result: result),
+    );
+    if (accepted != true || !mounted) return;
+
+    final position = {for (var i = 0; i < result.assignmentIds.length; i++) result.assignmentIds[i]: i};
+    setState(() {
+      _assignments = [
+        for (final a in _assignments)
+          position.containsKey(a.id) ? a.copyWith(sortOrder: position[a.id]) : a,
+      ];
+      _sortOption = DogSortOption.custom;
+      _applySorting();
+      _dataChanged = true;
+      _reordering = true;
+    });
+    _cacheService.cacheSortPreference(_sortCacheKey, DogSortOption.custom.name);
+    try {
+      await _dataService.reorderAssignments(result.assignmentIds);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Route order saved'), backgroundColor: AppColors.success),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save order: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _reordering = false);
+    }
   }
 
   void _restoreSortPreference() {
@@ -476,6 +546,14 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
                 icon: Picon(PiconsDuotone.path),
                 onPressed: _openTrafficAlert,
               ),
+            if (_routePlanningEnabled && !isUnassigned && _assignments.where((a) => !a.noStaffTransport).length >= 2)
+              IconButton(
+                tooltip: 'Optimise route',
+                icon: _optimising
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Picon(PiconsDuotone.signpost),
+                onPressed: _optimising ? null : _optimiseRoute,
+              ),
             if (!isUnassigned)
               IconButton(
                 tooltip: 'View on map',
@@ -662,6 +740,67 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
 
 /// A greyed, struck-through card for a dog that is normally on this list on
 /// this weekday but isn't today — so the gap is seen, not just absent.
+/// The suggested order for a run, with the time it saves. Pops true when
+/// staff choose to use it.
+class _OptimisedRouteDialog extends StatelessWidget {
+  final RouteOptimisation result;
+
+  const _OptimisedRouteDialog({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final saved = result.minutesSaved;
+    final alreadyBest = saved <= 0;
+    return AlertDialog(
+      title: const Text('Optimised route'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              alreadyBest
+                  ? 'The current order is already the quickest (about ${result.currentMinutes} min of driving).'
+                  : 'About ${result.optimisedMinutes} min of driving, from and back to base — '
+                      '$saved min less than the current order (${result.currentMinutes} min).',
+            ),
+            if (!alreadyBest) ...[
+              const SizedBox(height: 12),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (var i = 0; i < result.dogs.length; i++)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(radius: 12, child: Text('${i + 1}', style: const TextStyle(fontSize: 12))),
+                        title: Text(result.dogs[i].name),
+                        subtitle: result.dogs[i].located ? null : const Text('No location on file — left at the end'),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              'Drive times are estimates from postcodes, without traffic.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      actions: alreadyBest
+          ? [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('OK'))]
+          : [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep current')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Use this order')),
+            ],
+    );
+  }
+}
+
 class NotTodayCard extends StatelessWidget {
   final DayChange change;
 

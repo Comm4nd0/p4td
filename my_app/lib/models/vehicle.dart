@@ -19,6 +19,13 @@ class Vehicle {
   final String? taxStatus;
   final int openDefectCount;
 
+  /// Most dogs it carries on one run (route planning); null = not set.
+  final int? dogCapacity;
+
+  /// Staff member who normally drives it, so Plan Routes knows their van.
+  final int? usualDriverId;
+  final String? usualDriverName;
+
   Vehicle({
     required this.id,
     required this.name,
@@ -35,6 +42,9 @@ class Vehicle {
     this.serviceStatus,
     this.taxStatus,
     this.openDefectCount = 0,
+    this.dogCapacity,
+    this.usualDriverId,
+    this.usualDriverName,
   });
 
   String get statusLabel {
@@ -71,6 +81,9 @@ class Vehicle {
       serviceStatus: json['service_status'],
       taxStatus: json['tax_status'],
       openDefectCount: json['open_defect_count'] ?? 0,
+      dogCapacity: json['dog_capacity'],
+      usualDriverId: json['usual_driver'],
+      usualDriverName: json['usual_driver_name'],
     );
   }
 }

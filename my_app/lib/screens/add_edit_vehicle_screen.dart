@@ -9,6 +9,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/page_body.dart';
+import 'dashboard/reassign_dogs_dialog.dart' show staffDisplayName;
 
 class AddEditVehicleScreen extends StatefulWidget {
   /// When null this screen creates a new vehicle; otherwise it edits [vehicle].
@@ -30,6 +31,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   late final TextEditingController _makeController;
   late final TextEditingController _modelController;
   late final TextEditingController _notesController;
+  late final TextEditingController _capacityController;
 
   String _status = 'ACTIVE';
   DateTime? _motDueDate;
@@ -38,6 +40,8 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   Uint8List? _imageBytes;
   String? _imageName;
   bool _isSaving = false;
+  int? _usualDriverId;
+  List<Map<String, dynamic>> _staffMembers = const [];
 
   bool get _isEditing => widget.vehicle != null;
 
@@ -54,6 +58,18 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     _motDueDate = vehicle?.motDueDate;
     _serviceDueDate = vehicle?.serviceDueDate;
     _taxDueDate = vehicle?.taxDueDate;
+    _capacityController = TextEditingController(text: vehicle?.dogCapacity?.toString() ?? '');
+    _usualDriverId = vehicle?.usualDriverId;
+    _loadStaff();
+  }
+
+  Future<void> _loadStaff() async {
+    try {
+      final staff = await _dataService.getStaffMembers();
+      if (mounted) setState(() => _staffMembers = staff);
+    } catch (_) {
+      // The picker just stays empty; the rest of the form still saves.
+    }
   }
 
   @override
@@ -63,6 +79,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     _makeController.dispose();
     _modelController.dispose();
     _notesController.dispose();
+    _capacityController.dispose();
     super.dispose();
   }
 
@@ -153,7 +170,10 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       final make = _makeController.text.trim();
       final model = _modelController.text.trim();
       final notes = _notesController.text.trim();
+      final capacity = int.tryParse(_capacityController.text.trim());
+      final int vehicleId;
       if (_isEditing) {
+        vehicleId = widget.vehicle!.id;
         await _dataService.updateVehicle(
           widget.vehicle!.id,
           name: name,
@@ -169,7 +189,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
           imageName: _imageName,
         );
       } else {
-        await _dataService.createVehicle(
+        final created = await _dataService.createVehicle(
           name: name,
           registration: registration,
           make: make.isEmpty ? null : make,
@@ -182,6 +202,12 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
           imageBytes: _imageBytes,
           imageName: _imageName,
         );
+        vehicleId = created.id;
+      }
+      final routingChanged = capacity != widget.vehicle?.dogCapacity ||
+          _usualDriverId != widget.vehicle?.usualDriverId;
+      if (routingChanged) {
+        await _dataService.updateVehicleRouting(vehicleId, dogCapacity: capacity, usualDriverId: _usualDriverId);
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -278,6 +304,8 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
             const SizedBox(height: 8),
             _buildDateRow('Tax due date', _taxDueDate, () => _pickDate('tax')),
             const SizedBox(height: 16),
+            ..._buildRouteFields(),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _notesController,
               decoration: const InputDecoration(
@@ -302,6 +330,43 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
         ),
       )),
     );
+  }
+
+  /// Dog capacity and usual driver — what Plan Routes reads to know each
+  /// driver's van.
+  List<Widget> _buildRouteFields() {
+    final staffIds = _staffMembers.map((s) => s['id']).toSet();
+    return [
+      Text('Route planning', style: Theme.of(context).textTheme.titleSmall),
+      const SizedBox(height: 8),
+      TextFormField(
+        controller: _capacityController,
+        decoration: const InputDecoration(
+          labelText: 'Dogs it can carry (optional)',
+          hintText: 'Leave blank if unsure',
+        ),
+        keyboardType: TextInputType.number,
+        validator: (v) {
+          final text = v?.trim() ?? '';
+          if (text.isEmpty) return null;
+          final n = int.tryParse(text);
+          return n == null || n < 1 ? 'Enter a whole number, or leave blank' : null;
+        },
+      ),
+      const SizedBox(height: 16),
+      DropdownButtonFormField<int?>(
+        decoration: const InputDecoration(labelText: 'Usual driver (optional)'),
+        // The list arrives after the form opens; until it does, show nobody
+        // rather than an id the dropdown has no item for.
+        value: staffIds.contains(_usualDriverId) ? _usualDriverId : null,
+        items: [
+          const DropdownMenuItem<int?>(value: null, child: Text('Nobody')),
+          for (final s in _staffMembers)
+            DropdownMenuItem<int?>(value: s['id'] as int, child: Text(staffDisplayName(s))),
+        ],
+        onChanged: _staffMembers.isEmpty ? null : (value) => setState(() => _usualDriverId = value),
+      ),
+    ];
   }
 
   Widget _buildImagePicker() {

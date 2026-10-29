@@ -418,6 +418,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 style: TextStyle(color: Colors.grey[600]),
               ),
             ],
+            if (vehicle.dogCapacity != null || vehicle.usualDriverName != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                [
+                  if (vehicle.dogCapacity != null) 'Carries ${vehicle.dogCapacity} dogs',
+                  if (vehicle.usualDriverName != null) 'Usually driven by ${vehicle.usualDriverName}',
+                ].join(' · '),
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ],
             if (vehicle.notes != null && vehicle.notes!.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(vehicle.notes!, style: TextStyle(color: Colors.grey[700])),
