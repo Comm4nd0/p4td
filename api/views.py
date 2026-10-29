@@ -4724,7 +4724,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         moved, skipped = 0, []
         with transaction.atomic():
             existing = {
-                a.dog_id: a for a in DailyDogAssignment.objects.select_for_update()
+                # of=('self',): PostgreSQL won't lock the nullable side of the
+                # staff_member outer join, and only the rows need locking.
+                a.dog_id: a for a in DailyDogAssignment.objects.select_for_update(of=('self',))
                 .filter(date=target_date, dog_id__in=all_dogs).select_related('dog', 'staff_member')
             }
             for staff_id, dog_ids in parsed:
