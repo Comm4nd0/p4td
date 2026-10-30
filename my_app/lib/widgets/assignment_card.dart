@@ -360,6 +360,7 @@ class AssignmentCard extends StatelessWidget {
               // then the transport indicators (owner brings / collects).
               if (assignment.isExtraDay ||
                   assignment.hasTransportChange ||
+                  assignment.usesAlternativeAddress ||
                   assignment.effectiveOwnerBrings ||
                   assignment.effectiveOwnerCollects)
                 Padding(
@@ -378,6 +379,12 @@ class AssignmentCard extends StatelessWidget {
                         const RoutineChangeChip(
                           label: 'Transport changed today',
                           icon: PiconsDuotone.arrowsLeftRight,
+                          color: AppColors.warning,
+                        ),
+                      if (assignment.usesAlternativeAddress)
+                        const RoutineChangeChip(
+                          label: 'Different address today',
+                          icon: PiconsDuotone.mapPin,
                           color: AppColors.warning,
                         ),
                       if (assignment.effectiveOwnerBrings)

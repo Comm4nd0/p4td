@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'dog.dart' show parseApiTime, parseApiDouble;
+import 'dog_address.dart';
 
 /// Scope used when reassigning or unassigning a single dog on a specific date.
 /// Maps to the backend `scope` body param on /reassign/ and /unassign/.
@@ -114,6 +115,13 @@ class DailyDogAssignment {
   /// on a normal day.
   final List<String> dayChanges;
 
+  /// One of the dog's [alternativeAddresses] chosen for this day's morning
+  /// pickup / evening drop-off. Null = the dog's own address. [ownerAddress]
+  /// already reads as the day's address(es) when either is set.
+  final int? pickupAddressId;
+  final int? dropoffAddressId;
+  final List<DogAddress> alternativeAddresses;
+
   DailyDogAssignment({
     required this.id,
     required this.dogId,
@@ -142,6 +150,9 @@ class DailyDogAssignment {
     this.effectiveOwnerCollectsTime,
     this.sortOrder = 0,
     this.dayChanges = const [],
+    this.pickupAddressId,
+    this.dropoffAddressId,
+    this.alternativeAddresses = const [],
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -178,8 +189,14 @@ class DailyDogAssignment {
               ?.map((e) => e.toString())
               .toList() ??
           const [],
+      pickupAddressId: json['pickup_address'] as int?,
+      dropoffAddressId: json['dropoff_address'] as int?,
+      alternativeAddresses: DogAddress.listFromJson(json['alternative_addresses']),
     );
   }
+
+  /// Collected from or taken home to an alternative address today.
+  bool get usesAlternativeAddress => pickupAddressId != null || dropoffAddressId != null;
 
   /// Not one of the dog's regular days (an extra day, or an ad-hoc dog).
   bool get isExtraDay => dayChanges.contains('EXTRA');
@@ -253,6 +270,9 @@ class DailyDogAssignment {
       effectiveOwnerCollectsTime: effectiveOwnerCollectsTime ?? this.effectiveOwnerCollectsTime,
       sortOrder: sortOrder ?? this.sortOrder,
       dayChanges: dayChanges,
+      pickupAddressId: pickupAddressId,
+      dropoffAddressId: dropoffAddressId,
+      alternativeAddresses: alternativeAddresses,
     );
   }
 }

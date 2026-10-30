@@ -481,6 +481,16 @@ class DailyDogAssignment(models.Model):
     # cancelled stay take its own bookings back out again without touching the
     # rows staff created by hand.
     from_boarding = models.BooleanField(default=False, help_text='This attendance was booked automatically from an approved boarding stay.')
+    # One-day use of one of the dog's alternative addresses (DogAddress) for a
+    # leg: the morning pickup, the evening drop-off, or both. Null = the dog's
+    # own address. SET_NULL so deleting an address never deletes attendance;
+    # DogAddressViewSet refuses to delete one still booked from today on.
+    pickup_address = models.ForeignKey(
+        'DogAddress', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+        help_text="Collect the dog from this alternative address this morning. Null = the dog's address.")
+    dropoff_address = models.ForeignKey(
+        'DogAddress', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+        help_text="Take the dog home to this alternative address tonight. Null = the dog's address.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -564,6 +574,75 @@ class DailyDogAssignment(models.Model):
         if self.effective_owner_collects:
             return False
         return not self.is_boarding_day or self.boarding_last_day
+
+    @property
+    def pickup_address_text(self):
+        """Where the dog is collected from today."""
+        return self.pickup_address.full_text if self.pickup_address_id else (self.dog.address or '')
+
+    @property
+    def dropoff_address_text(self):
+        """Where the dog is taken home to tonight."""
+        return self.dropoff_address.full_text if self.dropoff_address_id else (self.dog.address or '')
+
+    @property
+    def location(self):
+        """``(lat, lng)`` to put the dog on the map and in route planning: an
+        alternative pickup address first (the morning run), else an alternative
+        drop-off address, else the dog's own cached coordinates."""
+        for address in (self.pickup_address, self.dropoff_address):
+            if address is not None and address.latitude is not None:
+                return address.latitude, address.longitude
+        return self.dog.latitude, self.dog.longitude
+
+
+class DogAddress(models.Model):
+    """One of a dog's alternative pickup / drop-off addresses — a parent's,
+    a dog-sitter's, a workplace. ``Dog.address`` stays the default and is
+    always the first address; these are only used on the days staff choose
+    one for a leg (``DailyDogAssignment.pickup_address``/``dropoff_address``),
+    which ``scheduling.day_changes`` then reports as a TRANSPORT change.
+    """
+    #: Alternatives per dog, on top of its own address.
+    MAX_PER_DOG = 5
+
+    dog = models.ForeignKey(Dog, on_delete=models.CASCADE, related_name='alternative_addresses')
+    label = models.CharField(max_length=60, blank=True, help_text="What the household calls it, e.g. 'Grandma's' or 'Office'.")
+    address = models.TextField()
+    postcode = models.CharField(max_length=10, blank=True)
+    access_instructions = models.TextField(blank=True, help_text='Keys, gates, who hands the dog over at this address.')
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    geocoded_address = models.TextField(blank=True, help_text='The postcode the cached coordinates came from.')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['dog_id', 'created_at', 'id']
+
+    @property
+    def full_text(self):
+        """The address as a driver reads it, postcode included when the
+        free text doesn't already carry it."""
+        text = (self.address or '').strip()
+        pc = (self.postcode or '').strip().upper()
+        if pc and pc.replace(' ', '') not in text.upper().replace(' ', ''):
+            text = f'{text}\n{pc}' if text else pc
+        return text
+
+    @property
+    def display_name(self):
+        """'Grandma's (12 High St)' — the label with the address's first line."""
+        import re
+        first_line = re.split(r'[\n,]', (self.address or '').strip())[0].strip() or self.postcode
+        if self.label:
+            return f'{self.label} ({first_line})' if first_line else self.label
+        return first_line or 'Alternative address'
+
+    def __str__(self):
+        # What the activity log shows when a day's leg is pointed at it.
+        return self.display_name
 
 
 class ConflictAcknowledgement(models.Model):

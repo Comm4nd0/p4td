@@ -124,6 +124,7 @@ abstract class DataService {
     required bool? ownerCollects,
     required TimeOfDay? ownerBringsTime,
     required TimeOfDay? ownerCollectsTime,
+    ({int? pickup, int? dropoff})? addresses,
   });
   Future<DailyDogAssignment> reassignDog(
     int assignmentId,
@@ -239,6 +240,12 @@ abstract class DataService {
   Future<VaccinationRecord> createVaccination({required String dogId, required String name, required DateTime dateAdministered, required DateTime expiryDate, String? notes});
   Future<VaccinationRecord> updateVaccination(int id, {String? name, DateTime? dateAdministered, DateTime? expiryDate, String? notes});
   Future<void> deleteVaccination(int id);
+
+  // Alternative pickup / drop-off addresses (dog-addresses/)
+  Future<List<DogAddress>> getDogAddresses(String dogId);
+  /// Creates when [id] is null, else updates.
+  Future<DogAddress> saveDogAddress({required String dogId, int? id, required String label, required String address, required String postcode, required String accessInstructions});
+  Future<void> deleteDogAddress(int id);
 
   // Vaccination certificates (private files — see VaccinationCertificate)
   Future<List<VaccinationCertificate>> getVaccinationCertificates(String dogId);

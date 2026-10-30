@@ -10,6 +10,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../constants/app_colors.dart';
 import '../widgets/postcode_lookup_dialog.dart';
+import '../widgets/alternative_addresses_section.dart';
 import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
 import '../widgets/dog_contact_rules.dart';
@@ -730,6 +731,13 @@ class _EditDogScreenState extends State<EditDogScreen> {
               prefixIcon: Picon(PiconsDuotone.mapPin),
             ),
             textCapitalization: TextCapitalization.characters,
+          ),
+          const SizedBox(height: 16),
+          AlternativeAddressesSection(
+            dogId: widget.dog.id,
+            initial: widget.dog.alternativeAddresses,
+            dataService: _dataService,
+            postcodeLookupEnabled: _postcodeLookupEnabled,
           ),
           const SizedBox(height: 16),
           TextField(

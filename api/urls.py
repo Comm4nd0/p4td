@@ -6,7 +6,7 @@ from .views import (
     DailyDogAssignmentViewSet, SupportQueryViewSet, ContactInquiryViewSet,
     ClosureDayViewSet, DogNoteViewSet, DogChangeLogViewSet, StaffAvailabilityViewSet, DayOffRequestViewSet,
     DogProfileChangeRequestViewSet, VaccinationRecordViewSet, VaccinationCertificateViewSet,
-    WaitlistEntryViewSet,
+    WaitlistEntryViewSet, DogAddressViewSet,
     VehicleViewSet, VehicleDefectViewSet, FacilityDefectViewSet, IntakeRequestViewSet, DogLinkRequestViewSet,
     InvoiceViewSet, IncidentViewSet,
     StaffHRRecordViewSet, StaffPayRateViewSet, StaffMeetingViewSet,
@@ -58,6 +58,7 @@ router.register(r'staff-training', StaffTrainingRecordViewSet, basename='staff-t
 router.register(r'staff-certifications', StaffCertificationViewSet, basename='staff-certifications')
 router.register(r'compliance-checks', ComplianceCheckTypeViewSet, basename='compliance-checks')
 router.register(r'compliance-logs', ComplianceCheckLogViewSet, basename='compliance-logs')
+router.register(r'dog-addresses', DogAddressViewSet, basename='dog-addresses')
 
 urlpatterns = [
     path('', include(router.urls)),

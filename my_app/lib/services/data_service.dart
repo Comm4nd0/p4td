@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'http_client.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
 import '../models/dog.dart';
+import '../models/dog_address.dart';
 import '../models/photo.dart';
 import '../models/user_profile.dart';
 import '../models/date_change_request.dart';
@@ -216,6 +217,7 @@ class ApiDataService implements DataService {
         address: json['address'],
         postcode: json['postcode'],
         accessInstructions: json['access_instructions'],
+        alternativeAddresses: DogAddress.listFromJson(json['alternative_addresses']),
         vanPlacement: json['van_placement'],
         generalNotes: json['general_notes'],
         latitude: parseApiDouble(json['latitude']),
@@ -607,6 +609,7 @@ class ApiDataService implements DataService {
       address: data['address'],
       postcode: data['postcode'],
       accessInstructions: data['access_instructions'],
+      alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
       vanPlacement: data['van_placement'],
       generalNotes: data['general_notes'],
       latitude: parseApiDouble(data['latitude']),
@@ -780,6 +783,7 @@ class ApiDataService implements DataService {
           address: data['address'],
           postcode: data['postcode'],
           accessInstructions: data['access_instructions'],
+          alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
           vanPlacement: data['van_placement'],
           generalNotes: data['general_notes'],
           latitude: parseApiDouble(data['latitude']),
@@ -866,6 +870,7 @@ class ApiDataService implements DataService {
           address: data['address'],
           postcode: data['postcode'],
           accessInstructions: data['access_instructions'],
+          alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
           vanPlacement: data['van_placement'],
           generalNotes: data['general_notes'],
           latitude: parseApiDouble(data['latitude']),
@@ -1030,6 +1035,7 @@ class ApiDataService implements DataService {
       address: data['address'],
       postcode: data['postcode'],
       accessInstructions: data['access_instructions'],
+      alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
       vanPlacement: data['van_placement'],
       generalNotes: data['general_notes'],
       latitude: parseApiDouble(data['latitude']),
@@ -1958,6 +1964,7 @@ class ApiDataService implements DataService {
     required bool? ownerCollects,
     required TimeOfDay? ownerBringsTime,
     required TimeOfDay? ownerCollectsTime,
+    ({int? pickup, int? dropoff})? addresses,
   }) async {
     final headers = await _getHeaders();
     final response = await http.patch(
@@ -1968,6 +1975,10 @@ class ApiDataService implements DataService {
         'owner_collects': ownerCollects,
         'owner_brings_time': ownerBringsTime == null ? null : formatApiTime(ownerBringsTime),
         'owner_collects_time': ownerCollectsTime == null ? null : formatApiTime(ownerCollectsTime),
+        // Only sent when the caller chose them, so a transport edit that
+        // never showed the address pickers can't reset the day's address.
+        if (addresses != null) 'pickup_address': addresses.pickup,
+        if (addresses != null) 'dropoff_address': addresses.dropoff,
       }),
     );
     if (response.statusCode == 200) {
@@ -2646,6 +2657,60 @@ class ApiDataService implements DataService {
     );
     if (response.statusCode != 204) {
       throw Exception('Failed to delete vaccination: ${response.statusCode}');
+    }
+  }
+
+  // ── Alternative addresses ──────────────────────────────────────────
+
+  /// The first validation message in a DRF error body ("A dog can have up
+  /// to 5 alternative addresses."), else [fallback].
+  String _validationMessage(http.Response response, String fallback) {
+    try {
+      final data = json.decode(response.body);
+      if (data is Map) {
+        for (final value in data.values) {
+          if (value is List && value.isNotEmpty) return value.first.toString();
+          if (value is String) return value;
+        }
+      }
+    } catch (_) {}
+    return fallback;
+  }
+
+  @override
+  Future<List<DogAddress>> getDogAddresses(String dogId) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dog-addresses/?dog=$dogId'));
+    if (response.statusCode != 200) throw Exception('Failed to load addresses: ${response.statusCode}');
+    return DogAddress.listFromJson(json.decode(response.body));
+  }
+
+  @override
+  Future<DogAddress> saveDogAddress({required String dogId, int? id, required String label, required String address, required String postcode, required String accessInstructions}) async {
+    final body = json.encode({
+      'dog': int.parse(dogId),
+      'label': label,
+      'address': address,
+      'postcode': postcode,
+      'access_instructions': accessInstructions,
+    });
+    final headers = await _getHeaders();
+    final response = id == null
+        ? await http.post(Uri.parse('${AuthService.baseUrl}/api/dog-addresses/'), headers: headers, body: body)
+        : await http.patch(Uri.parse('${AuthService.baseUrl}/api/dog-addresses/$id/'), headers: headers, body: body);
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(_validationMessage(response, 'Failed to save the address'));
+    }
+    return DogAddress.fromJson(json.decode(response.body));
+  }
+
+  @override
+  Future<void> deleteDogAddress(int id) async {
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/dog-addresses/$id/'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 204) {
+      throw Exception(_validationMessage(response, 'Failed to delete the address'));
     }
   }
 

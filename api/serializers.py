@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
-from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, VaccinationCertificate, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, DogLinkRequest, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment
+from .models import Dog, Photo, UserProfile, DateChangeRequest, GroupMedia, MediaReaction, Comment, BoardingRequest, BoardingRequestHistory, DeviceToken, DailyDogAssignment, DogWeekdayPickup, SupportQuery, SupportMessage, ClosureDay, DogNote, StaffAvailability, DayOffRequest, DogProfileChangeRequest, VaccinationRecord, VaccinationCertificate, WaitlistEntry, Vehicle, VehicleMaintenanceRecord, VehicleDefect, VehicleDefectImage, VehicleDefectComment, FacilityDefect, FacilityDefectImage, FacilityDefectComment, IntakeRequest, IntakeDog, DogLinkRequest, Invoice, InvoiceLine, PaymentRecord, Incident, IncidentDog, IncidentMedia, IncidentComment, DogAddress
 
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -160,6 +160,55 @@ class StaffPermissionsSerializer(serializers.ModelSerializer):
             'receives_business_alerts',
         ]
 
+class DogAddressSerializer(serializers.ModelSerializer):
+    """An alternative pickup / drop-off address (``DogAddress``). The dog's own
+    ``address`` is the default; these are chosen per day per leg through
+    ``daily-assignments/<id>/transport/``."""
+    display_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = DogAddress
+        fields = [
+            'id', 'dog', 'label', 'address', 'postcode', 'access_instructions',
+            'display_name', 'latitude', 'longitude', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['latitude', 'longitude', 'created_at', 'updated_at']
+
+    def validate_address(self, value):
+        if not (value or '').strip():
+            raise serializers.ValidationError('Enter the address.')
+        return value.strip()
+
+    def validate_postcode(self, value):
+        return (value or '').strip().upper()
+
+    def validate(self, attrs):
+        if self.instance is not None:
+            # An address belongs to one dog for life.
+            if 'dog' in attrs and attrs['dog'] != self.instance.dog:
+                raise serializers.ValidationError({'dog': 'An address cannot be moved to another dog.'})
+            return attrs
+        dog = attrs.get('dog')
+        request = self.context.get('request')
+        if dog is not None and request is not None and not request.user.is_staff:
+            owns = dog.owner_id == request.user.id or dog.additional_owners.filter(id=request.user.id).exists()
+            if not owns:
+                raise serializers.ValidationError({'dog': 'Invalid pk "%s" - object does not exist.' % dog.pk})
+        if dog is not None and dog.alternative_addresses.count() >= DogAddress.MAX_PER_DOG:
+            raise serializers.ValidationError(
+                {'dog': f'A dog can have up to {DogAddress.MAX_PER_DOG} alternative addresses.'})
+        return attrs
+
+
+class DogAddressBriefSerializer(serializers.ModelSerializer):
+    """The alternative addresses as a dog or a day's roster row carries them."""
+    display_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = DogAddress
+        fields = ['id', 'label', 'address', 'postcode', 'access_instructions', 'display_name']
+
+
 class DogSerializer(serializers.ModelSerializer):
     owner_details = serializers.SerializerMethodField()
     additional_owners_details = serializers.SerializerMethodField()
@@ -168,6 +217,8 @@ class DogSerializer(serializers.ModelSerializer):
     certificate_needed_since = serializers.SerializerMethodField()
     cancelled_dates = serializers.SerializerMethodField()
     assigned_dates = serializers.SerializerMethodField()
+    # Managed through dog-addresses/, not by writing the dog.
+    alternative_addresses = DogAddressBriefSerializer(many=True, read_only=True)
 
     #: Written by staff, about the dog, for staff: where it sits in the van and
     #: candid handling notes. The app already hides them from owners; the API
@@ -188,8 +239,8 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'assigned_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
-        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates', 'assigned_dates']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'alternative_addresses', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'assigned_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates', 'assigned_dates', 'alternative_addresses']
         extra_kwargs = {
             'owner': {'required': False},
             'additional_owners': {'required': False},
@@ -624,10 +675,11 @@ class BoardingRequestSerializer(serializers.ModelSerializer):
 class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     dog_name = serializers.CharField(source='dog.name', read_only=True)
     dog_profile_image = serializers.ImageField(source='dog.profile_image', read_only=True)
-    # Cached pickup coordinates (from the dog) for the staff map. Null when the
-    # dog has no address or couldn't be geocoded — the app pins it at base.
-    latitude = serializers.FloatField(source='dog.latitude', read_only=True, allow_null=True)
-    longitude = serializers.FloatField(source='dog.longitude', read_only=True, allow_null=True)
+    # Cached coordinates for the staff map: an alternative address chosen for
+    # the day (DailyDogAssignment.location), else the dog's own. Null when the
+    # address has no postcode or couldn't be geocoded — the app pins it at base.
+    latitude = serializers.SerializerMethodField()
+    longitude = serializers.SerializerMethodField()
     staff_member_name = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
     owner_address = serializers.SerializerMethodField()
@@ -643,6 +695,12 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     effective_owner_brings_time = serializers.TimeField(read_only=True)
     effective_owner_collects_time = serializers.TimeField(read_only=True)
     day_changes = serializers.SerializerMethodField()
+    # Alternative addresses chosen for this day's legs (null = the dog's own
+    # address), and the dog's alternatives to choose from. Set through
+    # transport/, which checks the address is this dog's — not this PATCH.
+    alternative_addresses = DogAddressBriefSerializer(source='dog.alternative_addresses', many=True, read_only=True)
+    pickup_address_text = serializers.CharField(read_only=True)
+    dropoff_address_text = serializers.CharField(read_only=True)
 
     class Meta:
         model = DailyDogAssignment
@@ -657,9 +715,17 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             'effective_owner_brings', 'effective_owner_collects',
             'effective_owner_brings_time', 'effective_owner_collects_time',
             'day_changes',
+            'pickup_address', 'dropoff_address', 'alternative_addresses',
+            'pickup_address_text', 'dropoff_address_text',
             'sort_order', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'pickup_address', 'dropoff_address']
+
+    def get_latitude(self, obj):
+        return obj.location[0]
+
+    def get_longitude(self, obj):
+        return obj.location[1]
 
     def get_day_changes(self, obj):
         # How this dog's day differs from its routine (scheduling.day_changes
@@ -682,8 +748,25 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
         return owner_display_name(obj.dog.owner)
 
     def get_owner_address(self, obj):
-        # Pickup address lives on the dog, not the owner profile.
-        return obj.dog.address or None
+        # Pickup address lives on the dog, not the owner profile. On a day an
+        # alternative address is used it says so in the text, so app builds
+        # that only know this field still send the driver to the right house.
+        home = obj.dog.address or ''
+        if not obj.pickup_address_id and not obj.dropoff_address_id:
+            return home or None
+        pickup, dropoff = obj.pickup_address_text, obj.dropoff_address_text
+        if obj.pickup_address_id == obj.dropoff_address_id:
+            return f'TODAY: {obj.pickup_address.display_name}\n{pickup}'
+        lines = []
+        if obj.pickup_address_id:
+            lines.append(f'PICK UP: {obj.pickup_address.display_name}\n{pickup}')
+        else:
+            lines.append(f'PICK UP: home\n{pickup}')
+        if obj.dropoff_address_id:
+            lines.append(f'DROP OFF: {obj.dropoff_address.display_name}\n{dropoff}')
+        else:
+            lines.append(f'DROP OFF: home\n{dropoff}')
+        return '\n\n'.join(lines)
 
     def get_owner_phone(self, obj):
         try:
@@ -693,7 +776,17 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
 
     def get_pickup_instructions(self, obj):
         # Per dog: the field name is kept for app builds that read it here.
-        return obj.dog.access_instructions or None
+        # An alternative address's own instructions come first on its day.
+        own = obj.dog.access_instructions or ''
+        extra = []
+        seen = set()
+        for address in (obj.pickup_address, obj.dropoff_address):
+            if address is None or not address.access_instructions or address.id in seen:
+                continue
+            seen.add(address.id)
+            extra.append(f'{address.display_name}: {address.access_instructions}')
+        text = '\n\n'.join(extra + ([own] if own else []))
+        return text or None
 
     def _boarding_on(self, obj, context_key, target_date):
         # When the view supplies the per-date boarding sets (computed once for

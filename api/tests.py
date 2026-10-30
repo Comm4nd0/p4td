@@ -15474,3 +15474,131 @@ class RoutePlanningApiTests(TestCase):
         self.assertEqual((resp.data['dog_capacity'], resp.data['usual_driver_name']), (4, 'Bob'))
         resp = self.client.patch(f'/api/vehicles/{v.id}/', {'usual_driver': self.owner.id}, format='json')
         self.assertEqual(resp.status_code, 400)
+
+
+class DogAlternativeAddressTests(TestCase):
+    """dog-addresses/ — up to five alternative pickup/drop-off addresses per
+    dog beside its own — and choosing one for a leg of a day through
+    daily-assignments/<id>/transport/, which day_changes reports as a
+    TRANSPORT change."""
+
+    def setUp(self):
+        from unittest.mock import patch
+        patcher = patch('api.geocoding.geocode_postcode', return_value=(51.5, -0.7, 'postcode'))
+        self.geocode = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.owner = User.objects.create_user(username='owner@example.com', password='pw', first_name='Olive')
+        self.stranger = User.objects.create_user(username='x@example.com', password='pw', first_name='Xan')
+        self.sam = User.objects.create_user(username='sam', password='pw', is_staff=True, first_name='Sam')
+        self.sam.profile.can_assign_dogs = True
+        self.sam.profile.save()
+        self.client = APIClient()
+        day = date.today() + timedelta(days=7)
+        while day.isoweekday() != 3:
+            day += timedelta(days=1)
+        self.wed = day
+        self.dog = Dog.objects.create(
+            owner=self.owner, name='Bella', daycare_days=[3], schedule_type='weekly',
+            address='1 Home Road, Marlow', postcode='SL7 1AA')
+        self.row = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.sam, date=self.wed)
+
+    def _add(self, user, **data):
+        self.client.force_authenticate(user)
+        payload = {'dog': self.dog.id, 'label': "Grandma's", 'address': '12 High St, Henley',
+                   'postcode': 'rg9 1aa'}
+        payload.update(data)
+        return self.client.post('/api/dog-addresses/', payload, format='json')
+
+    def _transport(self, **data):
+        self.client.force_authenticate(self.sam)
+        return self.client.patch(f'/api/daily-assignments/{self.row.id}/transport/', data, format='json')
+
+    def test_owner_adds_an_address_and_it_shows_on_the_dog(self):
+        resp = self._add(self.owner)
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['postcode'], 'RG9 1AA')
+        self.assertEqual(resp.data['display_name'], "Grandma's (12 High St)")
+        self.assertEqual(resp.data['latitude'], 51.5)
+        dog = self.client.get(f'/api/dogs/{self.dog.id}/').data
+        self.assertEqual([a['label'] for a in dog['alternative_addresses']], ["Grandma's"])
+        self.assertEqual(dog['address'], '1 Home Road, Marlow')
+        self.assertTrue(DogChangeLog.objects.filter(dog=self.dog, summary__startswith='Added alternative address').exists())
+
+    def test_stranger_cannot_add_or_see(self):
+        self.assertEqual(self._add(self.stranger).status_code, 400)
+        self._add(self.owner)
+        self.client.force_authenticate(self.stranger)
+        self.assertEqual(self.client.get(f'/api/dog-addresses/?dog={self.dog.id}').data, [])
+
+    def test_at_most_five(self):
+        for n in range(5):
+            self.assertEqual(self._add(self.sam, label=f'A{n}').status_code, 201)
+        resp = self._add(self.sam, label='A5')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('up to 5', str(resp.data))
+
+    def test_address_required(self):
+        self.assertEqual(self._add(self.owner, address='  ').status_code, 400)
+
+    def test_whole_day_at_another_address(self):
+        alt = self._add(self.owner).data['id']
+        resp = self._transport(pickup_address=alt, dropoff_address=alt)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data['pickup_address'], alt)
+        self.assertEqual(resp.data['latitude'], 51.5)
+        self.assertTrue(resp.data['owner_address'].startswith("TODAY: Grandma's"))
+        self.assertIn('RG9 1AA', resp.data['owner_address'])
+        from .scheduling import day_changes
+        [change] = day_changes(self.wed)
+        self.assertEqual(change['kind'], 'TRANSPORT')
+        self.assertEqual(change['detail'], "At Grandma's (12 High St) all day")
+        self.assertEqual(change['changed_by_name'], 'Sam')
+
+    def test_afternoon_only(self):
+        alt = self._add(self.owner).data['id']
+        resp = self._transport(dropoff_address=alt)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.data['pickup_address'])
+        self.assertIn('PICK UP: home', resp.data['owner_address'])
+        self.assertIn("DROP OFF: Grandma's", resp.data['owner_address'])
+        from .scheduling import day_changes
+        [change] = day_changes(self.wed)
+        self.assertEqual(change['detail'], "Drop off at Grandma's (12 High St)")
+        # Back to the usual address: no longer a change.
+        self.assertEqual(self._transport(dropoff_address=None).status_code, 200)
+        self.assertEqual(day_changes(self.wed), [])
+
+    def test_another_dogs_address_is_refused(self):
+        other = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client.force_authenticate(self.sam)
+        alt = self.client.post('/api/dog-addresses/', {'dog': other.id, 'address': 'Elsewhere'}, format='json').data['id']
+        resp = self._transport(pickup_address=alt)
+        self.assertEqual(resp.status_code, 400)
+        self.row.refresh_from_db()
+        self.assertIsNone(self.row.pickup_address)
+
+    def test_generic_patch_cannot_set_the_address(self):
+        alt = self._add(self.owner).data['id']
+        self.client.force_authenticate(self.sam)
+        self.client.patch(f'/api/daily-assignments/{self.row.id}/', {'pickup_address': alt}, format='json')
+        self.row.refresh_from_db()
+        self.assertIsNone(self.row.pickup_address)
+
+    def test_cannot_delete_an_address_still_booked(self):
+        alt = self._add(self.owner).data['id']
+        self._transport(pickup_address=alt)
+        self.client.force_authenticate(self.owner)
+        resp = self.client.delete(f'/api/dog-addresses/{alt}/')
+        self.assertEqual(resp.status_code, 400)
+        self._transport(pickup_address=None)
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self.client.delete(f'/api/dog-addresses/{alt}/').status_code, 204)
+
+    def test_address_instructions_lead_the_pickup_instructions(self):
+        self.dog.access_instructions = 'Key under the mat'
+        self.dog.save()
+        alt = self._add(self.owner, access_instructions='Ring the bell, Gran has him').data['id']
+        resp = self._transport(pickup_address=alt)
+        self.assertEqual(
+            resp.data['pickup_instructions'],
+            "Grandma's (12 High St): Ring the bell, Gran has him\n\nKey under the mat")

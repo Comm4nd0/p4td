@@ -346,6 +346,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
         ownerCollects: edit.collects,
         ownerBringsTime: edit.resolvedBringsTime,
         ownerCollectsTime: edit.resolvedCollectsTime,
+        addresses: edit.resolvedAddresses,
       );
       if (mounted) {
         setState(() {
