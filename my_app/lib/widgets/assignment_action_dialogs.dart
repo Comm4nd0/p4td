@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/dog_address.dart';
 
 /// Shared assignment-action dialogs (F12 dedup).
 ///
@@ -28,6 +29,10 @@ class TransportEdit {
   final bool effectiveBringsAtOpen;
   final bool effectiveCollectsAtOpen;
 
+  /// The alternative address chosen for each leg (null = the dog's own).
+  final int? pickupAddressId;
+  final int? dropoffAddressId;
+
   const TransportEdit({
     required this.brings,
     required this.collects,
@@ -35,7 +40,16 @@ class TransportEdit {
     required this.collectsTime,
     required this.effectiveBringsAtOpen,
     required this.effectiveCollectsAtOpen,
+    this.pickupAddressId,
+    this.dropoffAddressId,
   });
+
+  /// Addresses to persist: a leg the owner handles has none, since nobody
+  /// from the team goes to an address for it.
+  ({int? pickup, int? dropoff}) get resolvedAddresses => (
+        pickup: (brings ?? effectiveBringsAtOpen) ? null : pickupAddressId,
+        dropoff: (collects ?? effectiveCollectsAtOpen) ? null : dropoffAddressId,
+      );
 
   /// Resolved drop-off time to persist: only kept when drop-off resolves to
   /// "owner brings", mirroring the inline `setAssignmentTransport` calls.
@@ -92,6 +106,9 @@ Future<TransportEdit?> showTransportDialog(
 
   final effectiveBringsAtOpen = assignment.effectiveOwnerBrings;
   final effectiveCollectsAtOpen = assignment.effectiveOwnerCollects;
+  final addresses = assignment.alternativeAddresses;
+  int? pickupAddressId = assignment.pickupAddressId;
+  int? dropoffAddressId = assignment.dropoffAddressId;
 
   String chipLabel(bool? value, bool effective) {
     if (value == null) return 'Default (${effective ? 'owner' : 'staff'})';
@@ -150,6 +167,13 @@ Future<TransportEdit?> showTransportDialog(
                     child: const Text('Clear time', style: TextStyle(fontSize: 12)),
                   ),
               ],
+              if ((brings ?? effectiveBringsAtOpen) == false)
+                _AddressPicker(
+                  label: 'Collect from',
+                  addresses: addresses,
+                  value: pickupAddressId,
+                  onChanged: (id) => setDialogState(() => pickupAddressId = id),
+                ),
               const Divider(height: 24),
               Text('Pick-up (evening)',
                   style: Theme.of(context).textTheme.labelLarge),
@@ -193,6 +217,21 @@ Future<TransportEdit?> showTransportDialog(
                     child: const Text('Clear time', style: TextStyle(fontSize: 12)),
                   ),
               ],
+              if ((collects ?? effectiveCollectsAtOpen) == false)
+                _AddressPicker(
+                  label: 'Take home to',
+                  addresses: addresses,
+                  value: dropoffAddressId,
+                  onChanged: (id) => setDialogState(() => dropoffAddressId = id),
+                ),
+              if (addresses.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Other addresses for this dog can be added on its profile.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                  ),
+                ),
             ],
           ),
         ),
@@ -212,7 +251,53 @@ Future<TransportEdit?> showTransportDialog(
     collectsTime: collectsTime,
     effectiveBringsAtOpen: effectiveBringsAtOpen,
     effectiveCollectsAtOpen: effectiveCollectsAtOpen,
+    pickupAddressId: pickupAddressId,
+    dropoffAddressId: dropoffAddressId,
   );
+}
+
+/// Which address a staff leg goes to today: the dog's own (null) or one of
+/// its alternatives. Hidden when the dog has none.
+class _AddressPicker extends StatelessWidget {
+  final String label;
+  final List<DogAddress> addresses;
+  final int? value;
+  final ValueChanged<int?> onChanged;
+
+  const _AddressPicker({
+    required this.label,
+    required this.addresses,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (addresses.isEmpty) return const SizedBox.shrink();
+    // An address deleted since the row loaded falls back to the usual one.
+    final current = addresses.any((a) => a.id == value) ? value : null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: DropdownButtonFormField<int?>(
+        initialValue: current,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Picon(PiconsDuotone.mapPin, size: 18),
+          isDense: true,
+        ),
+        items: [
+          const DropdownMenuItem<int?>(value: null, child: Text('Usual address')),
+          for (final a in addresses)
+            DropdownMenuItem<int?>(
+              value: a.id,
+              child: Text(a.displayName, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: onChanged,
+      ),
+    );
+  }
 }
 
 /// Staff-picker dialog backed by an already-resolved [staffMembers] list.

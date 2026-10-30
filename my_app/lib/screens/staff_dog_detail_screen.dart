@@ -389,6 +389,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
         ownerCollects: edit.collects,
         ownerBringsTime: edit.resolvedBringsTime,
         ownerCollectsTime: edit.resolvedCollectsTime,
+        addresses: edit.resolvedAddresses,
       );
       if (mounted) {
         setState(() {

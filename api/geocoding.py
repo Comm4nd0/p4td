@@ -240,3 +240,22 @@ def geocode_dog(dog, force=False, save=True):
     if save:
         dog.save(update_fields=GEOCODE_FIELDS)
     return True
+
+
+def geocode_dog_address(dog_address, save=True):
+    """Refresh an alternative address's (``DogAddress``) cached coordinates,
+    the way :func:`geocode_dog` does for the dog's own address. Never raises.
+    Returns ``True`` if the coordinates were looked up again."""
+    postcode = effective_postcode(dog_address)
+    if postcode and dog_address.geocoded_address == postcode:
+        return False
+    if postcode:
+        lat, lng, _source = geocode_postcode(postcode)
+    else:
+        lat = lng = None
+    dog_address.latitude = lat
+    dog_address.longitude = lng
+    dog_address.geocoded_address = postcode
+    if save:
+        dog_address.save(update_fields=['latitude', 'longitude', 'geocoded_address'])
+    return True

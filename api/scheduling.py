@@ -790,7 +790,9 @@ def day_changes(day):
       (see the module docstring), so their off week would flag every time
       and teach staff to ignore the list.
     * ``TRANSPORT`` — a per-day override says the owner brings or collects
-      when they normally don't, or the other way round.
+      when they normally don't, or the other way round, or the dog is
+      collected from / taken home to one of its alternative addresses
+      (``DogAddress``) instead of its own.
     * ``BOARDING_START`` / ``BOARDING_END`` — a stay begins or ends today.
     * ``BOARDING`` — mid-stay on one of the dog's regular days: it is in, but
       with the boarding carer rather than on its usual driver's run.
@@ -821,7 +823,8 @@ def day_changes(day):
 
     rows = {
         row.dog_id: row
-        for row in DailyDogAssignment.objects.filter(date=day).select_related('staff_member')
+        for row in DailyDogAssignment.objects.filter(date=day).select_related(
+            'staff_member', 'pickup_address', 'dropoff_address')
     }
     usual = {
         entry.dog_id: entry.staff_member
@@ -864,6 +867,7 @@ def day_changes(day):
                 transport.append('owner brings' if row.owner_brings else 'staff collect from home')
             if row.owner_collects is not None and row.owner_collects != dog.owner_collects_default:
                 transport.append('owner collects' if row.owner_collects else 'staff take home')
+            transport.extend(_address_change_bits(row))
             if transport:
                 detail = ', '.join(transport)
                 found.append((dog, CHANGE_TRANSPORT, detail[0].upper() + detail[1:], 'log'))
@@ -947,6 +951,20 @@ def day_changes(day):
 
     changes.sort(key=lambda c: (CHANGE_KIND_ORDER.index(c['kind']), c['dog_name'].lower()))
     return changes
+
+
+def _address_change_bits(row):
+    """How a day's alternative addresses read in a TRANSPORT change: one
+    phrase when both legs use the same one, else one per leg."""
+    pickup, dropoff = row.pickup_address, row.dropoff_address
+    if pickup is not None and pickup == dropoff:
+        return [f'at {pickup.display_name} all day']
+    bits = []
+    if pickup is not None:
+        bits.append(f'pick up from {pickup.display_name}')
+    if dropoff is not None:
+        bits.append(f'drop off at {dropoff.display_name}')
+    return bits
 
 
 def change_involves(change, user_id):

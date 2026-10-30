@@ -63,7 +63,7 @@ def dog_listing_queryset():
     )
     return Dog.objects.select_related('owner__profile').prefetch_related(
         'vaccinations', 'additional_owners__profile', removed_assignments,
-        active_assignments, certificates,
+        active_assignments, certificates, 'alternative_addresses',
     )
 
 
@@ -2614,8 +2614,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = DailyDogAssignment.objects.select_related(
-            'dog', 'dog__owner', 'dog__owner__profile', 'staff_member'
-        ).prefetch_related('dog__additional_owners', 'dog__additional_owners__profile')
+            'dog', 'dog__owner', 'dog__owner__profile', 'staff_member',
+            'pickup_address', 'dropoff_address',
+        ).prefetch_related(
+            'dog__additional_owners', 'dog__additional_owners__profile',
+            'dog__alternative_addresses',
+        )
         date = self.request.query_params.get('date')
         if date:
             queryset = queryset.filter(date=date)
@@ -3380,8 +3384,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         Requires can_assign_dogs or can_manage_requests.
         Accepts any subset of: owner_brings, owner_collects,
-        owner_brings_time, owner_collects_time. Times accept HH:MM or HH:MM:SS.
-        Explicit null clears a field; absent keys leave the field unchanged.
+        owner_brings_time, owner_collects_time, pickup_address,
+        dropoff_address. Times accept HH:MM or HH:MM:SS. The two addresses are
+        ids of the dog's alternative addresses (DogAddress) to collect from /
+        take home to on this day only. Explicit null clears a field (back to
+        the dog's default); absent keys leave the field unchanged.
         """
         try:
             profile = request.user.profile
@@ -3401,8 +3408,22 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         transport_fields = {
             'owner_brings': 'Owner brings', 'owner_collects': 'Owner collects',
             'owner_brings_time': 'Drop-off time', 'owner_collects_time': 'Pick-up time',
+            'pickup_address': 'Pickup address', 'dropoff_address': 'Drop-off address',
         }
         before = snapshot_fields(assignment, transport_fields)
+
+        for field in ('pickup_address', 'dropoff_address'):
+            if field not in request.data:
+                continue
+            value = request.data[field]
+            if value in (None, ''):
+                setattr(assignment, field, None)
+                continue
+            address = assignment.dog.alternative_addresses.filter(pk=value).first() \
+                if str(value).isdigit() else None
+            if address is None:
+                return Response({field: "Not one of this dog's addresses."}, status=400)
+            setattr(assignment, field, address)
 
         for field in bool_fields:
             if field in request.data:
@@ -4394,22 +4415,24 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         return user is not None and HOUSE_STAFF_USERNAME in (
             (user.username or '').lower(), (user.first_name or '').lower())
 
-    def _route_matrix(self, dogs):
-        """Drive times between the base and every located dog in ``dogs``.
-        Returns ``(matrix, stop_of)`` — ``stop_of`` maps dog id to its matrix
-        index (the base is 0); unlocated dogs are left out."""
+    def _route_matrix(self, assignments):
+        """Drive times between the base and every located dog in the day's
+        ``assignments`` — at an alternative address when one is chosen for the
+        day (``DailyDogAssignment.location``). Returns ``(matrix, stop_of)`` —
+        ``stop_of`` maps dog id to its matrix index (the base is 0); unlocated
+        dogs are left out."""
         from .routing import base_location, drive_times, point_of
         points = [base_location()]
         index_of_point = {points[0]: 0}
         stop_of = {}
-        for dog in dogs:
-            point = point_of(dog.latitude, dog.longitude)
+        for assignment in assignments:
+            point = point_of(*assignment.location)
             if point is None:
                 continue
             if point not in index_of_point:
                 index_of_point[point] = len(points)
                 points.append(point)
-            stop_of[dog.id] = index_of_point[point]
+            stop_of[assignment.dog_id] = index_of_point[point]
         return drive_times(points), stop_of
 
     @staticmethod
@@ -4458,13 +4481,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         rows = [
             a for a in DailyDogAssignment.objects.filter(date=target_date, staff_member_id=staff_id)
-            .exclude(status__in=('REMOVED', 'UNASSIGNED')).select_related('dog')
+            .exclude(status__in=('REMOVED', 'UNASSIGNED'))
+            .select_related('dog', 'pickup_address', 'dropoff_address')
             if a.needs_staff_pickup or a.needs_staff_dropoff
         ]
         if len(rows) < 2:
             return Response({'detail': 'There need to be at least two dogs on the run to optimise it.'}, status=400)
         try:
-            matrix, stop_of = self._route_matrix([a.dog for a in rows])
+            matrix, stop_of = self._route_matrix(rows)
         except RoutingError as exc:
             return self._routing_error(exc)
 
@@ -4496,7 +4520,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         self._materialize_roster_for_date(target_date)
         rows = [
             a for a in DailyDogAssignment.objects.filter(date=target_date)
-            .exclude(status='REMOVED').select_related('dog', 'staff_member')
+            .exclude(status='REMOVED').select_related('dog', 'staff_member', 'pickup_address', 'dropoff_address')
             if not self._is_house_account(a.staff_member)
             and (a.needs_staff_pickup or a.needs_staff_dropoff)
         ]
@@ -4619,7 +4643,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         if not everyone:
             return Response({'detail': 'No dogs need driving on this day.'}, status=400)
         try:
-            matrix, stop_of = self._route_matrix([a.dog for a in everyone])
+            matrix, stop_of = self._route_matrix(everyone)
         except RoutingError as exc:
             return self._routing_error(exc)
 
@@ -4993,6 +5017,83 @@ class ClosureDayViewSet(ActivityLogMixin, viewsets.ModelViewSet):
             process_waitlist_for_date(target_date)
         except Exception as e:
             print(f"Failed to process waitlist: {e}")
+
+
+class DogAddressViewSet(viewsets.ModelViewSet):
+    """A dog's alternative pickup / drop-off addresses (``DogAddress``), up to
+    ``DogAddress.MAX_PER_DOG`` on top of ``Dog.address``, which stays the
+    default. Owners and co-owners manage their own dogs' (``?dog=<id>``);
+    staff manage any. Nothing uses one until staff choose it for a leg of a
+    day through ``daily-assignments/<id>/transport/``, so owners write here
+    directly rather than through dog-profile-changes. An address still chosen
+    for today or a later day can't be deleted.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        from .serializers import DogAddressSerializer
+        return DogAddressSerializer
+
+    def get_queryset(self):
+        from .models import DogAddress
+        base = DogAddress.objects.select_related('dog')
+        dog_id = self.request.query_params.get('dog')
+        if dog_id:
+            base = base.filter(dog_id=dog_id)
+        if self.request.user.is_staff:
+            return base
+        return base.filter(
+            Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
+        ).distinct()
+
+    @staticmethod
+    def _geocode(address):
+        # Best effort, like DogViewSet._maybe_geocode: a save is never lost to
+        # the lookup, the map just pins the dog at base until it succeeds.
+        try:
+            from .geocoding import geocode_dog_address
+            geocode_dog_address(address)
+        except Exception as e:
+            print(f"Geocoding failed for dog address {getattr(address, 'id', '?')}: {e}")
+
+    def perform_create(self, serializer):
+        address = serializer.save(created_by=self.request.user)
+        self._geocode(address)
+        log_change(address.dog, action='UPDATED', actor=self.request.user,
+                   summary=f'Added alternative address: {address.display_name}')
+
+    def perform_update(self, serializer):
+        fields = {'label': 'Label', 'address': 'Address', 'postcode': 'Postcode',
+                  'access_instructions': 'Pickup instructions'}
+        before = snapshot_fields(serializer.instance, fields)
+        address = serializer.save()
+        self._geocode(address)
+        changes = diff_fields(before, snapshot_fields(address, fields), fields)
+        if changes:
+            log_change(address.dog, action='UPDATED', actor=self.request.user, changes=changes,
+                       summary=f'Updated alternative address: {address.display_name}')
+
+    def destroy(self, request, *args, **kwargs):
+        address = self.get_object()
+        in_use = (
+            DailyDogAssignment.objects
+            .filter(Q(pickup_address=address) | Q(dropoff_address=address),
+                    date__gte=timezone.localdate())
+            .exclude(status='REMOVED')
+            .order_by('date')
+            .values_list('date', flat=True)
+            .first()
+        )
+        if in_use is not None:
+            return Response(
+                {'detail': f'This address is booked for {_uk(in_use)}. '
+                           'Change that day back to the usual address first.'},
+                status=400)
+        dog, name = address.dog, address.display_name
+        address.delete()
+        log_change(dog, action='UPDATED', actor=request.user,
+                   summary=f'Removed alternative address: {name}')
+        return Response(status=204)
 
 
 class VaccinationRecordViewSet(viewsets.ModelViewSet):

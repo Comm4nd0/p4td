@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' show TimeOfDay;
+import 'dog_address.dart';
 
 enum Weekday {
   monday,
@@ -224,6 +225,9 @@ class Dog {
   /// UK postcode of the pickup address; drives placement on the staff map.
   final String? postcode;
   final String? accessInstructions;
+  /// Up to [DogAddress.maxPerDog] other places the dog can be collected from
+  /// or taken home to on a given day; [address] stays the default.
+  final List<DogAddress> alternativeAddresses;
   final String? vanPlacement;
   final String? generalNotes;
   /// Cached pickup coordinates (geocoded server-side from [postcode]/[address]). Null when
@@ -278,6 +282,7 @@ class Dog {
     this.address,
     this.postcode,
     this.accessInstructions,
+    this.alternativeAddresses = const [],
     this.vanPlacement,
     this.generalNotes,
     this.latitude,
@@ -338,6 +343,7 @@ class Dog {
     String? address,
     String? postcode,
     String? accessInstructions,
+    List<DogAddress>? alternativeAddresses,
     String? vanPlacement,
     String? generalNotes,
     double? latitude,
@@ -375,6 +381,7 @@ class Dog {
       address: address ?? this.address,
       postcode: postcode ?? this.postcode,
       accessInstructions: accessInstructions ?? this.accessInstructions,
+      alternativeAddresses: alternativeAddresses ?? this.alternativeAddresses,
       vanPlacement: vanPlacement ?? this.vanPlacement,
       generalNotes: generalNotes ?? this.generalNotes,
       latitude: latitude ?? this.latitude,

@@ -417,6 +417,7 @@ class MockDataService implements DataService {
     required bool? ownerCollects,
     required TimeOfDay? ownerBringsTime,
     required TimeOfDay? ownerCollectsTime,
+    ({int? pickup, int? dropoff})? addresses,
   }) async {
     throw UnimplementedError();
   }
@@ -542,6 +543,18 @@ class MockDataService implements DataService {
   Future<VaccinationRecord> updateVaccination(int id, {String? name, DateTime? dateAdministered, DateTime? expiryDate, String? notes}) async => throw UnimplementedError();
   @override
   Future<void> deleteVaccination(int id) async {}
+
+  @override
+  Future<List<DogAddress>> getDogAddresses(String dogId) async => [];
+
+  @override
+  Future<DogAddress> saveDogAddress({required String dogId, int? id, required String label, required String address, required String postcode, required String accessInstructions}) async {
+    return DogAddress(id: id ?? 1, label: label, address: address, postcode: postcode,
+        accessInstructions: accessInstructions, displayName: label.isEmpty ? address : label);
+  }
+
+  @override
+  Future<void> deleteDogAddress(int id) async {}
 
   // Vaccination certificates
   @override
