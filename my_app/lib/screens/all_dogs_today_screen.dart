@@ -11,6 +11,7 @@ import '../services/service_locator.dart';
 import '../services/cache_service.dart';
 import '../utils/date_formats.dart';
 import '../widgets/assignment_action_dialogs.dart';
+import '../widgets/alternative_addresses_section.dart';
 import '../widgets/assignment_card.dart';
 import '../widgets/dog_quick_info_sheet.dart';
 import 'dog_home_screen.dart';
@@ -331,6 +332,42 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to reassign: $e')));
+      }
+    }
+  }
+
+  Future<void> _showAddressDialog(DailyDogAssignment assignment) async {
+    final choice = await showAddressDialog(
+      context,
+      assignment,
+      onAddAddress: () => showDogAddressForm(
+        context,
+        dogId: '${assignment.dogId}',
+        dataService: _dataService,
+      ),
+    );
+    if (choice == null || !mounted) return;
+    try {
+      final updated = await _dataService.setAssignmentAddresses(
+        assignment.id,
+        pickupAddressId: choice.pickup,
+        dropoffAddressId: choice.dropoff,
+      );
+      if (mounted) {
+        setState(() {
+          final index = _assignments.indexWhere((a) => a.id == assignment.id);
+          if (index != -1) _assignments[index] = updated;
+          _dataChanged = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Address updated for ${assignment.dogName}'), backgroundColor: AppColors.success),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update address: ${e.toString().replaceFirst('Exception: ', '')}')),
+        );
       }
     }
   }
@@ -875,6 +912,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       onTap: () => _openQuickInfo(assignment: assignment),
       onUpdateStatus: (newStatus) => _updateStatus(assignment, newStatus),
       onTransport: () => _showTransportDialog(assignment),
+      onChangeAddress: () => _showAddressDialog(assignment),
       onReassign: () => _showReassignDialog(assignment),
       onUnassign: () => _confirmUnassign(assignment),
       onRemoveFromDay: () => _confirmRemoveFromDay(assignment),

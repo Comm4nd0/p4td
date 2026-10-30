@@ -1988,6 +1988,19 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<DailyDogAssignment> setAssignmentAddresses(int assignmentId, {required int? pickupAddressId, required int? dropoffAddressId}) async {
+    final response = await http.patch(
+      Uri.parse('${AuthService.baseUrl}/api/daily-assignments/$assignmentId/transport/'),
+      headers: await _getHeaders(),
+      body: json.encode({'pickup_address': pickupAddressId, 'dropoff_address': dropoffAddressId}),
+    );
+    if (response.statusCode == 200) {
+      return DailyDogAssignment.fromJson(json.decode(response.body));
+    }
+    throw Exception(_validationMessage(response, 'Failed to set the address'));
+  }
+
+  @override
   Future<DailyDogAssignment> reassignDog(
     int assignmentId,
     int newStaffMemberId, {

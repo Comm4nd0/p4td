@@ -39,15 +39,12 @@ class _AlternativeAddressesSectionState extends State<AlternativeAddressesSectio
   bool get _full => _addresses.length >= DogAddress.maxPerDog;
 
   Future<void> _edit([DogAddress? existing]) async {
-    final saved = await showModalBottomSheet<DogAddress>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => _AddressForm(
-        dogId: widget.dogId,
-        existing: existing,
-        dataService: widget.dataService,
-        postcodeLookupEnabled: widget.postcodeLookupEnabled,
-      ),
+    final saved = await showDogAddressForm(
+      context,
+      dogId: widget.dogId,
+      existing: existing,
+      dataService: widget.dataService,
+      postcodeLookupEnabled: widget.postcodeLookupEnabled,
     );
     if (saved == null || !mounted) return;
     setState(() {
@@ -133,6 +130,27 @@ class _AlternativeAddressesSectionState extends State<AlternativeAddressesSectio
       ],
     );
   }
+}
+
+/// Add or edit one of a dog's alternative addresses in a bottom sheet;
+/// returns the saved [DogAddress], or null if dismissed.
+Future<DogAddress?> showDogAddressForm(
+  BuildContext context, {
+  required String dogId,
+  DogAddress? existing,
+  required DataService dataService,
+  bool postcodeLookupEnabled = false,
+}) {
+  return showModalBottomSheet<DogAddress>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) => _AddressForm(
+      dogId: dogId,
+      existing: existing,
+      dataService: dataService,
+      postcodeLookupEnabled: postcodeLookupEnabled,
+    ),
+  );
 }
 
 /// Add or edit one alternative address; pops the saved [DogAddress].

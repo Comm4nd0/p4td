@@ -22,6 +22,7 @@ class AssignmentCard extends StatelessWidget {
     required this.onTap,
     required this.onUpdateStatus,
     required this.onTransport,
+    this.onChangeAddress,
     required this.onReassign,
     required this.onUnassign,
     required this.onRemoveFromDay,
@@ -55,6 +56,8 @@ class AssignmentCard extends StatelessWidget {
   /// Advance/revert the assignment status to [newStatus].
   final void Function(AssignmentStatus newStatus) onUpdateStatus;
   final VoidCallback onTransport;
+  /// Pick-up / drop-off address for the day; the menu item is hidden when null.
+  final VoidCallback? onChangeAddress;
   final VoidCallback onReassign;
   final VoidCallback onUnassign;
   final VoidCallback onRemoveFromDay;
@@ -266,6 +269,8 @@ class AssignmentCard extends StatelessWidget {
                           if (previous != null) onUpdateStatus(previous);
                         case 'transport':
                           onTransport();
+                        case 'address':
+                          onChangeAddress?.call();
                         case 'reassign':
                           onReassign();
                         case 'unassign':
@@ -303,6 +308,15 @@ class AssignmentCard extends StatelessWidget {
                             const Text('Transport…'),
                           ]),
                         ),
+                        if (onChangeAddress != null)
+                          PopupMenuItem(
+                            value: 'address',
+                            child: Row(children: [
+                              Picon(PiconsDuotone.mapPin, size: 18),
+                              const SizedBox(width: 8),
+                              const Text('Pick-up / drop-off address…'),
+                            ]),
+                          ),
                         PopupMenuItem(
                           value: 'reassign',
                           child: Row(children: [
