@@ -126,6 +126,9 @@ abstract class DataService {
     required TimeOfDay? ownerCollectsTime,
     ({int? pickup, int? dropoff})? addresses,
   });
+  /// Points this day's pick-up / drop-off at one of the dog's alternative
+  /// addresses (null = its usual address). Leaves the transport alone.
+  Future<DailyDogAssignment> setAssignmentAddresses(int assignmentId, {required int? pickupAddressId, required int? dropoffAddressId});
   Future<DailyDogAssignment> reassignDog(
     int assignmentId,
     int newStaffMemberId, {

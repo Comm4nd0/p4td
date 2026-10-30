@@ -423,6 +423,11 @@ class MockDataService implements DataService {
   }
 
   @override
+  Future<DailyDogAssignment> setAssignmentAddresses(int assignmentId, {required int? pickupAddressId, required int? dropoffAddressId}) async {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<DailyDogAssignment> reassignDog(
     int assignmentId,
     int newStaffMemberId, {

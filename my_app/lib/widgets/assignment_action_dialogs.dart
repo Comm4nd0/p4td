@@ -256,6 +256,114 @@ Future<TransportEdit?> showTransportDialog(
   );
 }
 
+/// "Pick-up / drop-off address" for one day: which of the dog's addresses the
+/// team collects it from this morning and takes it home to tonight. The
+/// dog's own address is the default; a leg the owner handles is shown but
+/// can't be changed. [onAddAddress] adds a new alternative address (it saves
+/// straight away) and returns it, so one can be added and chosen in one go.
+///
+/// Returns the chosen ids (null = usual address) on Save, or null on cancel.
+Future<({int? pickup, int? dropoff})?> showAddressDialog(
+  BuildContext context,
+  DailyDogAssignment assignment, {
+  required Future<DogAddress?> Function() onAddAddress,
+}) {
+  final addresses = List.of(assignment.alternativeAddresses);
+  int? pickup = assignment.pickupAddressId;
+  int? dropoff = assignment.dropoffAddressId;
+  var adding = false;
+
+  return showDialog<({int? pickup, int? dropoff})>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        final hint = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey);
+        Widget leg(String title, bool ownerHandles, String ownerText, int? value, ValueChanged<int?> onChanged) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(title, style: Theme.of(context).textTheme.labelLarge),
+            if (ownerHandles)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(ownerText, style: hint),
+              )
+            else
+              _AddressPicker(
+                // Rebuilt with a new key when an address is added, so the
+                // list it offers is current.
+                key: ValueKey('$title-${addresses.length}'),
+                label: 'Address',
+                addresses: addresses,
+                value: value,
+                onChanged: onChanged,
+              ),
+          ]);
+        }
+
+        return AlertDialog(
+          title: Text('Address: ${assignment.dogName}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (addresses.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      '${assignment.dogName} only has the usual address. '
+                      'Add another to collect from or drop off at it today.',
+                      style: hint,
+                    ),
+                  )
+                else ...[
+                  leg('Pick-up (morning)', !assignment.needsPickup,
+                      'No pick-up by the team today.', pickup,
+                      (id) => setDialogState(() => pickup = id)),
+                  const SizedBox(height: 16),
+                  leg('Drop-off (evening)', !assignment.needsDropoff,
+                      'No drop-off by the team today.', dropoff,
+                      (id) => setDialogState(() => dropoff = id)),
+                  const SizedBox(height: 8),
+                ],
+                if (addresses.length < DogAddress.maxPerDog)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      icon: const Picon(PiconsDuotone.plusCircle, size: 18),
+                      label: const Text('Add another address'),
+                      onPressed: adding
+                          ? null
+                          : () async {
+                              setDialogState(() => adding = true);
+                              final added = await onAddAddress();
+                              setDialogState(() {
+                                adding = false;
+                                if (added != null) addresses.add(added);
+                              });
+                            },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: addresses.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, (
+                        pickup: assignment.needsPickup ? pickup : null,
+                        dropoff: assignment.needsDropoff ? dropoff : null,
+                      )),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
 /// Which address a staff leg goes to today: the dog's own (null) or one of
 /// its alternatives. Hidden when the dog has none.
 class _AddressPicker extends StatelessWidget {
@@ -265,6 +373,7 @@ class _AddressPicker extends StatelessWidget {
   final ValueChanged<int?> onChanged;
 
   const _AddressPicker({
+    super.key,
     required this.label,
     required this.addresses,
     required this.value,
