@@ -2833,6 +2833,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         )
 
         house = house_staff_account()
+        from .scheduling import effective_change_actions
+        adds_by_date, _ = effective_change_actions(target_date, target_date, dog_ids=list(candidates))
+        added_ids = adds_by_date.get(target_date, set())
         to_create = []
         for dog, entry in candidates.values():
             if dog.schedule_type == 'ad_hoc':
@@ -2862,7 +2865,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 date=target_date,
                 status=status,
                 sort_order=entry.sort_order if entry else 0,
-                booking=DailyDogAssignment.BOOKING_REGULAR,
+                booking=(DailyDogAssignment.BOOKING_EXTRA if dog.id in added_ids
+                         else DailyDogAssignment.BOOKING_REGULAR),
             ))
 
         if not to_create:

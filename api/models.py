@@ -529,10 +529,12 @@ class DailyDogAssignment(models.Model):
 
     @staticmethod
     def booking_for(dog, day):
-        """REGULAR when ``day`` is one of ``dog``'s regular weekdays, else
-        EXTRA — what a new row on that day is."""
-        from .scheduling import is_regular_day
-        if is_regular_day(dog, day.isoweekday()):
+        """What a new row on ``day`` is: EXTRA when an approved request put
+        the dog on that date (an extra day, or the new date of a moved day),
+        otherwise REGULAR on one of the dog's regular weekdays, else EXTRA."""
+        from .scheduling import effective_change_actions, is_regular_day
+        adds, _ = effective_change_actions(day, day, dog_ids=[dog.id])
+        if dog.id not in adds.get(day, set()) and is_regular_day(dog, day.isoweekday()):
             return DailyDogAssignment.BOOKING_REGULAR
         return DailyDogAssignment.BOOKING_EXTRA
 

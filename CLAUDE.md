@@ -248,6 +248,9 @@ Additional non-router endpoints:
   created by `DailyDogAssignment.booking_for` — REGULAR on one of the dog's
   regular weekdays, otherwise EXTRA; an approved ADD_DAY/CHANGE makes its
   date EXTRA); a cancelled day of either kind is the same row `REMOVED`.
+  **Moving a day** is a cancel plus an extra day — a CHANGE request (or Remove
+  and Add Dog to Day) — so the new date stays EXTRA even on the dog's own
+  weekday in another week, and survives later schedule changes.
   Giving a day a driver, moving it, routing it or changing its transport
   never changes its kind, and nothing reads the activity log to guess it.
   `bulk_create` skips `save()`, so set `booking` on any row built that way.
