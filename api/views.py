@@ -189,15 +189,12 @@ def _apply_schedule_change(dog, old_daycare_days, old_schedule_type, *, actor):
 
     old_days = {int(d) for d in (old_daycare_days or [])}
     new_days = {int(d) for d in (dog.daycare_days or [])}
-    # Until now these weekdays were regular days, so every booking on them was
-    # the routine — none of it was put on by hand.
-    now = timezone.now()
     if old_schedule_type != 'ad_hoc' and dog.schedule_type == 'ad_hoc':
         # The roster must be empty for an ad-hoc dog, whatever its old days said.
         DogWeekdayPickup.objects.filter(dog=dog).delete()
-        release_dropped_weekdays(dog, old_days, actor=actor, regular_until=now)
+        release_dropped_weekdays(dog, old_days, actor=actor)
         return
-    release_dropped_weekdays(dog, old_days - new_days, actor=actor, regular_until=now)
+    release_dropped_weekdays(dog, old_days - new_days, actor=actor)
 
 
 _WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -1609,6 +1606,12 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             DailyDogAssignment.objects.filter(
                 dog=instance.dog, date=instance.new_date, status='REMOVED',
             ).delete()
+            # An approved request makes the day an extra day, even if the
+            # board already had it as a regular one left over from a weekday
+            # the dog has since dropped.
+            DailyDogAssignment.objects.filter(
+                dog=instance.dog, date=instance.new_date,
+            ).update(booking=DailyDogAssignment.BOOKING_EXTRA)
 
         if (
             past_added_by is not None
@@ -1619,7 +1622,8 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             # fabricating who drove the dog on a day that already happened.
             assignment, created = DailyDogAssignment.objects.get_or_create(
                 dog=instance.dog, date=instance.new_date,
-                defaults={'staff_member': past_added_by, 'status': 'UNASSIGNED'},
+                defaults={'staff_member': past_added_by, 'status': 'UNASSIGNED',
+                          'booking': DailyDogAssignment.BOOKING_EXTRA},
             )
             if not created and assignment.status == 'REMOVED':
                 assignment.status = 'UNASSIGNED'
@@ -2829,6 +2833,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         )
 
         house = house_staff_account()
+        from .scheduling import effective_change_actions
+        adds_by_date, _ = effective_change_actions(target_date, target_date, dog_ids=list(candidates))
+        added_ids = adds_by_date.get(target_date, set())
         to_create = []
         for dog, entry in candidates.values():
             if dog.schedule_type == 'ad_hoc':
@@ -2858,6 +2865,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 date=target_date,
                 status=status,
                 sort_order=entry.sort_order if entry else 0,
+                booking=(DailyDogAssignment.BOOKING_EXTRA if dog.id in added_ids
+                         else DailyDogAssignment.BOOKING_REGULAR),
             ))
 
         if not to_create:

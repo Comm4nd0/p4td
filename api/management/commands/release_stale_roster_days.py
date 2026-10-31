@@ -1,39 +1,18 @@
 from django.core.management.base import BaseCommand
 
-from api.dog_changes import _WEEKDAYS
-from api.models import Dog, DogChangeLog
-from api.scheduling import release_dropped_weekdays
-
-
-def _dropped_at(dog, weekday):
-    """When ``weekday`` last stopped being one of ``dog``'s regular days, from
-    the field diffs on its trail (daycare_days reads "Mon, Fri"); None when the
-    trail doesn't show it."""
-    name = _WEEKDAYS[weekday - 1]
-    entries = (
-        DogChangeLog.objects.filter(dog=dog, category='DOG')
-        .order_by('-created_at').values_list('created_at', 'changes')
-    )
-    for created_at, changes in entries:
-        for change in changes or []:
-            field = change.get('field')
-            old, new = change.get('old') or '', change.get('new') or ''
-            if field == 'daycare_days' and name in old.split(', ') and name not in new.split(', '):
-                return created_at
-            if field == 'schedule_type' and new == 'Ad Hoc' and old != 'Ad Hoc':
-                return created_at
-    return None
+from api.models import Dog
+from api.scheduling import effective_change_actions, release_dropped_weekdays
 
 
 class Command(BaseCommand):
     help = (
-        "Take dogs off future days booked from a regular weekday they no longer "
-        "come on. Until the schedule edit did this itself, changing a dog's "
+        "Take dogs off future regular days on a weekday they no longer come "
+        "on. Until the schedule edit did this itself, changing a dog's "
         "regular days left the days the dashboard had already booked in place, "
         "so the profile said Monday while Friday was still on the board (and "
-        "would have been invoiced). Same rules as the edit: strictly future, "
-        "not started, not boarding, not an approved extra day, not a day staff "
-        "put the dog on by hand after it stopped being a regular day. Lists first; nothing is deleted without --apply."
+        "would have been invoiced). Same rules as the edit: only regular days "
+        "(never an extra day), strictly future, not started, not boarding, not "
+        "an approved extra day. Lists first; nothing is deleted without --apply."
     )
 
     def add_arguments(self, parser):
@@ -51,41 +30,45 @@ class Command(BaseCommand):
 
         from api.models import DailyDogAssignment
 
-        dogs = Dog.objects.exclude(schedule_type='ad_hoc').order_by('name')
+        dogs = Dog.objects.order_by('name')
         if options['dog'] is not None:
             dogs = dogs.filter(pk=options['dog'])
 
         today = timezone.localdate()
         total = 0
         for dog in dogs:
-            stale_weekdays = set(range(1, 8)) - {int(d) for d in (dog.daycare_days or [])}
+            if dog.schedule_type == 'ad_hoc':
+                stale_weekdays = set(range(1, 8))
+            else:
+                stale_weekdays = set(range(1, 8)) - {int(d) for d in (dog.daycare_days or [])}
             if not stale_weekdays:
                 continue
             if not options['apply']:
-                rows = DailyDogAssignment.objects.filter(
+                rows = list(DailyDogAssignment.objects.filter(
                     dog=dog, date__gt=today, date__iso_week_day__in=stale_weekdays,
+                    booking=DailyDogAssignment.BOOKING_REGULAR,
                     from_boarding=False, status__in=('ASSIGNED', 'UNASSIGNED'),
-                ).order_by('date')
+                ).select_related('staff_member').order_by('date'))
+                if not rows:
+                    continue
+                adds_by_date, _ = effective_change_actions(
+                    rows[0].date, rows[-1].date, dog_ids=[dog.id])
                 for row in rows:
+                    if dog.id in adds_by_date.get(row.date, set()):
+                        continue
                     total += 1
+                    who = row.staff_member.first_name or row.staff_member.username if row.staff_member else 'nobody'
                     self.stdout.write(
                         f"[dry-run] {dog.name} (#{dog.id}, regular days "
                         f"{sorted(int(d) for d in dog.daycare_days or [])}): "
-                        f"{row.date:%a %d/%m/%Y} {row.status} — candidate; "
-                        f"--apply keeps it if it is an approved extra day or was booked by hand"
+                        f"{row.date:%a %d/%m/%Y} {row.status} with {who}"
                     )
                 continue
-            # Per weekday: a day staff put the dog on by hand counts only
-            # once that weekday had stopped being a regular day.
-            released = []
-            for weekday in sorted(stale_weekdays):
-                released += release_dropped_weekdays(
-                    dog, {weekday}, regular_until=_dropped_at(dog, weekday))
-            for day in sorted(released):
+            for day in release_dropped_weekdays(dog, stale_weekdays):
                 total += 1
                 self.stdout.write(f"Released {dog.name} (#{dog.id}) from {day:%a %d/%m/%Y}")
 
         if options['apply']:
             self.stdout.write(self.style.SUCCESS(f"Released {total} day(s)."))
         else:
-            self.stdout.write(f"[dry-run] {total} candidate day(s). Run with --apply to release them.")
+            self.stdout.write(f"[dry-run] {total} day(s) to release. Run with --apply to release them.")

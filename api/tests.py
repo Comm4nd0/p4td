@@ -1637,9 +1637,9 @@ class WeekdayRosterTests(TestCase):
         mk = lambda days, **kw: DailyDogAssignment.objects.create(  # noqa: E731
             dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=days),
             **kw)
-        # Days staff gave a driver while W was still a regular day are the
-        # routine, not hand-bookings: Bonnie, moved from Mondays to Fridays,
-        # kept every Monday someone had already assigned or reassigned.
+        # Regular days staff gave a driver are still regular days: Bonnie,
+        # moved from Mondays to Fridays, kept every Monday someone had
+        # already assigned or reassigned.
         staffed, moved = mk(35), mk(49)
         self.stale = [mk(7), mk(14, status='UNASSIGNED'), staffed, moved]
         keep = {
@@ -1648,8 +1648,11 @@ class WeekdayRosterTests(TestCase):
             'started': mk(21, status='PICKED_UP'),
             'boarding': mk(28, from_boarding=True),
             'extra_day': mk(42),
+            'added_by_staff': mk(56, booking=DailyDogAssignment.BOOKING_EXTRA),
             'other_weekday': mk(8),
         }
+        for row in self.stale:
+            self.assertEqual(row.booking, DailyDogAssignment.BOOKING_REGULAR)
         self._schedule_log(f"Assigned Rex to Alice for {staffed.date:%d/%m/%Y}")
         self._schedule_log(f"Moved Rex from Alice to Bob for {moved.date:%d/%m/%Y}")
         DateChangeRequest.objects.create(
@@ -1752,34 +1755,182 @@ class WeekdayRosterTests(TestCase):
         self.assertIn('Released 4 day(s).', out.getvalue())
         self._assert_dropped_weekday_released(keep)
 
-    def test_release_stale_roster_days_keeps_days_put_on_after_the_change(self):
+    def test_release_stale_roster_days_keeps_extra_days(self):
         from io import StringIO
-        # Once W stopped being a regular day, a staff member putting the dog
-        # on a W by hand is a real extra day; moving a stale row to another
-        # driver is not.
+        # Once W stopped being a regular day, a dog staff put on a W is an
+        # extra day — and stays one when it is given another driver.
         W = self.today_weekday
         other_weekday = (W % 7) + 1
-        self.dog.daycare_days = [W]
-        self.dog.save()
+        regular = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=7))
         self.dog.daycare_days = [other_weekday]
         self.dog.save()
-        dropped = DogChangeLog.objects.filter(dog=self.dog, category='DOG').latest('created_at')
-        mk = lambda days: DailyDogAssignment.objects.create(  # noqa: E731
-            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=days))
-        before, by_hand, moved = mk(7), mk(14), mk(21)
-        for row, summary in (
-            (before, f'Assigned Rex to Alice for {before.date:%d/%m/%Y}'),
-            (by_hand, f'Assigned Rex to Alice for {by_hand.date:%d/%m/%Y}'),
-            (moved, f'Moved Rex from Alice to Bob for {moved.date:%d/%m/%Y}'),
-        ):
-            entry = self._schedule_log(summary)
-            shift = timedelta(hours=-1) if row is before else timedelta(hours=1)
-            DogChangeLog.objects.filter(pk=entry.pk).update(created_at=dropped.created_at + shift)
+        extra = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=14))
+        self.assertEqual(regular.booking, DailyDogAssignment.BOOKING_REGULAR)
+        self.assertEqual(extra.booking, DailyDogAssignment.BOOKING_EXTRA)
+        extra.staff_member = self.staff_b
+        extra.save()
+
+        out = StringIO()
+        call_command('release_stale_roster_days', stdout=out)
+        self.assertIn(f'{regular.date:%d/%m/%Y}', out.getvalue())
+        self.assertNotIn(f'{extra.date:%d/%m/%Y}', out.getvalue())
+        self.assertIn('[dry-run] 1 day(s)', out.getvalue())
 
         call_command('release_stale_roster_days', '--apply', stdout=StringIO())
-        self.assertFalse(DailyDogAssignment.objects.filter(pk=before.pk).exists())
-        self.assertTrue(DailyDogAssignment.objects.filter(pk=by_hand.pk).exists())
-        self.assertFalse(DailyDogAssignment.objects.filter(pk=moved.pk).exists())
+        self.assertFalse(DailyDogAssignment.objects.filter(pk=regular.pk).exists())
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=extra.pk).exists())
+
+    # --- regular or extra day ---
+
+    def _non_regular_date(self):
+        day = self.today + timedelta(days=1)
+        while day.isoweekday() in self.dog.daycare_days or day.isoweekday() > 5:
+            day += timedelta(days=1)
+        return day
+
+    def test_assigning_on_a_non_regular_day_books_an_extra_day(self):
+        day = self._non_regular_date()
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id], 'date': day.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        row = DailyDogAssignment.objects.get(dog=self.dog, date=day)
+        self.assertEqual(row.booking, DailyDogAssignment.BOOKING_EXTRA)
+
+    def test_materialised_roster_day_is_a_regular_day(self):
+        day = self.today + timedelta(days=7)
+        while day.isoweekday() > 5:
+            day += timedelta(days=1)
+        self.dog.daycare_days = [day.isoweekday()]
+        self.dog.save()
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=day.isoweekday(), staff_member=self.staff_a)
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/today/?date={day.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        row = DailyDogAssignment.objects.get(dog=self.dog, date=day)
+        self.assertEqual(row.booking, DailyDogAssignment.BOOKING_REGULAR)
+
+    def test_approving_an_extra_day_marks_a_leftover_regular_day_extra(self):
+        # The board still had a regular day on a weekday the dog has since
+        # dropped; the owner then asks for that very day as an extra one.
+        day = self.today + timedelta(days=7)
+        row = DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff_a, date=day)
+        self.dog.daycare_days = [(self.today_weekday % 7) + 1]
+        self.dog.save()
+        self.staff_a.profile.can_manage_requests = True
+        self.staff_a.profile.save()
+        req = DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=day, status='PENDING')
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post(f'/api/date-change-requests/{req.id}/change_status/', {'status': 'APPROVED'}, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row.refresh_from_db()
+        self.assertEqual(row.booking, DailyDogAssignment.BOOKING_EXTRA)
+
+    def _move_dates(self):
+        """A future regular weekday R and a non-regular weekday N to move it to."""
+        regular = self.today + timedelta(days=7)
+        while regular.isoweekday() > 5:
+            regular += timedelta(days=1)
+        moved_to = regular + timedelta(days=1 if regular.isoweekday() < 5 else 3)
+        self.dog.daycare_days = [regular.isoweekday()]
+        self.dog.save()
+        DogWeekdayPickup.objects.create(dog=self.dog, weekday=regular.isoweekday(), staff_member=self.staff_a)
+        return regular, moved_to
+
+    def _assign(self, day):
+        resp = self.client.post('/api/daily-assignments/assign_to_me/', {
+            'dog_ids': [self.dog.id], 'date': day.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        return DailyDogAssignment.objects.get(dog=self.dog, date=day)
+
+    def test_moving_a_day_cancels_it_and_books_an_extra_day(self):
+        # A move is a cancelled day plus a new one: the old date leaves the
+        # board, the new date is an extra day and survives a schedule change.
+        regular, moved_to = self._move_dates()
+        self.client.login(username='staffa', password='pw')
+        self.client.get(f'/api/daily-assignments/today/?date={regular.isoformat()}')
+        old = DailyDogAssignment.objects.get(dog=self.dog, date=regular)
+        self.assertEqual(old.booking, DailyDogAssignment.BOOKING_REGULAR)
+
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog.id, 'request_type': 'CHANGE',
+            'original_date': regular.isoformat(), 'new_date': moved_to.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+
+        self.client.get(f'/api/daily-assignments/today/?date={regular.isoformat()}')
+        self.assertFalse(DailyDogAssignment.objects.filter(dog=self.dog, date=regular).exists())
+        new = self._assign(moved_to)
+        self.assertEqual(new.booking, DailyDogAssignment.BOOKING_EXTRA)
+
+        # Moving the dog's regular day onto the new weekday later keeps the
+        # moved day; dropping it keeps it too.
+        self.client.patch(f'/api/dogs/{self.dog.id}/', {'daycare_days': [moved_to.isoweekday()]}, format='json')
+        self.client.patch(f'/api/dogs/{self.dog.id}/', {'daycare_days': [regular.isoweekday()]}, format='json')
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=new.pk).exists())
+
+    def test_moving_a_day_onto_a_regular_weekday_books_an_extra_day(self):
+        # Moved onto the same weekday another week — the dog's regular
+        # weekday, but the day is still the moved one, not the routine.
+        regular, _ = self._move_dates()
+        later = regular + timedelta(days=7)
+        DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=later, status='REMOVED')
+        self.client.login(username='staffa', password='pw')
+        resp = self.client.post('/api/date-change-requests/', {
+            'dog': self.dog.id, 'request_type': 'CHANGE',
+            'original_date': regular.isoformat(), 'new_date': later.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        new = self._assign(later)
+        self.assertEqual(new.booking, DailyDogAssignment.BOOKING_EXTRA)
+
+    def test_staff_moving_a_day_by_hand(self):
+        # Remove from the old day, put on the new one: the old day stays a
+        # cancelled regular day, the new one is an extra day.
+        regular, moved_to = self._move_dates()
+        self.client.login(username='staffa', password='pw')
+        self.client.get(f'/api/daily-assignments/today/?date={regular.isoformat()}')
+        resp = self.client.post('/api/daily-assignments/mark_removed/', {
+            'dog_id': self.dog.id, 'date': regular.isoformat(),
+        }, format='json')
+        self.assertEqual(resp.status_code, 204)
+        old = DailyDogAssignment.objects.get(dog=self.dog, date=regular)
+        self.assertEqual((old.status, old.booking), ('REMOVED', DailyDogAssignment.BOOKING_REGULAR))
+        new = self._assign(moved_to)
+        self.assertEqual(new.booking, DailyDogAssignment.BOOKING_EXTRA)
+
+    def test_backfill_reads_the_schedule_when_the_day_was_booked(self):
+        import importlib
+        from django.apps import apps
+        backfill = importlib.import_module('api.migrations.0107_dailydogassignment_booking').backfill_booking
+        W = self.today_weekday
+        other_weekday = (W % 7) + 1
+        booked_while_regular = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=7))
+        self.dog.daycare_days = [other_weekday]
+        self.dog.save()  # logs daycare_days "W" -> "W+1"
+        added_after = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=14))
+        requested = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=8))
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY', new_date=requested.date, status='APPROVED')
+        on_regular = DailyDogAssignment.objects.create(
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=15))
+        DailyDogAssignment.objects.update(booking='')
+
+        backfill(apps, None)
+        kinds = dict(DailyDogAssignment.objects.values_list('pk', 'booking'))
+        self.assertEqual(kinds[booked_while_regular.pk], 'REGULAR')
+        self.assertEqual(kinds[added_after.pk], 'EXTRA')
+        self.assertEqual(kinds[requested.pk], 'EXTRA')
+        self.assertEqual(kinds[on_regular.pk], 'REGULAR')
 
     # --- reassign scope ---
 
