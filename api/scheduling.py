@@ -440,9 +440,8 @@ def sync_boarding_daycare_assignments(boarding_request):
 
     arrival = boarding_request.start_date
     arriving = boarding_arrival_dog_ids(dog_ids, arrival)
-    brings_default = dict(
-        Dog.objects.filter(id__in=dog_ids).values_list('id', 'owner_brings_default')
-    )
+    dogs = Dog.objects.in_bulk(dog_ids)
+    brings_default = {dog_id: dog.owner_brings_default for dog_id, dog in dogs.items()}
 
     existing = {
         (row.dog_id, row.date): row
@@ -471,6 +470,7 @@ def sync_boarding_daycare_assignments(boarding_request):
                     date=day,
                     status='UNASSIGNED' if collect else 'ASSIGNED',
                     from_boarding=True,
+                    booking=DailyDogAssignment.booking_for(dogs[dog_id], day),
                 ))
                 touched += 1
                 continue
@@ -606,18 +606,17 @@ def materialize_boarding_for_date(target_date):
         return 0
 
     arriving = boarding_arrival_dog_ids(missing, target_date)
-    brings_default = dict(
-        Dog.objects.filter(id__in=missing).values_list('id', 'owner_brings_default')
-    )
+    dogs = Dog.objects.in_bulk(missing)
     to_create = []
-    for dog_id in missing:
-        collect = dog_id in arriving and not brings_default.get(dog_id, False)
+    for dog_id, dog in dogs.items():
+        collect = dog_id in arriving and not dog.owner_brings_default
         to_create.append(DailyDogAssignment(
             dog_id=dog_id,
             staff_member=None if collect else house,
             date=target_date,
             status='UNASSIGNED' if collect else 'ASSIGNED',
             from_boarding=True,
+            booking=DailyDogAssignment.booking_for(dog, target_date),
         ))
     if not to_create:
         return 0
@@ -628,9 +627,9 @@ def materialize_boarding_for_date(target_date):
 WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 
-def release_dropped_weekdays(dog, weekdays, *, actor=None, regular_until=None):
+def release_dropped_weekdays(dog, weekdays, *, actor=None):
     """A dog stopped coming on ``weekdays``: take it off the weekly roster for
-    them and off every future day already booked from that roster.
+    them and off every future regular day already booked from that roster.
 
     Called when a dog's regular days change (``DogViewSet.perform_update`` and
     an approved owner profile-change request) and by the
@@ -641,29 +640,20 @@ def release_dropped_weekdays(dog, weekdays, *, actor=None, regular_until=None):
     the staff dashboard still had it booked in on Friday, and billing charges
     booked days whether or not the dog turns up.
 
-    Only rows that are plainly the old regular day go: strictly future (today's
-    board is operational — Remove takes a dog off it), not yet started
-    (``ASSIGNED``/``UNASSIGNED``), not booked from a boarding stay, not an
-    approved ADD_DAY/CHANGE onto that date, and not a day a staff member put
-    the dog on by hand *after the weekday stopped being one of its regular
-    days* — a ``SCHEDULE`` entry naming the date in the wording that puts a
-    dog on a day ("Assigned … for …", "Put … back on …"), written after
-    ``regular_until``. Before that moment the weekday was a regular day, so
-    those entries are staff giving a booked day a driver, not booking it:
-    Bonnie, moved from Mondays to Fridays, kept every Monday someone had
-    already assigned a driver for. Reassigns, transport changes and route
-    plans only ever touch a row that is already there, so they never count.
-
-    ``regular_until`` is when the weekdays stopped being regular: the edit
-    passes the moment of the edit (so nothing counts); the repair command
-    passes the dog's last logged schedule change. None means unknown — then
-    any put-on entry keeps the row.
+    A day is either one of the dog's regular days or an extra day
+    (``DailyDogAssignment.booking``), and only regular days go: strictly
+    future (today's board is operational — Remove takes a dog off it), not
+    yet started (``ASSIGNED``/``UNASSIGNED``), not booked from a boarding
+    stay, and not an approved ADD_DAY/CHANGE onto that date. Giving a
+    regular day a driver, moving it or routing it leaves it a regular day,
+    so it goes too: Bonnie, moved from Mondays to Fridays, used to keep every
+    Monday someone had already assigned a driver for.
 
     Returns the dates released, oldest first, after logging them on the dog's
     trail under ``SCHEDULE``.
     """
     from .dog_changes import log_change
-    from .models import DailyDogAssignment, DogChangeLog, DogWeekdayPickup
+    from .models import DailyDogAssignment, DogWeekdayPickup
 
     weekdays = {int(d) for d in weekdays}
     if not weekdays:
@@ -676,6 +666,7 @@ def release_dropped_weekdays(dog, weekdays, *, actor=None, regular_until=None):
             dog=dog,
             date__gt=today,
             date__iso_week_day__in=weekdays,
+            booking=DailyDogAssignment.BOOKING_REGULAR,
             from_boarding=False,
             status__in=('ASSIGNED', 'UNASSIGNED'),
         ).order_by('date')
@@ -686,25 +677,9 @@ def release_dropped_weekdays(dog, weekdays, *, actor=None, regular_until=None):
     adds_by_date, _ = effective_change_actions(
         candidates[0].date, candidates[-1].date, dog_ids=[dog.id],
     )
-    hand_booked = set()
-    summaries = DogChangeLog.objects.filter(
-        Q(summary__startswith='Assigned ') | Q(summary__startswith='Put '),
-        dog=dog, category='SCHEDULE',
-    )
-    if regular_until is not None:
-        summaries = summaries.filter(created_at__gt=regular_until)
-    summaries = list(summaries.values_list('summary', flat=True))
-    if summaries:
-        by_label = {row.date.strftime('%d/%m/%Y'): row.date for row in candidates}
-        for summary in summaries:
-            for label, day in by_label.items():
-                if label in summary:
-                    hand_booked.add(day)
-
     released = [
         row for row in candidates
         if dog.id not in adds_by_date.get(row.date, set())
-        and row.date not in hand_booked
     ]
     if not released:
         return []

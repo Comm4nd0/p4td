@@ -242,11 +242,15 @@ Additional non-router endpoints:
   writers (`DogViewSet.perform_update` and an approved
   `dog-profile-changes/` request) go through `_apply_schedule_change` →
   `scheduling.release_dropped_weekdays`: roster entries for the dropped
-  weekdays go, and so do future `ASSIGNED`/`UNASSIGNED` rows on them, except
-  boarding rows and approved extra days. Assigning, reassigning or routing a
-  dog on a day that *was* regular is the routine, not a hand-booking, so it
-  never keeps the day (`regular_until`); only the repair command honours an
-  "Assigned …"/"Put … back on …" entry written after the weekday was dropped.
+  weekdays go, and so do future `ASSIGNED`/`UNASSIGNED` regular days on
+  them, except boarding rows and approved extra days. **A day is a regular
+  day or an extra day** (`DailyDogAssignment.booking`, fixed when the row is
+  created by `DailyDogAssignment.booking_for` — REGULAR on one of the dog's
+  regular weekdays, otherwise EXTRA; an approved ADD_DAY/CHANGE makes its
+  date EXTRA); a cancelled day of either kind is the same row `REMOVED`.
+  Giving a day a driver, moving it, routing it or changing its transport
+  never changes its kind, and nothing reads the activity log to guess it.
+  `bulk_create` skips `save()`, so set `booking` on any row built that way.
   Today's row stays —
   Remove handles the live board. Logged under `SCHEDULE`. Add the next
   schedule writer behind the same helper.
@@ -530,7 +534,7 @@ All commands live in `api/management/commands/` (ignore `__init__.py`).
 | `python manage.py send_end_of_day_alerts` | Push an end-of-day exception summary (dogs never picked up, still out with the team, or never assigned to a driver) to staff with `receives_business_alerts`. Silent when everything got home. `--date` | Daily 5:30pm |
 | `python manage.py send_tomorrow_changes` | Push tomorrow's changes to the routine (`scheduling.day_changes`) to everyone working tomorrow plus `receives_business_alerts` staff — their own run first — and remind owners of an extra day or a cancellation. Silent when nothing differs. `--date`, `--dry-run` | Daily 6:00pm |
 | `python manage.py prune_feed_media` | Delete old feed media (GroupMedia) and optionally remove orphaned files. Never touches dog gallery photos — see [Feed Media Pruning](#feed-media-pruning) | Weekly, Sun 3am (with `--include-orphans`) |
-| `python manage.py release_stale_roster_days` | Take dogs off future days still booked from a regular weekday they no longer come on (rows the dashboard materialised before the schedule edit released them itself — see the roster note under Backend). Lists by default; `--apply` deletes, `--dog <id>` narrows. Same exclusions as the edit | — |
+| `python manage.py release_stale_roster_days` | Take dogs off future regular days (`booking=REGULAR`) on a weekday they no longer come on — ad-hoc dogs on every weekday (rows the dashboard materialised before the schedule edit released them itself — see the roster note under Backend). Lists by default; `--apply` deletes, `--dog <id>` narrows. Same exclusions as the edit | — |
 | `python manage.py prune_device_tokens` | Delete stale push-notification device tokens not refreshed in N days (default 90); live devices re-register on launch. `--days`, `--dry-run` | — |
 | `python manage.py prune_auth_tokens` | Delete DRF auth tokens older than N days so an abandoned device's token can't be reused indefinitely (tokens never expire on their own). `--days`, `--dry-run` | — |
 | `python manage.py generate_monthly_invoices` | Generate draft invoices for the current month in advance (its booked days plus last month's unbilled extras); notifies staff with `can_manage_payments` to review/send. Idempotent; `--year`, `--month` | Monthly, 1st 6:00am |

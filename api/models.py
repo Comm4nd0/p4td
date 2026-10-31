@@ -481,6 +481,24 @@ class DailyDogAssignment(models.Model):
     # cancelled stay take its own bookings back out again without touching the
     # rows staff created by hand.
     from_boarding = models.BooleanField(default=False, help_text='This attendance was booked automatically from an approved boarding stay.')
+    # A day is one of the dog's regular days (booked from its weekly
+    # schedule) or an extra day (added on top of it: an approved request,
+    # Add Dog to Day, assigning it on a day it doesn't normally come, a route
+    # plan putting it on). Fixed when the row is created — giving a day a
+    # driver, moving it or changing its transport never changes which it is.
+    # A cancelled day of either kind is the same row with status REMOVED.
+    # Dropping a weekday from the schedule takes only REGULAR days off it
+    # (scheduling.release_dropped_weekdays).
+    BOOKING_REGULAR = 'REGULAR'
+    BOOKING_EXTRA = 'EXTRA'
+    BOOKING_CHOICES = [
+        (BOOKING_REGULAR, 'Regular day'),
+        (BOOKING_EXTRA, 'Extra day'),
+    ]
+    booking = models.CharField(
+        max_length=10, choices=BOOKING_CHOICES,
+        help_text="Regular day (from the dog's weekly schedule) or extra day (added on top of it). "
+                  "Set from the dog's schedule when the row is created.")
     # One-day use of one of the dog's alternative addresses (DogAddress) for a
     # leg: the morning pickup, the evening drop-off, or both. Null = the dog's
     # own address. SET_NULL so deleting an address never deletes attendance;
@@ -508,6 +526,22 @@ class DailyDogAssignment(models.Model):
         # been deleted (SET_NULL above).
         who = self.staff_member.username if self.staff_member else 'nobody'
         return f"{self.dog.name} assigned to {who} on {self.date}"
+
+    @staticmethod
+    def booking_for(dog, day):
+        """REGULAR when ``day`` is one of ``dog``'s regular weekdays, else
+        EXTRA — what a new row on that day is."""
+        from .scheduling import is_regular_day
+        if is_regular_day(dog, day.isoweekday()):
+            return DailyDogAssignment.BOOKING_REGULAR
+        return DailyDogAssignment.BOOKING_EXTRA
+
+    def save(self, *args, **kwargs):
+        # Every create path goes through here except bulk_create, whose
+        # callers set booking themselves.
+        if not self.booking:
+            self.booking = self.booking_for(self.dog, self.date)
+        super().save(*args, **kwargs)
 
     # The effective_* helpers below dereference self.dog, so any queryset that
     # serializes or iterates assignments must select_related('dog') (and
