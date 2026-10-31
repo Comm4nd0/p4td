@@ -1,7 +1,28 @@
 from django.core.management.base import BaseCommand
 
-from api.models import Dog
+from api.dog_changes import _WEEKDAYS
+from api.models import Dog, DogChangeLog
 from api.scheduling import release_dropped_weekdays
+
+
+def _dropped_at(dog, weekday):
+    """When ``weekday`` last stopped being one of ``dog``'s regular days, from
+    the field diffs on its trail (daycare_days reads "Mon, Fri"); None when the
+    trail doesn't show it."""
+    name = _WEEKDAYS[weekday - 1]
+    entries = (
+        DogChangeLog.objects.filter(dog=dog, category='DOG')
+        .order_by('-created_at').values_list('created_at', 'changes')
+    )
+    for created_at, changes in entries:
+        for change in changes or []:
+            field = change.get('field')
+            old, new = change.get('old') or '', change.get('new') or ''
+            if field == 'daycare_days' and name in old.split(', ') and name not in new.split(', '):
+                return created_at
+            if field == 'schedule_type' and new == 'Ad Hoc' and old != 'Ad Hoc':
+                return created_at
+    return None
 
 
 class Command(BaseCommand):
@@ -12,7 +33,7 @@ class Command(BaseCommand):
         "so the profile said Monday while Friday was still on the board (and "
         "would have been invoiced). Same rules as the edit: strictly future, "
         "not started, not boarding, not an approved extra day, not a day staff "
-        "put the dog on by hand. Lists first; nothing is deleted without --apply."
+        "put the dog on by hand after it stopped being a regular day. Lists first; nothing is deleted without --apply."
     )
 
     def add_arguments(self, parser):
@@ -54,8 +75,13 @@ class Command(BaseCommand):
                         f"--apply keeps it if it is an approved extra day or was booked by hand"
                     )
                 continue
-            released = release_dropped_weekdays(dog, stale_weekdays)
-            for day in released:
+            # Per weekday: a day staff put the dog on by hand counts only
+            # once that weekday had stopped being a regular day.
+            released = []
+            for weekday in sorted(stale_weekdays):
+                released += release_dropped_weekdays(
+                    dog, {weekday}, regular_until=_dropped_at(dog, weekday))
+            for day in sorted(released):
                 total += 1
                 self.stdout.write(f"Released {dog.name} (#{dog.id}) from {day:%a %d/%m/%Y}")
 

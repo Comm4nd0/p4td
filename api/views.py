@@ -189,12 +189,15 @@ def _apply_schedule_change(dog, old_daycare_days, old_schedule_type, *, actor):
 
     old_days = {int(d) for d in (old_daycare_days or [])}
     new_days = {int(d) for d in (dog.daycare_days or [])}
+    # Until now these weekdays were regular days, so every booking on them was
+    # the routine — none of it was put on by hand.
+    now = timezone.now()
     if old_schedule_type != 'ad_hoc' and dog.schedule_type == 'ad_hoc':
         # The roster must be empty for an ad-hoc dog, whatever its old days said.
         DogWeekdayPickup.objects.filter(dog=dog).delete()
-        release_dropped_weekdays(dog, old_days, actor=actor)
+        release_dropped_weekdays(dog, old_days, actor=actor, regular_until=now)
         return
-    release_dropped_weekdays(dog, old_days - new_days, actor=actor)
+    release_dropped_weekdays(dog, old_days - new_days, actor=actor, regular_until=now)
 
 
 _WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']

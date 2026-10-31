@@ -1637,25 +1637,32 @@ class WeekdayRosterTests(TestCase):
         mk = lambda days, **kw: DailyDogAssignment.objects.create(  # noqa: E731
             dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=days),
             **kw)
-        self.stale = [mk(7), mk(14, status='UNASSIGNED')]
+        # Days staff gave a driver while W was still a regular day are the
+        # routine, not hand-bookings: Bonnie, moved from Mondays to Fridays,
+        # kept every Monday someone had already assigned or reassigned.
+        staffed, moved = mk(35), mk(49)
+        self.stale = [mk(7), mk(14, status='UNASSIGNED'), staffed, moved]
         keep = {
             'today': mk(0),
             'past': mk(-7, status='DROPPED_OFF'),
             'started': mk(21, status='PICKED_UP'),
             'boarding': mk(28, from_boarding=True),
-            'by_hand': mk(35),
             'extra_day': mk(42),
             'other_weekday': mk(8),
         }
-        DogChangeLog.objects.create(
-            dog=self.dog, dog_name=self.dog.name, category='SCHEDULE', action='ASSIGNED',
-            summary=f"Assigned Rex to Alice for {keep['by_hand'].date:%d/%m/%Y}",
-        )
+        self._schedule_log(f"Assigned Rex to Alice for {staffed.date:%d/%m/%Y}")
+        self._schedule_log(f"Moved Rex from Alice to Bob for {moved.date:%d/%m/%Y}")
         DateChangeRequest.objects.create(
             dog=self.dog, request_type='ADD_DAY', new_date=keep['extra_day'].date,
             status='APPROVED',
         )
         return keep
+
+    def _schedule_log(self, summary):
+        return DogChangeLog.objects.create(
+            dog=self.dog, dog_name=self.dog.name, category='SCHEDULE', action='ASSIGNED',
+            summary=summary,
+        )
 
     def _assert_dropped_weekday_released(self, keep):
         for row in self.stale:
@@ -1742,8 +1749,37 @@ class WeekdayRosterTests(TestCase):
 
         out = StringIO()
         call_command('release_stale_roster_days', '--apply', stdout=out)
-        self.assertIn('Released 2 day(s).', out.getvalue())
+        self.assertIn('Released 4 day(s).', out.getvalue())
         self._assert_dropped_weekday_released(keep)
+
+    def test_release_stale_roster_days_keeps_days_put_on_after_the_change(self):
+        from io import StringIO
+        # Once W stopped being a regular day, a staff member putting the dog
+        # on a W by hand is a real extra day; moving a stale row to another
+        # driver is not.
+        W = self.today_weekday
+        other_weekday = (W % 7) + 1
+        self.dog.daycare_days = [W]
+        self.dog.save()
+        self.dog.daycare_days = [other_weekday]
+        self.dog.save()
+        dropped = DogChangeLog.objects.filter(dog=self.dog, category='DOG').latest('created_at')
+        mk = lambda days: DailyDogAssignment.objects.create(  # noqa: E731
+            dog=self.dog, staff_member=self.staff_a, date=self.today + timedelta(days=days))
+        before, by_hand, moved = mk(7), mk(14), mk(21)
+        for row, summary in (
+            (before, f'Assigned Rex to Alice for {before.date:%d/%m/%Y}'),
+            (by_hand, f'Assigned Rex to Alice for {by_hand.date:%d/%m/%Y}'),
+            (moved, f'Moved Rex from Alice to Bob for {moved.date:%d/%m/%Y}'),
+        ):
+            entry = self._schedule_log(summary)
+            shift = timedelta(hours=-1) if row is before else timedelta(hours=1)
+            DogChangeLog.objects.filter(pk=entry.pk).update(created_at=dropped.created_at + shift)
+
+        call_command('release_stale_roster_days', '--apply', stdout=StringIO())
+        self.assertFalse(DailyDogAssignment.objects.filter(pk=before.pk).exists())
+        self.assertTrue(DailyDogAssignment.objects.filter(pk=by_hand.pk).exists())
+        self.assertFalse(DailyDogAssignment.objects.filter(pk=moved.pk).exists())
 
     # --- reassign scope ---
 

@@ -628,7 +628,7 @@ def materialize_boarding_for_date(target_date):
 WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 
-def release_dropped_weekdays(dog, weekdays, *, actor=None):
+def release_dropped_weekdays(dog, weekdays, *, actor=None, regular_until=None):
     """A dog stopped coming on ``weekdays``: take it off the weekly roster for
     them and off every future day already booked from that roster.
 
@@ -645,9 +645,19 @@ def release_dropped_weekdays(dog, weekdays, *, actor=None):
     board is operational — Remove takes a dog off it), not yet started
     (``ASSIGNED``/``UNASSIGNED``), not booked from a boarding stay, not an
     approved ADD_DAY/CHANGE onto that date, and not a day a staff member put
-    the dog on by hand (a ``SCHEDULE`` log entry naming the date — the
-    ``assign_dogs``/``assign_to_me`` wording, or a reassign or transport
-    change for that day). Materialised rows write no such entry.
+    the dog on by hand *after the weekday stopped being one of its regular
+    days* — a ``SCHEDULE`` entry naming the date in the wording that puts a
+    dog on a day ("Assigned … for …", "Put … back on …"), written after
+    ``regular_until``. Before that moment the weekday was a regular day, so
+    those entries are staff giving a booked day a driver, not booking it:
+    Bonnie, moved from Mondays to Fridays, kept every Monday someone had
+    already assigned a driver for. Reassigns, transport changes and route
+    plans only ever touch a row that is already there, so they never count.
+
+    ``regular_until`` is when the weekdays stopped being regular: the edit
+    passes the moment of the edit (so nothing counts); the repair command
+    passes the dog's last logged schedule change. None means unknown — then
+    any put-on entry keeps the row.
 
     Returns the dates released, oldest first, after logging them on the dog's
     trail under ``SCHEDULE``.
@@ -678,8 +688,12 @@ def release_dropped_weekdays(dog, weekdays, *, actor=None):
     )
     hand_booked = set()
     summaries = DogChangeLog.objects.filter(
+        Q(summary__startswith='Assigned ') | Q(summary__startswith='Put '),
         dog=dog, category='SCHEDULE',
-    ).values_list('summary', flat=True)
+    )
+    if regular_until is not None:
+        summaries = summaries.filter(created_at__gt=regular_until)
+    summaries = list(summaries.values_list('summary', flat=True))
     if summaries:
         by_label = {row.date.strftime('%d/%m/%Y'): row.date for row in candidates}
         for summary in summaries:

@@ -243,8 +243,11 @@ Additional non-router endpoints:
   `dog-profile-changes/` request) go through `_apply_schedule_change` →
   `scheduling.release_dropped_weekdays`: roster entries for the dropped
   weekdays go, and so do future `ASSIGNED`/`UNASSIGNED` rows on them, except
-  boarding rows, approved extra days and days a staff member put the dog on
-  by hand (a `SCHEDULE` log entry naming the date). Today's row stays —
+  boarding rows and approved extra days. Assigning, reassigning or routing a
+  dog on a day that *was* regular is the routine, not a hand-booking, so it
+  never keeps the day (`regular_until`); only the repair command honours an
+  "Assigned …"/"Put … back on …" entry written after the weekday was dropped.
+  Today's row stays —
   Remove handles the live board. Logged under `SCHEDULE`. Add the next
   schedule writer behind the same helper.
 - **Image processing** with Pillow (EXIF rotation, compression, thumbnails)
