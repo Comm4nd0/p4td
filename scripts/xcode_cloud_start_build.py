@@ -121,6 +121,11 @@ if COMMIT_SHA:
         sha = str((attr(run, "sourceCommit") or {}).get("commitSha", "")).lower()
         if sha == COMMIT_SHA:
             state = attr(run, "completionStatus") or attr(run, "executionProgress")
+            # A failed run (a CocoaPods CDN blip in post-clone, say) is no
+            # build at all: keep looking, and start a fresh one if none is left.
+            if state in ("FAILED", "ERRORED", "CANCELED"):
+                print(f"Build {attr(run, 'number')} for {COMMIT_SHA[:10]} ended {state}; ignoring it.")
+                continue
             print(f"Build {attr(run, 'number')} already exists for {COMMIT_SHA[:10]} ({state}); not starting another.")
             set_output("build_number", attr(run, "number"))
             set_output("started", "false")
