@@ -3,6 +3,7 @@ import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../constants/app_colors.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/dog.dart' show DropoffTimeExtension;
 
 /// Shared card rendering a single [DailyDogAssignment]: avatar, name/owner/
 /// staff/boarding rows, a status [PopupMenuButton], owner transport chips, and
@@ -373,6 +374,7 @@ class AssignmentCard extends StatelessWidget {
               // Changes to the routine first (extra day, one-off transport),
               // then the transport indicators (owner brings / collects).
               if (assignment.isExtraDay ||
+                  assignment.dropoffTimeForDriver != null ||
                   assignment.hasTransportChange ||
                   assignment.usesAlternativeAddress ||
                   assignment.effectiveOwnerBrings ||
@@ -388,6 +390,15 @@ class AssignmentCard extends StatelessWidget {
                           label: 'Extra day',
                           icon: PiconsDuotone.plusCircle,
                           color: AppColors.extraDay,
+                        ),
+                      // The owner wants the dog home no earlier than this —
+                      // bold so the driver plans the evening run around it.
+                      if (assignment.dropoffTimeForDriver != null)
+                        RoutineChangeChip(
+                          label:
+                              'Home ${assignment.dropoffTimeForDriver!.displayName.toLowerCase()}',
+                          icon: PiconsDuotone.clock,
+                          color: Colors.deepOrange,
                         ),
                       if (assignment.hasTransportChange)
                         const RoutineChangeChip(

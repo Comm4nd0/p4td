@@ -477,7 +477,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false, double? dailyRate, bool clearDailyRate = false}) async {
+  Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false, double? dailyRate, bool clearDailyRate = false, bool clearPreferredDropoffTime = false}) async {
     final token = await _authService.getToken();
     http.Response response;
 
@@ -501,6 +501,7 @@ class ApiDataService implements DataService {
       // current values) so they can never be silently dropped from the payload.
       request.fields['daycare_days'] = json.encode((daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList());
       if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
+      if (clearPreferredDropoffTime) request.fields['preferred_dropoff_time'] = '';
       request.fields['schedule_type'] = (scheduleType ?? dog.scheduleType).apiValue;
       if (ownerBringsDefault != null) request.fields['owner_brings_default'] = ownerBringsDefault.toString();
       if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
@@ -552,6 +553,7 @@ class ApiDataService implements DataService {
           // the payload when the caller passes null.
           'daycare_days': (daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList(),
           if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
+          if (clearPreferredDropoffTime) 'preferred_dropoff_time': '',
           'schedule_type': (scheduleType ?? dog.scheduleType).apiValue,
           if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
           if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,

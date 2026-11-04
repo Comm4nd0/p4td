@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paws4thoughtdogs/models/daily_dog_assignment.dart';
+import 'package:paws4thoughtdogs/models/dog.dart' show DropoffTime;
 
 void main() {
   DailyDogAssignment make({
@@ -125,6 +126,33 @@ void main() {
       });
       expect(a.needsPickup, isTrue);
       expect(a.needsDropoff, isTrue);
+    });
+  });
+
+  group('preferred drop-off time', () {
+    Map<String, dynamic> json({bool ownerCollects = false}) => {
+          'id': 1,
+          'dog': 1,
+          'staff_member': 7,
+          'date': '2030-06-03',
+          'effective_owner_collects': ownerCollects,
+          'preferred_dropoff_time': 'after_1600',
+        };
+
+    test('parsed from the roster row and shown when staff drive the dog home', () {
+      final a = DailyDogAssignment.fromJson(json());
+      expect(a.preferredDropoffTime, DropoffTime.after1600);
+      expect(a.dropoffTimeForDriver, DropoffTime.after1600);
+    });
+
+    test('hidden when the owner collects', () {
+      final a = DailyDogAssignment.fromJson(json(ownerCollects: true));
+      expect(a.dropoffTimeForDriver, isNull);
+    });
+
+    test('absent field (older server) means no preference', () {
+      final a = DailyDogAssignment.fromJson(json()..remove('preferred_dropoff_time'));
+      expect(a.dropoffTimeForDriver, isNull);
     });
   });
 }

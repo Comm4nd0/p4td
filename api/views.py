@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Dog fields an owner may propose to change via a profile-change request. Used
 # both when building the request and when applying it on approval, so the
 # approval step can re-enforce the whitelist (defense in depth — B19).
-OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'contact_number', 'emergency_contact_number', 'daycare_days', 'schedule_type', 'sex', 'date_of_birth', 'last_vaccination_date']
+OWNER_EDITABLE_DOG_FIELDS = ['name', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'access_instructions', 'contact_number', 'emergency_contact_number', 'daycare_days', 'schedule_type', 'preferred_dropoff_time', 'sex', 'date_of_birth', 'last_vaccination_date']
 #: Of those, the ones a client must keep filled in: when a dog is hurt or a
 #: pickup goes wrong, staff can only act if a number is on file. Enforced on
 #: owner edits here (a change request may not blank them) and on the booking
@@ -918,6 +918,11 @@ class DogViewSet(viewsets.ModelViewSet):
             proposed_image = process_image(proposed_image, max_size=(800, 800))
         elif 'profile_image' in request.data and request.data['profile_image'] == '':
             delete_image = True
+
+        valid_dropoff = {''} | {key for key, _ in Dog.PREFERRED_DROPOFF_TIME_CHOICES}
+        if proposed_changes.get('preferred_dropoff_time', '') not in valid_dropoff:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'preferred_dropoff_time': 'Not a valid choice.'})
 
         # A client may change a contact number but never clear one.
         missing = {

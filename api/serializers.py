@@ -239,7 +239,7 @@ class DogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dog
-        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'alternative_addresses', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'assigned_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
+        fields = ['id', 'owner', 'owner_details', 'additional_owners', 'additional_owners_details', 'name', 'profile_image', 'food_instructions', 'medical_notes', 'registered_vet', 'address', 'postcode', 'contact_number', 'emergency_contact_number', 'access_instructions', 'alternative_addresses', 'van_placement', 'general_notes', 'daycare_days', 'schedule_type', 'owner_brings_default', 'owner_collects_default', 'owner_brings_default_time', 'owner_collects_default_time', 'preferred_dropoff_time', 'sex', 'date_of_birth', 'last_vaccination_date', 'vaccination_overdue', 'certificate_status', 'certificate_needed_since', 'is_spayed', 'daily_rate', 'boarding_rate', 'vaccination_summary', 'cancelled_dates', 'assigned_dates', 'latitude', 'longitude', 'geocode_source', 'created_at']
         read_only_fields = ['created_at', 'latitude', 'longitude', 'geocode_source', 'cancelled_dates', 'assigned_dates', 'alternative_addresses']
         extra_kwargs = {
             'owner': {'required': False},
@@ -701,6 +701,9 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     alternative_addresses = DogAddressBriefSerializer(source='dog.alternative_addresses', many=True, read_only=True)
     pickup_address_text = serializers.CharField(read_only=True)
     dropoff_address_text = serializers.CharField(read_only=True)
+    # The owner's "After 15:30" / "After 16:00" drop-off preference, so the
+    # driver sees it on the pickup list. Blank = no preference.
+    preferred_dropoff_time = serializers.CharField(source='dog.preferred_dropoff_time', read_only=True)
 
     class Meta:
         model = DailyDogAssignment
@@ -717,6 +720,7 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
             'day_changes',
             'pickup_address', 'dropoff_address', 'alternative_addresses',
             'pickup_address_text', 'dropoff_address_text',
+            'preferred_dropoff_time',
             'sort_order', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', 'pickup_address', 'dropoff_address']
