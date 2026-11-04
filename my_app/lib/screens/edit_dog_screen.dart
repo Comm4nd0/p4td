@@ -348,6 +348,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         deletePhoto: _deletePhoto,
         daysInDaycare: _selectedDays.toList(),
         preferredDropoffTime: _selectedDropoffTime,
+        clearPreferredDropoffTime: _selectedDropoffTime == null && widget.dog.preferredDropoffTime != null,
         scheduleType: _selectedScheduleType,
         ownerBringsDefault: _isStaff ? _ownerBringsDefault : null,
         ownerCollectsDefault: _isStaff ? _ownerCollectsDefault : null,

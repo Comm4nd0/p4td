@@ -1096,6 +1096,61 @@ class DogSpayStatusTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class PreferredDropoffTimeTests(TestCase):
+    """The owner's "After 16:00" choice is stored and reaches the driver's list."""
+    from .models import DogProfileChangeRequest
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.dog = Dog.objects.create(owner=self.owner, name='Rex')
+        self.client = APIClient()
+
+    def test_staff_sets_it_and_dog_read_returns_it(self):
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'preferred_dropoff_time': 'after_1600'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['preferred_dropoff_time'], 'after_1600')
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.preferred_dropoff_time, 'after_1600')
+
+    def test_staff_can_clear_it(self):
+        self.dog.preferred_dropoff_time = 'after_1600'
+        self.dog.save()
+        self.client.login(username='staff', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'preferred_dropoff_time': ''}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.preferred_dropoff_time, '')
+
+    def test_owner_change_goes_through_approval(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'preferred_dropoff_time': 'after_1600'}, format='json')
+        self.assertEqual(resp.status_code, 202)
+        cr = self.DogProfileChangeRequest.objects.get(dog=self.dog, status='PENDING')
+        self.client.logout()
+        self.client.login(username='staff', password='pw')
+        self.assertEqual(self.client.post(f'/api/dog-profile-changes/{cr.id}/approve/').status_code, 200)
+        self.dog.refresh_from_db()
+        self.assertEqual(self.dog.preferred_dropoff_time, 'after_1600')
+
+    def test_owner_cannot_propose_an_unknown_value(self):
+        self.client.login(username='owner', password='pw')
+        resp = self.client.patch(f'/api/dogs/{self.dog.id}/', {'preferred_dropoff_time': 'after_2300'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(self.DogProfileChangeRequest.objects.filter(dog=self.dog).exists())
+
+    def test_assignment_row_carries_it(self):
+        self.dog.preferred_dropoff_time = 'after_1600'
+        self.dog.save()
+        today = timezone.localdate()
+        DailyDogAssignment.objects.create(dog=self.dog, staff_member=self.staff, date=today)
+        self.client.login(username='staff', password='pw')
+        resp = self.client.get(f'/api/daily-assignments/my_assignments/?date={today.isoformat()}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data[0]['preferred_dropoff_time'], 'after_1600')
+
+
 class DogAddressTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')

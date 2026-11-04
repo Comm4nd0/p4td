@@ -166,6 +166,14 @@ class Dog(models.Model):
     owner_collects_default = models.BooleanField(default=False, help_text='Owner usually collects this dog from daycare (no staff drop-off home).')
     owner_brings_default_time = models.TimeField(null=True, blank=True, help_text='Expected default drop-off time when owner brings the dog.')
     owner_collects_default_time = models.TimeField(null=True, blank=True, help_text='Expected default pick-up time when owner collects the dog.')
+    # The earliest the owner wants the dog home (the app's "After 15:30" /
+    # "After 16:00"). Shown on the driver's pickup list so the evening run is
+    # planned around it. Blank = no preference.
+    PREFERRED_DROPOFF_TIME_CHOICES = [
+        ('after_1530', 'After 15:30'),
+        ('after_1600', 'After 16:00'),
+    ]
+    preferred_dropoff_time = models.CharField(max_length=20, choices=PREFERRED_DROPOFF_TIME_CHOICES, blank=True, default='', help_text='Earliest the owner wants the dog dropped home.')
     sex = models.CharField(max_length=1, choices=SEX_CHOICES, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
     # Simple per-dog vaccination date. Kept in step with the detailed

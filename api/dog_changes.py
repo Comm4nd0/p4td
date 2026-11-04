@@ -65,6 +65,7 @@ TRACKED_FIELDS = {
     'owner_collects_default': 'Owner collects',
     'owner_brings_default_time': 'Drop-off time',
     'owner_collects_default_time': 'Pick-up time',
+    'preferred_dropoff_time': 'Preferred drop-off time',
     'sex': 'Sex',
     'date_of_birth': 'Date of birth',
     'last_vaccination_date': 'Last vaccination',

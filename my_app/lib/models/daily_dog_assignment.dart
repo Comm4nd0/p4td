@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart' show TimeOfDay;
-import 'dog.dart' show parseApiTime, parseApiDouble;
+import 'dog.dart' show parseApiTime, parseApiDouble, DropoffTime, DropoffTimeExtension;
 import 'dog_address.dart';
 
 /// Scope used when reassigning or unassigning a single dog on a specific date.
@@ -122,6 +122,10 @@ class DailyDogAssignment {
   final int? dropoffAddressId;
   final List<DogAddress> alternativeAddresses;
 
+  /// The owner's preferred earliest drop-off home ("After 15:30" /
+  /// "After 16:00"), from the dog. Null = no preference.
+  final DropoffTime? preferredDropoffTime;
+
   DailyDogAssignment({
     required this.id,
     required this.dogId,
@@ -153,6 +157,7 @@ class DailyDogAssignment {
     this.pickupAddressId,
     this.dropoffAddressId,
     this.alternativeAddresses = const [],
+    this.preferredDropoffTime,
   });
 
   factory DailyDogAssignment.fromJson(Map<String, dynamic> json) {
@@ -192,6 +197,7 @@ class DailyDogAssignment {
       pickupAddressId: json['pickup_address'] as int?,
       dropoffAddressId: json['dropoff_address'] as int?,
       alternativeAddresses: DogAddress.listFromJson(json['alternative_addresses']),
+      preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
     );
   }
 
@@ -215,6 +221,10 @@ class DailyDogAssignment {
   /// sleeps over with the boarding staff member).
   bool get needsDropoff =>
       !effectiveOwnerCollects && (!isBoarding || isBoardingLastDay);
+
+  /// The drop-off preference to show the driver: only when staff take the
+  /// dog home today (not when the owner collects, nor mid-boarding).
+  DropoffTime? get dropoffTimeForDriver => needsDropoff ? preferredDropoffTime : null;
 
   /// No staff transport at all today — owner handles every remaining leg
   /// and/or the dog is mid-boarding. These dogs need no route position.
@@ -273,6 +283,7 @@ class DailyDogAssignment {
       pickupAddressId: pickupAddressId,
       dropoffAddressId: dropoffAddressId,
       alternativeAddresses: alternativeAddresses,
+      preferredDropoffTime: preferredDropoffTime,
     );
   }
 }
