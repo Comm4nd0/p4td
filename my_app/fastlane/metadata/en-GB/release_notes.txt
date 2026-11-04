@@ -1,10 +1,12 @@
-Clearer days, for owners and the team
+Changing a boarding stay, and smarter pick-up runs
 
-• Your dog's calendar now shows every day they're booked in, including days the team has added for them, and you can scroll back over the days they've already been in.
-• A reminder the evening before if your dog has an extra day booked or isn't coming in on one of their usual days.
+• Need different dates for an approved boarding stay? You can now ask to change them from the booking. The team will confirm, and your stay keeps its current dates until they do.
+• Add up to five other addresses for your dog (Grandma's, a dog walker's) under Other addresses on their profile, so the team can collect from or drop off there on the days you need.
 
 For staff:
-• A 6pm summary of tomorrow's changes to the routine (extra days, days off, transport and boarding), with your own run first.
-• Late changes are pushed to the day's team straight away, shown on the dashboard's Changes card, and confirmed with Got it. Schedule alerts can be switched off from your Profile.
-• Extra day and Transport changed chips on the board, and "not today" cards on a driver's list.
-• Compatibility notes can now cover a group of dogs, flagged only on days they're all in together.
+• Boarding managers can review those date-change requests, and edit any boarding booking from the dog's profile or from the boarding dogs on the dashboard.
+• Plan Routes on the dashboard shares the day's dogs between the drivers you choose, and Optimise route puts a driver's run in the best order. Nothing changes until you accept the plan.
+• Choose one of a dog's other addresses for the day's pick-up, drop-off or both from the dog's card with Pick-up / drop-off address.
+• A dog whose owner wants them home after 15:30 or after 16:00 now shows it in bold on the driver's pick-up list.
+• Open a dog straight from the day's Changes vs normal list.
+• Fixed days appearing twice around the clock change.
