@@ -52,7 +52,7 @@ abstract class DataService {
 
   /// Past dates the dog actually attended (staff-only). Feeds the profile
   /// calendar's past booked days so payment managers can edit history.
-  Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from});
+  Future<({List<DateTime> attended, List<DateTime> removed})> getDogPastAttendance(String dogId, {DateTime? from});
 
   /// Which invoice charges each of the dog's days (payment managers only;
   /// the API refuses everyone else). Keys are midnight-normalised dates.

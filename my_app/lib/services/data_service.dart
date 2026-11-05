@@ -1120,7 +1120,7 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from}) async {
+  Future<({List<DateTime> attended, List<DateTime> removed})> getDogPastAttendance(String dogId, {DateTime? from}) async {
     final headers = await _getHeaders();
     var uri = Uri.parse('${AuthService.baseUrl}/api/dogs/$dogId/past-attendance/');
     if (from != null) {
@@ -1131,7 +1131,10 @@ class ApiDataService implements DataService {
       throw Exception('Failed to load past attendance: ${response.statusCode}');
     }
     final data = json.decode(response.body);
-    return (data['dates'] as List).map((d) => DateTime.parse(d as String)).toList();
+    return (
+      attended: (data['dates'] as List).map((d) => DateTime.parse(d as String)).toList(),
+      removed: parseApiDateList(data['removed']),
+    );
   }
 
   @override

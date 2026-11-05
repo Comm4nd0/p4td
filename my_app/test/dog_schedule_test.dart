@@ -82,6 +82,169 @@ void main() {
     });
   });
 
+  group('extraDaycareDates', () {
+    final thursday = DateTime(2026, 6, 18);
+    final nextThursday = DateTime(2026, 6, 25);
+    final friday = DateTime(2026, 6, 19);
+
+    test('a day off the regular weekdays is extra, a regular day is not', () {
+      expect(
+        extraDaycareDates(
+          bookedDates: {thursday, friday},
+          daycareWeekdays: {DateTime.thursday},
+          requests: const [],
+        ),
+        {friday},
+      );
+    });
+
+    test('a move onto the dog\'s own weekday in another week stays extra', () {
+      expect(
+        extraDaycareDates(
+          bookedDates: {nextThursday},
+          daycareWeekdays: {DateTime.thursday},
+          requests: [
+            _req(
+              type: RequestType.change,
+              status: RequestStatus.approved,
+              originalDate: thursday,
+              newDate: nextThursday,
+            ),
+          ],
+        ),
+        {nextThursday},
+      );
+    });
+
+    test('a pending add on a regular weekday is not extra yet', () {
+      expect(
+        extraDaycareDates(
+          bookedDates: {thursday},
+          daycareWeekdays: {DateTime.thursday},
+          requests: [
+            _req(
+              type: RequestType.addDay,
+              status: RequestStatus.pending,
+              newDate: thursday,
+            ),
+          ],
+        ),
+        isEmpty,
+      );
+    });
+  });
+
+  group('cancelledDaycareDates', () {
+    final thursday = DateTime(2026, 6, 18);
+    final nextThursday = DateTime(2026, 6, 25);
+
+    test('an approved cancellation is cancelled', () {
+      expect(
+        cancelledDaycareDates(
+          bookedDates: const {},
+          requests: [
+            _req(
+              type: RequestType.cancel,
+              status: RequestStatus.approved,
+              originalDate: thursday,
+            ),
+          ],
+        ),
+        {thursday},
+      );
+    });
+
+    test('the old date of an approved move is cancelled, the new one is not', () {
+      expect(
+        cancelledDaycareDates(
+          bookedDates: {nextThursday},
+          requests: [
+            _req(
+              type: RequestType.change,
+              status: RequestStatus.approved,
+              originalDate: thursday,
+              newDate: nextThursday,
+            ),
+          ],
+        ),
+        {thursday},
+      );
+    });
+
+    test('a day staff took the dog off is cancelled', () {
+      expect(
+        cancelledDaycareDates(
+          bookedDates: const {},
+          requests: const [],
+          staffRemovedDates: [DateTime(2026, 6, 18, 9, 30)],
+        ),
+        {thursday},
+      );
+    });
+
+    test('pending and denied cancellations are not', () {
+      expect(
+        cancelledDaycareDates(
+          bookedDates: const {},
+          requests: [
+            _req(
+              type: RequestType.cancel,
+              status: RequestStatus.pending,
+              originalDate: thursday,
+            ),
+            _req(
+              type: RequestType.cancel,
+              status: RequestStatus.denied,
+              originalDate: nextThursday,
+            ),
+          ],
+        ),
+        isEmpty,
+      );
+    });
+
+    test('a day added back after its cancellation is not cancelled', () {
+      expect(
+        cancelledDaycareDates(
+          bookedDates: {thursday},
+          requests: [
+            _req(
+              id: '1',
+              type: RequestType.cancel,
+              status: RequestStatus.approved,
+              originalDate: thursday,
+              createdAt: DateTime(2026, 1, 1),
+            ),
+            _req(
+              id: '2',
+              type: RequestType.addDay,
+              status: RequestStatus.approved,
+              newDate: thursday,
+              createdAt: DateTime(2026, 1, 2),
+            ),
+          ],
+        ),
+        isEmpty,
+      );
+    });
+
+    test('a dog back on the board wins over its cancellation', () {
+      expect(
+        cancelledDaycareDates(
+          bookedDates: {thursday},
+          requests: [
+            _req(
+              type: RequestType.cancel,
+              status: RequestStatus.approved,
+              originalDate: thursday,
+            ),
+          ],
+        ),
+        isEmpty,
+      );
+    });
+  });
+
   group('upcomingDaycareDates', () {
     test('returns recurring weekdays within the three-month window', () {
       // Monday = 1. Expect every Monday from today (Wed 17 Jun) to 17 Sep.

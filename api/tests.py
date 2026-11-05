@@ -293,6 +293,7 @@ class DogPastAttendanceTests(TestCase):
         resp = self.client.get(f'/api/dogs/{self.dog.id}/past-attendance/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['dates'], [attended.isoformat()])
+        self.assertEqual(resp.data['removed'], [removed.isoformat()])
 
     def test_from_param_bounds_range(self):
         old = date.today() - timedelta(days=30)

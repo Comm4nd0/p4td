@@ -739,7 +739,9 @@ class DogViewSet(viewsets.ModelViewSet):
         range defaults to the last 12 months, how far back the profile
         calendar scrolls. Staff see any dog; owners and co-owners their own
         (``get_object`` is scoped), the same days ``dogs/calendar/`` already
-        shows them.
+        shows them. ``removed`` lists the days staff took the dog off, which
+        the calendar marks as cancelled alongside approved cancellations (those
+        leave no row).
         """
         from datetime import date as date_cls, timedelta
 
@@ -759,7 +761,16 @@ class DogViewSet(viewsets.ModelViewSet):
             .order_by('date')
             .values_list('date', flat=True)
         )
-        return Response({'dates': [d.isoformat() for d in dates]})
+        removed = (
+            dog.daily_assignments
+            .filter(date__gte=since, date__lt=today, status='REMOVED')
+            .order_by('date')
+            .values_list('date', flat=True)
+        )
+        return Response({
+            'dates': [d.isoformat() for d in dates],
+            'removed': [d.isoformat() for d in removed],
+        })
 
     @action(detail=True, methods=['get'], url_path='invoice-coverage')
     def invoice_coverage(self, request, pk=None):
