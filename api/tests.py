@@ -13310,6 +13310,59 @@ class OwnerListTests(TestCase):
         self.assertEqual(client.get('/api/profile/get_owners/').status_code, 403)
 
 
+class DogCreateBlankFieldsTests(TestCase):
+    """The app's JSON create (no photo) sends every empty field as null."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user('staff', password='x', is_staff=True)
+        self.owner = User.objects.create_user('owner', password='x')
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def payload(self, **overrides):
+        return {
+            'name': 'Rex', 'food_instructions': None, 'medical_notes': None,
+            'registered_vet': None, 'contact_number': None,
+            'emergency_contact_number': None, 'address': None, 'postcode': None,
+            'access_instructions': None, 'van_placement': None, 'general_notes': None,
+            'owner': self.owner.id, 'schedule_type': 'weekly', **overrides,
+        }
+
+    def test_every_optional_field_left_empty(self):
+        resp = self.client.post('/api/dogs/', self.payload(), format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        dog = Dog.objects.get(id=resp.data['id'])
+        self.assertEqual(
+            (dog.postcode, dog.contact_number, dog.emergency_contact_number),
+            ('', '', ''),
+        )
+
+    def test_a_value_given_beside_empty_fields_is_kept(self):
+        resp = self.client.post(
+            '/api/dogs/', self.payload(contact_number='07700 900123'), format='json')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        dog = Dog.objects.get(id=resp.data['id'])
+        self.assertEqual(dog.contact_number, '07700 900123')
+        self.assertEqual(dog.postcode, '')
+
+    def test_too_long_is_still_refused(self):
+        resp = self.client.post(
+            '/api/dogs/', self.payload(postcode='X' * 11), format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('postcode', resp.data)
+
+    def test_an_owner_still_cannot_clear_a_number_with_null(self):
+        dog = Dog.objects.create(
+            name='Rex', owner=self.owner, contact_number='07700 900123',
+            emergency_contact_number='07700 900124')
+        self.client.force_authenticate(self.owner)
+        resp = self.client.patch(
+            f'/api/dogs/{dog.id}/', {'contact_number': None}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        dog.refresh_from_db()
+        self.assertEqual(dog.contact_number, '07700 900123')
+
+
 class DogContactNumberTests(TestCase):
     """The dog-level contact and emergency contact numbers round-trip through
     the API and the owner change-request flow."""
