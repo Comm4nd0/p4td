@@ -1,1 +1,1 @@
-Owners can ask to change the dates of an approved boarding stay and add up to five other pick-up/drop-off addresses for their dog. Staff: review and edit boarding bookings, Plan Routes and Optimise route for the day's runs, choose a dog's address for the day, and a bold "home after 16:00" note on the pick-up list. Also fixes days repeating around the clock change.
+Changes now show on your dog's calendar straight away. Cancelled days are marked with a cross and added to the key. When a day is moved, the old date shows as cancelled and the new date as an extra day.
