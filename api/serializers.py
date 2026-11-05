@@ -340,6 +340,17 @@ class DogSerializer(serializers.ModelSerializer):
             ).exclude(status='REMOVED')
         return sorted({a.date.isoformat() for a in rows})
 
+    #: Text columns that hold '' for "not given" and can't be null, but which
+    #: the app's JSON create sends as null when left empty. Without this, a
+    #: dog added with no photo was refused unless all three were filled in.
+    NULL_MEANS_BLANK_FIELDS = ('postcode', 'contact_number', 'emergency_contact_number')
+
+    def to_internal_value(self, data):
+        nulled = [f for f in self.NULL_MEANS_BLANK_FIELDS if f in data and data[f] is None]
+        if nulled:
+            data = {**data, **{f: '' for f in nulled}}
+        return super().to_internal_value(data)
+
     def validate_daycare_days(self, value):
         # Normalise to a sorted list of unique ints in 1-7 so downstream roster
         # logic (ExtractIsoWeekDay membership tests) can rely on the contents
