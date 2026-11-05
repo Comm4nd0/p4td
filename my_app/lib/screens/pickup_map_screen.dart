@@ -17,6 +17,7 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../utils/staff_initials.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import 'staff_dog_detail_screen.dart';
 
@@ -564,7 +565,8 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     final pins = _visiblePins();
-    final markers = pins.map(_buildMarker).toList();
+    final initials = staffPinInitials(_staffNames());
+    final markers = pins.map((pin) => _buildMarker(pin, initials)).toList();
     final routeGeoms = _routeGeometries();
 
     return Scaffold(
@@ -618,7 +620,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.paws4thoughtdogs.app',
                 ),
-                // Route lines sit under the markers so paws stay tappable.
+                // Route lines sit under the markers so pins stay tappable.
                 if (_showRoutes) PolylineLayer(polylines: _routeLines(routeGeoms)),
                 if (_showRoutes)
                   AnimatedBuilder(
@@ -786,7 +788,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   /// the numbered badges on the staff dog lists.
   Map<int, int> get _pickupNumbers => pickupRunNumbers(_assignments);
 
-  Marker _buildMarker(_Pin pin) {
+  Marker _buildMarker(_Pin pin, Map<int, String> initials) {
     final collected = pin.assignment != null && _isCollected(pin.assignment!);
     final droppedOff = pin.assignment?.status == AssignmentStatus.droppedOff;
     final pickupNumber =
@@ -801,7 +803,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
         child: Stack(
           alignment: Alignment.center,
           children: [
-            _pawBadge(pin.color),
+            _pinBadge(pin.color, initials[pin.staffId]),
             if (pickupNumber != null)
               Positioned(left: 1, top: 1, child: _orderBadge(pickupNumber, pin.color)),
             if (collected)
@@ -834,8 +836,9 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     );
   }
 
-  /// A staff-coloured circular badge with a white paw — a dog pickup.
-  Widget _pawBadge(Color color) {
+  /// A staff-coloured circular badge — a dog pickup. It carries the staff
+  /// member's [initial]; an unassigned dog has nobody to name, so a paw.
+  Widget _pinBadge(Color color, String? initial) {
     return Container(
       width: 34,
       height: 34,
@@ -845,11 +848,22 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
         border: Border.all(color: Colors.white, width: 2),
         boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))],
       ),
-      child: const Center(child: Icon(Icons.pets, color: Colors.white, size: 18)),
+      child: Center(
+        child: initial == null
+            ? const Icon(Icons.pets, color: Colors.white, size: 18)
+            : Text(
+                initial,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: initial.length > 1 ? 13 : 16,
+                ),
+              ),
+      ),
     );
   }
 
-  /// Small green tick shown on a paw once the dog is collected. A single tick
+  /// Small green tick shown on a pin once the dog is collected. A single tick
   /// means the dog is with the team (picked up); a double tick means it's been
   /// dropped off at daycare.
   Widget _collectedTick({bool droppedOff = false}) {
