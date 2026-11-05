@@ -17,7 +17,7 @@ import '../models/dog.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
-import '../utils/staff_initials.dart';
+import '../utils/dog_initial.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import 'staff_dog_detail_screen.dart';
 
@@ -565,8 +565,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     final pins = _visiblePins();
-    final initials = staffPinInitials(_staffNames());
-    final markers = pins.map((pin) => _buildMarker(pin, initials)).toList();
+    final markers = pins.map(_buildMarker).toList();
     final routeGeoms = _routeGeometries();
 
     return Scaffold(
@@ -788,7 +787,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
   /// the numbered badges on the staff dog lists.
   Map<int, int> get _pickupNumbers => pickupRunNumbers(_assignments);
 
-  Marker _buildMarker(_Pin pin, Map<int, String> initials) {
+  Marker _buildMarker(_Pin pin) {
     final collected = pin.assignment != null && _isCollected(pin.assignment!);
     final droppedOff = pin.assignment?.status == AssignmentStatus.droppedOff;
     final pickupNumber =
@@ -803,7 +802,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
         child: Stack(
           alignment: Alignment.center,
           children: [
-            _pinBadge(pin.color, initials[pin.staffId]),
+            _pinBadge(pin.color, dogPinInitial(pin.dogName)),
             if (pickupNumber != null)
               Positioned(left: 1, top: 1, child: _orderBadge(pickupNumber, pin.color)),
             if (collected)
@@ -836,8 +835,8 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     );
   }
 
-  /// A staff-coloured circular badge — a dog pickup. It carries the staff
-  /// member's [initial]; an unassigned dog has nobody to name, so a paw.
+  /// A staff-coloured circular badge — a dog pickup, carrying the dog's
+  /// [initial]. A name with no letters falls back to a paw.
   Widget _pinBadge(Color color, String? initial) {
     return Container(
       width: 34,
@@ -853,10 +852,10 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
             ? const Icon(Icons.pets, color: Colors.white, size: 18)
             : Text(
                 initial,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
-                  fontSize: initial.length > 1 ? 13 : 16,
+                  fontSize: 16,
                 ),
               ),
       ),

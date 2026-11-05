@@ -5,4 +5,4 @@ Clearer calendars on your dog's profile
 • When a day is moved, the old date shows as cancelled and the new date as an extra day.
 
 For staff:
-• Pins on the pick-up map now show the staff member's initial instead of a paw, so you can see at a glance whose dog it is.
+• Pins on the pick-up map now show the dog's initial instead of a paw, so you can see at a glance which dog it is.
