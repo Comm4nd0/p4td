@@ -1,1 +1,1 @@
-Changes now show on your dog's calendar straight away. Cancelled days are marked with a cross and added to the key. When a day is moved, the old date shows as cancelled and the new date as an extra day. Staff: map pins now show the staff member's initial.
+Changes now show on your dog's calendar straight away. Cancelled days are marked with a cross and added to the key. When a day is moved, the old date shows as cancelled and the new date as an extra day. Staff: map pins now show the dog's initial.
