@@ -241,7 +241,8 @@ class MockDataService implements DataService {
   }) async {}
 
   @override
-  Future<List<DateTime>> getDogPastAttendance(String dogId, {DateTime? from}) async => [];
+  Future<({List<DateTime> attended, List<DateTime> removed})> getDogPastAttendance(String dogId, {DateTime? from}) async =>
+      (attended: <DateTime>[], removed: <DateTime>[]);
   @override
   Future<Map<DateTime, InvoiceCoverage>> getDogInvoiceCoverage(String dogId) async => {};
 

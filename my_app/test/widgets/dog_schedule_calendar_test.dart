@@ -27,6 +27,7 @@ void main() {
             lastDay: DateTime(2030, 12, 31),
             bookedDates: {DateTime(2030, 6, 10), DateTime(2030, 6, 17)},
             extraDates: {DateTime(2030, 6, 17)},
+            cancelledDates: {DateTime(2030, 6, 18), DateTime(2030, 6, 11)},
             pendingAddDates: {DateTime(2030, 6, 11)},
             pendingRemoveDates: {DateTime(2030, 6, 12)},
             boardingDates: {DateTime(2030, 6, 13)},
@@ -141,6 +142,22 @@ void main() {
 
     await tester.tap(find.text('17'));
     expect(tapped, DateTime(2030, 6, 17));
+  });
+
+  testWidgets('a cancelled day shows the cross, is in the key and can be added back',
+      (tester) async {
+    DateTime? free;
+    await tester.pumpWidget(buildCalendar(
+      onBookedDayTap: (_) {},
+      onFreeDayTap: (d) => free = d,
+    ));
+    expect(find.byKey(const ValueKey('cancelled-2030-6-18')), findsOneWidget);
+    expect(find.text('Cancelled'), findsOneWidget);
+    // A pending request on the same day says more, so no cross there.
+    expect(find.byKey(const ValueKey('cancelled-2030-6-11')), findsNothing);
+
+    await tester.tap(find.text('18'));
+    expect(free, DateTime(2030, 6, 18));
   });
 
   testWidgets('tapping a free day fires onFreeDayTap', (tester) async {

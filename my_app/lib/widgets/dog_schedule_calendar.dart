@@ -33,6 +33,11 @@ class DogScheduleCalendar extends StatefulWidget {
   /// they tap like any booked day.
   final Set<DateTime> extraDates;
 
+  /// Days the dog is no longer coming: approved cancellations, the original
+  /// date of an approved move and days staff took it off. Marked with a cross
+  /// and otherwise tap like a free day, so a day can be added back.
+  final Set<DateTime> cancelledDates;
+
   /// Days with a pending ADD_DAY (or the new date of a pending CHANGE).
   final Set<DateTime> pendingAddDates;
 
@@ -86,6 +91,7 @@ class DogScheduleCalendar extends StatefulWidget {
     required this.lastDay,
     required this.bookedDates,
     this.extraDates = const {},
+    this.cancelledDates = const {},
     required this.pendingAddDates,
     required this.pendingRemoveDates,
     required this.boardingDates,
@@ -112,9 +118,11 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
   static const Color _booked = AppColors.success;
   static const Color _extra = AppColors.extraDay;
   static const Color _pending = AppColors.warning;
+  static const Color _cancelled = AppColors.error;
   static const Color _boarding = Colors.deepPurple;
   static const double _circleSize = 36;
   static const double _moonSize = 12;
+  static const double _cancelledIconSize = 15;
 
   /// Taller than TableCalendar's default 52 so a night's moon fits above the
   /// day circles.
@@ -266,6 +274,13 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     Color? border;
     Color? textColor;
     TextDecoration? decoration;
+    // Boarding and pending requests say more about the day than a cancellation
+    // does, and a booked day never reaches here as cancelled.
+    final isCancelled = widget.cancelledDates.contains(d) &&
+        !widget.boardingDates.contains(d) &&
+        !widget.pendingBoardingDates.contains(d) &&
+        !widget.pendingRemoveDates.contains(d) &&
+        !widget.pendingAddDates.contains(d);
 
     if (widget.boardingDates.contains(d)) {
       fill = _boarding;
@@ -287,6 +302,10 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     } else if (widget.bookedDates.contains(d)) {
       fill = _booked;
       textColor = Colors.white;
+    } else if (isCancelled) {
+      fill = _cancelled.withValues(alpha: 0.12);
+      textColor = _cancelled;
+      decoration = TextDecoration.lineThrough;
     } else if (_isClosed(d)) {
       fill = Theme.of(context).colorScheme.surfaceContainerHighest;
       textColor = Theme.of(context).colorScheme.onSurfaceVariant;
@@ -326,31 +345,49 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
         ),
       ),
     );
-    final dayCell = _withNightArcs(d, Center(child: circle), nightIn: nightIn, nightOut: nightOut);
-    if (coverage == null) return dayCell;
-    // A small dot under the number says the day is on an invoice; its colour
-    // says whether that invoice is paid, unpaid, overdue or still a draft.
+    if (coverage == null && !isCancelled) {
+      return _withNightArcs(d, Center(child: circle), nightIn: nightIn, nightOut: nightOut);
+    }
     return _withNightArcs(d, Center(
       child: Stack(
         alignment: Alignment.center,
+        clipBehavior: Clip.none,
         children: [
           circle,
-          Positioned(
-            bottom: 3,
-            child: Semantics(
-              label: 'On ${coverage.label}, ${coverage.statusLabel}',
-              child: Container(
-                key: ValueKey('invoice-dot-${d.year}-${d.month}-${d.day}'),
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _coverageColor(coverage),
-                  border: Border.all(color: fill == null ? Colors.grey[600]! : Colors.white, width: 1),
+          if (isCancelled)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Semantics(
+                label: 'Cancelled',
+                child: Picon(
+                  PiconsDuotone.xCircle,
+                  key: ValueKey('cancelled-${d.year}-${d.month}-${d.day}'),
+                  size: _cancelledIconSize,
+                  color: _cancelled,
                 ),
               ),
             ),
-          ),
+          // A small dot under the number says the day is on an invoice; its
+          // colour says whether that invoice is paid, unpaid, overdue or still
+          // a draft.
+          if (coverage != null)
+            Positioned(
+              bottom: 3,
+              child: Semantics(
+                label: 'On ${coverage.label}, ${coverage.statusLabel}',
+                child: Container(
+                  key: ValueKey('invoice-dot-${d.year}-${d.month}-${d.day}'),
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _coverageColor(coverage),
+                    border: Border.all(color: fill == null ? Colors.grey[600]! : Colors.white, width: 1),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     ), nightIn: nightIn, nightOut: nightOut);
@@ -469,6 +506,14 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
           children: [
             _legendDot(_booked, 'Regular day'),
             _legendDot(_extra, 'Extra day'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Picon(PiconsDuotone.xCircle, size: 14, color: _cancelled),
+                const SizedBox(width: 4),
+                Text('Cancelled', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+              ],
+            ),
             _legendDot(_pending, 'Pending', outlined: true),
             _legendDot(_boarding, 'Boarding'),
             Row(

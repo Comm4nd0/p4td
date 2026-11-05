@@ -20,6 +20,34 @@ bool requestSupersedes(DateChangeRequest a, DateChangeRequest b) {
   return a.id.compareTo(b.id) > 0;
 }
 
+/// For each date, the latest active (non-denied) request touching it and
+/// whether that request adds or removes the day. A change acts on two dates:
+/// it removes its original date and adds its new date.
+Map<DateTime, ({DateChangeRequest request, bool isAdd})> _latestRequestByDate(
+    List<DateChangeRequest> requests) {
+  final latest = <DateTime, ({DateChangeRequest request, bool isAdd})>{};
+  void consider(DateTime? raw, DateChangeRequest r, {required bool isAdd}) {
+    if (raw == null) return;
+    final day = DateTime(raw.year, raw.month, raw.day);
+    final current = latest[day];
+    if (current == null || requestSupersedes(r, current.request)) {
+      latest[day] = (request: r, isAdd: isAdd);
+    }
+  }
+
+  for (final r in requests.where((r) => r.status != RequestStatus.denied)) {
+    if (r.requestType == RequestType.cancel ||
+        r.requestType == RequestType.change) {
+      consider(r.originalDate, r, isAdd: false);
+    }
+    if (r.requestType == RequestType.addDay ||
+        r.requestType == RequestType.change) {
+      consider(r.newDate, r, isAdd: true);
+    }
+  }
+  return latest;
+}
+
 /// Compute the dog's upcoming booked daycare dates, from today up to (but not
 /// including) [monthsAhead] months from [now] (three by default).
 ///
@@ -58,31 +86,8 @@ List<DateTime> upcomingDaycareDates({
   final windowEnd = DateTime(now.year, now.month + monthsAhead, now.day);
 
   DateTime norm(DateTime d) => DateTime(d.year, d.month, d.day);
-  bool isActive(DateChangeRequest r) => r.status != RequestStatus.denied;
 
-  // For each date, keep only the latest active request touching it and
-  // whether that request adds or removes the day. A change acts on two
-  // dates: it removes its original date and adds its new date.
-  final latestByDate = <DateTime, ({DateChangeRequest request, bool isAdd})>{};
-  void consider(DateTime? raw, DateChangeRequest r, {required bool isAdd}) {
-    if (raw == null) return;
-    final day = norm(raw);
-    final current = latestByDate[day];
-    if (current == null || requestSupersedes(r, current.request)) {
-      latestByDate[day] = (request: r, isAdd: isAdd);
-    }
-  }
-
-  for (final r in requests.where(isActive)) {
-    if (r.requestType == RequestType.cancel ||
-        r.requestType == RequestType.change) {
-      consider(r.originalDate, r, isAdd: false);
-    }
-    if (r.requestType == RequestType.addDay ||
-        r.requestType == RequestType.change) {
-      consider(r.newDate, r, isAdd: true);
-    }
-  }
+  final latestByDate = _latestRequestByDate(requests);
 
   final removedDates = <DateTime>{};
   final addedDates = <DateTime>{};
@@ -117,6 +122,47 @@ List<DateTime> upcomingDaycareDates({
 
   final result = dates.toList()..sort();
   return result;
+}
+
+/// The [bookedDates] that are extra days rather than regular ones: any day
+/// off the dog's regular weekdays, plus any day an approved request added.
+/// The second part keeps a moved day extra when it lands on the dog's own
+/// weekday in another week, as the server records it.
+Set<DateTime> extraDaycareDates({
+  required Set<DateTime> bookedDates,
+  required Set<int> daycareWeekdays,
+  required List<DateChangeRequest> requests,
+}) {
+  final approvedAdds = <DateTime>{};
+  _latestRequestByDate(requests).forEach((day, entry) {
+    if (entry.isAdd && entry.request.status == RequestStatus.approved) {
+      approvedAdds.add(day);
+    }
+  });
+  return bookedDates
+      .where((d) =>
+          !daycareWeekdays.contains(d.weekday) || approvedAdds.contains(d))
+      .toSet();
+}
+
+/// The days to mark as cancelled: an approved cancellation, the original date
+/// of an approved move, or a day staff took the dog off ([staffRemovedDates]).
+/// A day back in [bookedDates] isn't cancelled, whatever came before: the dog
+/// is on the board, so the calendar must say so.
+Set<DateTime> cancelledDaycareDates({
+  required Set<DateTime> bookedDates,
+  required List<DateChangeRequest> requests,
+  Iterable<DateTime> staffRemovedDates = const [],
+}) {
+  final cancelled = {
+    for (final d in staffRemovedDates) DateTime(d.year, d.month, d.day),
+  };
+  _latestRequestByDate(requests).forEach((day, entry) {
+    if (!entry.isAdd && entry.request.status == RequestStatus.approved) {
+      cancelled.add(day);
+    }
+  });
+  return cancelled.difference(bookedDates);
 }
 
 /// Whether [date] is "confirmed" — i.e. within one month of [now].

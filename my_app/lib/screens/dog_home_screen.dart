@@ -80,6 +80,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   bool _canEditPastDates = false;
   bool _pastAttendanceLoaded = false;
   Set<DateTime> _pastAttendance = {};
+  // Past days staff took the dog off, shown as cancelled on the calendar.
+  Set<DateTime> _pastRemoved = {};
   // Which invoice charges each day — payment managers only.
   Map<DateTime, InvoiceCoverage>? _invoiceCoverage;
 
@@ -88,6 +90,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     super.initState();
     _dog = widget.dog;
     _loadRequests();
+    // The dog handed in is the caller's copy, usually the home list's, which
+    // can predate a change made on this screen a moment ago.
+    _reloadBoardDates();
     // Boarding requests feed the schedule calendar for everyone; the
     // boarding-requests list section below stays staff-only.
     _loadBoardingRequests();
@@ -246,7 +251,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       if (mounted) {
         setState(() {
           _pastAttendanceLoaded = true;
-          _pastAttendance = attendance.map(_dateOnly).toSet();
+          _pastAttendance = attendance.attended.map(_dateOnly).toSet();
+          _pastRemoved = attendance.removed.map(_dateOnly).toSet();
         });
       }
     } catch (_) {
@@ -282,6 +288,34 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     await _loadPastAttendance();
     if (_canEditPastDates) await _loadInvoiceCoverage();
   }
+
+  /// Picks up the dog's board days. Assigned and removed dates are what the
+  /// calendar is drawn from, so they go stale the moment a day changes. A
+  /// failed fetch keeps what was shown; the requests still update the rest.
+  Future<void> _reloadBoardDates() async {
+    try {
+      final fresh = await _dataService.getDogById(_dog.id);
+      if (mounted) {
+        setState(() => _dog = _dog.copyWith(
+              cancelledDates: fresh.cancelledDates,
+              assignedDates: fresh.assignedDates,
+            ));
+      }
+    } catch (_) {}
+  }
+
+  /// Everything the calendar reads after a day is added, cancelled or moved.
+  Future<void> _reloadSchedule() => Future.wait<void>([
+        _loadRequests(),
+        _reloadBoardDates(),
+        _reloadPastAttendance(),
+      ]);
+
+  /// A boarding change moves the stay's daycare days on the board too.
+  Future<void> _reloadBoarding() => Future.wait<void>([
+        _loadBoardingRequests(),
+        _reloadBoardDates(),
+      ]);
 
   /// Best-effort: the markers are a convenience on top of the calendar, so
   /// a failed load leaves whatever was shown before.
@@ -696,15 +730,6 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  /// The booked days that aren't one of the dog's regular weekdays — the
-  /// extra days, shown in teal on the calendar. Judged against the current
-  /// schedule, so a past day on a weekday the dog has since dropped shows as
-  /// extra too.
-  Set<DateTime> _extraDates(Set<DateTime> booked) {
-    final regular = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
-    return booked.where((d) => !regular.contains(d.weekday)).toSet();
-  }
-
   /// Days awaiting approval to be added: pending ADD_DAY requests and the new
   /// date of pending CHANGE requests.
   Set<DateTime> _pendingAddDates() => _requests
@@ -1035,8 +1060,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        _loadRequests(); // Refresh the requests list
-        _reloadPastAttendance(); // Past edits change attendance immediately
+        _reloadSchedule();
       }
     } catch (e) {
       if (mounted) {
@@ -1312,8 +1336,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
           ),
         );
       }
-      _loadRequests();
-      _reloadPastAttendance(); // Past adds create attendance rows immediately
+      _reloadSchedule();
     }
   }
 
@@ -1455,7 +1478,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        _loadBoardingRequests();
+        _reloadBoarding();
       }
     } catch (e) {
       if (mounted) {
@@ -1735,7 +1758,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => RequestBoardingScreen(existing: request)),
     );
-    if (changed == true && mounted) _loadBoardingRequests();
+    if (changed == true && mounted) _reloadBoarding();
   }
 
   /// Approve or decline the dates an owner asked to move their stay to.
@@ -1768,7 +1791,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         content: Text(choice ? 'Booking moved to the new dates' : 'Change declined'),
         backgroundColor: AppColors.success,
       ));
-      _loadBoardingRequests();
+      _reloadBoarding();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1812,7 +1835,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Boarding cancelled'), backgroundColor: AppColors.success),
         );
-        _loadBoardingRequests();
+        _reloadBoarding();
       }
     } catch (e) {
       if (mounted) {
@@ -1855,7 +1878,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Booking deleted'), backgroundColor: AppColors.success),
         );
-        _loadBoardingRequests();
+        _reloadBoarding();
       }
     } catch (e) {
       if (mounted) {
@@ -2247,7 +2270,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final upcomingDates = _getUpcomingDaycareDates();
+    final bookedDates = {..._getUpcomingDaycareDates(), ..._pastAttendance};
 
     return Scaffold(
       floatingActionButton: _buildQuickActionsFab(),
@@ -2432,8 +2455,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                               canEditPastDates:
                                   _canEditPastDates || _pastAttendanceLoaded),
                           lastDay: calendarLastDay(DateTime.now(), isStaff: widget.isStaff),
-                          bookedDates: {...upcomingDates, ..._pastAttendance},
-                          extraDates: _extraDates({...upcomingDates, ..._pastAttendance}),
+                          bookedDates: bookedDates,
+                          extraDates: extraDaycareDates(
+                            bookedDates: bookedDates,
+                            daycareWeekdays: _dog.daysInDaycare.map((d) => d.dayNumber).toSet(),
+                            requests: _requests,
+                          ),
+                          cancelledDates: cancelledDaycareDates(
+                            bookedDates: bookedDates,
+                            requests: _requests,
+                            staffRemovedDates: {..._dog.cancelledDates, ..._pastRemoved},
+                          ),
                           pendingAddDates: _pendingAddDates(),
                           pendingRemoveDates: _pendingRemoveDates(),
                           boardingDates: _boardingDates(BoardingRequestStatus.approved),
