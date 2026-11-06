@@ -10,3 +10,4 @@ Clearer calendars on your dog's profile
 
 For staff:
 • Pins on the pick-up map now show the dog's initial instead of a paw, so you can see at a glance which dog it is.
+• Put your dashboard in the order that suits you: choose Layout in Quick Actions and drag the sections around. Your layout stays with your account.
