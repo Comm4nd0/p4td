@@ -79,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isStaff = false;
   bool _isSuperuser = false;
   int? _myUserId;
+  List<String> _dashboardLayout = const [];
   bool _canAssignDogs = false;
   bool _canAddFeedMedia = false;
   bool _canManageRequests = false;
@@ -266,6 +267,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _isStaff = profile.isStaff;
       _isSuperuser = profile.isSuperuser;
       _myUserId = profile.userId;
+      _dashboardLayout = profile.dashboardLayout;
       _canAssignDogs = profile.canAssignDogs;
       _canAddFeedMedia = profile.canAddFeedMedia;
       _canManageRequests = profile.canManageRequests;
@@ -672,6 +674,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     isStaff: _isStaff,
                     isSuperuser: _isSuperuser,
                     myUserId: _myUserId,
+                    dashboardLayout: _dashboardLayout,
+                    onDashboardLayoutChanged: (ids) => setState(() => _dashboardLayout = ids),
                     initialStaffId: _dogGroupsStaffFilter,
                     initialDate: _deepLinkDate,
                     onSwitchToFeed: () => setState(() => _currentIndex = 1),

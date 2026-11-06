@@ -51,6 +51,7 @@ class UserProfile(models.Model):
     # Personal identity colour used across the staff app (map pins, day board,
     # dashboard cards). Blank = automatic palette colour by staff id.
     staff_color = models.CharField(max_length=7, blank=True, default='', help_text='Hex colour (#RRGGBB) identifying this staff member across the app. Blank = automatic.')
+    dashboard_layout = models.JSONField(default=list, blank=True, help_text="Staff: this person's order for the dashboard's sections, as section ids. Empty = the standard order. The app owns the ids.")
 
     # Notification preferences (all enabled by default)
     notify_feed = models.BooleanField(default=True, help_text='Receive notifications for new feed posts and comments.')

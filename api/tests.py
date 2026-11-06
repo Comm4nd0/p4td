@@ -4440,6 +4440,32 @@ class UserProfileTests(TestCase):
         self.user.profile.refresh_from_db()
         self.assertEqual(self.user.profile.staff_color, '')
 
+    def test_dashboard_layout_saves_and_reads_back(self):
+        self.client.force_authenticate(user=self.user)
+        layout = ['action_items', 'staff', 'a_section_from_a_newer_app']
+        resp = self.client.post('/api/profile/', {'dashboard_layout': layout}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.client.get('/api/profile/').data['dashboard_layout'], layout)
+
+    def test_dashboard_layout_defaults_to_empty(self):
+        self.client.force_authenticate(user=self.user)
+        self.assertEqual(self.client.get('/api/profile/').data['dashboard_layout'], [])
+
+    def test_saving_the_profile_leaves_the_dashboard_layout_alone(self):
+        self.client.force_authenticate(user=self.user)
+        self.client.post('/api/profile/', {'dashboard_layout': ['staff']}, format='json')
+        self.client.post('/api/profile/', {'notify_feed': False}, format='json')
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.dashboard_layout, ['staff'])
+
+    def test_malformed_dashboard_layout_rejected(self):
+        self.client.force_authenticate(user=self.user)
+        for bad in ('staff', {'staff': 1}, [1, 2], [''], ['x' * 51], ['a'] * 51):
+            resp = self.client.post('/api/profile/', {'dashboard_layout': bad}, format='json')
+            self.assertEqual(resp.status_code, 400, bad)
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.dashboard_layout, [])
+
     def test_invalid_staff_color_rejected(self):
         self.client.login(username='user1', password='pw')
         for bad in ['red', '#12345', '#GGGGGG', 'E53935']:

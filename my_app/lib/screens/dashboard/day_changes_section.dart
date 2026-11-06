@@ -39,7 +39,7 @@ class _DayChangesSectionState extends State<DayChangesSection> {
     final count = changes.changes.length;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Card(
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(

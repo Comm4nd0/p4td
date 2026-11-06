@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -7,6 +8,7 @@ import '../constants/pickup_map.dart';
 import '../models/boarding_request.dart';
 import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
+import '../models/dashboard_layout.dart';
 import '../models/owner_handover_status.dart';
 import '../models/photo_tagging_status.dart';
 import '../models/roadwork_issue.dart';
@@ -27,6 +29,7 @@ import '../widgets/quick_actions_fab.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
 import 'dashboard/boarding_section.dart';
+import 'dashboard/dashboard_layout_dialog.dart';
 import 'dashboard/route_plan_screen.dart';
 import 'dashboard/change_log_section.dart';
 import 'dashboard/compatibility_conflicts_dialog.dart';
@@ -83,6 +86,14 @@ class UnifiedDashboardScreen extends StatefulWidget {
   /// Callback to switch to feed tab (index 1)
   final VoidCallback? onSwitchToFeed;
 
+  /// This person's saved section order (`dashboard_layout` on their profile).
+  /// Empty is the standard layout.
+  final List<String> dashboardLayout;
+
+  /// Told the new order when they change it, so the parent's copy of the
+  /// profile stays current if this screen is rebuilt.
+  final ValueChanged<List<String>>? onDashboardLayoutChanged;
+
   const UnifiedDashboardScreen({
     super.key,
     this.canAssignDogs = false,
@@ -100,6 +111,8 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.initialStaffId,
     this.initialDate,
     this.onSwitchToFeed,
+    this.dashboardLayout = const [],
+    this.onDashboardLayoutChanged,
   });
 
   @override
@@ -159,6 +172,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   /// Plan Routes needs an OpenRouteService key on the server; hidden until
   /// the check says it's there.
   bool _routePlanningEnabled = false;
+
+  /// The order this person has chosen for the dashboard's sections.
+  late List<DashboardSection> _sections =
+      resolveDashboardLayout(widget.dashboardLayout);
+
+  @override
+  void didUpdateWidget(UnifiedDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.dashboardLayout, widget.dashboardLayout)) {
+      _sections = resolveDashboardLayout(widget.dashboardLayout);
+    }
+  }
 
   @override
   void initState() {
@@ -1378,15 +1403,87 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     // Stable string identity for the swipe AnimatedSwitcher.
     final dateKey = '${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}';
     final day = _dayData(_selectedDate);
-    final assignments = day.assignments;
 
     Future<void> refresh() async {
       await _loadDay(_selectedDate, force: true);
       await Future.wait([_counts.refresh(), _loadRecentChanges()]);
     }
 
-    // Date-dependent content — swipe left/right to change date
-    final dayPane = GestureDetector(
+    // The spotlight sits above the whole Scaffold, FAB included, so nothing
+    // else is tappable while something urgent is pointed at. The steps are
+    // recomputed on every build: naming someone or acknowledging a pair
+    // changes the day's data, and the next step (or none) follows.
+    final spotlightSteps = _spotlightSteps();
+    // A card that first appears in this frame has no context yet, so the
+    // step list can lag the screen by one frame. Look again once the frame
+    // is up and rebuild if that changed the answer.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final now = _spotlightSteps();
+      final shown = spotlightSteps.isEmpty ? null : spotlightSteps.first.id;
+      final wanted = now.isEmpty ? null : now.first.id;
+      if (shown != wanted) setState(() {});
+    });
+    return Stack(
+      children: [
+        _buildScaffold(day, dateKey, refresh),
+        if (spotlightSteps.isNotEmpty)
+          Positioned.fill(
+            child: SpotlightOverlay(
+              step: spotlightSteps.first,
+              remaining: spotlightSteps.length - 1,
+              onNotNow: () => setState(() => _spotlightDismissed.add(spotlightSteps.first.id)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The given sections in order. A run of date-following sections side by
+  /// side swipes as one pane; the sections between runs stay put.
+  List<Widget> _buildSections(
+      List<DashboardSection> sections, DayData day, String dateKey) {
+    final built = <Widget>[];
+    var firstRun = true;
+    var i = 0;
+    while (i < sections.length) {
+      final section = sections[i];
+      if (!section.followsDate) {
+        built.add(KeyedSubtree(
+            key: ValueKey(section), child: _buildSection(section, day)));
+        i++;
+        continue;
+      }
+      final run = <DashboardSection>[];
+      while (i < sections.length && sections[i].followsDate) {
+        run.add(sections[i++]);
+      }
+      built.add(_buildDayRun(run, day, dateKey, firstRun: firstRun));
+      firstRun = false;
+    }
+    return built;
+  }
+
+  /// One pane of date-dependent sections — swipe left/right to change date.
+  /// The loading skeleton and the weekend notice appear once, in the first
+  /// pane ([firstRun]).
+  Widget _buildDayRun(List<DashboardSection> run, DayData day, String dateKey,
+      {required bool firstRun}) {
+    final Widget content;
+    if (day.loading && !day.loaded) {
+      content = firstRun
+          ? ListTileSkeletonList(key: const ValueKey('loading'))
+          : const SizedBox.shrink(key: ValueKey('loading'));
+    } else {
+      content = Column(
+        key: ValueKey(dateKey),
+        children: _isDaycareDay(_selectedDate)
+            ? [for (final section in run) _buildSection(section, day)]
+            : [if (firstRun) _buildWeekendNotice()],
+      );
+    }
+    return GestureDetector(
+      key: ValueKey(run.first),
       behavior: HitTestBehavior.translucent,
       onHorizontalDragEnd: (details) {
         if (details.primaryVelocity == null) return;
@@ -1425,71 +1522,77 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             ),
           );
         },
-        child: day.loading && !day.loaded
-            ? ListTileSkeletonList(key: const ValueKey('loading'))
-            : Column(
-                key: ValueKey(dateKey),
-                children: _isDaycareDay(_selectedDate)
-                    ? [
-                        _buildSavedDataBanner(day),
-                        _buildUnassignedBanner(_selectedDate),
-                        _buildCompatibilityWarning(_selectedDate),
-                        DayChangesSection(
-                          key: _isToday(_selectedDate) ? _changesSpotKey : null,
-                          changes: day.dayChanges,
-                          onConfirm: _confirmDayChanges,
-                          onDogTap: _openChangedDog,
-                        ),
-                        _buildOverviewMetrics(assignments),
-                        OwnerHandoverSection(
-                          status: day.handovers,
-                          staffMembers: _staffMembers,
-                          availableStaffIds: _workingStaffIds,
-                          onAssign: _assignOwnerHandover,
-                          dropOffKey: _isToday(_selectedDate) ? _dropOffSpotKey : null,
-                          collectionKey: _isToday(_selectedDate) ? _collectionSpotKey : null,
-                        ),
-                        _buildPhotoTaggingCard(day),
-                        const SizedBox(height: 16),
-                        _buildStaffCards(assignments, day.roadworks),
-                      ]
-                    : [_buildWeekendNotice()],
-              ),
+        child: content,
       ),
-    );
-
-    // The spotlight sits above the whole Scaffold, FAB included, so nothing
-    // else is tappable while something urgent is pointed at. The steps are
-    // recomputed on every build: naming someone or acknowledging a pair
-    // changes the day's data, and the next step (or none) follows.
-    final spotlightSteps = _spotlightSteps();
-    // A card that first appears in this frame has no context yet, so the
-    // step list can lag the screen by one frame. Look again once the frame
-    // is up and rebuild if that changed the answer.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final now = _spotlightSteps();
-      final shown = spotlightSteps.isEmpty ? null : spotlightSteps.first.id;
-      final wanted = now.isEmpty ? null : now.first.id;
-      if (shown != wanted) setState(() {});
-    });
-    return Stack(
-      children: [
-        _buildScaffold(day, assignments, dayPane, dateKey, refresh),
-        if (spotlightSteps.isNotEmpty)
-          Positioned.fill(
-            child: SpotlightOverlay(
-              step: spotlightSteps.first,
-              remaining: spotlightSteps.length - 1,
-              onNotNow: () => setState(() => _spotlightDismissed.add(spotlightSteps.first.id)),
-            ),
-          ),
-      ],
     );
   }
 
-  Widget _buildScaffold(DayData day, List<DailyDogAssignment> assignments, Widget dayPane,
-      String dateKey, Future<void> Function() refresh) {
+  /// One section, carrying its own space underneath so the sections sit
+  /// evenly in any order, and a section with nothing to show leaves no gap.
+  Widget _buildSection(DashboardSection section, DayData day) {
+    const belowCard = EdgeInsets.only(bottom: 12);
+    const belowBlock = EdgeInsets.only(bottom: 16);
+    switch (section) {
+      case DashboardSection.unassigned:
+        return _buildUnassignedBanner(_selectedDate);
+      case DashboardSection.conflicts:
+        return _buildCompatibilityWarning(_selectedDate);
+      case DashboardSection.dayChanges:
+        return DayChangesSection(
+          key: _isToday(_selectedDate) ? _changesSpotKey : null,
+          changes: day.dayChanges,
+          onConfirm: _confirmDayChanges,
+          onDogTap: _openChangedDog,
+        );
+      case DashboardSection.overview:
+        return Padding(padding: belowCard, child: _buildOverviewMetrics(day.assignments));
+      case DashboardSection.handovers:
+        return OwnerHandoverSection(
+          status: day.handovers,
+          staffMembers: _staffMembers,
+          availableStaffIds: _workingStaffIds,
+          onAssign: _assignOwnerHandover,
+          dropOffKey: _isToday(_selectedDate) ? _dropOffSpotKey : null,
+          collectionKey: _isToday(_selectedDate) ? _collectionSpotKey : null,
+        );
+      case DashboardSection.photoTagging:
+        return _buildPhotoTaggingCard(day);
+      case DashboardSection.staff:
+        return Padding(
+            padding: belowBlock, child: _buildStaffCards(day.assignments, day.roadworks));
+      case DashboardSection.actionItems:
+        return Padding(padding: belowBlock, child: _buildActionItems());
+      case DashboardSection.boarding:
+        return Padding(padding: belowBlock, child: _buildBoardingSection());
+      case DashboardSection.recentActivity:
+        return Padding(padding: belowBlock, child: _buildChangeLogSection());
+    }
+  }
+
+  /// Offline, the roster may be old: stays on top whatever the layout, and
+  /// only over a day there is something to be wary of.
+  bool _showsSavedDataBanner(DayData day) =>
+      _isDaycareDay(_selectedDate) && !(day.loading && !day.loaded);
+
+  /// "Layout" quick action: reorder the sections. The new order applies at
+  /// once; if it can't be saved it still holds on this device until restart.
+  Future<void> _openLayoutDialog() async {
+    final picked = await showDashboardLayoutDialog(context, current: _sections);
+    if (picked == null || !mounted || listEquals(picked, _sections)) return;
+    setState(() => _sections = picked);
+    final ids = [for (final section in picked) section.id];
+    widget.onDashboardLayoutChanged?.call(ids);
+    try {
+      await _dataService.saveDashboardLayout(ids);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not save your layout. It will reset next time you open the app.'),
+      ));
+    }
+  }
+
+  Widget _buildScaffold(DayData day, String dateKey, Future<void> Function() refresh) {
     return Scaffold(
       floatingActionButton: _buildQuickActionsFab(),
       body: Column(
@@ -1520,42 +1623,48 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                if (constraints.maxWidth < 900) {
+                // Column, not ListView: a lazy list wouldn't build a section
+                // moved far down the page, and the spotlight only finds
+                // widgets that exist.
+                if (constraints.maxWidth < dashboardWideLayoutWidth) {
                   return RefreshIndicator.adaptive(
                     onRefresh: refresh,
-                    child: ListView(
+                    child: SingleChildScrollView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(16),
-                      children: [
-                        dayPane,
-                        const SizedBox(height: 16),
-                        // Static content — stays in place when swiping between dates
-                        _buildActionItems(),
-                        const SizedBox(height: 16),
-                        _buildBoardingSection(),
-                        const SizedBox(height: 16),
-                        _buildChangeLogSection(),
-                        const SizedBox(height: 80), // space for the quick-actions FAB
-                      ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_showsSavedDataBanner(day)) _buildSavedDataBanner(day),
+                          ..._buildSections(_sections, day, dateKey),
+                          const SizedBox(height: 64), // space for the quick-actions FAB
+                        ],
+                      ),
                     ),
                   );
                 }
                 // Wide screens: the day's roster on the left, with the
                 // date-independent action items and boarding alongside it
-                // instead of a scroll away underneath.
+                // instead of a scroll away underneath. Each column keeps the
+                // person's order.
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: RefreshIndicator.adaptive(
                         onRefresh: refresh,
-                        child: ListView(
+                        child: SingleChildScrollView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),
-                          children: [
-                            dayPane,
-                            const SizedBox(height: 80), // space for the quick-actions FAB
-                          ],
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (_showsSavedDataBanner(day)) _buildSavedDataBanner(day),
+                              ..._buildSections(
+                                  _sections.where((s) => s.followsDate).toList(), day, dateKey),
+                              const SizedBox(height: 64), // space for the quick-actions FAB
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1564,12 +1673,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
                       child: ListView(
                         padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
                         children: [
-                          _buildActionItems(),
-                          const SizedBox(height: 16),
-                          _buildBoardingSection(),
-                          const SizedBox(height: 16),
-                          _buildChangeLogSection(),
-                          const SizedBox(height: 80),
+                          ..._buildSections(
+                              _sections.where((s) => !s.followsDate).toList(), day, dateKey),
+                          const SizedBox(height: 64),
                         ],
                       ),
                     ),
@@ -2099,7 +2205,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     final complete = tagging.complete;
     final color = complete ? AppColors.success : AppColors.primary;
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Card(
         margin: EdgeInsets.zero,
         child: InkWell(
@@ -2583,6 +2689,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
               );
             },
           ),
+        QuickFabAction(
+          icon: PiconsDuotone.layout,
+          label: 'Layout',
+          onPressed: _openLayoutDialog,
+        ),
       ],
     );
   }
