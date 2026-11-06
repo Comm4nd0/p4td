@@ -6294,8 +6294,10 @@ def _anonymise_user(user):
     remains and the user can never sign in again.
     """
     from rest_framework.authtoken.models import Token
+    from .models import CalendarFeed
 
     Token.objects.filter(user=user).delete()
+    CalendarFeed.objects.filter(user=user).delete()
     user.username = f'deleted-user-{user.pk}'
     user.first_name = ''
     user.last_name = ''

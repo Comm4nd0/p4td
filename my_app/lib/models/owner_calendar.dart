@@ -1,6 +1,22 @@
 import 'package:intl/intl.dart';
 import 'closure_day.dart';
 
+/// An owner's private calendar subscription link.
+class CalendarFeedLink {
+  final String url;
+  final String webcalUrl;
+
+  CalendarFeedLink({required this.url, required this.webcalUrl});
+
+  /// Null when the owner has no link yet (the API sends null fields).
+  static CalendarFeedLink? fromJson(Map<String, dynamic> json) {
+    final url = json['url'];
+    final webcalUrl = json['webcal_url'];
+    if (url is! String || webcalUrl is! String) return null;
+    return CalendarFeedLink(url: url, webcalUrl: webcalUrl);
+  }
+}
+
 /// The approved boarding stay behind a boarding day.
 class CalendarBoardingStay {
   final DateTime start;

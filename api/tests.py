@@ -16,7 +16,7 @@ from .models import (
     SupportQuery, SupportMessage,
     ClosureDay, DogNote, StaffAvailability, DayOffRequest,
     GroupMedia, IntakeRequest, DogLinkRequest, Invoice, XeroConnection, PasswordResetOTP,
-    Comment, MediaReaction, OwnerHandoverDuty, DogChangeLog,
+    Comment, MediaReaction, OwnerHandoverDuty, DogChangeLog, CalendarFeed,
 )
 from django.utils import timezone
 
@@ -15898,3 +15898,142 @@ class DogAlternativeAddressTests(TestCase):
         self.assertEqual(
             resp.data['pickup_instructions'],
             "Grandma's (12 High St): Ring the bell, Gran has him\n\nKey under the mat")
+
+
+class CalendarFeedTests(TestCase):
+    """The owner's iCal subscription: a public URL guarded only by its token."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('owner@example.com', password='pw')
+        self.other = User.objects.create_user('other@example.com', password='pw')
+        today = timezone.localdate()
+        self.next_monday = today + timedelta(days=7 - today.weekday())
+        self.dog = Dog.objects.create(name='Rex, Jr', owner=self.owner, daycare_days=[1])
+        self.client = APIClient()
+        self.client.force_authenticate(self.owner)
+
+    def _ics(self, as_accept='text/calendar'):
+        path = self.client.post('/api/calendar-feed/').data['url'].split('testserver')[1]
+        # Anonymous, as a calendar app is.
+        response = Client().get(path, HTTP_ACCEPT=as_accept)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _day(self, day):
+        return day.strftime('%Y%m%d')
+
+    def test_no_link_until_asked_for(self):
+        response = self.client.get('/api/calendar-feed/')
+        self.assertEqual(response.data, {'url': None, 'webcal_url': None})
+
+    def test_link_needs_login(self):
+        self.assertEqual(APIClient().get('/api/calendar-feed/').status_code, 401)
+
+    def test_post_keeps_the_same_link(self):
+        first = self.client.post('/api/calendar-feed/').data
+        self.assertEqual(self.client.post('/api/calendar-feed/').data, first)
+        self.assertEqual(self.client.get('/api/calendar-feed/').data, first)
+        self.assertTrue(first['webcal_url'].startswith('webcal://'))
+
+    def test_feed_survives_a_calendar_apps_accept_header(self):
+        response = self._ics()
+        self.assertEqual(response['Content-Type'], 'text/calendar; charset=utf-8')
+        body = response.content.decode()
+        self.assertTrue(body.startswith('BEGIN:VCALENDAR\r\n'))
+        self.assertTrue(body.endswith('END:VCALENDAR\r\n'))
+
+    def test_regular_day_is_an_escaped_all_day_event(self):
+        body = self._ics().content.decode()
+        day = self.next_monday
+        self.assertIn(f'UID:daycare-{self.dog.id}-{day.isoformat()}@p4td', body)
+        self.assertIn(f'DTSTART;VALUE=DATE:{self._day(day)}', body)
+        self.assertIn(f'DTEND;VALUE=DATE:{self._day(day + timedelta(days=1))}', body)
+        self.assertIn('SUMMARY:Rex\\, Jr – Daycare\r\n', body)
+
+    def test_cancelled_day_drops_out(self):
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='CANCEL',
+            original_date=self.next_monday, status='APPROVED',
+        )
+        self.assertNotIn(
+            f'daycare-{self.dog.id}-{self.next_monday.isoformat()}',
+            self._ics().content.decode(),
+        )
+
+    def test_extra_day_says_so(self):
+        tuesday = self.next_monday + timedelta(days=1)
+        DateChangeRequest.objects.create(
+            dog=self.dog, request_type='ADD_DAY',
+            new_date=tuesday, status='APPROVED',
+        )
+        self.assertIn('Daycare (extra day)', self._ics().content.decode())
+
+    def test_boarding_stay_is_one_event_not_daycare_days(self):
+        arrive = self.next_monday
+        leave = arrive + timedelta(days=2)
+        stay = BoardingRequest.objects.create(
+            owner=self.owner, start_date=arrive, end_date=leave, status='APPROVED',
+        )
+        stay.dogs.add(self.dog)
+        body = self._ics().content.decode()
+        self.assertEqual(body.count(f'UID:boarding-{stay.id}-{self.dog.id}@p4td'), 1)
+        self.assertIn('Boarding (2 nights)', body)
+        self.assertIn(f'DTEND;VALUE=DATE:{self._day(leave + timedelta(days=1))}', body)
+        self.assertNotIn(f'daycare-{self.dog.id}-{arrive.isoformat()}', body)
+
+    def test_pending_boarding_is_not_shown(self):
+        stay = BoardingRequest.objects.create(
+            owner=self.owner, start_date=self.next_monday,
+            end_date=self.next_monday + timedelta(days=1), status='PENDING',
+        )
+        stay.dogs.add(self.dog)
+        self.assertNotIn('Boarding', self._ics().content.decode())
+
+    def test_co_owned_dog_is_included_and_others_are_not(self):
+        shared = Dog.objects.create(name='Shared', owner=self.other, daycare_days=[1])
+        shared.additional_owners.add(self.owner)
+        Dog.objects.create(name='Stranger', owner=self.other, daycare_days=[1])
+        body = self._ics().content.decode()
+        self.assertIn('Shared', body)
+        self.assertNotIn('Stranger', body)
+
+    def test_feed_carries_no_address_or_instructions(self):
+        self.dog.address = '1 Secret Lane'
+        self.dog.access_instructions = 'Key under the mat'
+        self.dog.save()
+        body = self._ics().content.decode()
+        self.assertNotIn('Secret', body)
+        self.assertNotIn('mat', body)
+
+    def test_long_unicode_names_fold_inside_the_limit(self):
+        self.dog.name = 'Ñ' * 60
+        self.dog.save()
+        raw = self._ics().content
+        self.assertTrue(all(len(line) <= 75 for line in raw.split(b'\r\n')))
+        self.assertIn('Ñ' * 60, raw.decode().replace('\r\n ', ''))
+
+    def test_unknown_token_is_404(self):
+        self.assertEqual(Client().get('/api/calendar-feed/nope.ics').status_code, 404)
+
+    def test_delete_kills_the_old_link_and_post_makes_a_new_one(self):
+        old = self.client.post('/api/calendar-feed/').data['url']
+        self.assertEqual(self.client.delete('/api/calendar-feed/').status_code, 204)
+        path = old.split('testserver')[1]
+        self.assertEqual(Client().get(path).status_code, 404)
+        self.assertNotEqual(self.client.post('/api/calendar-feed/').data['url'], old)
+
+    def test_deactivated_account_stops_serving(self):
+        path = self.client.post('/api/calendar-feed/').data['url'].split('testserver')[1]
+        self.owner.is_active = False
+        self.owner.save()
+        self.assertEqual(Client().get(path).status_code, 404)
+
+    def test_anonymised_account_loses_its_feed(self):
+        from .views import _anonymise_user
+        self.client.post('/api/calendar-feed/')
+        _anonymise_user(self.owner)
+        self.assertFalse(CalendarFeed.objects.filter(user=self.owner).exists())
+
+    def test_token_is_not_on_the_profile(self):
+        token = self.client.post('/api/calendar-feed/').data['url'].rsplit('/', 1)[1][:-4]
+        self.assertNotIn(token, json.dumps(self.client.get('/api/profile/').data, default=str))

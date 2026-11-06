@@ -268,6 +268,11 @@ abstract class DataService {
 
   // Owner calendar & waitlist
   Future<OwnerCalendar> getOwnerCalendar({DateTime? start, DateTime? end});
+  Future<CalendarFeedLink?> getCalendarFeedLink();
+  /// Makes the link, or returns the one the owner already has.
+  Future<CalendarFeedLink> createCalendarFeedLink();
+  /// Kills the link; creating one afterwards gives a different URL.
+  Future<void> deleteCalendarFeedLink();
   Future<WaitlistEntry> joinWaitlist({required String dogId, required DateTime date});
   Future<void> leaveWaitlist(int entryId);
 

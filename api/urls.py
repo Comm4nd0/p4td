@@ -1,5 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from .calendar_feed import calendar_feed_ics, calendar_feed_link
 from .views import (
     DogViewSet, PhotoViewSet, UserProfileViewSet, DateChangeRequestViewSet,
     GroupMediaViewSet, CommentViewSet, BoardingRequestViewSet, DeviceTokenViewSet,
@@ -62,6 +63,10 @@ router.register(r'dog-addresses', DogAddressViewSet, basename='dog-addresses')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('calendar-feed/', calendar_feed_link, name='calendar-feed'),
+    # Public by necessity: calendar apps can't log in. The token is the
+    # credential — see api/calendar_feed.py.
+    path('calendar-feed/<str:token>.ics', calendar_feed_ics, name='calendar-feed-ics'),
     path('daycare-settings/', daycare_settings, name='daycare-settings'),
     path('billing-settings/', billing_settings, name='billing-settings'),
     path('customer-rates/', customer_rates, name='customer-rates'),

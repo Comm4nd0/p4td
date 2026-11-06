@@ -578,6 +578,12 @@ class MockDataService implements DataService {
   @override
   Future<OwnerCalendar> getOwnerCalendar({DateTime? start, DateTime? end}) async => throw UnimplementedError();
   @override
+  Future<CalendarFeedLink?> getCalendarFeedLink() async => throw UnimplementedError();
+  @override
+  Future<CalendarFeedLink> createCalendarFeedLink() async => throw UnimplementedError();
+  @override
+  Future<void> deleteCalendarFeedLink() async => throw UnimplementedError();
+  @override
   Future<WaitlistEntry> joinWaitlist({required String dogId, required DateTime date}) async => throw UnimplementedError();
   @override
   Future<void> leaveWaitlist(int entryId) async {}
