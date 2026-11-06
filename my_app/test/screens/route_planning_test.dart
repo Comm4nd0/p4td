@@ -97,6 +97,47 @@ void main() {
     expect(service.applied, {1: [11, 12], 2: [13]});
   });
 
+  testWidgets('plan routes: van sizes are set with steppers, no keyboard to get stuck behind', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: RoutePlanScreen(date: DateTime(2026, 11, 2))));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byTooltip('More dogs for Cara'), findsNothing, reason: 'unticked drivers have no stepper');
+
+    await tester.tap(find.byTooltip('More dogs for Alice'));
+    await tester.tap(find.byTooltip('Fewer dogs for Bob'));
+    await tester.pump();
+    expect(find.text('11'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+
+    await tester.tap(find.text('Suggest a plan'));
+    await tester.pumpAndSettle();
+    expect(service.plannedWith, {1: 11, 2: 3});
+  });
+
+  testWidgets('plan routes: below 1 is no limit, and plus returns to the van size', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: RoutePlanScreen(date: DateTime(2026, 11, 2))));
+    await tester.pumpAndSettle();
+
+    final fewer = find.byTooltip('Fewer dogs for Bob');
+    for (var i = 0; i < 4; i++) {
+      await tester.tap(fewer);
+      await tester.pump();
+    }
+    expect(find.text('No limit'), findsOneWidget);
+    expect(tester.widget<IconButton>(find.ancestor(of: fewer, matching: find.byType(IconButton))).onPressed, isNull);
+
+    await tester.tap(find.text('Suggest a plan'));
+    await tester.pumpAndSettle();
+    expect(service.plannedWith, {1: 10, 2: null});
+
+    await tester.tap(find.text('Change drivers'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('More dogs for Bob'));
+    await tester.pump();
+    expect(find.text('4'), findsOneWidget);
+  });
+
   testWidgets('plan routes: change drivers goes back to the picker without applying', (tester) async {
     await tester.pumpWidget(MaterialApp(home: RoutePlanScreen(date: DateTime(2026, 11, 2))));
     await tester.pumpAndSettle();

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:picons/picons.dart';
 import '../../constants/app_colors.dart';
 import '../../models/route_plan.dart';
@@ -27,7 +26,10 @@ class _RoutePlanScreenState extends State<RoutePlanScreen> {
 
   List<RoutePlanDriver>? _drivers;
   final Set<int> _selected = {};
-  final Map<int, TextEditingController> _capacity = {};
+
+  /// Dogs each driver's van takes; null is no limit. Steppers rather than a
+  /// number field: the keyboard covered Suggest a plan and had no Done key.
+  final Map<int, int?> _capacity = {};
   String? _loadError;
 
   RoutePlan? _plan;
@@ -38,14 +40,6 @@ class _RoutePlanScreenState extends State<RoutePlanScreen> {
   void initState() {
     super.initState();
     _loadDrivers();
-  }
-
-  @override
-  void dispose() {
-    for (final c in _capacity.values) {
-      c.dispose();
-    }
-    super.dispose();
   }
 
   Future<void> _loadDrivers() async {
@@ -59,7 +53,7 @@ class _RoutePlanScreenState extends State<RoutePlanScreen> {
         _drivers = drivers;
         for (final d in drivers) {
           if (d.selected) _selected.add(d.staffMemberId);
-          _capacity[d.staffMemberId] = TextEditingController(text: d.capacity?.toString() ?? '');
+          _capacity[d.staffMemberId] = d.capacity;
         }
       });
     } catch (e) {
@@ -75,7 +69,7 @@ class _RoutePlanScreenState extends State<RoutePlanScreen> {
         drivers: {
           for (final d in _drivers!)
             if (_selected.contains(d.staffMemberId))
-              d.staffMemberId: int.tryParse(_capacity[d.staffMemberId]!.text.trim()),
+              d.staffMemberId: _capacity[d.staffMemberId],
         },
       );
       if (mounted) setState(() => _plan = plan);
@@ -171,7 +165,7 @@ class _RoutePlanScreenState extends State<RoutePlanScreen> {
         Text(
           'Who is driving? The plan shares the day\'s dogs between the ticked drivers, '
           'keeping dogs with their usual driver unless moving them saves real driving. '
-          'Set how many dogs each van takes, or leave it blank for no limit.',
+          'Set how many dogs each van takes, or take it down to No limit.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 12),
@@ -186,38 +180,59 @@ class _RoutePlanScreenState extends State<RoutePlanScreen> {
       if (d.dogsNow > 0) '${d.dogsNow} dog${d.dogsNow == 1 ? '' : 's'} today',
       if (!d.working) 'not due in',
     ];
+    final selected = _selected.contains(d.staffMemberId);
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.only(right: 12),
-        child: Row(children: [
-          Expanded(
-            child: CheckboxListTile(
-              value: _selected.contains(d.staffMemberId),
-              onChanged: (v) => setState(() {
-                if (v == true) {
-                  _selected.add(d.staffMemberId);
-                } else {
-                  _selected.remove(d.staffMemberId);
-                }
-              }),
-              controlAffinity: ListTileControlAffinity.leading,
-              title: Text(d.name),
-              subtitle: details.isEmpty ? null : Text(details.join(' · ')),
-            ),
+      child: Column(children: [
+        CheckboxListTile(
+          value: selected,
+          onChanged: (v) => setState(() {
+            if (v == true) {
+              _selected.add(d.staffMemberId);
+            } else {
+              _selected.remove(d.staffMemberId);
+            }
+          }),
+          controlAffinity: ListTileControlAffinity.leading,
+          title: Text(d.name),
+          subtitle: details.isEmpty ? null : Text(details.join(' · ')),
+        ),
+        if (selected) _buildCapacityStepper(d),
+      ]),
+    );
+  }
+
+  /// Below 1 is No limit. Coming back up starts from the van's own size, or
+  /// the dogs the driver has today, so a big van isn't eight taps from 1.
+  Widget _buildCapacityStepper(RoutePlanDriver d) {
+    final id = d.staffMemberId;
+    final capacity = _capacity[id];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+      child: Row(children: [
+        Expanded(child: Text('Dogs in the van', style: Theme.of(context).textTheme.bodyMedium)),
+        IconButton(
+          tooltip: 'Fewer dogs for ${d.name}',
+          onPressed: capacity == null
+              ? null
+              : () => setState(() => _capacity[id] = capacity > 1 ? capacity - 1 : null),
+          icon: Picon(PiconsDuotone.minus),
+        ),
+        SizedBox(
+          width: 64,
+          child: Text(
+            capacity?.toString() ?? 'No limit',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleSmall,
           ),
-          SizedBox(
-            width: 72,
-            child: TextField(
-              controller: _capacity[d.staffMemberId],
-              enabled: _selected.contains(d.staffMemberId),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(labelText: 'Dogs', isDense: true),
-            ),
-          ),
-        ]),
-      ),
+        ),
+        IconButton(
+          tooltip: 'More dogs for ${d.name}',
+          onPressed: () => setState(() {
+            _capacity[id] = capacity == null ? d.capacity ?? (d.dogsNow > 0 ? d.dogsNow : 1) : capacity + 1;
+          }),
+          icon: Picon(PiconsDuotone.plus),
+        ),
+      ]),
     );
   }
 
