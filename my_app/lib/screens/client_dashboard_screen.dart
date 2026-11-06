@@ -14,6 +14,7 @@ import '../services/data_service.dart';
 import '../services/no_connection_exception.dart';
 import '../services/service_locator.dart';
 import '../widgets/app_sheets.dart';
+import '../widgets/calendar_feed_sheet.dart';
 import '../widgets/new_query_dialog.dart';
 import '../widgets/no_connection_widget.dart';
 import '../widgets/page_body.dart';
@@ -395,6 +396,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
                 dayFor: _calendarDayFor,
                 onVisibleRange: _ensureCalendarRange,
                 onOpenDay: _openCalendar,
+                onAddToOwnCalendar: () => showCalendarFeedSheet(context),
               ),
               gap,
               ClientAttentionSection(

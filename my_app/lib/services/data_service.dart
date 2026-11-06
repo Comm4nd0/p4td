@@ -2870,6 +2870,48 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<CalendarFeedLink?> getCalendarFeedLink() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${AuthService.baseUrl}/api/calendar-feed/'),
+      headers: headers,
+      timeout: _readTimeout,
+    );
+    if (response.statusCode == 200) {
+      return CalendarFeedLink.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to load calendar link: ${response.statusCode}');
+  }
+
+  @override
+  Future<CalendarFeedLink> createCalendarFeedLink() async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/calendar-feed/'),
+      headers: headers,
+    );
+    final link = response.statusCode == 200
+        ? CalendarFeedLink.fromJson(json.decode(response.body))
+        : null;
+    if (link == null) {
+      throw Exception('Failed to create calendar link: ${response.statusCode}');
+    }
+    return link;
+  }
+
+  @override
+  Future<void> deleteCalendarFeedLink() async {
+    final headers = await _getHeaders();
+    final response = await http.delete(
+      Uri.parse('${AuthService.baseUrl}/api/calendar-feed/'),
+      headers: headers,
+    );
+    if (response.statusCode != 204) {
+      throw Exception('Failed to turn off calendar link: ${response.statusCode}');
+    }
+  }
+
+  @override
   Future<WaitlistEntry> joinWaitlist({required String dogId, required DateTime date}) async {
     final headers = await _getHeaders();
     final response = await http.post(

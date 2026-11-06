@@ -171,6 +171,16 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 
 Additional non-router endpoints:
 - `api/daycare-settings/` — facility-wide daycare settings
+- `api/calendar-feed/` — the signed-in owner's private iCal link: GET reads it (null `url`
+  when they have none), POST makes it or returns the existing one, DELETE turns it off (a
+  later POST issues a new token). `api/calendar-feed/<token>.ics` is the feed itself —
+  **public**, because calendar apps can't log in; the token is the only credential, so it
+  lives in `CalendarFeed`, never on the profile, and the feed carries dog names and dates
+  only. A plain Django view, not DRF (`Accept: text/calendar` would get a 406). All-day
+  events from `ScheduleIndex`: one per dog per daycare day, one per dog per approved
+  stay, a month back and six months ahead. All in `api/calendar_feed.py`; the app's
+  **Add to my calendar** is on the client dashboard's Calendar section
+  (`widgets/calendar_feed_sheet.dart`).
 - `api/dogs/<id>/invoice-coverage/` — payment managers only (`can_manage_payments`); which
   invoice charges each of the dog's days, from every non-VOID invoice line's
   `attendance_dates`. Feeds the dog profile calendar's invoice dots (`DogScheduleCalendar`

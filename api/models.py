@@ -816,6 +816,21 @@ class DogWeekdayPickup(models.Model):
         return f"{self.dog.name} → {self.staff_member.username} on weekday {self.weekday}"
 
 
+def _new_calendar_feed_token():
+    return secrets.token_urlsafe(32)
+
+
+class CalendarFeed(models.Model):
+    """An owner's private calendar subscription link (see api/calendar_feed.py).
+
+    Its own table, not a UserProfile field, so no profile serializer or staff
+    screen can ever hand the token to someone else.
+    """
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='calendar_feed')
+    token = models.CharField(max_length=64, unique=True, default=_new_calendar_feed_token)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class ClosureDay(models.Model):
     CLOSURE_TYPE_CHOICES = [
         ('CLOSED', 'Closed'),

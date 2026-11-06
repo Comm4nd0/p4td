@@ -23,6 +23,9 @@ class ClientCalendarSection extends StatefulWidget {
 
   /// Opens My Calendar on a day, where the waitlist actions live.
   final void Function(DateTime day)? onOpenDay;
+
+  /// Offers the owner's own calendar app a subscription to these days.
+  final VoidCallback? onAddToOwnCalendar;
   final CalendarViewMode initialMode;
 
   const ClientCalendarSection({
@@ -32,6 +35,7 @@ class ClientCalendarSection extends StatefulWidget {
     required this.dayFor,
     required this.onVisibleRange,
     this.onOpenDay,
+    this.onAddToOwnCalendar,
     this.initialMode = CalendarViewMode.week,
   });
 
@@ -155,6 +159,14 @@ class _ClientCalendarSectionState extends State<ClientCalendarSection> {
             CalendarViewMode.month => _buildMonth(),
           },
         ),
+        if (widget.onAddToOwnCalendar != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: widget.onAddToOwnCalendar,
+              child: const Text('Add to my calendar'),
+            ),
+          ),
       ],
     );
   }
