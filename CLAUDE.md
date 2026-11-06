@@ -440,9 +440,9 @@ longer than Play allows, so it cannot simply be copied.
 >
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
-> | Live on the App Store | **1.12.55** | `cbabb49` | Released 2026-10-20; verified against Apple's UK lookup API on 2026-11-04. Calendars show staff-assigned and past days, the day's changes to the routine (6pm summary, late-change pushes, owner reminders), group compatibility notes. |
+> | Live on the App Store | **1.12.63** | `4bf40bf` | Released 2026-11-05; verified against Apple's UK lookup API on 2026-11-06. Owner boarding date-change requests and manager boarding edits, Plan Routes / Optimise route, up to five alternative pick-up/drop-off addresses per dog, "home after 16:00" on the pick-up list. |
 > | Live on Google Play | **1.12.43** | `4803cad` | Build 487, full production rollout; verified in Play Console on 2026-10-14. Promotions of 1.12.50 (build 494) and 1.12.55 not yet verified in Play Console. |
-> | Release in progress | 1.12.63 | see tag `v1.12.63` | Tag pushed 2026-11-04. Owner boarding date-change requests and manager boarding edits, Plan Routes / Optimise route, up to five alternative pick-up/drop-off addresses per dog, "home after 16:00" on the pick-up list. Notes diffed from `cbabb49`. Store review and public availability must be verified separately. |
+> | Release in progress | 1.12.67 | see tag `v1.12.67` | Tag pushed 2026-11-06. Dog profile calendar updates straight away with cancelled days marked, moved days shown as cancelled + extra, dog's initial on map pins. Notes diffed from `4bf40bf`. iOS: build 644 submitted for review 2026-11-06, still needs a press of Release once approved. Android: build 511 promoted to production 2026-11-06, Google's review and availability not yet verified. |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
@@ -481,6 +481,9 @@ version to finish processing, attaches the newest one, and submits for review. I
 App Store Connect refuses that build ("pre-release build could not be added" —
 every tag push so far has hit it on the build that was newest at tag time), the
 lane waits for the newer build the tag itself queued in Xcode Cloud and retries.
+If the Production build for the commit already existed before the tag, nothing
+newer comes and the lane stops: run the workflow by hand from `main` with `submit`
+on and `app_build` set to the Production workflow's build number.
 It never builds or uploads a binary itself. Full detail — including the dry-run mode
 and what still needs the web UI — is in `my_app/STORE_METADATA.md`.
 
