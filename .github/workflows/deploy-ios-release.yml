@@ -42,6 +42,10 @@ on:
         description: "Submit for App Review (off = attach the build and stop)"
         type: boolean
         default: false
+      app_build:
+        description: "Attach this exact build number (blank = newest in the version's train). Use the Production workflow's build when the newest is the Development one"
+        type: string
+        required: false
 
 jobs:
   release:
@@ -146,6 +150,7 @@ jobs:
           # Tag pushes submit. A manual run defaults to a dry run, so you can
           # attach the build and look at it before sending it to Apple.
           SUBMIT: ${{ (github.event_name == 'push' || inputs.submit) && '1' || '0' }}
+          APP_BUILD: ${{ inputs.app_build }}
         run: |
           export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
           cd fastlane && fastlane ios submit_for_review
