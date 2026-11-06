@@ -72,7 +72,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user_id', 'username', 'first_name', 'last_name', 'email', 'address', 'phone_number', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'notify_messages', 'notify_schedule', 'postcode_lookup_enabled', 'staff_color']
+        fields = ['user_id', 'username', 'first_name', 'last_name', 'email', 'address', 'phone_number', 'profile_photo', 'is_staff', 'is_superuser', 'can_assign_dogs', 'can_add_feed_media', 'can_manage_requests', 'can_reply_queries', 'can_manage_staff', 'can_approve_timeoff', 'can_view_inquiries', 'can_manage_vehicles', 'can_manage_payments', 'can_manage_boarding', 'can_manage_compliance', 'receives_business_alerts', 'daycare_rate', 'boarding_rate', 'notify_feed', 'notify_traffic', 'notify_bookings', 'notify_dog_updates', 'notify_messages', 'notify_schedule', 'postcode_lookup_enabled', 'staff_color', 'dashboard_layout']
         # Capability flags are assignable ONLY by a superuser via
         # update_staff_permissions. They must never be writable through this
         # self-service endpoint, or any authenticated user could PATCH their own
@@ -97,6 +97,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if value and not re.fullmatch(r'#[0-9A-Fa-f]{6}', value):
             raise serializers.ValidationError('Colour must be in #RRGGBB format (or blank for automatic).')
         return value.upper()
+
+    def validate_dashboard_layout(self, value):
+        # Shape only: the section ids belong to the app, which ignores any it
+        # doesn't know, so a new section needs no backend change.
+        if (
+            not isinstance(value, list)
+            or len(value) > 50
+            or not all(isinstance(item, str) and 0 < len(item) <= 50 for item in value)
+        ):
+            raise serializers.ValidationError('Layout must be a list of section ids.')
+        return value
 
     def update(self, instance, validated_data):
         # Email (and therefore the username) is changed through

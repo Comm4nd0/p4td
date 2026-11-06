@@ -36,6 +36,11 @@ class UserProfile {
   /// This staff member's chosen identity colour ('#RRGGBB', '' = automatic).
   final String staffColor;
 
+  /// Staff: their chosen order for the dashboard's sections (empty = the
+  /// standard order). Written only by [DataService.saveDashboardLayout], never
+  /// by [toJson], so saving the profile screen can't wipe it.
+  final List<String> dashboardLayout;
+
   UserProfile({
     this.userId,
     required this.username,
@@ -65,6 +70,7 @@ class UserProfile {
     this.notifySchedule = true,
     this.postcodeLookupEnabled = false,
     this.staffColor = '',
+    this.dashboardLayout = const [],
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -97,6 +103,7 @@ class UserProfile {
       notifySchedule: json['notify_schedule'] ?? true,
       postcodeLookupEnabled: json['postcode_lookup_enabled'] ?? false,
       staffColor: json['staff_color'] ?? '',
+      dashboardLayout: (json['dashboard_layout'] as List?)?.whereType<String>().toList() ?? const [],
     );
   }
 

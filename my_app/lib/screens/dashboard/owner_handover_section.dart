@@ -41,7 +41,7 @@ class OwnerHandoverSection extends StatelessWidget {
     final status = this.status;
     if (status == null || status.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(children: [
         Expanded(child: _card(context, status.dropOff, key: dropOffKey)),
         const SizedBox(width: 6),

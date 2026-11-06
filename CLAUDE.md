@@ -131,7 +131,7 @@ All API routes are registered via DRF `DefaultRouter` in `api/urls.py`, mounted 
 
 | Endpoint | Resource |
 |---|---|
-| `api/profile/` | User profiles |
+| `api/profile/` | User profiles. `dashboard_layout` is a staff member's own dashboard section order (see **Staff dashboard layout**) |
 | `api/dogs/` | Dog profiles. `general_notes` and `van_placement` are staff-written and are stripped from every non-staff read (`DogSerializer.STAFF_ONLY_READ_FIELDS`); owners may propose changes only to `OWNER_EDITABLE_DOG_FIELDS`, which go through `api/dog-profile-changes/`. **Pickup instructions are per dog, not per person:** `access_instructions` (keys, gates, where the dog waits) is owner-editable like the address, is what the booking form's `pickup_instructions` becomes on approval, and is what `daily-assignments/` serves as `pickup_instructions` — the profile has no such field (migration 0091 moved it onto the dogs), so two dogs at one address can differ. **Contact numbers are client-required, staff-warned:** `contact_number` and `emergency_contact_number` (`CLIENT_REQUIRED_DOG_FIELDS` in `api/views.py`) must be given on the booking form and can never be blanked by an owner edit, while staff may leave them empty — the app asks a staff member once (`my_app/lib/widgets/dog_contact_rules.dart`) and the API never refuses. Put the next field that clients must supply but staff may skip under the same constant and helper. **A day on the board is a booked day:** assigning a dog to a staff member (or Add Dog to Day) books it in like an approved extra day — `ScheduleIndex`, `dogs/calendar/` and invoicing already count any non-REMOVED `DailyDogAssignment`, and `assigned_dates` (today onwards) is how the profile calendar (`upcomingDaycareDates`'s `staffAssignedDates`) shows it, teal when off the dog's regular days. Before today the profile calendar reads `dogs/<id>/past-attendance/` (the same rows, a year back, plus `removed` for days staff took the dog off) for everyone who can open the dog — owners their own — read-only unless `can_manage_payments`. It marks cancelled days with a cross (`cancelledDaycareDates`: approved cancellations, the old date of a move, removed days) and shows a moved day's new date as extra even on the dog's own weekday (`extraDaycareDates`). Any write that changes a day on this screen reloads through `_reloadSchedule`/`_reloadBoarding`, because the calendar is drawn from the dog's own `assigned_dates`/`cancelled_dates` as well as its requests. |
 | `api/photos/` | Dog photos/videos. Owners view and upload to their own dogs' galleries; **deleting a photo is staff-only** — the gallery holds medical paperwork staff have photographed |
 | `api/date-change-requests/` | Schedule change requests. Every row carries `dog_profile_image`; for staff, a PENDING `ADD_DAY`/`CHANGE` row also carries `new_date_summary` — dogs already booked on `new_date` (with capacity) and the staff due to work it (`scheduling.day_booking_summary`, which never counts the `P4TD` house account) — because that is what decides whether the extra day is approved. Owners always get `null` there |
@@ -326,6 +326,24 @@ Additional non-router endpoints:
   today's widgets only — the date switcher keeps the outgoing day mounted for a
   moment and a key may appear once. Add the next must-do-now item as a step
   there, not as another banner.
+- **Staff dashboard layout**: the **Layout** quick action
+  (`screens/dashboard/dashboard_layout_dialog.dart`) lets each staff member drag the
+  dashboard's sections into their own order, saved on their profile
+  (`UserProfile.dashboard_layout`, a list of section ids, posted alone through
+  `saveDashboardLayout` — it is deliberately not in `UserProfile.toJson()`, so saving the
+  Profile screen can't wipe it) and so following them between devices. The sections are
+  the `DashboardSection` enum in `models/dashboard_layout.dart`; declaration order is the
+  standard layout, ids are stored so never rename one, and the server checks only the
+  list's shape, so a new section needs just a new enum value and a case in
+  `_buildSection`. `resolveDashboardLayout` drops unknown ids and slots in any section a
+  saved layout lacks, so nothing can go missing. Date-following sections swipe with the
+  date, each unbroken run as its own pane (`_buildDayRun`), with the fixed sections left
+  still between them; wide screens keep the two columns and apply the order within each.
+  The saved-data banner stays on top and isn't movable. The page is a `Column` in a
+  `SingleChildScrollView` rather than a lazy list because the spotlight only finds widgets
+  that exist — keep it that way, or a section moved down the page silently loses its
+  spotlight. Each section spaces itself with bottom padding only, so it looks right in any
+  order and leaves no gap when it has nothing to show.
 - **Staff inbox badges**: the home AppBar shows Contact Staff, Booking Forms,
   Website Inquiries (with `can_view_inquiries`) and the bell, each a
   `BadgedActionIcon` (`widgets/badged_action_icon.dart`) with its count. **A count

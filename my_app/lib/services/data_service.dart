@@ -396,6 +396,19 @@ class ApiDataService implements DataService {
   }
 
   @override
+  Future<void> saveDashboardLayout(List<String> sectionIds) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${AuthService.baseUrl}/api/profile/'),
+      headers: headers,
+      body: json.encode({'dashboard_layout': sectionIds}),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Failed to save layout');
+    }
+  }
+
+  @override
   Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
     final token = await _authService.getToken();
     var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/profile/'));

@@ -25,6 +25,7 @@ abstract class DataService {
   });
   Future<UserProfile> getProfile();
   Future<void> updateProfile(UserProfile profile);
+  Future<void> saveDashboardLayout(List<String> sectionIds);
   Future<void> updateStaffColor(String hexColor);
   Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName);
   Future<UserProfile> deleteProfilePhoto();

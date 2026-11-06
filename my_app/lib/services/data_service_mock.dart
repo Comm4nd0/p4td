@@ -53,6 +53,9 @@ class MockDataService implements DataService {
   Future<void> updateProfile(UserProfile profile) async {}
 
   @override
+  Future<void> saveDashboardLayout(List<String> sectionIds) async {}
+
+  @override
   Future<void> updateStaffColor(String hexColor) async {}
 
   @override
