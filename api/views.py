@@ -4635,7 +4635,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         moving it saves real driving (``routing.MOVE_PENALTY_SECONDS``);
         dogs already collected or returned, and dogs with no location, stay
         where they are. Dogs on a negative compatibility note are kept out of
-        one van where that's possible. Needs ``can_assign_dogs``.
+        one van where that's possible. Every driver sent gets dogs, and one
+        with none on the board an even share (``routing._minimum_dogs``), van
+        size permitting. Needs ``can_assign_dogs``.
         """
         if not getattr(request.user.profile, 'can_assign_dogs', False):
             return Response({'detail': 'You do not have permission to assign dogs.'}, status=403)
