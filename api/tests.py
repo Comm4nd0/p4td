@@ -15611,6 +15611,55 @@ class RouteSolverTests(TestCase):
         east = next(r for r in plan.routes if r.staff_id == 1)
         self.assertIn(6, east.assignment_ids)
 
+    def test_plan_gives_a_ticked_driver_with_no_dogs_a_fair_share(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        # Every dog is sensibly placed, so nothing but the tick moves any.
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5, 6)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2), PlanDriver(3)], self._two_clusters())
+        self.assertEqual([len(r.assignment_ids) for r in plan.routes], [2, 2, 2])
+        self.assertEqual(sorted(a for r in plan.routes for a in r.assignment_ids), [1, 2, 3, 4, 5, 6])
+
+    def test_plan_splits_a_lone_drivers_run_with_the_one_added(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in range(1, 7)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        self.assertEqual([r.load for r in plan.routes], [3, 3])
+
+    def test_added_drivers_share_stops_at_their_van_size(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (4, 5, 6)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2), PlanDriver(3, capacity=1)],
+                           self._two_clusters())
+        self.assertEqual(plan.routes[2].load, 1)
+        self.assertEqual(plan.over_capacity, [])
+
+    def test_a_ticked_driver_stays_empty_only_when_nothing_can_move(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        dogs = [PlanDog(a, a, 1, stop=a, pinned=True) for a in (1, 2)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        self.assertEqual([len(r.assignment_ids) for r in plan.routes], [2, 0])
+
+    def test_even_share_only_applies_while_a_driver_is_being_added(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        # Driver 2's east dog still moves though it leaves them under an even
+        # share of three: with nobody added, the board's geography decides.
+        dogs = [PlanDog(1, 1, 1, stop=1), PlanDog(2, 2, 1, stop=2),
+                PlanDog(7, 7, 1, stop=1), PlanDog(8, 8, 1, stop=2)]
+        dogs += [PlanDog(a, a, 2, stop=a) for a in (3, 4, 5)]
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        self.assertEqual(set(plan.routes[1].assignment_ids), {4, 5})
+
+    def test_a_driver_already_holding_dogs_is_not_topped_up(self):
+        from .routing import PlanDog, PlanDriver, plan_routes
+        # Driver 2 has their one dog; the even-share rule is for added drivers.
+        dogs = [PlanDog(a, a, 1, stop=a) for a in (1, 2, 3)]
+        dogs.append(PlanDog(4, 4, 2, stop=4))
+        plan = plan_routes(dogs, [PlanDriver(1), PlanDriver(2)], self._two_clusters())
+        self.assertEqual({r.staff_id: set(r.assignment_ids) for r in plan.routes},
+                         {1: {1, 2, 3}, 2: {4}})
+
 
 def _straight_line_matrix(points):
     from .routing import _haversine_seconds
@@ -15692,6 +15741,22 @@ class RoutePlanningApiTests(TestCase):
         with patch('api.routing.base_location', side_effect=RoutingNotConfigured('off')):
             resp = self.client.post(f'/api/daily-assignments/optimise_route/?date={self.day}', {}, format='json')
         self.assertEqual(resp.status_code, 503)
+
+    def test_plan_routes_shares_dogs_with_a_ticked_driver_who_is_not_in(self):
+        # Bob holds no dogs and isn't due in; ticking him is what counts.
+        StaffAvailability.objects.create(
+            staff_member=self.bob, day_of_week=self.day.isoweekday(), is_available_daycare=False)
+        for i in range(4):
+            self._dog(f'Dog{i}', -0.75 + i * 0.1, self.alice, order=i)
+        self.client.force_authenticate(self.alice)
+        picker = self.client.get(f'/api/daily-assignments/route_plan_drivers/?date={self.day}').data
+        self.assertFalse(next(d for d in picker if d['staff_member_id'] == self.bob.id)['selected'])
+        resp = self.client.post(f'/api/daily-assignments/plan_routes/?date={self.day}', {'drivers': [
+            {'staff_member_id': self.alice.id, 'capacity': None},
+            {'staff_member_id': self.bob.id, 'capacity': None},
+        ]}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([len(r['dogs']) for r in resp.data['routes']], [2, 2])
 
     def test_plan_routes_moves_the_stray_dog_and_saves_nothing(self):
         for i, lng in enumerate((-0.6, -0.58, -0.56)):

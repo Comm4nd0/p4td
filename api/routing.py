@@ -27,6 +27,7 @@ import json as _json
 import math
 import urllib.error
 import urllib.request
+from collections import Counter
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -55,6 +56,12 @@ LONGEST_RUN_WEIGHT = 1.0
 # them still gets a plan (the best one available) rather than an error.
 OVER_CAPACITY_PENALTY = 10_000
 CONFLICT_PENALTY = 100_000
+
+# Ticking a driver means they are driving, so a van left empty ignores the
+# instruction, and one added to the day should carry its share: each dog short
+# costs more than any detour. Less than the two rules above, because a small
+# van stays short rather than overfilled.
+SHORT_SHARE_PENALTY = 5_000
 
 # Exhaustive search is exact and instant for short runs; beyond this the
 # heuristic takes over.
@@ -322,6 +329,25 @@ def _load(units):
     )
 
 
+def _minimum_dogs(units, driver_ids):
+    """The fewest dogs the plan should leave each driver with: {staff id: n}.
+
+    Normally one, because a ticked driver is driving. A driver with no dogs on
+    the board is being added to the day, so they get an even share; without
+    that they end up with one token dog, since no single dog is worth a whole
+    extra run. While that happens nobody else drops below an even share either
+    (or below what they have, if less), so the dogs come off the fullest vans
+    rather than whichever colleague happens to be nearest.
+    """
+    held = Counter()
+    for unit in units:
+        held[unit.current] += len(unit.dogs)
+    even_share = max(1, sum(held.values()) // len(driver_ids))
+    if all(held[staff] for staff in driver_ids):
+        return dict.fromkeys(driver_ids, 1)
+    return {staff: min(held[staff], even_share) or even_share for staff in driver_ids}
+
+
 def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
     """Share ``dogs`` (PlanDog) between ``drivers`` (PlanDriver) and order
     each run.
@@ -332,7 +358,9 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
     objective: total driving, plus the longest run, plus
     ``MOVE_PENALTY_SECONDS`` per dog taken off its current driver, plus heavy
     penalties for an over-full van or for every dog of a ``conflicts`` group
-    (sets of dog ids) riding together. Deterministic for the same input.
+    (sets of dog ids) riding together, or for each dog a driver falls short
+    of ``_minimum_dogs`` (or their van, if smaller). Deterministic for the
+    same input.
     """
     driver_ids = [d.staff_id for d in drivers]
     if not driver_ids:
@@ -368,6 +396,8 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
             pinned=key[0] == 'pinned', dog_ids=frozenset(d.dog_id for d in members),
         ))
 
+    minimum = _minimum_dogs(units, driver_ids)
+
     tour_cache = {}
 
     def run_seconds(stops):
@@ -392,6 +422,8 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
             riders = frozenset().union(*(u.dog_ids for u in chosen)) if chosen else frozenset()
             penalty += CONFLICT_PENALTY * sum(1 for c in conflicts if c <= riders)
             penalty += MOVE_PENALTY_SECONDS * sum(len(u.dogs) for u in chosen if u.current != staff)
+            floor = minimum[staff] if cap is None else min(minimum[staff], cap)
+            penalty += SHORT_SHARE_PENALTY * max(0, floor - sum(len(u.dogs) for u in chosen))
             van_cache[key] = (secs, penalty)
         return van_cache[key]
 
