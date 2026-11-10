@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from django.db.models import Count, Q
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 from django.utils import timezone
 from .models import (
     Dog, Photo, UserProfile, DateChangeRequest, DateChangeRequestHistory,
@@ -173,18 +174,19 @@ class StaffUserAdmin(BaseUserAdmin):
         assignments = list(obj.dog_assignments.filter(date=timezone.localdate()).select_related('dog'))
         if not assignments:
             return format_html('<span style="color: #999;">None</span>')
-        dogs = []
-        for a in assignments:
-            color = {
-                'ASSIGNED': '#ffc107',
-                'PICKED_UP': '#0d6efd',
-                'DROPPED_OFF': '#198754',
-            }.get(a.status, '#6c757d')
-            dogs.append(format_html(
-                '<span style="background-color: {}; padding: 2px 6px; border-radius: 3px; color: white; margin-right: 4px;">{}</span>',
-                color, a.dog.name
-            ))
-        return format_html(''.join(str(d) for d in dogs))
+        colors = {
+            'ASSIGNED': '#ffc107',
+            'PICKED_UP': '#0d6efd',
+            'DROPPED_OFF': '#198754',
+        }
+        # format_html_join, not format_html over the joined chips: the joined
+        # string held the dogs' names, so a name with a brace in it was read
+        # as a format field and the whole page 500'd.
+        return format_html_join(
+            '',
+            '<span style="background-color: {}; padding: 2px 6px; border-radius: 3px; color: white; margin-right: 4px;">{}</span>',
+            ((colors.get(a.status, '#6c757d'), a.dog.name) for a in assignments),
+        )
     todays_dogs.short_description = "Today's Dogs"
 
 
@@ -259,7 +261,7 @@ class DailyDogAssignmentAdmin(admin.ModelAdmin):
             parts.append(format_html('<span title="Owner collects">&larr;&#127968; {}</span>', t.strftime('%H:%M') if t else '—'))
         if not parts:
             return format_html('<span style="color: #999;">staff</span>')
-        return format_html(' &nbsp; '.join(str(p) for p in parts))
+        return format_html_join(mark_safe(' &nbsp; '), '{}', ((p,) for p in parts))
     transport_display.short_description = 'Transport'
 
 

@@ -18,6 +18,9 @@ ALLOWED_IMAGE_FORMATS = {'JPEG', 'PNG', 'GIF', 'WEBP', 'MPO', 'HEIF', 'HEIC'}
 
 MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024   # 25 MB
 MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB
+# Decoded size, which the byte limit says nothing about: a tiny file can
+# declare an enormous canvas. Same figure as api.apps.MAX_UPLOAD_IMAGE_PIXELS.
+MAX_IMAGE_UPLOAD_PIXELS = 40_000_000
 
 
 def validate_media_upload(uploaded, media_type):
@@ -59,6 +62,12 @@ def validate_media_upload(uploaded, media_type):
     try:
         uploaded.seek(0)
         with Image.open(uploaded) as probe:
+            width, height = probe.size
+            if width * height > MAX_IMAGE_UPLOAD_PIXELS:
+                raise ValidationError(
+                    'That image is far larger than a photo needs to be. '
+                    'Please send a smaller one.'
+                )
             probe.verify()
             image_format = probe.format
     except ValidationError:

@@ -17,6 +17,7 @@ Docker build. All network I/O goes through :func:`_token_request` and
 :func:`_api_request`, which tests patch directly.
 """
 import base64
+import hashlib
 import json as _json
 import logging
 import secrets as _secrets
@@ -55,6 +56,12 @@ class XeroNotConnected(XeroError):
 class XeroAuthError(XeroError):
     """The stored credentials are dead (e.g. rotated refresh token lost);
     a superuser must reconnect."""
+
+
+class XeroContactMismatch(XeroError):
+    """Xero has a contact with the customer's name but a different email
+    address — possibly somebody else. Nothing is raised against it; a person
+    matches the customer on the reconciliation screen."""
 
 
 def is_configured():
@@ -102,10 +109,14 @@ def _token_request(form):
         raise XeroError('Could not reach the Xero token endpoint.')
 
 
-def _api_request(method, path, access_token, tenant_id=None, payload=None, params=None):
+def _api_request(method, path, access_token, tenant_id=None, payload=None, params=None,
+                 idempotency_key=None):
     """Call the Xero API and return the parsed JSON dict.
 
     ``path`` is absolute (starts with http) or relative to :data:`API_BASE`.
+    ``idempotency_key`` is sent as Xero's ``Idempotency-Key`` header: a write
+    repeated with the same key is answered with the first attempt's result
+    instead of being carried out twice.
     Raises :class:`XeroError` with the response detail on failure.
     """
     url = path if path.startswith('http') else f'{API_BASE}/{path.lstrip("/")}'
@@ -118,6 +129,8 @@ def _api_request(method, path, access_token, tenant_id=None, payload=None, param
     }
     if tenant_id:
         headers['xero-tenant-id'] = tenant_id
+    if idempotency_key:
+        headers['Idempotency-Key'] = idempotency_key[:128]
     data = None
     if payload is not None:
         data = _json.dumps(payload).encode('utf-8')
@@ -279,13 +292,19 @@ def get_access_token():
         raise
 
 
-def _tenant_call(method, path, payload=None, params=None):
+def _tenant_call(method, path, payload=None, params=None, idempotency_key=None):
     """An authenticated Accounting API call against the connected tenant."""
     from .models import XeroConnection
 
     token = get_access_token()
     tenant_id = XeroConnection.load().tenant_id
-    return _api_request(method, path, token, tenant_id, payload=payload, params=params)
+    extra = {'idempotency_key': idempotency_key} if idempotency_key else {}
+    return _api_request(method, path, token, tenant_id, payload=payload, params=params, **extra)
+
+
+def _payload_digest(payload):
+    """A stable fingerprint of a request body, for idempotency keys."""
+    return hashlib.sha256(_json.dumps(payload, sort_keys=True, default=str).encode('utf-8')).hexdigest()[:40]
 
 
 # ---------------------------------------------------------------------------
@@ -302,37 +321,80 @@ def _contact_display_name(user):
     return name or user.username
 
 
-def find_or_create_contact(user):
-    """Return the Xero ContactID for a customer, creating the contact if
-    needed. Matches by email first (the stable key), then by display name."""
+def _active_contacts(result):
+    """The usable contacts in a Contacts response. An archived contact cannot
+    be invoiced, and matching one would file the invoice on a dead record."""
+    return [
+        c for c in (result.get('Contacts') or [])
+        if c.get('ContactStatus', 'ACTIVE') == 'ACTIVE'
+    ]
+
+
+def resolve_contact(user):
+    """``(ContactID, matched_by)`` for a customer, creating the contact if
+    Xero has none. ``matched_by`` is ``'email'`` (the stable key), ``'name'``
+    or ``'created'``.
+
+    A name is not proof of identity — family members and common names share
+    them — so a ``'name'`` match is for the caller to use once, not to
+    remember (``billing._resolve_contact_id`` does not pin it). And when the
+    same-named contact carries a *different* email address from the
+    customer's, it is treated as somebody else: :class:`XeroContactMismatch`
+    is raised rather than raising (and letting Xero email) the invoice to
+    them. Xero contact names are unique, so a second contact of that name
+    cannot be created either — the reconciliation screen settles it.
+    """
     email = (user.email or '').strip()
     if email:
         result = _tenant_call('GET', 'Contacts', params={
             'where': f'EmailAddress=="{_escape_where_value(email)}"',
         })
-        contacts = result.get('Contacts') or []
+        contacts = _active_contacts(result)
         if contacts:
-            return contacts[0]['ContactID']
+            return contacts[0]['ContactID'], 'email'
 
-    return find_or_create_contact_by_name(_contact_display_name(user), email=email)
+    name = _contact_display_name(user)
+    matches = _find_contacts_by_name(name)
+    if matches:
+        theirs = (matches[0].get('EmailAddress') or '').strip()
+        if email and theirs and theirs.lower() != email.lower():
+            raise XeroContactMismatch(
+                f'Xero has a contact named "{name}" with a different email address. '
+                'Match this customer to their Xero contact on the reconciliation screen.')
+        return matches[0]['ContactID'], 'name'
+    return _create_contact(name, email), 'created'
+
+
+def find_or_create_contact(user):
+    """Return the Xero ContactID for a customer, creating the contact if
+    needed. Matches by email first (the stable key), then by display name —
+    see :func:`resolve_contact` for how far a name match is trusted."""
+    return resolve_contact(user)[0]
+
+
+def _find_contacts_by_name(name):
+    result = _tenant_call('GET', 'Contacts', params={
+        'where': f'Name=="{_escape_where_value(name)}"',
+    })
+    return _active_contacts(result)
+
+
+def _create_contact(name, email=''):
+    payload = {'Contacts': [{'Name': name}]}
+    if email:
+        payload['Contacts'][0]['EmailAddress'] = email
+    result = _tenant_call('POST', 'Contacts', payload=payload)
+    return result['Contacts'][0]['ContactID']
 
 
 def find_or_create_contact_by_name(name, email=''):
     """Return the Xero ContactID for a bare display name (e.g. an invoice in
     a dog's name), creating the contact if needed. The business can then
     attach an email address in Xero and send the invoice from there."""
-    result = _tenant_call('GET', 'Contacts', params={
-        'where': f'Name=="{_escape_where_value(name)}"',
-    })
-    contacts = result.get('Contacts') or []
-    if contacts:
-        return contacts[0]['ContactID']
-
-    payload = {'Contacts': [{'Name': name}]}
-    if email:
-        payload['Contacts'][0]['EmailAddress'] = email
-    result = _tenant_call('POST', 'Contacts', payload=payload)
-    return result['Contacts'][0]['ContactID']
+    matches = _find_contacts_by_name(name)
+    if matches:
+        return matches[0]['ContactID']
+    return _create_contact(name, email)
 
 
 def _line_items(invoice):
@@ -354,8 +416,17 @@ def create_invoice(invoice, contact_id, status='AUTHORISED', due_date=None):
     ``AUTHORISED`` when the app itself is sending it. ``LineAmountTypes:
     Inclusive`` keeps the app's gross total equal to the Xero total regardless
     of the org's default tax rate. Returns ``(InvoiceID, InvoiceNumber)``.
+
+    Sent with an ``Idempotency-Key`` made from the local invoice and the
+    exact request body. Xero's answer can be lost after it has created the
+    invoice (a read timeout, the web worker killed at 120s), and the retry
+    would otherwise raise a second invoice that the app never learns about —
+    which the business, approving drafts inside Xero, could then send to the
+    customer as well. With the key, the retry gets the first invoice back.
+    (``Reference`` cannot identify it instead: every invoice for a month
+    shares "Daycare <month>", and it is printed on what the customer gets.)
     """
-    today = timezone.now().date()
+    today = timezone.localdate()
     due = due_date or invoice.due_date or today
     payload = {
         'Invoices': [{
@@ -369,7 +440,8 @@ def create_invoice(invoice, contact_id, status='AUTHORISED', due_date=None):
             'LineItems': _line_items(invoice),
         }],
     }
-    result = _tenant_call('POST', 'Invoices', payload=payload)
+    key = f'p4td-invoice-{invoice.pk}-{status}-{_payload_digest(payload)}'
+    result = _tenant_call('POST', 'Invoices', payload=payload, idempotency_key=key)
     created = result['Invoices'][0]
     return created['InvoiceID'], created.get('InvoiceNumber', '')
 
@@ -474,9 +546,10 @@ def void_invoice(xero_invoice_id, draft=False):
     })
 
 
-def create_payment(xero_invoice_id, amount, payment_date, account_code):
+def create_payment(xero_invoice_id, amount, payment_date, account_code, idempotency_key=None):
     """Record a payment against a Xero invoice (used to mirror manual payments
-    recorded in the app). Returns the Xero PaymentID."""
+    recorded in the app). Returns the Xero PaymentID. ``idempotency_key``
+    (one per local payment) stops a retried request booking it twice."""
     payload = {
         'Payments': [{
             'Invoice': {'InvoiceID': xero_invoice_id},
@@ -485,5 +558,5 @@ def create_payment(xero_invoice_id, amount, payment_date, account_code):
             'Amount': float(amount),
         }],
     }
-    result = _tenant_call('PUT', 'Payments', payload=payload)
+    result = _tenant_call('PUT', 'Payments', payload=payload, idempotency_key=idempotency_key)
     return result['Payments'][0]['PaymentID']

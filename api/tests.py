@@ -25,6 +25,9 @@ class DateChangeRequestStatusTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.dog = Dog.objects.create(owner=self.owner, name='Fido')
         self.req = DateChangeRequest.objects.create(dog=self.dog, request_type='CANCEL', original_date='2026-02-10')
         self.client = APIClient()
@@ -578,6 +581,9 @@ class DateChangeMoveTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.driver = User.objects.create_user(username='driver', password='pw', is_staff=True)
         # daycare_days empty + no weekday roster -> the dog only attends the new
         # day because of the approved CHANGE, so it can't be auto-materialised.
@@ -671,6 +677,9 @@ class DogReAddAfterRemovalTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.target = date.today() + timedelta(days=7)
         self.weekday = self.target.isoweekday()
         self.dog = Dog.objects.create(
@@ -1104,6 +1113,9 @@ class PreferredDropoffTimeTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.dog = Dog.objects.create(owner=self.owner, name='Rex')
         self.client = APIClient()
 
@@ -1156,6 +1168,9 @@ class DogAddressTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.client = APIClient()
 
     def test_staff_can_set_dog_address(self):
@@ -1499,6 +1514,9 @@ class WeekdayRosterTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pw')
         self.staff_a = User.objects.create_user(username='staffa', password='pw', is_staff=True, first_name='Alice')
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff_a.profile.can_manage_requests = True
+        self.staff_a.profile.save()
         self.staff_a.profile.can_assign_dogs = True
         self.staff_a.profile.save()
         self.staff_b = User.objects.create_user(username='staffb', password='pw', is_staff=True, first_name='Bob')
@@ -5574,6 +5592,9 @@ class CapacityEnforcementTests(TestCase):
         from .models import DaycareSettings
         self.owner = User.objects.create_user(username='capowner', password='pw')
         self.staff = User.objects.create_user(username='capstaff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.target = date.today() + timedelta(days=14)
         self.weekday = self.target.isoweekday()
         # dog1 fills the single slot via its weekly schedule
@@ -5646,6 +5667,9 @@ class WaitlistTests(TestCase):
         self.owner1 = User.objects.create_user(username='wlowner1', password='pw')
         self.owner2 = User.objects.create_user(username='wlowner2', password='pw')
         self.staff = User.objects.create_user(username='wlstaff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.target = date.today() + timedelta(days=14)
         self.weekday = self.target.isoweekday()
         self.dog1 = Dog.objects.create(owner=self.owner1, name='Fido', daycare_days=[self.weekday])
@@ -7128,6 +7152,8 @@ class PastDayBillingGuardTests(TestCase):
         self.staff = User.objects.create_user(username='plainstaff', password='pw', is_staff=True)
         self.manager = User.objects.create_user(username='paymgr', password='pw', is_staff=True)
         self.manager.profile.can_manage_payments = True
+        # The generic PATCH route also needs can_assign_dogs, like mark_removed.
+        self.manager.profile.can_assign_dogs = True
         self.manager.profile.save()
         self.dog = Dog.objects.create(name='Fido')
         self.past = timezone.localdate() - timedelta(days=3)
@@ -7162,16 +7188,22 @@ class PastDayBillingGuardTests(TestCase):
         self.assignment.refresh_from_db()
         self.assertEqual(self.assignment.status, 'REMOVED')
 
-    def test_plain_staff_may_still_patch_a_future_day(self):
+    def test_patching_a_future_day_needs_can_assign_dogs(self):
+        # Taking a dog off a future day is what mark_removed does, and that
+        # needs can_assign_dogs; the generic PATCH route must not be a way
+        # round it. No payments permission is needed for a future day.
         future = DailyDogAssignment.objects.create(
             dog=self.dog, staff_member=self.staff,
             date=timezone.localdate() + timedelta(days=2), status='ASSIGNED',
         )
         self.client.force_authenticate(self.staff)
-        resp = self.client.patch(
-            f'/api/daily-assignments/{future.id}/', {'status': 'REMOVED'}, format='json',
-        )
-        self.assertEqual(resp.status_code, 200)
+        url = f'/api/daily-assignments/{future.id}/'
+        self.assertEqual(
+            self.client.patch(url, {'status': 'REMOVED'}, format='json').status_code, 403)
+        self.staff.profile.can_assign_dogs = True
+        self.staff.profile.save()
+        self.assertEqual(
+            self.client.patch(url, {'status': 'REMOVED'}, format='json').status_code, 200)
 
 
 class StaffAvailabilityScopingTests(TestCase):
@@ -7381,7 +7413,9 @@ class DeleteAccountProtectedTests(TestCase):
         self.assertNotIn('billed', self.user.username)
         self.assertFalse(self.user.has_usable_password())
 
-    def test_delete_account_staff_with_weekday_pickups_does_not_500(self):
+    def test_staff_cannot_delete_their_own_account(self):
+        # A staff account carries HR records, replies in client threads and
+        # the weekly roster; closing one is a manager's job, not self-service.
         staff = User.objects.create_user(
             username='driver', password='OldPass123!', is_staff=True)
         dog = Dog.objects.create(name='Routed')
@@ -7392,9 +7426,10 @@ class DeleteAccountProtectedTests(TestCase):
         resp = client.post(
             '/api/account/delete/', {'password': 'OldPass123!'}, format='json')
 
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 403)
         staff.refresh_from_db()
-        self.assertFalse(staff.is_active)
+        self.assertTrue(staff.is_active)
+        self.assertTrue(DogWeekdayPickup.objects.filter(staff_member=staff).exists())
 
     def test_delete_account_without_protected_rows_still_hard_deletes(self):
         resp = self.client.post(
@@ -8675,6 +8710,9 @@ class NotificationCorrectnessTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='nowner', password='pw')
         self.staff = User.objects.create_user(username='nstaff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         # Staff auto-approval of bookings needs the boarding-manager flag.
         self.staff.profile.can_manage_boarding = True
         self.staff.profile.save()
@@ -11319,9 +11357,11 @@ class XeroDraftSyncTests(BillingTestsBase):
         self.assertEqual(counts['voided'], 1)
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.status, 'VOID')
-        # The period can be raised again.
+        # The period can be raised again. (Patched: generating raises the
+        # draft in Xero, and this must never reach the real API from a test.)
         self._attend(self.stray, 1)
-        created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.stray)
+        with patch('api.billing.push_draft_to_xero', return_value=False):
+            created, _, _ = billing.generate_invoices_for_month(2026, 6, dog=self.stray)
         self.assertEqual(len(created), 1)
 
     @patch('api.billing.send_staff_notification')
@@ -12665,9 +12705,13 @@ class BoardingDaycareAttendanceTests(TestCase):
         with patch('api.notifications.send_push_notification'):
             self.client.post(f'/api/boarding-requests/{stay.id}/change_status/',
                              {'status': 'CANCELLED'}, format='json')
-        # The row staff created by hand survives — but it was re-pointed at the
-        # house account while the stay stood, so it is cleared like the rest.
-        self.assertFalse(DailyDogAssignment.objects.filter(id=manual.id).exists())
+        # The day staff added by hand was never the stay's to delete: it sat
+        # under the house account while the stay stood, and the booking (and
+        # its charge) survives the cancellation. (A day from today on is also
+        # handed back for a driver to claim; this one is in the past.)
+        manual.refresh_from_db()
+        self.assertNotEqual(manual.status, 'REMOVED')
+        self.assertFalse(manual.from_boarding)
 
     def test_cancelling_one_stay_leaves_a_consecutive_stay_alone(self):
         first = self._stay(start=self.monday, end=date(2026, 4, 7))
@@ -13396,6 +13440,9 @@ class DogContactNumberTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='contactowner', password='pw')
         self.staff = User.objects.create_user(username='contactstaff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.dog = Dog.objects.create(owner=self.owner, name='Biscuit')
         self.client = APIClient()
 
@@ -13492,6 +13539,9 @@ class DogVaccinationDateTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='vaxowner', password='pw')
         self.staff = User.objects.create_user(username='vaxstaff', password='pw', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.dog = Dog.objects.create(owner=self.owner, name='Pip')
         self.client = APIClient()
 
@@ -14820,6 +14870,9 @@ class DogChangeLogTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='alex@example.com', password='pw', first_name='Alex', last_name='Smith')
         self.staff = User.objects.create_user(username='sam@example.com', password='pw', first_name='Sam', last_name='Jones', is_staff=True)
+        # Deciding requests needs the flag (the app only offers it with one).
+        self.staff.profile.can_manage_requests = True
+        self.staff.profile.save()
         self.client = APIClient()
         self.client.force_authenticate(self.staff)
 

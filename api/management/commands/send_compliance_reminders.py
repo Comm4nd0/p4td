@@ -21,6 +21,7 @@ from api.cron_heartbeat import ping_heartbeat
 
 class Command(PushCommand):
     help = 'Send due/overdue compliance check reminders to compliance managers (run daily).'
+    requires_firebase = True
 
     def _notify(self, check, event, title, body):
         data = {
@@ -34,6 +35,22 @@ class Command(PushCommand):
                 send_push_notification(user, title, body, data)
             except Exception as exc:
                 self.stderr.write(f'Failed to notify {user}: {exc}')
+
+    def _remind(self, check, flags, event, title, body):
+        """One milestone: mark, send, and un-mark if FCM took nothing, so a
+        reminder nobody received is tried again tomorrow. Returns 1 or 0."""
+        previous = {flag: getattr(check, flag) for flag in flags}
+        for flag in flags:
+            setattr(check, flag, True)
+        check.save(update_fields=flags)
+        with self.dispatch() as outcome:
+            self._notify(check, event, title, body)
+        if outcome.demonstrably_failed:
+            for flag, value in previous.items():
+                setattr(check, flag, value)
+            check.save(update_fields=flags)
+            return 0
+        return 1
 
     def handle(self, *args, **options):
         today = timezone.localdate()
@@ -49,46 +66,33 @@ class Command(PushCommand):
             if due is None:
                 # Scheduled but never completed: nag once until the first log.
                 if not check.due_notice_sent:
-                    check.due_notice_sent = True
-                    check.save(update_fields=['due_notice_sent'])
-                    self._notify(
-                        check, 'never_done',
+                    sent += self._remind(
+                        check, ['due_notice_sent'], 'never_done',
                         'Compliance check needs a first record',
                         f'"{check.name}" ({check.get_frequency_display().lower()}) has never been logged.',
                     )
-                    sent += 1
                 continue
 
             if today > due and not check.due_notice_sent:
-                check.due_notice_sent = True
-                check.advance_notice_sent = True
-                check.save(update_fields=['due_notice_sent', 'advance_notice_sent'])
-                self._notify(
-                    check, 'overdue',
+                sent += self._remind(
+                    check, ['due_notice_sent', 'advance_notice_sent'], 'overdue',
                     'Compliance check overdue',
                     f'"{check.name}" was due on {due:%d %b %Y}.',
                 )
-                sent += 1
             elif today == due and not check.due_notice_sent:
-                check.due_notice_sent = True
-                check.advance_notice_sent = True
-                check.save(update_fields=['due_notice_sent', 'advance_notice_sent'])
-                self._notify(
-                    check, 'due',
+                sent += self._remind(
+                    check, ['due_notice_sent', 'advance_notice_sent'], 'due',
                     'Compliance check due today',
                     f'"{check.name}" is due today.',
                 )
-                sent += 1
             elif (days >= 90 and not check.advance_notice_sent
                   and today >= due - timezone.timedelta(days=30)):
-                check.advance_notice_sent = True
-                check.save(update_fields=['advance_notice_sent'])
-                self._notify(
-                    check, 'due_soon',
+                sent += self._remind(
+                    check, ['advance_notice_sent'], 'due_soon',
                     'Compliance check coming up',
                     f'"{check.name}" is due on {due:%d %b %Y}.',
                 )
-                sent += 1
 
         self.stdout.write(self.style.SUCCESS(f'Sent {sent} compliance reminder(s).'))
+        self.fail_if_pushes_failed()
         ping_heartbeat('send_compliance_reminders')

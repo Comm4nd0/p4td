@@ -19,6 +19,7 @@ Changes made after this has run reach the team as they happen
 """
 from datetime import datetime, timedelta
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from api.management.push_command import PushCommand
@@ -33,6 +34,14 @@ from api.scheduling import (
 
 # Keep the push readable on a lock screen.
 MAX_ITEMS = 8
+
+# The scheduled run (no --date) remembers which day it has summarised, so a
+# second run the same evening — cron firing twice, or someone running it by
+# hand after cron already did — doesn't push the whole team and every owner
+# again. Kept in the cache (database-backed in production, so it survives a
+# deploy); a few days is ample for a key that names its date.
+SENT_KEY = 'tomorrow-changes-sent:{}'
+SENT_TTL = 3 * 24 * 60 * 60
 
 
 def _listed(changes):
@@ -66,6 +75,7 @@ def owner_reminder_text(dog_name, kind, when):
 
 class Command(PushCommand):
     help = "Push tomorrow's changes to the routine to the team, and reminders to owners (run daily at 18:00)."
+    requires_firebase = True
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -76,6 +86,10 @@ class Command(PushCommand):
             '--dry-run', action='store_true',
             help='Print what would be sent without pushing anything.',
         )
+        parser.add_argument(
+            '--force', action='store_true',
+            help="Send even if tomorrow's summary has already gone out today.",
+        )
 
     def handle(self, *args, **options):
         if options['date']:
@@ -84,6 +98,16 @@ class Command(PushCommand):
             target = timezone.localdate() + timedelta(days=1)
         dry_run = options['dry_run']
         when = day_word(target)
+
+        # Only the scheduled form is guarded: an explicit --date is someone
+        # asking for that day on purpose.
+        guarded = not options['date'] and not dry_run
+        sent_key = SENT_KEY.format(target.isoformat())
+        if guarded and not options['force'] and cache.get(sent_key):
+            self.stdout.write(
+                f'{target}: summary already sent; nothing sent again (--force to resend).')
+            ping_heartbeat('tomorrow-changes')
+            return
 
         changes = day_changes(target)
         if not changes:
@@ -96,16 +120,26 @@ class Command(PushCommand):
             'date': target.isoformat(),
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
+        if guarded:
+            # Claimed before sending, like the reminder flags: a crash halfway
+            # must not push everyone a second time on the re-run.
+            cache.set(sent_key, timezone.now().isoformat(), SENT_TTL)
+
         staff_sent = 0
-        for user in schedule_change_recipients(target):
-            title, body = staff_summary_text(changes, user.id, when)
-            if dry_run:
-                self.stdout.write(f'[staff] {user.username}: {title} — {body!r}')
-            else:
-                send_push_notification(
-                    user, title, body, data, category='schedule', ignore_working_hours=True,
-                )
-            staff_sent += 1
+        with self.dispatch() as staff_outcome:
+            for user in schedule_change_recipients(target):
+                title, body = staff_summary_text(changes, user.id, when)
+                if dry_run:
+                    self.stdout.write(f'[staff] {user.username}: {title} — {body!r}')
+                else:
+                    try:
+                        send_push_notification(
+                            user, title, body, data, category='schedule',
+                            ignore_working_hours=True,
+                        )
+                    except Exception as exc:
+                        self.stderr.write(f'Failed to notify {user}: {exc!r}')
+                staff_sent += 1
 
         owner_sent = 0
         owner_changes = [c for c in changes if c['kind'] in (CHANGE_EXTRA, CHANGE_CANCELLED)]
@@ -128,11 +162,20 @@ class Command(PushCommand):
                 if dry_run:
                     self.stdout.write(f'[owner] {user.username}: {title} — {body!r}')
                 else:
-                    send_push_notification(user, title, body, owner_data, category='bookings')
+                    try:
+                        with self.dispatch():
+                            send_push_notification(
+                                user, title, body, owner_data, category='bookings')
+                    except Exception as exc:
+                        self.stderr.write(f'Failed to notify {user}: {exc!r}')
                 owner_sent += 1
 
         self.stdout.write(
             f'{target}: {len(changes)} change(s); {staff_sent} staff and {owner_sent} owner push(es)'
             + (' (dry run)' if dry_run else '')
         )
+        if guarded and staff_outcome.demonstrably_failed:
+            # Nobody on the team got it: let the next run try again.
+            cache.delete(sent_key)
+        self.fail_if_pushes_failed()
         ping_heartbeat('tomorrow-changes')

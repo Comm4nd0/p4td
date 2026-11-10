@@ -320,10 +320,21 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_THROTTLE_RATES': {
         'anon': '60/min',
+        # The next seven count every caller, signed in or not, by client IP or
+        # by the account being targeted — see api/throttles.py. A token used
+        # to exempt a request from all of them.
         'password_reset': '5/hour',
+        'password_reset_email': '5/hour',
         'password_reset_confirm': '10/hour',
+        'password_reset_confirm_email': '10/hour',
+        # Token login. Per IP is loose enough for a whole team signing in from
+        # one office connection; per username is what stops password guessing.
+        'login_ip': '30/min',
+        'login_username': '10/min',
         # Same rate as the website contact form (website/views.py).
         'contact_inquiry': '5/hour',
+        # Address lookups cost money per call (getAddress.io), per user.
+        'postcode_lookup': '60/hour',
         # DfT Street Manager pushes the roadworks feed here; see
         # SnsWebhookThrottle in api/views.py for why this is deliberately high.
         'sns_webhook': '600/min',
@@ -568,3 +579,9 @@ if SENTRY_DSN:
     except ImportError:
         # sentry-sdk not installed; skip monitoring rather than crash.
         pass
+
+# How many months back an invoice reaches for attended days and boarding
+# nights that no invoice ever charged (api/billing.py). 1 = last month only.
+# Raise it (12 at most) to have older misses appear on the next draft invoice;
+# only months the app itself invoiced that dog for are ever reached.
+BILLING_CATCH_UP_MONTHS = int(os.environ.get('BILLING_CATCH_UP_MONTHS', '1'))

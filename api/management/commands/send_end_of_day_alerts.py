@@ -42,6 +42,7 @@ def _name_list(dogs):
 
 class Command(PushCommand):
     help = "Push an end-of-day exception summary to business-alert staff (run daily near closing)."
+    requires_firebase = True
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -102,18 +103,20 @@ class Command(PushCommand):
 
         title = f"End of day: {total} dog{'s' if total != 1 else ''} to check"
         body = '\n'.join(lines)
-        send_staff_notification(
-            title,
-            body,
-            {
-                'type': 'end_of_day_alert',
-                'date': target.isoformat(),
-                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-            },
-            permission='receives_business_alerts',
-            ignore_working_hours=True,
-        )
+        with self.dispatch():
+            send_staff_notification(
+                title,
+                body,
+                {
+                    'type': 'end_of_day_alert',
+                    'date': target.isoformat(),
+                    'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                },
+                permission='receives_business_alerts',
+                ignore_working_hours=True,
+            )
 
         self.stdout.write(f'{target}: {total} exception(s) — {body!r}')
+        self.fail_if_pushes_failed()
         # Heartbeat on success so a monitor alerts if this cron stops running (I7).
         ping_heartbeat('end-of-day-alerts')

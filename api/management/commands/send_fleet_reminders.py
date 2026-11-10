@@ -18,6 +18,7 @@ from api.cron_heartbeat import ping_heartbeat
 
 class Command(PushCommand):
     help = 'Send vehicle MOT/service/tax due reminders to fleet managers (run daily).'
+    requires_firebase = True
 
     def _notify_managers(self, vehicle, event, title, body):
         data = {
@@ -31,6 +32,25 @@ class Command(PushCommand):
                 send_push_notification(user, title, body, data)
             except Exception as exc:
                 self.stderr.write(f'Failed to notify {user}: {exc}')
+
+    def _remind(self, vehicle, flags, event, title, body):
+        """One milestone: mark, send, and un-mark if FCM took nothing.
+
+        Marked before dispatching (prefer at-most-once) (B34). Returns 1 when
+        the reminder stands, 0 when it was put back for the next run.
+        """
+        previous = {flag: getattr(vehicle, flag) for flag in flags}
+        for flag in flags:
+            setattr(vehicle, flag, True)
+        vehicle.save(update_fields=flags)
+        with self.dispatch() as outcome:
+            self._notify_managers(vehicle, event, title, body)
+        if outcome.demonstrably_failed:
+            for flag, value in previous.items():
+                setattr(vehicle, flag, value)
+            vehicle.save(update_fields=flags)
+            return 0
+        return 1
 
     def handle(self, *args, **options):
         today = timezone.localdate()
@@ -52,18 +72,12 @@ class Command(PushCommand):
             )
             for vehicle in overdue:
                 due = getattr(vehicle, date_field)
-                # Mark sent before dispatching (prefer at-most-once) (B34).
-                setattr(vehicle, flag_overdue, True)
-                setattr(vehicle, flag_7, True)
-                setattr(vehicle, flag_30, True)
-                vehicle.save(update_fields=[flag_overdue, flag_7, flag_30])
-                self._notify_managers(
-                    vehicle, event,
+                sent += self._remind(
+                    vehicle, [flag_overdue, flag_7, flag_30], event,
                     f'{label} overdue',
                     f"{vehicle.name} ({vehicle.registration}) {label} was due on "
                     f"{due.strftime('%d %b %Y')}.",
                 )
-                sent += 1
 
             week_window = Vehicle.objects.filter(
                 **{
@@ -76,16 +90,12 @@ class Command(PushCommand):
                 due = getattr(vehicle, date_field)
                 days_left = (due - today).days
                 when = 'today' if days_left == 0 else f"in {days_left} day{'s' if days_left != 1 else ''}"
-                setattr(vehicle, flag_7, True)
-                setattr(vehicle, flag_30, True)
-                vehicle.save(update_fields=[flag_7, flag_30])
-                self._notify_managers(
-                    vehicle, event,
+                sent += self._remind(
+                    vehicle, [flag_7, flag_30], event,
                     f'{label} due soon',
                     f"{vehicle.name} ({vehicle.registration}) {label} is due {when} "
                     f"({due.strftime('%d %b %Y')}).",
                 )
-                sent += 1
 
             month_window = Vehicle.objects.filter(
                 **{
@@ -96,17 +106,15 @@ class Command(PushCommand):
             )
             for vehicle in month_window:
                 due = getattr(vehicle, date_field)
-                setattr(vehicle, flag_30, True)
-                vehicle.save(update_fields=[flag_30])
-                self._notify_managers(
-                    vehicle, event,
+                sent += self._remind(
+                    vehicle, [flag_30], event,
                     f'{label} due for renewal' if event == 'tax' else f'{label} due for booking',
                     f"{vehicle.name} ({vehicle.registration}) {label} is due on "
                     f"{due.strftime('%d %b %Y')}. "
                     + ("Time to renew it!" if event == 'tax' else "Time to book it in!"),
                 )
-                sent += 1
 
         self.stdout.write(f'Sent {sent} fleet reminder(s).')
+        self.fail_if_pushes_failed()
         # Heartbeat on success so a monitor alerts if this cron stops running (I7).
         ping_heartbeat('fleet-reminders')

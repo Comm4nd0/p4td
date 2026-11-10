@@ -20,6 +20,7 @@ Going live needs three things outside this file:
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 
 from django.conf import settings
@@ -41,6 +42,38 @@ def topic_arns() -> list[str]:
     if isinstance(configured, (list, tuple)):
         return [str(a).strip() for a in configured if str(a).strip()]
     return [a.strip() for a in configured.split(',') if a.strip()]
+
+
+def highway_authorities() -> set[str]:
+    """The highway authorities whose works are kept, lower-cased; empty = all.
+
+    ``STREET_MANAGER_HIGHWAY_AUTHORITIES`` is a comma-separated list of
+    authority names and/or SWA codes (e.g. ``Buckinghamshire Council,440``).
+    The SNS subscription filter policy is still the right place to cut the
+    national feed down — it stops the traffic arriving at all — but that
+    filter lives in AWS, where nobody can see it from here. This is the same
+    rule enforced where the rows are written, so a missing or loosened filter
+    (or someone forwarding the whole country's signed events at this endpoint)
+    can't fill the table.
+    """
+    configured = getattr(settings, 'STREET_MANAGER_HIGHWAY_AUTHORITIES', None)
+    if configured is None:
+        configured = os.environ.get('STREET_MANAGER_HIGHWAY_AUTHORITIES', '')
+    if isinstance(configured, str):
+        configured = configured.split(',')
+    return {str(a).strip().lower() for a in configured if str(a).strip()}
+
+
+def _authority_allowed(data: dict) -> bool:
+    allowed = highway_authorities()
+    if not allowed:
+        return True
+    named = {
+        str(data.get(key)).strip().lower()
+        for key in ('highway_authority', 'highway_authority_swa_code')
+        if data.get(key) not in (None, '')
+    }
+    return bool(named & allowed)
 
 
 def _parse_date(value):
@@ -125,6 +158,9 @@ def ingest_event(event: dict) -> str:
     data = event.get('object_data')
     if not isinstance(data, dict):
         return 'ignored:no-object-data'
+
+    if not _authority_allowed(data):
+        return 'ignored:authority'
 
     fields = issue_fields_from_payload(data)
     if not fields:

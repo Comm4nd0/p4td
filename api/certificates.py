@@ -240,6 +240,14 @@ def _prepare_image(upload):
         img.load()
     except CertificateRejected:
         raise
+    except Image.DecompressionBombError as exc:
+        # Pillow's own refusal, at twice the process-wide cap set in
+        # api/apps.py — it fires inside Image.open, before the check above
+        # can. Not an OSError, so without this it surfaced as a 500.
+        raise CertificateRejected(
+            'That image is far larger than a certificate needs to be. '
+            'Please send a smaller photo.'
+        ) from exc
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as exc:
         raise CertificateRejected(
             "That file doesn't look like a valid image. Send a JPG or PNG photo, or a PDF."
