@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 /// How one day differs from the dogs' routine — `daily-assignments/changes/`
 /// (`scheduling.day_changes` on the server). Staff work from routine, and the
 /// mistakes happen on the exceptions, so only the differences are listed.
@@ -56,9 +58,7 @@ class DayChange {
         staffId: json['staff_id'] as int?,
         staffName: json['staff_name'] as String?,
         changedByName: json['changed_by_name'] as String?,
-        changedAt: json['changed_at'] != null
-            ? DateTime.tryParse(json['changed_at'] as String)?.toLocal()
-            : null,
+        changedAt: parseApiDateTime(json['changed_at']),
         mine: json['mine'] as bool? ?? false,
         late: json['late'] as bool? ?? false,
         acknowledged: json['acknowledged'] as bool? ?? false,

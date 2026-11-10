@@ -19,7 +19,10 @@ import '../widgets/page_body.dart';
 /// with summary totals, generate/send-all/Xero-sync actions and per-invoice
 /// drill-down to [InvoiceDetailScreen].
 class CustomerPaymentsScreen extends StatefulWidget {
-  const CustomerPaymentsScreen({super.key});
+  const CustomerPaymentsScreen({super.key, this.now});
+
+  /// The clock, for tests only; production reads the real one.
+  final DateTime? now;
 
   @override
   State<CustomerPaymentsScreen> createState() => _CustomerPaymentsScreenState();
@@ -28,9 +31,16 @@ class CustomerPaymentsScreen extends StatefulWidget {
 class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
   final DataService _dataService = getIt<DataService>();
 
-  /// Selected billing month — defaults to the previous calendar month, the
-  /// one most recently billed (invoicing runs in arrears).
+  /// Selected billing month — defaults to the current calendar month.
+  /// Billing is in advance: the drafts raised on the 1st charge the month
+  /// just starting, so that is the month a "drafts ready" push is about and
+  /// the one Generate should aim at unless told otherwise.
   late DateTime _month;
+
+  /// Bumped by every load, so a response that arrives after the month or
+  /// filter has moved on is dropped instead of being shown under the new
+  /// month's heading.
+  int _loadGeneration = 0;
   String? _statusFilter;
   List<Invoice> _invoices = [];
   InvoiceSummary _summary = InvoiceSummary();
@@ -40,23 +50,30 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _month = DateTime(now.year, now.month - 1);
+    final now = widget.now ?? DateTime.now();
+    _month = DateTime(now.year, now.month);
     _load();
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    final month = _month;
+    final status = _statusFilter;
     setState(() => _loading = true);
     try {
       final invoices = await _dataService.getInvoices(
-        year: _month.year,
-        month: _month.month,
-        status: _statusFilter,
+        year: month.year,
+        month: month.month,
+        status: status,
       );
       final summary = await _dataService.getInvoiceSummary(
-        year: _month.year,
-        month: _month.month,
+        year: month.year,
+        month: month.month,
       );
+      // A newer load has started (another month, another filter): its
+      // answer is the one to show.
+      if (generation != _loadGeneration) return;
       if (mounted) {
         setState(() {
           _invoices = invoices;
@@ -65,6 +82,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         });
       }
     } catch (e) {
+      if (generation != _loadGeneration) return;
       if (mounted) {
         setState(() => _loading = false);
         showError('Failed to load invoices: $e');
@@ -268,7 +286,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         ),
       ),
     );
-    _load();
+    if (mounted) _load();
   }
 
   @override
@@ -301,7 +319,9 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const PricingScreen()),
-                  ).then((_) => _load());
+                  ).then((_) {
+                    if (mounted) _load();
+                  });
                   break;
                 case 'xero_contacts':
                   Navigator.push(
@@ -403,7 +423,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
         children: [
           IconButton(
             icon: const Icon(Icons.chevron_left),
-            onPressed: _busy ? null : () => _changeMonth(-1),
+            onPressed: _busy || _loading ? null : () => _changeMonth(-1),
             tooltip: 'Previous month',
           ),
           Expanded(
@@ -415,7 +435,7 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.chevron_right),
-            onPressed: _busy ? null : () => _changeMonth(1),
+            onPressed: _busy || _loading ? null : () => _changeMonth(1),
             tooltip: 'Next month',
           ),
         ],
@@ -483,10 +503,12 @@ class _CustomerPaymentsScreenState extends State<CustomerPaymentsScreen> {
               child: FilterChip(
                 label: Text(label),
                 selected: _statusFilter == value,
-                onSelected: (_) {
-                  setState(() => _statusFilter = value);
-                  _load();
-                },
+                onSelected: _busy
+                    ? null
+                    : (_) {
+                        setState(() => _statusFilter = value);
+                        _load();
+                      },
               ),
             ),
         ],

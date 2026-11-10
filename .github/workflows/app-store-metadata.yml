@@ -29,6 +29,11 @@ on:
         type: boolean
         default: false
 
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
+
 jobs:
   metadata:
     runs-on: ubuntu-latest
@@ -39,12 +44,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
         with:
           ruby-version: "3.3"
 
       - name: Tooling (fastlane)
-        run: gem install fastlane --no-document
+        run: gem install fastlane -v 2.241.2 --no-document
 
       - name: Write App Store Connect API key
         env:
@@ -58,6 +63,7 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           INCLUDE_SCREENSHOTS: ${{ inputs.include_screenshots && '1' || '0' }}
+          MODE: ${{ inputs.mode }}
           # App Review's demo login. Not committed — this repo is public — so the
           # upload lane writes the two files deliver reads it from at upload time.
           DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
@@ -65,7 +71,7 @@ jobs:
         run: |
           export ASC_KEY_PATH="$PWD/fastlane/keys/asc.p8"
           cd fastlane
-          if [ "${{ inputs.mode }}" = "download" ]; then
+          if [ "$MODE" = "download" ]; then
             fastlane ios download_metadata
           else
             fastlane ios upload_metadata

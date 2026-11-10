@@ -2,8 +2,9 @@
 
 Designed to run from cron on the 1st of each month: the invoice for a month
 charges every day the dog is booked in that month, plus any days it attended
-last month that were never charged (days added after last month's invoice
-went out). Idempotent: customers who already have a non-VOID invoice for the
+earlier that were never charged (days added after that month's invoice went
+out — last month's always, and up to a year back for months the app itself
+invoiced the dog for). Idempotent: customers who already have a non-VOID invoice for the
 period are skipped, so reruns create nothing new. Each draft is also raised
 as a DRAFT in Xero when connected, so it can be finished there. Staff with
 can_manage_payments get a push prompting them to review and send the drafts.

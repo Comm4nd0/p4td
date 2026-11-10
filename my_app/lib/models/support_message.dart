@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 class SupportMessage {
   final String id;
   final String senderId;
@@ -22,7 +24,7 @@ class SupportMessage {
       senderName: json['sender_name'] ?? '',
       isStaff: json['is_staff'] ?? false,
       text: json['text'] ?? '',
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

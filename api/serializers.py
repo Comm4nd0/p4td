@@ -960,13 +960,19 @@ class SupportQueryListSerializer(serializers.ModelSerializer):
         return owner_display_name(obj.owner)
 
     def get_last_message_at(self, obj):
-        # Read from the prefetched messages cache instead of a fresh query/row (B29).
+        # The list view annotates both numbers (SupportQueryViewSet.get_queryset)
+        # so no message rows are loaded; anything else falls back to the
+        # prefetched messages cache (B29).
+        if hasattr(obj, 'message_total'):
+            return (obj.last_message or obj.created_at).isoformat()
         msgs = list(obj.messages.all())
         if msgs:
             return max(m.created_at for m in msgs).isoformat()
         return obj.created_at.isoformat()
 
     def get_message_count(self, obj):
+        if hasattr(obj, 'message_total'):
+            return obj.message_total
         return len(obj.messages.all())
 
 

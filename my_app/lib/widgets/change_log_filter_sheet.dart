@@ -45,7 +45,7 @@ class _ChangeLogFilterSheetState extends State<_ChangeLogFilterSheet> {
           ? DateTimeRange(start: _filter.from!, end: _filter.to!)
           : null,
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() => _filter = _filter.copyWith(from: picked.start, to: picked.end));
     }
   }

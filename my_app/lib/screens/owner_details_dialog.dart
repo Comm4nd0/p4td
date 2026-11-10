@@ -77,11 +77,12 @@ class _OwnerDetailsDialogState extends State<OwnerDetailsDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Non-editable fields
+            // By name: the username is their email address, shown once below.
             Text(
-              'Username',
+              'Name',
               style: Theme.of(context).textTheme.labelMedium,
             ),
-            Text(widget.ownerProfile.username),
+            Text(widget.ownerProfile.displayName),
             const SizedBox(height: 16),
             Text(
               'Email',

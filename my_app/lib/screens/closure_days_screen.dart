@@ -173,6 +173,7 @@ class _ClosureDaysScreenState extends State<ClosureDaysScreen> {
                           ),
                           trailing: widget.isStaff
                               ? IconButton(
+                                  tooltip: 'Delete',
                                   icon: const Picon(PiconsDuotone.trash, color: AppColors.error),
                                   onPressed: () => _deleteClosureDay(day),
                                 )
@@ -231,7 +232,7 @@ class _AddClosureDayDialogState extends State<_AddClosureDayDialog> {
                   firstDate: DateTime.now(),
                   lastDate: DateTime.now().add(const Duration(days: 365)),
                 );
-                if (date != null) setState(() => _selectedDate = date);
+                if (date != null && mounted) setState(() => _selectedDate = date);
               },
             ),
             const SizedBox(height: 8),

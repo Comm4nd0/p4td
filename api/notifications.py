@@ -53,6 +53,63 @@ def wait_for_pushes():
     executor.shutdown(wait=True)
 
 
+class PushOutcome:
+    """What happened to the pushes sent inside one ``tracked_pushes()`` block.
+
+    ``delivered`` counts recipients FCM accepted at least one message for;
+    ``failed`` counts recipients with devices where nothing got through
+    (FCM unreachable, credentials refused). A recipient with no device, or
+    one whose preferences or day off skipped the push, is neither.
+    """
+
+    def __init__(self):
+        self.delivered = 0
+        self.failed = 0
+
+    @property
+    def demonstrably_failed(self):
+        """Somebody should have been reached and nobody was."""
+        return self.failed > 0 and self.delivered == 0
+
+
+_tracking = None
+
+
+def _tracker():
+    global _tracking
+    import threading
+    if _tracking is None:
+        _tracking = threading.local()
+    return getattr(_tracking, 'outcome', None)
+
+
+class tracked_pushes:
+    """Send pushes inline and say how they went.
+
+    The web tier queues a push and moves on. A cron command that marks a
+    reminder "sent" needs to know whether it was: inside this block
+    ``send_push_notification`` talks to FCM on the calling thread and records
+    the result on the ``PushOutcome`` the block yields. Blocks do not nest
+    usefully — the inner one wins until it exits.
+    """
+
+    def __enter__(self):
+        _tracker()  # make sure the thread-local exists
+        self._previous = getattr(_tracking, 'outcome', None)
+        self.outcome = PushOutcome()
+        _tracking.outcome = self.outcome
+        return self.outcome
+
+    def __exit__(self, *exc):
+        _tracking.outcome = self._previous
+        return False
+
+
+def push_available():
+    """Whether pushes can be sent at all (the Firebase credential loads)."""
+    return initialize_firebase()
+
+
 def initialize_firebase():
     global _firebase_app
     if _firebase_app:
@@ -162,9 +219,10 @@ def send_push_notification(user, title, body, data=None, category=None,
             _db_connection.close()
 
     def _dispatch_inner():
+        """Returns 'sent', 'failed' or 'no_tokens' (see ``PushOutcome``)."""
         tokens = list(DeviceToken.objects.filter(user=user).values_list('token', flat=True))
         if not tokens:
-            return
+            return 'no_tokens'
 
         # Send to all tokens in a single batched call using the firebase-admin
         # batch API. send_each preserves input order, so responses line up with
@@ -185,10 +243,11 @@ def send_push_notification(user, title, body, data=None, category=None,
             batch_response = messaging.send_each(messages)
         except Exception as e:
             logger.error(f"Failed to send push notifications: {e}", exc_info=True)
-            return
+            return 'failed'
 
         success_count = 0
         failure_count = 0
+        stale_count = 0
         for token, response in zip(tokens, batch_response.responses):
             if response.success:
                 success_count += 1
@@ -198,12 +257,32 @@ def send_push_notification(user, title, body, data=None, category=None,
             exception = response.exception
             if isinstance(exception, (messaging.UnregisteredError, messaging.SenderIdMismatchError)):
                 # Token is invalid or registered to a different sender - clean it up
+                stale_count += 1
                 DeviceToken.objects.filter(token=token).delete()
                 logger.warning(f"Removed stale token {token[:10]}...")
             else:
                 logger.error(f"Failed to send to token {token[:10]}...: {exception}")
 
         logger.info(f"Successfully sent {success_count} messages; failed {failure_count} messages.")
+        if success_count:
+            return 'sent'
+        # Only stale devices: nobody to reach, which is not a failed send.
+        return 'no_tokens' if stale_count == failure_count else 'failed'
+
+    # A cron command inside tracked_pushes(): send now, on this thread, and
+    # record how it went so the command can tell "sent" from "FCM refused it".
+    outcome = _tracker()
+    if outcome is not None:
+        try:
+            result = _dispatch_inner()
+        except Exception:
+            logger.exception('Push dispatch failed')
+            result = 'failed'
+        if result == 'sent':
+            outcome.delivered += 1
+        elif result == 'failed':
+            outcome.failed += 1
+        return
 
     # Get the Firebase network I/O off the request/transaction path: run after
     # the surrounding DB transaction commits AND on a background worker, so a

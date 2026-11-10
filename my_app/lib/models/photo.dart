@@ -1,4 +1,5 @@
 import 'comment.dart';
+import 'api_datetime.dart';
 
 enum MediaType { photo, video }
 
@@ -28,7 +29,7 @@ class Photo {
       url: json['file'],
       thumbnailUrl: json['thumbnail'],
       mediaType: json['media_type'] == 'VIDEO' ? MediaType.video : MediaType.photo,
-      takenAt: DateTime.parse(json['taken_at']),
+      takenAt: requireApiDateTime(json['taken_at']),
       comments: (json['comments'] as List? ?? [])
           .map((c) => Comment.fromJson(c))
           .toList(),

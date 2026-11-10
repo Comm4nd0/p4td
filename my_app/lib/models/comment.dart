@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 class Comment {
   final String id;
   final String user;
@@ -19,7 +21,7 @@ class Comment {
       user: json['user'].toString(),
       userName: json['user_name'] ?? '',
       text: json['text'] ?? '',
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

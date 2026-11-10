@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -96,6 +97,30 @@ class AuthService {
     }
   }
 
+  /// Run just before an account is signed out, while its token still works —
+  /// wired in main.dart to take this phone's push token off the account, so a
+  /// signed-out phone stops receiving that person's notifications. It lives
+  /// here rather than in the screens because there are several ways out (the
+  /// Profile screen, the lock screen's Sign out) and each one has to do it.
+  ///
+  /// Best-effort and bounded by [_signOutHookTimeout]: signing out must work
+  /// with no signal. A hook rather than a direct call so this class stays free
+  /// of Firebase and can be tested without a device.
+  static Future<void> Function()? onBeforeSignOut;
+
+  static const _signOutHookTimeout = Duration(seconds: 4);
+
+  Future<void> _runSignOutHook() async {
+    final hook = onBeforeSignOut;
+    if (hook == null) return;
+    try {
+      if (await getToken() == null) return; // Nothing signed in to detach from.
+      await hook().timeout(_signOutHookTimeout);
+    } catch (e) {
+      _logError('signOutHook', e);
+    }
+  }
+
   static const _kActiveToken = 'auth_token';
   static const _kAccounts = 'accounts';
   static const _kActiveAccountId = 'active_account_id';
@@ -180,7 +205,18 @@ class AuthService {
   ///
   /// Returns the [Account] that is now active, or null if the user is fully
   /// signed out.
-  Future<Account?> logout() async {
+  ///
+  /// The server-side token is deliberately left alone: the API keeps one token
+  /// per user, so revoking it here (`/auth/token/logout/`) would also sign the
+  /// same person out of their other phone or tablet.
+  ///
+  /// [detachPushToken] is false only when the token has already been rejected
+  /// by the server — the call would just be refused.
+  Future<Account?> logout({bool detachPushToken = true}) =>
+      _serial(() => _logout(detachPushToken: detachPushToken));
+
+  Future<Account?> _logout({required bool detachPushToken}) async {
+    if (detachPushToken) await _runSignOutHook();
     final accounts = await getAccounts();
     final activeId = await getActiveAccountId();
     final remaining = accounts.where((a) => a.userId != activeId).toList();
@@ -208,7 +244,13 @@ class AuthService {
   }
 
   /// Signs out of every account on this device and clears the cache.
-  Future<void> logoutAll() async {
+  ///
+  /// Only the active account can hold this phone's push token (the server
+  /// keeps one owner per device token), so detaching it once is enough.
+  Future<void> logoutAll() => _serial(_logoutAll);
+
+  Future<void> _logoutAll() async {
+    await _runSignOutHook();
     await _storage.delete(key: _kActiveToken);
     await _storage.delete(key: _kAccounts);
     await _storage.delete(key: _kActiveAccountId);
@@ -219,8 +261,52 @@ class AuthService {
     }
   }
 
+  /// The active account's token, or null when signed out — and also when the
+  /// secure store cannot be read (a restored backup without its keystore key
+  /// is the known case): there is then no usable session, and callers should
+  /// see "signed out" rather than an exception on every request.
   Future<String?> getToken() async {
-    return await _storage.read(key: _kActiveToken);
+    try {
+      return await _storage.read(key: _kActiveToken);
+    } catch (e) {
+      _logError('getToken', e);
+      return null;
+    }
+  }
+
+  Future<void> _queue = Future<void>.value();
+
+  /// Runs [action] after every earlier sign-out, switch or rejection has
+  /// finished. They all read the saved accounts, decide, then write; two of
+  /// them interleaved can each remove a different account.
+  Future<T> _serial<T>(Future<T> Function() action) {
+    final result = _queue.then((_) => action());
+    _queue = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// The server answered 401 to a request sent with [rejectedToken]. Signs
+  /// that account out — but only if it is still the active one.
+  ///
+  /// A screen fires several requests at once, so several 401s arrive for the
+  /// same dead token. The first signs the account out and, on a shared phone,
+  /// promotes the next saved account; without this check each later one would
+  /// sign *that* account out as well. Calls run one at a time, so the check
+  /// always sees the result of the one before.
+  ///
+  /// Returns `handled: false` when nothing was done (an anonymous request, or
+  /// a token that is no longer the active one); otherwise [next] is the
+  /// account now active, null when the phone is fully signed out.
+  Future<({bool handled, Account? next})> handleRejectedToken(String? rejectedToken) =>
+      _serial(() => _handleRejectedToken(rejectedToken));
+
+  Future<({bool handled, Account? next})> _handleRejectedToken(String? rejectedToken) async {
+    if (rejectedToken == null || rejectedToken.isEmpty) {
+      return (handled: false, next: null);
+    }
+    if (await getToken() != rejectedToken) return (handled: false, next: null);
+    final next = await _logout(detachPushToken: false);
+    return (handled: true, next: next);
   }
 
   /// All accounts saved on this device. Malformed individual entries are
@@ -306,7 +392,9 @@ class AuthService {
   /// here so the next data fetch comes from the network.
   ///
   /// Returns the now-active [Account], or null if no matching account exists.
-  Future<Account?> switchAccount(int userId) async {
+  Future<Account?> switchAccount(int userId) => _serial(() => _switchAccount(userId));
+
+  Future<Account?> _switchAccount(int userId) async {
     final accounts = await getAccounts();
     final target = accounts.where((a) => a.userId == userId).firstOrNull;
     if (target == null) return null;
@@ -418,7 +506,9 @@ class AuthService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        await logout();
+        // The server deleted the user, and its push tokens with it — there is
+        // nothing left to detach, and the token is already dead.
+        await logout(detachPushToken: false);
         return null; // Success
       }
       final data = json.decode(response.body);

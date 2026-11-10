@@ -235,6 +235,13 @@ class Dog {
   final double? latitude;
   final double? longitude;
   final List<Weekday> daysInDaycare;
+
+  /// Day numbers the server holds for this dog that [Weekday] has no value
+  /// for — 6 and 7, Saturday and Sunday. The API accepts 1–7 and the app only
+  /// offers Monday to Friday, so these can't be shown or edited here, but they
+  /// must survive a save: [daycareDayNumbers] puts them back. They used to be
+  /// read as Monday, and the next save then wrote that Monday to the server.
+  final List<int> otherDaycareDayNumbers;
   final OwnerDetails? ownerDetails;
   final List<OwnerDetails> additionalOwners;
   final DropoffTime? preferredDropoffTime;
@@ -288,6 +295,7 @@ class Dog {
     this.latitude,
     this.longitude,
     this.daysInDaycare = const [],
+    this.otherDaycareDayNumbers = const [],
     this.ownerDetails,
     this.additionalOwners = const [],
     this.preferredDropoffTime,
@@ -307,6 +315,91 @@ class Dog {
     this.cancelledDates = const [],
     this.assignedDates = const [],
   });
+
+  /// Reads a `daycare_days` list as the API sends it: [weekdays] for Monday to
+  /// Friday, [others] for any other day number the server accepts (6, 7).
+  /// Anything that isn't a day number at all is ignored.
+  static ({List<Weekday> weekdays, List<int> others}) parseDaycareDays(dynamic value) {
+    final weekdays = <Weekday>[];
+    final others = <int>[];
+    if (value is List) {
+      for (final item in value) {
+        final n = item is num ? item.toInt() : int.tryParse(item.toString());
+        if (n == null || n < 1 || n > 7) continue;
+        if (n <= Weekday.values.length) {
+          final day = Weekday.values[n - 1];
+          if (!weekdays.contains(day)) weekdays.add(day);
+        } else if (!others.contains(n)) {
+          others.add(n);
+        }
+      }
+    }
+    return (weekdays: weekdays, others: others);
+  }
+
+  /// The `daycare_days` value to send for [days]: their numbers plus the
+  /// weekend days this dog already had, in order.
+  List<int> daycareDayNumbers(Iterable<Weekday> days) =>
+      {...days.map((d) => d.dayNumber), ...otherDaycareDayNumbers}.toList()..sort();
+
+  /// A dog as every dog endpoint serves it — the list, the detail, and the
+  /// reply to a create, an update or an owner change. One parser for all of
+  /// them: there used to be five hand-copied ones and each write handed back
+  /// a dog missing different fields.
+  ///
+  /// Every field but `id` may be missing or null (staff-only fields are
+  /// stripped for owners, and older servers predate the newer ones).
+  factory Dog.fromJson(Map<String, dynamic> json) {
+    final days = parseDaycareDays(json['daycare_days']);
+    final ownerDetails = json['owner_details'];
+    final additionalOwners = json['additional_owners_details'];
+    return Dog(
+      id: json['id'].toString(),
+      name: json['name']?.toString() ?? '',
+      ownerId: (json['owner'] ?? '').toString(),
+      profileImageUrl: json['profile_image'],
+      foodInstructions: json['food_instructions'],
+      medicalNotes: json['medical_notes'],
+      registeredVet: json['registered_vet'],
+      contactNumber: json['contact_number'],
+      emergencyContactNumber: json['emergency_contact_number'],
+      address: json['address'],
+      postcode: json['postcode'],
+      accessInstructions: json['access_instructions'],
+      alternativeAddresses: DogAddress.listFromJson(json['alternative_addresses']),
+      vanPlacement: json['van_placement'],
+      generalNotes: json['general_notes'],
+      latitude: parseApiDouble(json['latitude']),
+      longitude: parseApiDouble(json['longitude']),
+      daysInDaycare: days.weekdays,
+      otherDaycareDayNumbers: days.others,
+      ownerDetails: ownerDetails is Map
+          ? OwnerDetails.fromJson(Map<String, dynamic>.from(ownerDetails))
+          : null,
+      additionalOwners: additionalOwners is List
+          ? additionalOwners
+              .whereType<Map>()
+              .map((o) => OwnerDetails.fromJson(Map<String, dynamic>.from(o)))
+              .toList()
+          : const [],
+      preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
+      scheduleType: ScheduleTypeExtension.fromApiValue(json['schedule_type']),
+      ownerBringsDefault: json['owner_brings_default'] ?? false,
+      ownerCollectsDefault: json['owner_collects_default'] ?? false,
+      ownerBringsDefaultTime: parseApiTime(json['owner_brings_default_time']),
+      ownerCollectsDefaultTime: parseApiTime(json['owner_collects_default_time']),
+      sex: parseDogSex(json['sex']),
+      dateOfBirth: parseApiDate(json['date_of_birth']),
+      lastVaccinationDate: parseApiDate(json['last_vaccination_date']),
+      vaccinationOverdue: json['vaccination_overdue'] ?? false,
+      certificateStatus: json['certificate_status']?.toString() ?? 'OK',
+      certificateNeededSince: parseApiDate(json['certificate_needed_since']),
+      isSpayed: json['is_spayed'] ?? false,
+      dailyRate: double.tryParse(json['daily_rate']?.toString() ?? ''),
+      cancelledDates: parseApiDateList(json['cancelled_dates']),
+      assignedDates: parseApiDateList(json['assigned_dates']),
+    );
+  }
 
   /// The owner needs to attach a vaccination certificate: none on file, or
   /// the newest is over a year old. Everything that nags reads this.
@@ -349,6 +442,7 @@ class Dog {
     double? latitude,
     double? longitude,
     List<Weekday>? daysInDaycare,
+    List<int>? otherDaycareDayNumbers,
     OwnerDetails? ownerDetails,
     List<OwnerDetails>? additionalOwners,
     DropoffTime? preferredDropoffTime,
@@ -387,6 +481,7 @@ class Dog {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       daysInDaycare: daysInDaycare ?? this.daysInDaycare,
+      otherDaycareDayNumbers: otherDaycareDayNumbers ?? this.otherDaycareDayNumbers,
       ownerDetails: ownerDetails ?? this.ownerDetails,
       additionalOwners: additionalOwners ?? this.additionalOwners,
       preferredDropoffTime: preferredDropoffTime ?? this.preferredDropoffTime,

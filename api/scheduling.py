@@ -413,7 +413,27 @@ def sync_boarding_daycare_assignments(boarding_request):
 
     Left alone:
       * REMOVED rows — staff have explicitly said the dog isn't attending.
+      * rows that have moved on — anything but ASSIGNED/UNASSIGNED. This runs
+        again whenever an approved stay's dates or dogs change, often while
+        the stay is under way, and a dog already collected or returned that
+        day must not be put back to "Assigned".
+      * a boarding row somebody has since given to a real staff member. The
+        stay booked it to the house account and a person moved it; that
+        decision stands.
       * anything outside Mon–Fri, and CLOSED days.
+
+    Rows are written through the queryset, never ``save()``: the post_save
+    signal pushes "<dog> is now Assigned" to the owner on a status change,
+    and who has the van is not their news.
+
+    ``from_boarding`` means "the stay may take this row away again", so it is
+    only put on rows that can be rebuilt: the ones created here, and a
+    regular day that was already on the board (the weekday roster re-creates
+    it with its usual driver when the day is next loaded). An *extra* day
+    that was already there — Add Dog to Day, an approved request — is moved
+    to the house account for the stay but not flagged: nothing would bring it
+    back, so :func:`clear_boarding_daycare_assignments` hands it back for a
+    driver instead of deleting it.
 
     Called from the deliberate moments — approval, and a date/dog change on an
     approved stay. The day-load path is :func:`materialize_boarding_for_date`,
@@ -474,8 +494,14 @@ def sync_boarding_daycare_assignments(boarding_request):
                 ))
                 touched += 1
                 continue
-            if row.status == 'REMOVED':
+            if row.status not in ('ASSIGNED', 'UNASSIGNED'):
+                # REMOVED (not attending), or already collected / returned.
                 continue
+            if row.from_boarding and row.staff_member_id not in (None, house.id):
+                # Booked by a stay, then given to a real person by hand.
+                continue
+            # See the docstring: only a row that can be rebuilt is flagged.
+            flag = row.from_boarding or row.booking == DailyDogAssignment.BOOKING_REGULAR
             if collect:
                 # Whoever already has the arrival day keeps it — that driver
                 # collects the dog, and a day already waiting for one is
@@ -491,17 +517,19 @@ def sync_boarding_daycare_assignments(boarding_request):
                 DailyDogAssignment.objects.filter(pk=row.pk).update(
                     staff_member=None,
                     status='UNASSIGNED',
-                    from_boarding=True,
+                    from_boarding=flag,
                     updated_at=timezone.now(),
                 )
                 touched += 1
                 continue
-            if row.staff_member_id == house.id and row.status == 'ASSIGNED' and row.from_boarding:
+            if row.staff_member_id == house.id and row.status == 'ASSIGNED' and row.from_boarding == flag:
                 continue
-            row.staff_member = house
-            row.status = 'ASSIGNED'
-            row.from_boarding = True
-            row.save(update_fields=['staff_member', 'status', 'from_boarding', 'updated_at'])
+            DailyDogAssignment.objects.filter(pk=row.pk).update(
+                staff_member=house,
+                status='ASSIGNED',
+                from_boarding=flag,
+                updated_at=timezone.now(),
+            )
             touched += 1
 
     if to_create:
@@ -518,6 +546,14 @@ def clear_boarding_daycare_assignments(boarding_request, dates=None):
     the same dog are kept — back-to-back bookings shouldn't cancel each other
     out. Anything that was a normal daycare day is re-created from the weekday
     roster the next time that day is loaded.
+
+    An extra day that was on the board before the stay was moved to the house
+    account for it but never flagged (see
+    :func:`sync_boarding_daycare_assignments`), so it is still here: the dog
+    is still booked in, and still charged for the day now that no boarding
+    night covers it. From today on it is handed back as UNASSIGNED, so it
+    shows in the unassigned list for a driver — unless the owner drives both
+    ways that day, when the house account is where it belongs.
 
     ``dates`` narrows the clear-out to specific days — used when a stay's dates
     are moved, so the days it still covers keep their attendance (and any
@@ -559,6 +595,24 @@ def clear_boarding_daycare_assignments(boarding_request, dates=None):
         dog_id__in=dog_ids, date__in=dates, from_boarding=True,
     )
     doomed = [row.id for row in rows if (row.dog_id, row.date) not in still_boarding]
+
+    house = house_staff_account()
+    if house is not None:
+        kept = DailyDogAssignment.objects.filter(
+            dog_id__in=dog_ids, date__in=dates, date__gte=timezone.localdate(),
+            from_boarding=False, booking=DailyDogAssignment.BOOKING_EXTRA,
+            staff_member=house, status='ASSIGNED',
+        ).select_related('dog')
+        hand_back = [
+            row.id for row in kept
+            if (row.dog_id, row.date) not in still_boarding
+            and not (row.effective_owner_brings and row.effective_owner_collects)
+        ]
+        if hand_back:
+            # Through the queryset: no "<dog> is now Unassigned" push.
+            DailyDogAssignment.objects.filter(id__in=hand_back).update(
+                staff_member=None, status='UNASSIGNED', updated_at=timezone.now())
+
     if not doomed:
         return 0
     deleted, _ = DailyDogAssignment.objects.filter(id__in=doomed).delete()

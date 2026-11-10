@@ -2,6 +2,8 @@
 /// records, pay history, meetings, appraisals, sickness and training.
 library;
 
+import 'api_datetime.dart';
+
 DateTime? _date(dynamic v) => v != null ? DateTime.tryParse(v.toString()) : null;
 
 int _int(dynamic v) => v is int ? v : int.parse(v.toString());
@@ -155,7 +157,7 @@ class StaffMeeting {
         id: json['id'],
         title: json['title'] ?? '',
         meetingType: json['meeting_type'] ?? 'ONE_TO_ONE',
-        scheduledFor: DateTime.parse(json['scheduled_for']),
+        scheduledFor: requireApiDateTime(json['scheduled_for']),
         location: json['location'] ?? '',
         agenda: json['agenda'] ?? '',
         minutes: json['minutes'] ?? '',
@@ -230,8 +232,8 @@ class StaffAppraisal {
         staffComments: json['staff_comments'] ?? '',
         nextReviewDate: _date(json['next_review_date']),
         status: json['status'] ?? 'DRAFT',
-        sharedAt: _date(json['shared_at']),
-        acknowledgedAt: _date(json['acknowledged_at']),
+        sharedAt: parseApiDateTime(json['shared_at']),
+        acknowledgedAt: parseApiDateTime(json['acknowledged_at']),
       );
 }
 
@@ -433,7 +435,7 @@ class TeamMemberOverview {
       lastAppraisalDate: _date(json['last_appraisal_date']),
       nextReviewDate: _date(json['next_review_date']),
       nextMeetingTitle: meeting != null ? meeting['title'] : null,
-      nextMeetingAt: meeting != null ? _date(meeting['scheduled_for']) : null,
+      nextMeetingAt: meeting != null ? parseApiDateTime(meeting['scheduled_for']) : null,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:picons/picons.dart';
 import '../constants/app_colors.dart';
+import '../utils/snacks.dart' show userMessage;
 
 /// One thing on the screen that needs doing right now: which widget it is,
 /// what to say beside it, and what tapping it does.
@@ -52,6 +53,11 @@ class _SpotlightOverlayState extends State<SpotlightOverlay> {
   Rect? _hole;
   bool _acting = false;
 
+  /// Why the last attempt at the action failed, shown in the bubble. The
+  /// scrim covers the screen's own snackbars, and a silent failure looked
+  /// like a button that did nothing.
+  String? _error;
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +69,7 @@ class _SpotlightOverlayState extends State<SpotlightOverlay> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.step.id != widget.step.id) {
       _hole = null;
+      _error = null;
       _locate(scroll: true);
     }
   }
@@ -82,7 +89,8 @@ class _SpotlightOverlayState extends State<SpotlightOverlay> {
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
-        if (!mounted) return;
+        // The target can leave the tree while it scrolls (a reload).
+        if (!mounted || !targetContext.mounted) return;
       }
       final target = targetContext.findRenderObject();
       final own = context.findRenderObject();
@@ -95,9 +103,14 @@ class _SpotlightOverlayState extends State<SpotlightOverlay> {
 
   Future<void> _act() async {
     if (_acting) return;
-    setState(() => _acting = true);
+    setState(() {
+      _acting = true;
+      _error = null;
+    });
     try {
       await widget.step.onAction();
+    } catch (e) {
+      if (mounted) setState(() => _error = userMessage(e));
     } finally {
       if (mounted) setState(() => _acting = false);
     }
@@ -177,6 +190,17 @@ class _SpotlightOverlayState extends State<SpotlightOverlay> {
                           ]),
                           const SizedBox(height: 6),
                           Text(widget.step.message, style: const TextStyle(fontSize: 13)),
+                          if (_error != null) ...[
+                            const SizedBox(height: 8),
+                            Semantics(
+                              liveRegion: true,
+                              child: Text(
+                                "That didn't go through: $_error",
+                                style: const TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.error),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 8),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,

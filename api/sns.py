@@ -13,6 +13,12 @@ Two things matter most and are easy to get wrong:
 * The canonical string must be built from a fixed field list in a fixed order.
   Signing whatever keys happen to be present would let an attacker add fields
   that are excluded from the signature but read by the handler.
+
+A valid signature is not the whole story either. The Street Manager topic is
+open data: every subscriber in the country holds genuinely signed copies of its
+messages, and a signature never expires. So a message must also be *recent*
+(``max_message_age_seconds``) — otherwise last month's "road closed" can be
+posted here again today — and a MessageId is applied once (``is_duplicate``).
 """
 
 from __future__ import annotations
@@ -21,7 +27,9 @@ import base64
 import json
 import logging
 import re
+import os
 import urllib.request
+from datetime import datetime, timedelta, timezone as dt_timezone
 from urllib.parse import urlparse
 
 from cryptography.exceptions import InvalidSignature
@@ -48,6 +56,27 @@ _SIGNED_FIELDS = {
 
 _CERT_CACHE: dict[str, bytes] = {}
 
+# How old a message's own (signed) Timestamp may be. SNS normally delivers in
+# seconds; its retries for an HTTPS endpoint that is down run for longer than
+# this, so an outage of over an hour loses the events published at its start —
+# accepted, because the alternative is that any old signed message stays
+# replayable for as long as retries could conceivably last. Override with
+# SNS_MAX_MESSAGE_AGE_SECONDS (settings or environment).
+DEFAULT_MAX_MESSAGE_AGE_SECONDS = 60 * 60
+# Clock skew allowed for a Timestamp slightly ahead of this server.
+MAX_FUTURE_SKEW_SECONDS = 5 * 60
+
+
+def max_message_age_seconds() -> int:
+    from django.conf import settings
+    value = getattr(settings, 'SNS_MAX_MESSAGE_AGE_SECONDS', None)
+    if value is None:
+        value = os.environ.get('SNS_MAX_MESSAGE_AGE_SECONDS') or DEFAULT_MAX_MESSAGE_AGE_SECONDS
+    try:
+        return max(60, int(value))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_MESSAGE_AGE_SECONDS
+
 
 class SnsVerificationError(Exception):
     """Raised when a message cannot be proven to have come from AWS."""
@@ -61,10 +90,37 @@ def _fetch_certificate(url: str, timeout: int = 10) -> bytes:
     if url in _CERT_CACHE:
         return _CERT_CACHE[url]
 
-    with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - host validated above
-        pem = resp.read()
-    _CERT_CACHE[url] = pem
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - host validated above
+            pem = resp.read(64 * 1024)
+    except (OSError, ValueError) as exc:
+        # URLError/HTTPError/timeouts are OSErrors. Unverifiable means
+        # rejected, not a 500: the URL is the sender's to choose, so a failure
+        # to fetch it is their message's problem, not this server's.
+        raise SnsVerificationError(f'Could not fetch the signing certificate: {exc}') from exc
+    # Cached by verify_message, and only once it has verified a signature:
+    # the URL's path and query are the sender's, and caching whatever came
+    # back would let them grow this dict without limit.
     return pem
+
+
+def _check_fresh(message: dict, now: datetime | None = None) -> None:
+    """Raise unless the message's signed Timestamp is recent."""
+    raw = message.get('Timestamp')
+    try:
+        text = str(raw).strip()
+        if text.endswith('Z'):
+            text = text[:-1] + '+00:00'
+        stamp = datetime.fromisoformat(text)
+    except (TypeError, ValueError) as exc:
+        raise SnsVerificationError(f'Unreadable Timestamp {raw!r}') from exc
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=dt_timezone.utc)
+    now = now or datetime.now(dt_timezone.utc)
+    if now - stamp > timedelta(seconds=max_message_age_seconds()):
+        raise SnsVerificationError(f'Message is too old ({raw})')
+    if stamp - now > timedelta(seconds=MAX_FUTURE_SKEW_SECONDS):
+        raise SnsVerificationError(f'Message is dated in the future ({raw})')
 
 
 def _canonical_string(message: dict) -> bytes:
@@ -107,8 +163,17 @@ def verify_message(message: dict, allowed_topic_arns: list[str] | None = None) -
     if not signature:
         raise SnsVerificationError('Message has no Signature')
 
-    cert_pem = _fetch_certificate(message.get('SigningCertURL') or '')
-    public_key = load_pem_x509_certificate(cert_pem).public_key()
+    # Cheap and local, so before the certificate fetch: a stale message never
+    # costs an outbound request. Timestamp is one of the signed fields, so the
+    # signature check below is what makes this trustworthy.
+    _check_fresh(message)
+
+    cert_url = message.get('SigningCertURL') or ''
+    cert_pem = _fetch_certificate(cert_url)
+    try:
+        public_key = load_pem_x509_certificate(cert_pem).public_key()
+    except Exception as exc:  # malformed PEM, unsupported key type
+        raise SnsVerificationError('Signing certificate could not be read') from exc
 
     try:
         public_key.verify(
@@ -117,8 +182,33 @@ def verify_message(message: dict, allowed_topic_arns: list[str] | None = None) -
             padding.PKCS1v15(),
             algorithm,
         )
-    except (InvalidSignature, ValueError) as exc:
+    except (InvalidSignature, ValueError, TypeError, AttributeError) as exc:
         raise SnsVerificationError('Signature does not match') from exc
+
+    # Only a certificate that has just verified a message is worth keeping.
+    if len(_CERT_CACHE) < 32:
+        _CERT_CACHE[cert_url] = cert_pem
+
+
+def is_duplicate(message: dict) -> bool:
+    """True when this MessageId has already been accepted recently.
+
+    Call only for a message that has passed [verify_message] — MessageId is a
+    signed field, so a verified one can't be forged to dodge this. Remembered
+    for as long as a message stays fresh (plus the skew allowance): once it is
+    older than that, the freshness check refuses it anyway. Uses the shared
+    cache, so both gunicorn workers see the same set.
+    """
+    from django.core.cache import cache
+    message_id = message.get('MessageId')
+    if not message_id:
+        return False
+    ttl = max_message_age_seconds() + MAX_FUTURE_SKEW_SECONDS
+    try:
+        return not cache.add(f'sns-seen:{str(message_id)[:200]}', 1, ttl)
+    except Exception:  # a cache hiccup must not drop a genuine event
+        logger.exception('SNS duplicate check failed; accepting the message')
+        return False
 
 
 def confirm_subscription(message: dict, timeout: int = 10) -> bool:
@@ -136,8 +226,12 @@ def confirm_subscription(message: dict, timeout: int = 10) -> bool:
         logger.warning('Refusing to confirm subscription via %s', parsed.hostname)
         return False
 
-    with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - host validated above
-        return 200 <= resp.status < 300
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - host validated above
+            return 200 <= resp.status < 300
+    except (OSError, ValueError) as exc:
+        logger.warning('SNS subscription confirmation failed: %s', exc)
+        return False
 
 
 def parse_message_body(raw: bytes) -> dict:

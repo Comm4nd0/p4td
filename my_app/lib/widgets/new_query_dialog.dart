@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import 'dispose_later.dart';
 
 /// The owner's "New Message" form: subject + message, sent as a new support
 /// query. Shared by the Contact Staff list and the client dashboard's quick
@@ -62,6 +63,7 @@ Future<bool> showNewQueryDialog(BuildContext context) async {
       ],
     ),
   );
+  disposeControllersLater([subjectController, messageController]);
 
   if (result != true) return false;
   try {

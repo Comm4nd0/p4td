@@ -63,6 +63,45 @@ import 'staff_permissions_screen.dart';
 import 'customer_payments_screen.dart';
 import 'social_share_screen.dart';
 
+/// What the dashboard remembers while the app stays open, kept by whoever
+/// shows it (HomeScreen) because the dashboard's own State is thrown away
+/// every time another tab is selected. Without it a step put off with Not
+/// now came straight back after a trip to the Feed, and the board jumped
+/// back to today.
+///
+/// Hoisted rather than keeping all three tabs alive in an IndexedStack: a
+/// mounted-but-hidden dashboard would go on running its loaders, its
+/// connectivity listener and the spotlight's per-frame tracking behind the
+/// Feed, and the Feed its video players behind the dashboard.
+class DashboardSession {
+  /// Spotlight steps put off with Not now, for this launch only.
+  final Set<String> spotlightDismissed = {};
+
+  DateTime? _selectedDate;
+  DateTime? _selectedOn;
+
+  /// Remember the day being looked at.
+  void rememberDate(DateTime date, {DateTime? now}) {
+    _selectedDate = DateTime(date.year, date.month, date.day);
+    final n = now ?? DateTime.now();
+    _selectedOn = DateTime(n.year, n.month, n.day);
+  }
+
+  /// The day last looked at — only while it is still the day it was chosen
+  /// on, so an app left open overnight opens on the new today.
+  DateTime? selectedDate({DateTime? now}) {
+    final n = now ?? DateTime.now();
+    final chosenOn = _selectedOn;
+    if (chosenOn == null ||
+        chosenOn.year != n.year ||
+        chosenOn.month != n.month ||
+        chosenOn.day != n.day) {
+      return null;
+    }
+    return _selectedDate;
+  }
+}
+
 class UnifiedDashboardScreen extends StatefulWidget {
   final bool canAssignDogs;
   final bool canManageRequests;
@@ -94,6 +133,15 @@ class UnifiedDashboardScreen extends StatefulWidget {
   /// profile stays current if this screen is rebuilt.
   final ValueChanged<List<String>>? onDashboardLayoutChanged;
 
+  /// Survives this screen being rebuilt from scratch on a tab switch (see
+  /// [DashboardSession]). Null keeps the state for this instance only.
+  final DashboardSession? session;
+
+  /// The app-wide counts, shared with the badges beside the bell and the
+  /// drawer so all three agree. Null builds a private set (tests, and any
+  /// caller that shows the dashboard on its own).
+  final DashboardCounts? counts;
+
   const UnifiedDashboardScreen({
     super.key,
     this.canAssignDogs = false,
@@ -113,6 +161,8 @@ class UnifiedDashboardScreen extends StatefulWidget {
     this.onSwitchToFeed,
     this.dashboardLayout = const [],
     this.onDashboardLayoutChanged,
+    this.session,
+    this.counts,
   });
 
   @override
@@ -130,7 +180,13 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // Date navigation
   List<DateTime> _dateOptions = [];
   final ScrollController _dateScrollController = ScrollController();
-  late DateTime _selectedDate;
+  late final DashboardSession _session = widget.session ?? DashboardSession();
+  late DateTime _selectedDateValue;
+  DateTime get _selectedDate => _selectedDateValue;
+  set _selectedDate(DateTime date) {
+    _selectedDateValue = date;
+    _session.rememberDate(date);
+  }
 
   // ── Spotlight: things that need doing right now ──────────────────
   // Keys live on today's widgets only (a GlobalKey may appear once in the
@@ -141,8 +197,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   final GlobalKey _changesSpotKey = GlobalKey(debugLabel: 'spot-changes');
 
   /// Steps put off with Not now, for this session only: they come back the
-  /// next time the app opens if still outstanding.
-  final Set<String> _spotlightDismissed = {};
+  /// next time the app opens if still outstanding. Held in [DashboardSession]
+  /// so switching tabs doesn't bring them back early.
+  Set<String> get _spotlightDismissed => _session.spotlightDismissed;
 
   // Closure days for the whole visible date range. This batch-loaded map is the
   // source of truth that drives the date strip and the reduced-capacity banner;
@@ -151,7 +208,14 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   // Staff
   List<Map<String, dynamic>> _staffMembers = [];
-  Set<int> _availableStaffIds = {};
+
+  /// Staff not on approved day off, per day. Keyed by date because the days
+  /// either side of the selected one are prefetched: a single shared set was
+  /// overwritten by whichever neighbour answered last, so today's cards and
+  /// pickers showed tomorrow's days off.
+  final Map<DateTime, Set<int>> _availableByDate = {};
+  Set<int> get _availableStaffIds =>
+      _availableByDate[_dayKey(_selectedDate)] ?? const <int>{};
   Map<String, dynamic> _staffCoverage = {};
 
   // Unassigned banner expansion state
@@ -163,6 +227,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   // Action-item counts + boarding-tonight list. Owns the ~8 count loaders that
   // used to live here; the screen listens and rebuilds (see [_onCountsChanged]).
   late final DashboardCounts _counts;
+  bool _ownsCounts = false;
 
   // The master change log's newest few, for the Recent Changes section.
   List<DogChangeLog> _recentChanges = const [];
@@ -188,18 +253,32 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _counts = DashboardCounts(
-      dataService: _dataService,
-      canViewInquiries: widget.canViewInquiries,
-      canManageRequests: widget.canManageRequests,
-      canManageBoarding: widget.canManageBoarding,
-    )..addListener(_onCountsChanged);
+    final shared = widget.counts;
+    _ownsCounts = shared == null;
+    _counts = (shared ??
+        DashboardCounts(
+          dataService: _dataService,
+          canViewInquiries: widget.canViewInquiries,
+          canManageRequests: widget.canManageRequests,
+          canManageBoarding: widget.canManageBoarding,
+        ))
+      ..addListener(_onCountsChanged);
     final anchor = widget.initialDate ?? DateTime.now();
     _dateOptions = _generateDates(anchor);
-    // Open on today — including at the weekend, where the day carries boarding
-    // only. Falls through to the next day in the strip when today is pruned as
-    // a closure.
-    _selectedDate = _defaultDate(_dateOptions, anchor);
+    // Back from another tab: the day that was being looked at. A deep link
+    // (initialDate) wins, and so does a new day.
+    final remembered = widget.initialDate == null ? _session.selectedDate() : null;
+    if (remembered != null) {
+      if (!_dateOptions.any((d) => _isSameDay(d, remembered))) {
+        _dateOptions = _generateDates(remembered);
+      }
+      _selectedDate = remembered;
+    } else {
+      // Open on today — including at the weekend, where the day carries
+      // boarding only. Falls through to the next day in the strip when today
+      // is pruned as a closure.
+      _selectedDate = _defaultDate(_dateOptions, anchor);
+    }
     _loadStaffMembers();
     _loadDay(_selectedDate);
     _loadClosureDays();
@@ -221,7 +300,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   void dispose() {
     ConnectivityStatus().isOnline.removeListener(_onConnectivityChanged);
     _counts.removeListener(_onCountsChanged);
-    _counts.dispose();
+    if (_ownsCounts) _counts.dispose();
     _dateScrollController.dispose();
     super.dispose();
   }
@@ -353,9 +432,16 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   Future<void> _loadAvailableStaff(DateTime date) async {
     try {
       final available = await _dataService.getAvailableStaffForDate(date);
-      if (mounted) setState(() => _availableStaffIds = available.map((s) => s['id'] as int).toSet());
+      if (mounted) {
+        setState(() => _availableByDate[_dayKey(date)] =
+            available.map((s) => s['id'] as int).toSet());
+      }
     } catch (_) {
-      if (mounted) setState(() => _availableStaffIds = _staffMembers.map((s) => s['id'] as int).toSet());
+      // Unknown: treat everyone as in rather than showing the team as off.
+      if (mounted) {
+        setState(() => _availableByDate[_dayKey(date)] =
+            _staffMembers.map((s) => s['id'] as int).toSet());
+      }
     }
   }
 
@@ -577,7 +663,11 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
 
   /// Puts [staffId] on one leg of the selected day's owner handovers and
   /// re-renders the cards from the status the server sends back.
-  Future<void> _assignOwnerHandover(OwnerHandoverLeg leg, int staffId) async {
+  ///
+  /// [rethrowOnError] is for the spotlight, which reports the failure in its
+  /// own bubble — its scrim sits over this screen's snackbars.
+  Future<void> _assignOwnerHandover(OwnerHandoverLeg leg, int staffId,
+      {bool rethrowOnError = false}) async {
     final date = _selectedDate;
     try {
       final handovers = await _dataService.assignOwnerHandover(
@@ -587,6 +677,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           _dayData(date).copyWith(handovers: handovers));
       _loadRecentChanges();
     } catch (e) {
+      if (rethrowOnError) rethrow;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to assign staff member: $e')));
@@ -695,7 +786,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       availableStaffIds: _workingStaffIds,
     );
     if (picked != null && picked != status.staffMemberId) {
-      await _assignOwnerHandover(leg, picked);
+      await _assignOwnerHandover(leg, picked, rethrowOnError: true);
     }
     if (mounted) setState(() {});
   }
@@ -755,7 +846,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       final staffAssignments = assignments.where((a) => a.staffMemberId == staffId).toList();
       final staffName = _staffMembers
           .where((s) => s['id'] == staffId)
-          .map((s) => (s['first_name']?.toString().isNotEmpty == true ? s['first_name'] : s['username']).toString())
+          .map(staffDisplayName)
           .firstOrNull ?? 'Staff';
       _navigateToStaffDetail(staffId, staffName, staffAssignments);
     }
@@ -772,7 +863,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       firstDate: DateTime(DateTime.now().year - 1, DateTime.now().month, DateTime.now().day),
       lastDate: DateTime(DateTime.now().year + 5, DateTime.now().month, DateTime.now().day),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
 
     // Check if picked date is within current date options
     final existingIndex = _dateOptions.indexWhere((d) => _isSameDay(d, picked));
@@ -933,10 +1024,8 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       }
       targetStaffId = await _pickStaffMember();
       if (targetStaffId == null) return;
-      final staff = _staffMembers.firstWhere((s) => s['id'] == targetStaffId, orElse: () => {});
-      staffName = (staff['first_name'] != null && staff['first_name'].toString().isNotEmpty)
-          ? staff['first_name'].toString()
-          : staff['username']?.toString();
+      final staff = _staffMembers.where((s) => s['id'] == targetStaffId).firstOrNull;
+      staffName = staff == null ? 'staff member' : staffDisplayName(staff);
     }
 
     if (!mounted) return;
@@ -1021,12 +1110,9 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         } else {
           assignResult = await _dataService.assignDogsToMe(selected.toList(), date: _selectedDate);
         }
-        if (mounted && assignResult.hasSkipped) {
-          final names = assignResult.skipped.map((s) => s.dogName).join(', ');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Already assigned: $names'), backgroundColor: AppColors.warning, duration: const Duration(seconds: 4)),
-          );
-        }
+        final assigned = assignResult.created.length;
+        _showAssignResult(assignResult,
+            success: assigned == 1 ? '1 dog assigned' : '$assigned dogs assigned');
         await _reloadSelectedDay();
       } catch (e) {
         if (mounted) {
@@ -1034,6 +1120,25 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         }
       }
     }
+  }
+
+  /// What an assign call did, said the same way wherever it was started
+  /// from: every dog the server left alone with its reason, else [success].
+  void _showAssignResult(AssignDogsResult result, {required String success}) {
+    if (!mounted) return;
+    if (result.hasSkipped) {
+      final skipped = result.skipped.map((s) => '${s.dogName}: ${s.reason}').join('; ');
+      final done = result.created.isEmpty ? '' : '${result.created.length} assigned. ';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${done}Not assigned — $skipped'),
+        backgroundColor: AppColors.warning,
+        duration: const Duration(seconds: 4),
+      ));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(success), backgroundColor: AppColors.success),
+    );
   }
 
   Future<int?> _pickStaffMember() {
@@ -1073,9 +1178,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     int? previewCount;
     bool loadingPreview = false;
 
-    String staffLabel(Map<String, dynamic> s) =>
-        (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
-            ? s['first_name'].toString() : s['username'].toString();
+    String staffLabel(Map<String, dynamic> s) => staffDisplayName(s);
 
     Future<void> refreshPreview(void Function(void Function()) setDialogState) async {
       if (fromStaffId == null || scope == SwapScope.justThisDay) {
@@ -1235,18 +1338,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
         } else {
           assignResult = await _dataService.assignDogsToMe([selection.dogId], date: _selectedDate);
         }
-        if (mounted) {
-          if (assignResult.hasSkipped) {
-            final reason = assignResult.skipped.first.reason;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('${assignResult.skipped.first.dogName} - $reason'), backgroundColor: AppColors.warning),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Dog added to day'), backgroundColor: AppColors.success),
-            );
-          }
-        }
+        _showAssignResult(assignResult, success: 'Dog added to day');
         await _reloadSelectedDay();
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add dog: $e')));
@@ -2046,80 +2138,68 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
   }
 
   Widget _buildAssignToMeButton(Dog dog) {
-    return SizedBox(
-      height: 32,
-      child: TextButton.icon(
-        onPressed: () => _quickAssignToMe(dog),
-        icon: Picon(PiconsDuotone.userPlus, size: 16, color: AppColors.primary),
-        label: Text('Me', style: TextStyle(fontSize: 12, color: AppColors.primary)),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
+    // 48dp square at least: this is tapped one-handed beside the van.
+    return TextButton.icon(
+      onPressed: _assigningDogIds.contains(dog.id) ? null : () => _quickAssignToMe(dog),
+      icon: Picon(PiconsDuotone.userPlus, size: 18, color: AppColors.primary),
+      label: Text('Me', style: TextStyle(fontSize: 13, color: AppColors.primary)),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(48, 48),
+        tapTargetSize: MaterialTapTargetSize.padded,
       ),
     );
   }
 
   Widget _buildAssignToStaffButton(Dog dog) {
-    return SizedBox(
-      height: 32,
-      child: TextButton.icon(
-        onPressed: () => _quickAssignToStaff(dog),
-        icon: Picon(PiconsDuotone.users, size: 16, color: AppColors.primaryLight),
-        label: Text('Staff', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
+    return TextButton.icon(
+      onPressed: _assigningDogIds.contains(dog.id) ? null : () => _quickAssignToStaff(dog),
+      icon: Picon(PiconsDuotone.users, size: 18, color: AppColors.primaryLight),
+      label: Text('Staff', style: TextStyle(fontSize: 13, color: AppColors.primaryLight)),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(48, 48),
+        tapTargetSize: MaterialTapTargetSize.padded,
       ),
     );
   }
 
+  /// Dogs with a quick assign in flight, so a second tap can't send it again.
+  final Set<String> _assigningDogIds = {};
+
   Future<void> _quickAssignToMe(Dog dog) async {
+    if (!_assigningDogIds.add(dog.id)) return;
+    setState(() {});
     try {
       final result = await _dataService.assignDogsToMe([int.parse(dog.id)], date: _selectedDate);
-      if (mounted) {
-        if (result.hasSkipped) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: AppColors.warning),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name} assigned to you'), backgroundColor: AppColors.success),
-          );
-        }
-      }
+      _showAssignResult(result, success: '${dog.name} assigned to you');
       await _reloadSelectedDay();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign: $e')));
       }
+    } finally {
+      _assigningDogIds.remove(dog.id);
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _quickAssignToStaff(Dog dog) async {
     final staffId = await _pickStaffMember();
     if (staffId == null || !mounted) return;
+    if (!_assigningDogIds.add(dog.id)) return;
+    setState(() {});
     try {
       final result = await _dataService.assignDogs([int.parse(dog.id)], staffId, date: _selectedDate);
-      if (mounted) {
-        if (result.hasSkipped) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name}: ${result.skipped.first.reason}'), backgroundColor: AppColors.warning),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${dog.name} assigned'), backgroundColor: AppColors.success),
-          );
-        }
-      }
+      _showAssignResult(result, success: '${dog.name} assigned');
       await _reloadSelectedDay();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to assign: $e')));
       }
+    } finally {
+      _assigningDogIds.remove(dog.id);
+      if (mounted) setState(() {});
     }
   }
 
@@ -2411,7 +2491,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: staffColor,
-                child: Text(staff.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: Text(staff.name.isEmpty ? '?' : staff.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               title: Row(children: [
                 Text(staff.name),

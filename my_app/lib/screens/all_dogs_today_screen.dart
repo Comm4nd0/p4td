@@ -163,7 +163,12 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
     if (mounted) _reloadAll();
   }
 
+  /// Assignments whose status change is in flight (see AssignmentCard).
+  final Set<int> _updatingStatusIds = {};
+
   Future<void> _updateStatus(DailyDogAssignment assignment, AssignmentStatus newStatus) async {
+    if (!_updatingStatusIds.add(assignment.id)) return;
+    setState(() {});
     try {
       final updated = await _dataService.updateAssignmentStatus(assignment.id, newStatus);
       if (mounted) {
@@ -181,6 +186,9 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
           SnackBar(content: Text('Failed to update status: $e')),
         );
       }
+    } finally {
+      _updatingStatusIds.remove(assignment.id);
+      if (mounted) setState(() {});
     }
   }
 
@@ -911,6 +919,7 @@ class _AllDogsTodayScreenState extends State<AllDogsTodayScreen> {
       pickupNumber: _pickupNumbers[assignment.id],
       onTap: () => _openQuickInfo(assignment: assignment),
       onUpdateStatus: (newStatus) => _updateStatus(assignment, newStatus),
+      statusUpdating: _updatingStatusIds.contains(assignment.id),
       onTransport: () => _showTransportDialog(assignment),
       onChangeAddress: () => _showAddressDialog(assignment),
       onReassign: () => _showReassignDialog(assignment),

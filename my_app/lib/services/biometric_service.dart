@@ -69,8 +69,23 @@ class BiometricService extends ChangeNotifier {
   ///
   /// If the lock is on, the app starts locked — the very first thing a launch
   /// should ask for is the fingerprint, not after a frame of dashboard.
+  ///
+  /// If the preference cannot be read, the lock comes up **on** for this
+  /// launch. The other choice — treat an unreadable setting as "off" — would
+  /// make a storage fault a way past the lock, and a lock that opens when
+  /// something breaks is not one. The cost is small: someone who never turned
+  /// it on is asked for their fingerprint or passcode once, and nothing is
+  /// written, so the real preference is back as soon as the store reads again.
+  /// The one exception is a phone with no screen lock at all: the setting
+  /// could never have been on there (it is hidden), and there would be
+  /// nothing to unlock with.
   Future<void> init() async {
-    _enabled = await _storage.read(key: _kEnabled) == 'true';
+    try {
+      _enabled = await _storage.read(key: _kEnabled) == 'true';
+    } catch (e) {
+      _log('init', e);
+      _enabled = await isAvailable();
+    }
     _isLocked = _enabled;
     _obscured = false; // A fresh launch has nothing to hide yet.
     _backgroundedAt = null;
@@ -83,7 +98,7 @@ class BiometricService extends ChangeNotifier {
   Future<bool> isAvailable() async {
     try {
       return await auth.isDeviceSupported();
-    } on PlatformException catch (e) {
+    } catch (e) {
       _log('isAvailable', e);
       return false;
     }

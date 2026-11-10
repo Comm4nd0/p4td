@@ -247,7 +247,14 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
     if (mounted) _reloadAssignments();
   }
 
+  /// Assignments whose status change is on its way to the server. On slow
+  /// signal the card used to sit unchanged for seconds, which read as a tap
+  /// that hadn't registered; now it shows a spinner and ignores a repeat.
+  final Set<int> _updatingStatusIds = {};
+
   Future<void> _updateStatus(DailyDogAssignment assignment, AssignmentStatus newStatus) async {
+    if (!_updatingStatusIds.add(assignment.id)) return;
+    setState(() {});
     try {
       final updated = await _dataService.updateAssignmentStatus(assignment.id, newStatus);
       if (mounted) {
@@ -265,6 +272,9 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
           SnackBar(content: Text('Failed to update status: $e')),
         );
       }
+    } finally {
+      _updatingStatusIds.remove(assignment.id);
+      if (mounted) setState(() {});
     }
   }
 
@@ -750,6 +760,7 @@ class _StaffDogDetailScreenState extends State<StaffDogDetailScreen> {
       pickupNumber: pickupRunNumbers(_assignments)[assignment.id],
       onTap: () => _openQuickInfo(assignment),
       onUpdateStatus: (newStatus) => _updateStatus(assignment, newStatus),
+      statusUpdating: _updatingStatusIds.contains(assignment.id),
       onTransport: () => _showTransportDialog(assignment),
       onChangeAddress: () => _showAddressDialog(assignment),
       onReassign: () => _showReassignDialog(assignment),

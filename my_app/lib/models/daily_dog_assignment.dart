@@ -77,6 +77,13 @@ enum AssignmentStatus {
 }
 
 class DailyDogAssignment {
+  /// [staffMemberId] of a row the server sent with no staff member. Never a
+  /// real user id.
+  static const int unassignedStaffId = 0;
+
+  /// Nobody has this dog yet.
+  bool get isUnassigned => staffMemberId == unassignedStaffId;
+
   final int id;
   final int dogId;
   final String dogName;
@@ -168,7 +175,12 @@ class DailyDogAssignment {
       dogProfileImage: json['dog_profile_image'],
       latitude: parseApiDouble(json['latitude']),
       longitude: parseApiDouble(json['longitude']),
-      staffMemberId: json['staff_member'] is int ? json['staff_member'] : int.parse(json['staff_member'].toString()),
+      // Null on a day nobody has been given yet (a boarding arrival still to
+      // be claimed). The roster endpoints leave those rows out today, but a
+      // row with no driver must not take the whole list down if one arrives.
+      staffMemberId: json['staff_member'] is int
+          ? json['staff_member']
+          : int.tryParse(json['staff_member']?.toString() ?? '') ?? unassignedStaffId,
       staffMemberName: json['staff_member_name'] ?? '',
       ownerName: json['owner_name'] ?? '',
       ownerAddress: json['owner_address'],

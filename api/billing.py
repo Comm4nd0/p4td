@@ -4,13 +4,16 @@ Invoices are raised **in advance**: the invoice for a month charges every
 day the dog is booked in that month as the roster stands today
 (``booked_days_for_month`` — the regular weekly days plus approved
 additions, minus approved cancellations, staff removals, closure days and
-days inside a boarding stay), and then catches up the *previous* month's
-extras: days the dog actually attended (a non-``REMOVED``
-``DailyDogAssignment`` row; ``UNASSIGNED`` means it attended without a
-staff member) that no invoice has charged yet. A day is charged once, ever:
-``_billed_dates_by_dog`` reads back the dates on every non-VOID invoice
-line, so a day billed in advance is not billed again when it is attended,
-and a day added after the invoice went out is picked up next month.
+days inside a boarding stay), and then catches up earlier extras: days the
+dog actually attended (a non-``REMOVED`` ``DailyDogAssignment`` row —
+``UNASSIGNED`` means it attended without a staff member — or an approved
+extra day that never got a row) that no invoice has charged yet. A day is
+charged once, ever: ``_billed_ledger`` reads back the dates on every
+non-VOID invoice line, so a day billed in advance is not billed again when
+it is attended, and a day added after the invoice went out is picked up on
+the next invoice — last month's always, and up to ``CATCH_UP_MONTHS`` back
+for months the app itself invoiced the dog for (``charges_for_month`` has
+the rule, and why hand-invoiced months are never reached into).
 Booked days are charged whether or not the dog turns up — a refund for a
 day cancelled after invoicing is a staff adjustment.
 
@@ -31,7 +34,12 @@ billing month. Boarding REPLACES the daycare charge for the days it covers —
 never charged for both on the same date. (This paragraph previously claimed the
 opposite, which is a dangerous thing to leave lying around next to a billing
 engine: anyone "fixing the code to match the docs" would double-charge every
-boarding customer.)
+boarding customer.) When a stay is booked *after* the invoice that charged
+its days as daycare went out, the nights are charged on the next invoice and
+each such day comes back as a "Credit" line beside its night, so the customer
+still pays for the night only. Lines carry no kind column: ``line_kind`` reads
+it from the description prefix ("Boarding", "Credit", else daycare), so keep
+those prefixes.
 
 Every generated draft is also raised in Xero as a DRAFT invoice (when Xero
 is connected), so the business can review, reassign the contact and approve
@@ -46,14 +54,18 @@ Xero is best-effort for *retries* — a push failure stores the error on the
 invoice — but ``send_invoice`` will not mark an invoice SENT unless the push
 succeeded, so an invoice is never presented to a customer as sent when Xero
 never received it.
+
+Dates are the business's dates: ``timezone.localdate()`` (Europe/London),
+never ``timezone.now().date()``, which is UTC and a day behind for the hour
+after midnight in summer.
 """
 import calendar as _calendar
 import logging
 from datetime import date as date_cls, timedelta
 from decimal import Decimal
 
-from django.db import transaction
-from django.db.models import Sum
+from django.db import IntegrityError, transaction
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from . import xero
@@ -78,6 +90,34 @@ UNASSIGNED_CONTACT_NAME = 'Unassigned (Paws 4 Thought app)'
 # Xero statuses that mean the invoice has been approved (and possibly settled).
 XERO_APPROVED_STATUSES = ('AUTHORISED', 'PAID')
 XERO_CANCELLED_STATUSES = ('DELETED', 'VOIDED')
+
+# How far back an invoice can reach for days and nights that were never
+# charged, at most. Only into months the app itself invoiced the dog for — see
+# charges_for_month. How far it actually reaches is the BILLING_CATCH_UP_MONTHS
+# setting, which defaults to 1 (last month only, as it always was): charging a
+# customer for a day from months ago is the business's decision to switch on,
+# not something a code change should start doing by itself.
+CATCH_UP_MONTHS = 12
+
+
+def catch_up_months():
+    from django.conf import settings
+    try:
+        months = int(getattr(settings, 'BILLING_CATCH_UP_MONTHS', 1))
+    except (TypeError, ValueError):
+        months = 1
+    return max(1, min(months, CATCH_UP_MONTHS))
+
+# send_invoice holds SENDING for the length of a Xero round-trip (seconds; the
+# web worker is killed at 120s). A row still SENDING after this long was
+# abandoned mid-send, and the Xero sync settles it.
+SENDING_STALE_MINUTES = 10
+
+# What an attendance-derived line charges; see line_kind.
+LINE_DAYCARE = 'daycare'
+LINE_BOARDING = 'boarding'
+LINE_CREDIT = 'credit'
+CREDIT_PREFIX = 'Credit — '
 
 
 class XeroSendFailed(Exception):
@@ -130,54 +170,137 @@ def get_boarding_rate(dog, customer=None):
     return ServicePricing.load().boarding_price_per_night
 
 
-def _boarded_dog_days(year, month):
-    """(dog_id, date) pairs covered by an approved boarding stay this month,
-    arrival through checkout inclusive. The boarding charge covers the whole
-    stay, so daycare attendance on these days is not billed separately."""
-    month_start = date_cls(year, month, 1)
-    month_end = date_cls(year, month, _calendar.monthrange(year, month)[1])
+def _boarded_dog_days_between(start, end):
+    """(dog_id, date) pairs covered by an approved boarding stay between two
+    dates, arrival through checkout inclusive. The boarding charge covers the
+    whole stay, so daycare attendance on these days is not billed separately."""
     covered = set()
     requests = (
         BoardingRequest.objects
-        .filter(status='APPROVED', start_date__lte=month_end, end_date__gte=month_start)
+        .filter(status='APPROVED', start_date__lte=end, end_date__gte=start)
         .prefetch_related('dogs')
     )
     for request in requests:
-        first = max(request.start_date, month_start)
-        last = min(request.end_date, month_end)
+        first = max(request.start_date, start)
+        last = min(request.end_date, end)
         for dog in request.dogs.all():
             for offset in range((last - first).days + 1):
                 covered.add((dog.id, first + timedelta(days=offset)))
     return covered
 
 
-def attendance_for_month(year, month):
-    """Billable attended days per owner per dog for a calendar month.
+def _boarded_dog_days(year, month):
+    """``_boarded_dog_days_between`` for one calendar month."""
+    return _boarded_dog_days_between(*_month_bounds(year, month))
 
-    Returns ``{owner: {dog: [(date, owner_transport), ...]}}`` where
-    ``owner_transport`` marks days the owner handled both transport legs
-    (drop-off and pick-up) — those days qualify for the owner-transport
-    discount. Days inside an approved boarding stay are excluded (the
-    boarding charge covers them).
+
+def _attendance_between(start, end):
+    """Billable attended days per dog between two dates (inclusive), as
+    ``{dog_id: (dog, [(date, owner_transport), ...])}`` in date order.
+
+    A day counts when the dog has a non-``REMOVED`` ``DailyDogAssignment``
+    row for it, **or** when an approved extra day (ADD_DAY, or the new date
+    of a CHANGE) put the dog on a date that has already passed and nobody
+    ever gave it a board row. Approving an extra day creates no row — it
+    appears when a driver is named — and a dog whose owner drives both ways
+    is hidden from the unassigned list, so its extra days never got one and
+    were never invoiced. A date with *any* row is decided by the row (a
+    ``REMOVED`` one means staff took the dog off), a later approved
+    cancellation wins over the addition (``effective_change_actions``), and
+    a CLOSED day counts for nobody.
+
+    ``owner_transport`` marks days the owner handled both transport legs.
+    Days inside an approved boarding stay are excluded (the boarding charge
+    covers them).
     """
-    boarded = _boarded_dog_days(year, month)
+    from .models import ClosureDay
+    from .scheduling import effective_change_actions
+
+    boarded = _boarded_dog_days_between(start, end)
     assignments = (
         DailyDogAssignment.objects
-        .filter(date__year=year, date__month=month)
-        .exclude(status='REMOVED')
+        .filter(date__range=(start, end))
         .select_related('dog__owner__profile')
         .order_by('date')
     )
-    by_owner = {}
+    found = {}        # dog_id -> (dog, {date: owner_transport})
+    has_row = set()   # (dog_id, date) with any row, REMOVED included
     for assignment in assignments:
-        if (assignment.dog_id, assignment.date) in boarded:
+        has_row.add((assignment.dog_id, assignment.date))
+        if assignment.status == 'REMOVED' or (assignment.dog_id, assignment.date) in boarded:
             continue
         owner_transport = assignment.effective_owner_brings and assignment.effective_owner_collects
-        # Ownerless dogs group under None — they get per-dog invoices in the
-        # dog's name rather than being silently unbilled.
-        by_owner.setdefault(assignment.dog.owner, {}).setdefault(assignment.dog, []).append(
-            (assignment.date, owner_transport))
+        found.setdefault(assignment.dog_id, (assignment.dog, {}))[1][assignment.date] = owner_transport
+
+    # Approved extra days that never got a row. Past dates only: a future one
+    # may still be given a driver, and until then it is a booking, which
+    # booked_days_for_month already charges.
+    last_past = min(end, timezone.localdate() - timedelta(days=1))
+    if start <= last_past:
+        adds_by_date, _ = effective_change_actions(start, last_past)
+        closed = set(
+            ClosureDay.objects
+            .filter(date__range=(start, last_past), closure_type='CLOSED')
+            .values_list('date', flat=True)
+        )
+        missing = [
+            (dog_id, day)
+            for day, dog_ids in adds_by_date.items() if day not in closed
+            for dog_id in dog_ids
+            if (dog_id, day) not in has_row and (dog_id, day) not in boarded
+        ]
+        if missing:
+            dogs = Dog.objects.select_related('owner__profile').in_bulk({dog_id for dog_id, _ in missing})
+            for dog_id, day in missing:
+                dog = found[dog_id][0] if dog_id in found else dogs.get(dog_id)
+                if dog is None:
+                    continue
+                owner_transport = dog.owner_brings_default and dog.owner_collects_default
+                found.setdefault(dog_id, (dog, {}))[1][day] = owner_transport
+
+    return {
+        dog_id: (dog, sorted(days.items()))
+        for dog_id, (dog, days) in found.items() if days
+    }
+
+
+def attendance_for_month(year, month):
+    """Billable attended days per owner per dog for a calendar month.
+
+    Returns ``{owner: {dog: [(date, owner_transport), ...]}}`` — see
+    ``_attendance_between`` for what counts as attended. Ownerless dogs group
+    under None — they get per-dog invoices in the dog's name rather than
+    being silently unbilled.
+    """
+    by_owner = {}
+    for dog, days in _attendance_between(*_month_bounds(year, month)).values():
+        by_owner.setdefault(dog.owner, {})[dog] = days
     return by_owner
+
+
+def _boarding_nights_between(start, end):
+    """Billable boarding nights per dog between two dates (inclusive), as
+    ``{dog_id: (dog, [night, ...])}`` in date order. A billable night is a
+    stay date strictly before the checkout day (Fri→Sun = 2 nights)."""
+    requests = (
+        BoardingRequest.objects
+        .filter(status='APPROVED', start_date__lte=end, end_date__gte=start)
+        .prefetch_related('dogs__owner__profile')
+    )
+    found = {}
+    for request in requests:
+        first_night = max(request.start_date, start)
+        # Last billable night is the day before checkout, clamped to the range.
+        last_night = min(request.end_date - timedelta(days=1), end)
+        if first_night > last_night:
+            continue
+        nights = [
+            first_night + timedelta(days=offset)
+            for offset in range((last_night - first_night).days + 1)
+        ]
+        for dog in request.dogs.all():
+            found.setdefault(dog.id, (dog, set()))[1].update(nights)
+    return {dog_id: (dog, sorted(nights)) for dog_id, (dog, nights) in found.items()}
 
 
 def boarding_nights_for_month(year, month):
@@ -191,26 +314,9 @@ def boarding_nights_for_month(year, month):
     the booking (staff often book on a client's behalf). Dogs with no client
     group under None and get per-dog invoices in the dog's name.
     """
-    month_start = date_cls(year, month, 1)
-    month_end = date_cls(year, month, _calendar.monthrange(year, month)[1])
-    requests = (
-        BoardingRequest.objects
-        .filter(status='APPROVED', start_date__lte=month_end, end_date__gte=month_start)
-        .prefetch_related('dogs__owner__profile')
-    )
     by_owner = {}
-    for request in requests:
-        first_night = max(request.start_date, month_start)
-        # Last billable night is the day before checkout, clamped to the month.
-        last_night = min(request.end_date - timedelta(days=1), month_end)
-        if first_night > last_night:
-            continue
-        nights = [
-            first_night + timedelta(days=offset)
-            for offset in range((last_night - first_night).days + 1)
-        ]
-        for dog in request.dogs.all():
-            by_owner.setdefault(dog.owner, {}).setdefault(dog, []).extend(nights)
+    for dog, nights in _boarding_nights_between(*_month_bounds(year, month)).values():
+        by_owner.setdefault(dog.owner, {})[dog] = nights
     return by_owner
 
 
@@ -268,56 +374,135 @@ def booked_days_for_month(year, month, regular_only=False):
     return booked
 
 
+def line_kind(description):
+    """What an attendance-derived invoice line charges, read from the
+    description the builder gave it: a boarding night, a credit for a daycare
+    day a boarding night replaced, or (everything else, including the
+    summary lines older invoices carried) daycare."""
+    description = description or ''
+    if description.startswith('Boarding'):
+        return LINE_BOARDING
+    if description.startswith('Credit'):
+        return LINE_CREDIT
+    return LINE_DAYCARE
+
+
+class _DogLedger:
+    """What non-VOID invoices already say about one dog."""
+    __slots__ = ('daycare', 'boarding', 'credited', 'months')
+
+    def __init__(self):
+        # date -> (amount charged for the day, invoice status, invoice period label)
+        self.daycare = {}
+        # nights charged
+        self.boarding = set()
+        # dates a daycare charge has been credited back for
+        self.credited = set()
+        # (year, month) the app invoiced this dog for *as that month's own
+        # invoice* — a line dated inside its invoice's period. A day caught up
+        # on a later invoice does not make its month one of these.
+        self.months = set()
+
+    @property
+    def dates(self):
+        return set(self.daycare) | self.boarding
+
+
+_NO_LEDGER = _DogLedger()
+
+
+def _billed_ledger(exclude_invoice=None):
+    """``{dog_id: _DogLedger}`` from every attendance line on a non-VOID
+    invoice, optionally ignoring one invoice (the one being rebuilt)."""
+    lines = InvoiceLine.objects.filter(is_adjustment=False, dog__isnull=False).exclude(invoice__status='VOID')
+    if exclude_invoice is not None:
+        lines = lines.exclude(invoice=exclude_invoice)
+    ledger = {}
+    rows = lines.order_by('id').values_list(
+        'dog_id', 'attendance_dates', 'description', 'unit_price',
+        'invoice__status', 'invoice__period_year', 'invoice__period_month',
+    )
+    for dog_id, dates, description, unit_price, status, period_year, period_month in rows:
+        entry = ledger.setdefault(dog_id, _DogLedger())
+        kind = line_kind(description)
+        label = f'{_calendar.month_name[period_month]} {period_year}'
+        for iso in dates or []:
+            try:
+                day = date_cls.fromisoformat(iso)
+            except (TypeError, ValueError):
+                continue
+            if kind == LINE_CREDIT:
+                entry.credited.add(day)
+                continue
+            if kind == LINE_BOARDING:
+                entry.boarding.add(day)
+            else:
+                entry.daycare.setdefault(day, (unit_price, status, label))
+            if (day.year, day.month) == (period_year, period_month):
+                entry.months.add((period_year, period_month))
+    return ledger
+
+
 def _billed_dates_by_dog(exclude_invoice=None):
     """``{dog_id: {date, ...}}`` of every day already charged on a non-VOID
     invoice line (booked, extra or boarding), optionally ignoring one invoice
     (the one being rebuilt)."""
-    lines = InvoiceLine.objects.filter(is_adjustment=False, dog__isnull=False).exclude(invoice__status='VOID')
-    if exclude_invoice is not None:
-        lines = lines.exclude(invoice=exclude_invoice)
-    billed = {}
-    for dog_id, dates in lines.values_list('dog_id', 'attendance_dates'):
-        target = billed.setdefault(dog_id, set())
-        for iso in dates or []:
-            try:
-                target.add(date_cls.fromisoformat(iso))
-            except (TypeError, ValueError):
-                continue
-    return billed
+    return {dog_id: entry.dates for dog_id, entry in _billed_ledger(exclude_invoice).items()}
 
 
-def _by_dog(by_owner):
-    """Flatten an ``{owner: {dog: value}}`` map to ``{dog_id: (dog, value)}``."""
-    flat = {}
-    for dogs in by_owner.values():
-        for dog, value in dogs.items():
-            flat[dog.id] = (dog, value)
-    return flat
+def _months_before(year, month, count):
+    """The first day of the month ``count`` months before (year, month)."""
+    index = year * 12 + (month - 1) - count
+    return date_cls(index // 12, index % 12 + 1, 1)
 
 
 def charges_for_month(year, month, exclude_invoice=None):
     """Everything to charge on the month's invoices, per owner per dog::
 
         {owner_or_None: {dog: {
-            'daycare': [(date, owner_transport)],      # booked this month
-            'extra_daycare': [(date, owner_transport)], # attended last month, unbilled
+            'daycare': [(date, owner_transport)],       # booked this month
+            'extra_daycare': [(date, owner_transport)], # attended earlier, unbilled
             'boarding': [night, ...],                   # this month's nights
-            'extra_boarding': [night, ...],             # last month's, unbilled
+            'extra_boarding': [night, ...],             # earlier nights, unbilled
+            'credits': [(date, amount, invoice label)], # see below
         }}}
 
-    Days already on another non-VOID invoice are left out, so nothing is
-    charged twice however the schedule moved between invoices. A dog with no
-    app invoice touching last month at all was invoiced by hand for it (the
-    pre-app way), so its regular booked days for last month count as charged
-    and only days off that schedule come through as extras.
+    **A date is charged once.** A daycare day is left out when the date is
+    already on another non-VOID invoice, as a day or as a boarding night. A
+    boarding night is left out when the night is already charged.
+
+    **A boarding night on a date already charged as a daycare day** — the stay
+    was booked after the invoice for that day went out — is charged as a
+    night, and the daycare charge comes back as a credit (``credits``), so
+    the customer ends up paying for the night only. Boarding replaces
+    daycare; it used to be that such a night was simply dropped, because the
+    date was "already billed". The credit is given once per date
+    (``_DogLedger.credited``), and never while the daycare charge sits on
+    another invoice that is still a draft: regenerating that draft takes the
+    day off it, so the night waits for that (or for the draft to be sent).
+
+    **Catching up.** Unbilled days and nights from before the period are
+    charged now. Last month is handled as it always was: when the app raised
+    no invoice of its own for the dog that month, it was invoiced by hand
+    (the pre-app way), so the dog's regular booked days for it count as
+    charged and only days off that schedule come through. Months before that,
+    back to ``CATCH_UP_MONTHS``, are caught up **only where the app itself
+    invoiced the dog for that month** — a day added to October in November,
+    after November's invoice went out, used to be lost for good. A month the
+    app never invoiced is never reached back into, so switching a
+    long-standing customer to app billing cannot bill a year of attendance
+    that was invoiced by hand.
     """
+    start, _ = _month_bounds(year, month)
     prev_year, prev_month = previous_month(year, month)
     prev_start, prev_end = _month_bounds(prev_year, prev_month)
+    window_start = _months_before(year, month, catch_up_months())
+
     booked = booked_days_for_month(year, month)
-    attended_prev = _by_dog(attendance_for_month(prev_year, prev_month))
-    boarding = _by_dog(boarding_nights_for_month(year, month))
-    boarding_prev = _by_dog(boarding_nights_for_month(prev_year, prev_month))
-    billed = _billed_dates_by_dog(exclude_invoice)
+    attended_before = _attendance_between(window_start, prev_end)
+    nights_now = _boarding_nights_between(*_month_bounds(year, month))
+    nights_before = _boarding_nights_between(window_start, prev_end)
+    ledger = _billed_ledger(exclude_invoice)
     scheduled_prev = {
         dog.id: {d for d, _ in days}
         for dog, days in booked_days_for_month(prev_year, prev_month, regular_only=True).items()
@@ -326,26 +511,62 @@ def charges_for_month(year, month, exclude_invoice=None):
     dogs = {}
     for dog, days in booked.items():
         dogs.setdefault(dog.id, (dog, {}))[1]['daycare'] = days
-    for dog_id, (dog, days) in attended_prev.items():
+    for dog_id, (dog, days) in attended_before.items():
         dogs.setdefault(dog_id, (dog, {}))[1]['extra_daycare'] = days
-    for dog_id, (dog, nights) in boarding.items():
+    for dog_id, (dog, nights) in nights_now.items():
         dogs.setdefault(dog_id, (dog, {}))[1]['boarding'] = nights
-    for dog_id, (dog, nights) in boarding_prev.items():
+    for dog_id, (dog, nights) in nights_before.items():
         dogs.setdefault(dog_id, (dog, {}))[1]['extra_boarding'] = nights
 
     by_owner = {}
     for dog_id, (dog, raw) in dogs.items():
-        done = set(billed.get(dog_id, set()))
-        if not any(prev_start <= d <= prev_end for d in done):
-            done |= scheduled_prev.get(dog_id, set())
+        entry = ledger.get(dog_id, _NO_LEDGER)
+        done = entry.dates
+        # Last month with no app invoice of its own: invoiced by hand, so its
+        # regular days are taken as charged.
+        if (prev_year, prev_month) in entry.months:
+            assumed = set()
+        else:
+            assumed = scheduled_prev.get(dog_id, set())
+
+        def may_catch_up(day):
+            if day >= prev_start:
+                return day not in assumed
+            return (day.year, day.month) in entry.months
+
+        credits = []
+
+        def nights_to_charge(nights):
+            charged = []
+            for night in nights:
+                if night in entry.boarding:
+                    continue
+                day_charge = entry.daycare.get(night)
+                if day_charge is not None:
+                    amount, status, label = day_charge
+                    if status in ('DRAFT', 'SENDING'):
+                        # The day is on a draft that has not gone out.
+                        # Regenerating it drops the day; until then, charging
+                        # the night here would put the date on two invoices.
+                        continue
+                    if night not in entry.credited:
+                        credits.append((night, amount, label))
+                charged.append(night)
+            return charged
+
         charges = {
             'daycare': [(d, t) for d, t in raw.get('daycare', []) if d not in done],
-            'extra_daycare': [(d, t) for d, t in raw.get('extra_daycare', []) if d not in done],
-            'boarding': [n for n in raw.get('boarding', []) if n not in done],
-            'extra_boarding': [n for n in raw.get('extra_boarding', []) if n not in done],
+            'extra_daycare': [
+                (d, t) for d, t in raw.get('extra_daycare', [])
+                if d not in done and may_catch_up(d)
+            ],
+            'boarding': nights_to_charge(raw.get('boarding', [])),
+            'extra_boarding': nights_to_charge(
+                [n for n in raw.get('extra_boarding', []) if may_catch_up(n)]),
         }
         if not any(charges.values()):
             continue
+        charges['credits'] = credits
         by_owner.setdefault(dog.owner, {})[dog] = charges
     return by_owner
 
@@ -448,17 +669,26 @@ def generate_invoices_for_month(year, month, created_by=None, customer=None, dog
         if not dogs:
             skipped_keys.add(key)
             continue
-        with transaction.atomic():
-            invoice = Invoice.objects.create(
-                customer=owner,
-                billed_dog=billed_dog,
-                period_year=year,
-                period_month=month,
-                status='DRAFT',
-                created_by=created_by,
-            )
-            invoice.total = _build_all_lines(invoice, dogs)
-            invoice.save(update_fields=['total', 'updated_at'])
+        try:
+            with transaction.atomic():
+                invoice = Invoice.objects.create(
+                    customer=owner,
+                    billed_dog=billed_dog,
+                    period_year=year,
+                    period_month=month,
+                    status='DRAFT',
+                    created_by=created_by,
+                )
+                invoice.total = _build_all_lines(invoice, dogs)
+                invoice.save(update_fields=['total', 'updated_at'])
+        except IntegrityError:
+            # Someone else raised this customer's (or dog's) invoice for the
+            # period while this run was working — the monthly cron and a
+            # manager pressing Generate, say. The unique constraint kept it to
+            # one; count ours as skipped and carry on with everybody else
+            # rather than abandoning the run halfway.
+            skipped_keys.add(key)
+            continue
         push_draft_to_xero(invoice)
         created.append(invoice)
     return created, len(skipped_keys), manual
@@ -470,41 +700,67 @@ def _build_all_lines(invoice, dogs):
 
     One line per day, so the invoice reads as a diary of the dog's
     attendance: for each dog (by name) the days run in date order, which
-    puts last month's unbilled extras first and this month's booked days
+    puts earlier months' unbilled extras first and this month's booked days
     and boarding nights after them. Each line carries its own date in
-    ``attendance_dates`` — that is what ``_billed_dates_by_dog`` reads to
-    make sure a date is never charged twice."""
-    prev_label = _calendar.month_name[previous_month(invoice.period_year, invoice.period_month)[1]]
+    ``attendance_dates`` — that is what ``_billed_ledger`` reads to make sure
+    a date is never charged twice. A credit for a daycare day that a boarding
+    night replaced sits straight after that night."""
+    period_start = date_cls(invoice.period_year, invoice.period_month, 1)
+
+    def earlier(day):
+        """The month's name when ``day`` is before this invoice's period."""
+        return _calendar.month_name[day.month] if day < period_start else None
+
     total = Decimal('0.00')
     for dog, charges in sorted(dogs.items(), key=lambda item: item[0].name.lower()):
-        items = [(d, 'daycare', owner_transport, prev_label) for d, owner_transport in charges.get('extra_daycare', [])]
-        items += [(n, 'boarding', False, prev_label) for n in charges.get('extra_boarding', [])]
-        items += [(d, 'daycare', owner_transport, None) for d, owner_transport in charges.get('daycare', [])]
-        items += [(n, 'boarding', False, None) for n in charges.get('boarding', [])]
+        items = [(d, LINE_DAYCARE, owner_transport, earlier(d), None)
+                 for d, owner_transport in charges.get('extra_daycare', [])]
+        items += [(n, LINE_BOARDING, False, earlier(n), None) for n in charges.get('extra_boarding', [])]
+        items += [(d, LINE_DAYCARE, owner_transport, None, None) for d, owner_transport in charges.get('daycare', [])]
+        items += [(n, LINE_BOARDING, False, None, None) for n in charges.get('boarding', [])]
+        items += [(d, LINE_CREDIT, False, None, (amount, label)) for d, amount, label in charges.get('credits', [])]
+        # Same date: the night, then its credit ('boarding' < 'credit' < 'daycare').
         items.sort(key=lambda item: (item[0], item[1]))
         total += _build_day_lines(invoice, dog, items)
     return total
 
 
 def _build_day_lines(invoice, dog, items):
-    """Create one InvoiceLine per ``(date, kind, owner_transport, extra_month)``
-    item for ``dog``; returns their total. ``extra_month`` names the previous
-    month when the day is one of its unbilled extras rather than one of this
-    month's booked days.
+    """Create one InvoiceLine per ``(date, kind, owner_transport, extra_month,
+    credit)`` item for ``dog``; returns their total. ``extra_month`` names the
+    month when the day is an earlier month's unbilled extra rather than one of
+    this month's booked days.
 
     A daycare day where the owner handled both transport legs bills at the
     day rate minus the configurable owner-transport discount, and the line
     says so; other days bill at the full rate. Boarding nights bill at the
-    per-night rate."""
+    per-night rate.
+
+    A credit item ``(amount, invoice label)`` gives back a daycare day that
+    was charged on an earlier invoice and that a boarding night on this one
+    replaces. It is never more than the night it sits beside: if the night
+    costs less than the day did (or the boarding price has not been set),
+    the customer has already paid at least the night's price for that date
+    and nothing further is taken off — this mechanism never produces a
+    refund or a negative invoice, which Xero would refuse."""
     from website.models import ServicePricing
 
     discount = ServicePricing.load().owner_transport_discount
     day_rate, note = resolve_day_rate(dog, customer=invoice.customer)
     night_rate = get_boarding_rate(dog, customer=invoice.customer)
     total = Decimal('0.00')
-    for day, kind, owner_transport, extra_month in items:
+    for day, kind, owner_transport, extra_month, credit in items:
         when = day.strftime('%a %d/%m/%Y')
-        if kind == 'boarding':
+        if kind == LINE_CREDIT:
+            charged, label = credit
+            rate = -min(Decimal(charged), Decimal(night_rate))
+            if rate >= 0:
+                continue
+            description = (
+                f"{CREDIT_PREFIX}{dog.name} — {when} (daycare day charged on your "
+                f"{label} invoice; replaced by the boarding night)"
+            )
+        elif kind == LINE_BOARDING:
             rate = night_rate
             tail = f' (extra night in {extra_month})' if extra_month else ''
             description = f"Boarding — {dog.name} — night of {when}{tail}"
@@ -520,7 +776,7 @@ def _build_day_lines(invoice, dog, items):
         InvoiceLine.objects.create(
             invoice=invoice,
             dog=dog,
-            description=description,
+            description=description[:255],
             quantity=1,
             unit_price=rate,
             line_total=rate,
@@ -652,7 +908,7 @@ def send_invoice(invoice, user=None):
         invoice.status = 'DRAFT'
         invoice.save(update_fields=['status', 'updated_at'])
 
-    due_date = timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS)
+    due_date = timezone.localdate() + timedelta(days=PAYMENT_TERMS_DAYS)
     try:
         pushed = push_invoice_to_xero(invoice, due_date=due_date)
         if pushed:
@@ -701,7 +957,7 @@ def push_invoice_to_xero(invoice, due_date=None):
     """
     if not XeroConnection.load().is_connected:
         return False
-    due_date = due_date or invoice.due_date or timezone.now().date()
+    due_date = due_date or invoice.due_date or timezone.localdate()
     try:
         if invoice.xero_invoice_id:
             if invoice.status in ('DRAFT', 'SENDING'):
@@ -741,7 +997,7 @@ def push_draft_to_xero(invoice):
         contact_id = _resolve_contact_id(invoice)
         xero_id, xero_number = xero.create_invoice(
             invoice, contact_id, status='DRAFT',
-            due_date=timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS),
+            due_date=timezone.localdate() + timedelta(days=PAYMENT_TERMS_DAYS),
         )
     except xero.XeroError as exc:
         logger.error('Failed to raise draft invoice #%s in Xero: %s', invoice.id, exc)
@@ -793,12 +1049,21 @@ def _resolve_contact_id(invoice):
     existing Xero contact — long-standing customers were invoiced by hand in
     Xero, and a fresh name/email lookup can miss their contact and create a
     duplicate. A stale pin (contact deleted in Xero) surfaces as a push error;
-    unpin it on the reconciliation screen."""
+    unpin it on the reconciliation screen.
+
+    A contact found by **name alone is used for this invoice but never
+    pinned**: two clients can share a name, and a pin would send every later
+    invoice to whoever Xero happened to list first. It stays unpinned until
+    someone confirms it on the reconciliation screen. (A same-name contact
+    whose Xero email is a different address is refused outright —
+    ``xero.XeroContactMismatch`` — and surfaces as the push error.)"""
     if invoice.customer is not None:
         profile = getattr(invoice.customer, 'profile', None)
         if profile is not None and profile.xero_contact_id:
             return profile.xero_contact_id
-        contact_id = xero.find_or_create_contact(invoice.customer)
+        contact_id, matched_by = xero.resolve_contact(invoice.customer)
+        if matched_by == 'name':
+            return contact_id
         if profile is not None:
             profile.xero_contact_id = contact_id
             profile.save(update_fields=['xero_contact_id'])
@@ -889,7 +1154,7 @@ def record_manual_payment(invoice, amount, method, payment_date=None, recorded_b
     amount = Decimal(str(amount))
     if amount <= 0:
         raise ValueError('Payment amount must be greater than zero.')
-    payment_date = payment_date or timezone.now().date()
+    payment_date = payment_date or timezone.localdate()
 
     payment = PaymentRecord.objects.create(
         invoice=invoice,
@@ -906,6 +1171,7 @@ def record_manual_payment(invoice, amount, method, payment_date=None, recorded_b
         try:
             payment.xero_payment_id = xero.create_payment(
                 invoice.xero_invoice_id, amount, payment_date, account_code,
+                idempotency_key=f'p4td-payment-{payment.id}',
             )
             payment.save(update_fields=['xero_payment_id'])
         except xero.XeroError as exc:
@@ -939,26 +1205,55 @@ def sync_invoices_from_xero():
     and pins the contact the draft was assigned to on the dog; a draft deleted
     in Xero is VOIDed here.
 
-    Open invoices: imports Xero payments as PaymentRecords (deduped by
+    Sent invoices (SENT/PART_PAID): one voided in Xero is VOIDed here too —
+    unless payments are recorded against it in the app, when it is left for a
+    person and says so in ``xero_sync_error``; one whose total was amended in
+    Xero after approval adopts the new total the same way a draft does. Then
+    Xero payments are imported as PaymentRecords (deduped by
     ``xero_payment_id``) and, when Xero reports more paid than the ledger
-    accounts for (credit notes, prepayments, overpayments), books the
-    difference as a synthetic adjustment so the totals stay honest. Returns
-    counts for logging.
+    accounts for (credit notes, prepayments, overpayments), the difference is
+    booked as a synthetic adjustment so the totals stay honest.
+
+    Interrupted sends: ``send_invoice`` holds an invoice in SENDING while it
+    talks to Xero. If the process was killed mid-send nothing else would ever
+    move it on, so a row that has sat in SENDING for
+    ``SENDING_STALE_MINUTES`` is settled from what Xero says — approved there
+    becomes SENT, still a draft (or never raised) goes back to DRAFT to be
+    sent again.
+
+    The list of invoices is read up front, but the Xero calls take seconds,
+    so each invoice is **re-read under a row lock** before anything is written
+    to it. A staff member voiding or sending it meanwhile is seen, not
+    overwritten from a stale copy. Pushes and follow-up Xero calls happen
+    after that lock is released. Returns counts for logging.
     """
-    counts = {'checked': 0, 'payments_imported': 0, 'paid': 0, 'approved': 0, 'voided': 0, 'errors': 0}
+    counts = {
+        'checked': 0, 'payments_imported': 0, 'paid': 0, 'approved': 0, 'voided': 0,
+        'amended': 0, 'recovered': 0, 'needs_review': 0, 'errors': 0,
+    }
     if not XeroConnection.load().is_connected:
         return counts
 
-    open_invoices = list(
-        Invoice.objects
-        .filter(status__in=('DRAFT', 'SENT', 'PART_PAID'))
-        .exclude(xero_invoice_id='')
-        .select_related('billed_dog', 'customer__profile')
-    )
-    by_xero_id = {inv.xero_invoice_id: inv for inv in open_invoices}
-    ids = list(by_xero_id.keys())
-
     now = timezone.now()
+    stale_before = now - timedelta(minutes=SENDING_STALE_MINUTES)
+
+    # A send that died before Xero was ever given the invoice: nothing to ask
+    # Xero about, so it simply becomes a draft again.
+    never_raised = Invoice.objects.filter(
+        status='SENDING', xero_invoice_id='', updated_at__lt=stale_before,
+    ).values_list('pk', flat=True)
+    for pk in list(never_raised):
+        counts['recovered'] += _release_stale_sending(pk, stale_before)
+
+    pk_by_xero_id = dict(
+        Invoice.objects
+        .filter(Q(status__in=('DRAFT', 'SENT', 'PART_PAID'))
+                | Q(status='SENDING', updated_at__lt=stale_before))
+        .exclude(xero_invoice_id='')
+        .values_list('xero_invoice_id', 'pk')
+    )
+    ids = list(pk_by_xero_id)
+
     for start in range(0, len(ids), XERO_FETCH_CHUNK):
         chunk = ids[start:start + XERO_FETCH_CHUNK]
         try:
@@ -967,69 +1262,200 @@ def sync_invoices_from_xero():
             logger.error('Xero invoice sync failed: %s', exc)
             counts['errors'] += 1
             continue
+        returned = set()
         for remote in remote_invoices:
-            invoice = by_xero_id.get(remote.get('InvoiceID'))
-            if invoice is None:
+            pk = pk_by_xero_id.get(remote.get('InvoiceID'))
+            if pk is None:
                 continue
+            returned.add(remote.get('InvoiceID'))
             counts['checked'] += 1
-            _learn_contact(invoice, remote)
-            if invoice.status == 'DRAFT':
-                remote_status = remote.get('Status', '')
-                if remote_status in XERO_CANCELLED_STATUSES:
-                    invoice.status = 'VOID'
-                    invoice.xero_last_synced_at = now
-                    invoice.save(update_fields=['status', 'xero_last_synced_at', 'updated_at'])
-                    counts['voided'] += 1
-                    continue
-                if remote_status not in XERO_APPROVED_STATUSES:
-                    invoice.xero_last_synced_at = now
-                    invoice.save(update_fields=['xero_last_synced_at', 'updated_at'])
-                    continue
-                _mark_sent_from_xero(invoice, remote)
-                counts['approved'] += 1
-            was_paid = invoice.status == 'PAID'
-            counts['payments_imported'] += _import_remote_payments(invoice, remote)
-            refresh_payment_state(invoice)
-            invoice.xero_last_synced_at = now
-            invoice.save(update_fields=['xero_last_synced_at', 'updated_at'])
-            if invoice.status == 'PAID' and not was_paid:
-                counts['paid'] += 1
-                _notify_invoice_paid(invoice)
+            afterwards = []
+            with transaction.atomic():
+                invoice = _lock_invoice(pk)
+                if invoice is not None:
+                    _apply_remote_state(invoice, remote, now, stale_before, counts, afterwards)
+            for action in afterwards:
+                try:
+                    action()
+                except Exception:  # a failed push must not stop the sync
+                    logger.exception('Follow-up after syncing invoice %s failed', pk)
+        # Xero no longer knows an invoice a send was interrupted on.
+        for xero_id in chunk:
+            if xero_id not in returned:
+                counts['recovered'] += _release_stale_sending(pk_by_xero_id[xero_id], stale_before)
     return counts
 
 
-def _mark_sent_from_xero(invoice, remote):
+def _lock_invoice(pk):
+    """The invoice re-read under a row lock (call inside a transaction), or
+    None if it has gone. Ordered by pk on purpose: the model's default
+    ordering joins the nullable customer, and PostgreSQL refuses FOR UPDATE
+    across the nullable side of an outer join."""
+    return Invoice.objects.select_for_update().filter(pk=pk).order_by('pk').first()
+
+
+def _release_stale_sending(pk, stale_before):
+    """Put an invoice stranded in SENDING back to DRAFT so it can be sent
+    again. Re-checked under the row lock: a send that is merely slow (or has
+    since finished) is left alone. Returns 1 when it was released."""
+    with transaction.atomic():
+        invoice = _lock_invoice(pk)
+        if invoice is None or invoice.status != 'SENDING' or invoice.updated_at >= stale_before:
+            return 0
+        invoice.status = 'DRAFT'
+        invoice.save(update_fields=['status', 'updated_at'])
+    logger.warning('Invoice %s was stranded in SENDING; returned to DRAFT', pk)
+    return 1
+
+
+def _apply_remote_state(invoice, remote, now, stale_before, counts, afterwards):
+    """Bring one freshly locked invoice into line with Xero's copy of it.
+
+    Database writes only — anything that talks to Firebase or Xero is
+    appended to ``afterwards`` and run once the lock is released."""
+    remote_status = remote.get('Status', '')
+
+    if invoice.status == 'SENDING':
+        if invoice.updated_at >= stale_before:
+            return  # a send is in flight; it will finish the job itself
+        if remote_status in XERO_APPROVED_STATUSES:
+            # Xero approved it, the process died before saying so here.
+            _mark_sent_from_xero(invoice, remote, afterwards)
+            # Whether Xero's email went out is unknown — sending it again
+            # unasked could email the customer twice, so a person decides.
+            if not invoice.xero_emailed_at:
+                invoice.xero_sync_error = (
+                    'Recovered after an interrupted send: the invoice is approved in Xero, '
+                    'but the Xero email may not have gone out. Use "Push to Xero" to email it.')
+                invoice.save(update_fields=['xero_sync_error', 'updated_at'])
+            counts['recovered'] += 1
+        elif remote_status in XERO_CANCELLED_STATUSES:
+            invoice.status = 'VOID'
+            invoice.xero_last_synced_at = now
+            invoice.save(update_fields=['status', 'xero_last_synced_at', 'updated_at'])
+            counts['voided'] += 1
+            return
+        else:
+            invoice.status = 'DRAFT'
+            invoice.xero_last_synced_at = now
+            invoice.save(update_fields=['status', 'xero_last_synced_at', 'updated_at'])
+            counts['recovered'] += 1
+            return
+    elif invoice.status == 'DRAFT':
+        _learn_contact(invoice, remote)
+        if remote_status in XERO_CANCELLED_STATUSES:
+            invoice.status = 'VOID'
+            invoice.xero_last_synced_at = now
+            invoice.save(update_fields=['status', 'xero_last_synced_at', 'updated_at'])
+            counts['voided'] += 1
+            return
+        if remote_status not in XERO_APPROVED_STATUSES:
+            invoice.xero_last_synced_at = now
+            invoice.save(update_fields=['xero_last_synced_at', 'updated_at'])
+            return
+        _mark_sent_from_xero(invoice, remote, afterwards)
+        counts['approved'] += 1
+    elif invoice.status in ('SENT', 'PART_PAID'):
+        _learn_contact(invoice, remote)
+        if remote_status in XERO_CANCELLED_STATUSES:
+            if _void_from_xero(invoice, now):
+                counts['voided'] += 1
+            else:
+                counts['needs_review'] += 1
+            return
+        if remote_status in XERO_APPROVED_STATUSES and _adopt_remote_total(invoice, remote):
+            counts['amended'] += 1
+    else:
+        # Voided, paid or otherwise settled since the list was read.
+        return
+
+    was_paid = invoice.status == 'PAID'
+    counts['payments_imported'] += _import_remote_payments(invoice, remote)
+    refresh_payment_state(invoice)
+    invoice.xero_last_synced_at = now
+    invoice.save(update_fields=['xero_last_synced_at', 'updated_at'])
+    if invoice.status == 'PAID' and not was_paid:
+        counts['paid'] += 1
+        afterwards.append(lambda: _notify_invoice_paid(invoice))
+
+
+def _void_from_xero(invoice, now):
+    """A sent invoice was voided (or deleted) in Xero: void it here, so the
+    customer stops seeing it as owed, stops being reminded, and its days can
+    be invoiced again. Returns True when it was voided.
+
+    Not when payments are recorded against it here — voiding would strand
+    money on a dead invoice (the app's own Void asks for confirmation for the
+    same reason). It is left as it is with a note for a payment manager."""
+    collected = invoice.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    invoice.xero_last_synced_at = now
+    if collected > 0:
+        invoice.xero_sync_error = (
+            f'This invoice was voided in Xero, but £{collected:.2f} of payments are recorded '
+            'against it here. Check the payments, then void it in the app.')
+        invoice.save(update_fields=['xero_sync_error', 'xero_last_synced_at', 'updated_at'])
+        return False
+    invoice.status = 'VOID'
+    invoice.xero_sync_error = ''
+    invoice.save(update_fields=['status', 'xero_sync_error', 'xero_last_synced_at', 'updated_at'])
+    return True
+
+
+def _adopt_remote_total(invoice, remote):
+    """Take Xero's total when it differs from ours, booking the difference as
+    an "Amended in Xero" adjustment line so the lines still add up. Returns
+    True when the total changed. A response with no ``Total`` changes nothing."""
+    if remote.get('Total') is None:
+        return False
+    remote_total = Decimal(str(remote['Total'])).quantize(Decimal('0.01'))
+    if remote_total == invoice.total:
+        return False
+    difference = remote_total - invoice.total
+    InvoiceLine.objects.create(
+        invoice=invoice,
+        description='Amended in Xero',
+        quantity=1,
+        unit_price=difference,
+        line_total=difference,
+        is_adjustment=True,
+    )
+    invoice.total = remote_total
+    invoice.save(update_fields=['total', 'updated_at'])
+    return True
+
+
+def _mark_sent_from_xero(invoice, remote, afterwards=None):
     """A draft approved inside Xero becomes SENT here. Xero's copy is the one
-    the customer received, so its total, due date and number win."""
-    remote_total = Decimal(str(remote.get('Total', invoice.total) or 0)).quantize(Decimal('0.01'))
-    if remote_total != invoice.total:
-        difference = remote_total - invoice.total
-        InvoiceLine.objects.create(
-            invoice=invoice,
-            description='Amended in Xero',
-            quantity=1,
-            unit_price=difference,
-            line_total=difference,
-            is_adjustment=True,
-        )
-        invoice.total = remote_total
+    the customer received, so its total, due date and number win.
+
+    The online-payment lookup and the owner's push are queued on
+    ``afterwards`` when one is given (the sync runs them once it has let go
+    of the row lock), otherwise done straight away."""
+    _adopt_remote_total(invoice, remote)
     invoice.status = 'SENT'
     invoice.sent_at = timezone.now()
     invoice.due_date = _parse_xero_date(remote.get('DueDate')) or (
-        timezone.now().date() + timezone.timedelta(days=PAYMENT_TERMS_DAYS))
+        timezone.localdate() + timedelta(days=PAYMENT_TERMS_DAYS))
     if remote.get('InvoiceNumber'):
         invoice.xero_invoice_number = remote['InvoiceNumber']
     invoice.xero_sync_error = ''
     invoice.save(update_fields=[
         'status', 'sent_at', 'due_date', 'total', 'xero_invoice_number', 'xero_sync_error', 'updated_at'])
-    _backfill_online_url(invoice)
-    if invoice.customer is not None:
-        send_push_notification(
-            invoice.customer,
-            'New invoice',
-            f'Your daycare invoice for {invoice.period_label} is ready: £{invoice.total}.',
-            data={'type': 'invoice', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
-        )
+
+    def follow_up():
+        _backfill_online_url(invoice)
+        if invoice.customer is not None:
+            send_push_notification(
+                invoice.customer,
+                'New invoice',
+                f'Your daycare invoice for {invoice.period_label} is ready: £{invoice.total}.',
+                data={'type': 'invoice', 'id': str(invoice.id), 'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+            )
+
+    if afterwards is None:
+        follow_up()
+    else:
+        afterwards.append(follow_up)
 
 
 def _learn_contact(invoice, remote):
@@ -1072,7 +1498,7 @@ def _import_remote_payments(invoice, remote):
                 'method': 'XERO_ONLINE',
                 'source': 'XERO',
                 'payment_date': (_parse_xero_date(remote_payment.get('Date'))
-                                 or timezone.now().date()),
+                                 or timezone.localdate()),
             },
         )
         if created:
@@ -1093,7 +1519,7 @@ def _import_remote_payments(invoice, remote):
                 'amount': remote_paid - local_paid,
                 'method': 'OTHER',
                 'source': 'XERO',
-                'payment_date': timezone.now().date(),
+                'payment_date': timezone.localdate(),
                 'notes': 'Xero balance adjustment (credit/prepayment).',
             },
         )

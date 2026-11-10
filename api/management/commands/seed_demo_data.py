@@ -11,6 +11,11 @@ look populated. Idempotent — safe to re-run.
         --password 'SomeStrongPassword!' \
         --dog-name Luna
 
+The password has no default: pass --password or set DEMO_PASSWORD in the
+environment (the same name the screenshot workflow's secret uses). This
+repository is public, so a default here would be a published login to an
+account that can see the client feed.
+
 Then point the screenshot harness at the same credentials (see
 my_app/SCREENSHOTS.md). Run with --no-media to skip generated images.
 
@@ -24,7 +29,7 @@ from datetime import date, datetime, timedelta
 
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
@@ -133,7 +138,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--email", default="demo-owner@paws4thoughtdogs.com")
-        parser.add_argument("--password", default="Paws4Demo!2026")
+        parser.add_argument(
+            "--password", default=None,
+            help="Password for the demo account. Required, here or as DEMO_PASSWORD in the environment.",
+        )
         parser.add_argument("--first-name", default="Sam")
         parser.add_argument("--last-name", default="Taylor")
         parser.add_argument("--dog-name", default="Luna")
@@ -142,6 +150,13 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **opts):
         email = opts["email"]
+        password = opts["password"] or os.environ.get("DEMO_PASSWORD", "")
+        if not password:
+            raise CommandError(
+                "No password given. Pass --password or set DEMO_PASSWORD; there is "
+                "deliberately no default (this repository is public)."
+            )
+        opts["password"] = password
 
         user, created = User.objects.get_or_create(
             username=email,
@@ -261,5 +276,5 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING("Demo account ready for screenshots:"))
         self.stdout.write(f"  DEMO_EMAIL={email}")
-        self.stdout.write(f"  DEMO_PASSWORD={password}")
+        self.stdout.write("  DEMO_PASSWORD=<the password you supplied>")
         self.stdout.write("  (pass these to tool/screenshots.sh)")

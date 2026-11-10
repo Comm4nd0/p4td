@@ -179,9 +179,7 @@ class CompatibilityConflict {
               .toList()
           : null,
       acknowledgedByName: json['acknowledged_by_name']?.toString(),
-      acknowledgedAt: json['acknowledged_at'] != null
-          ? DateTime.tryParse(json['acknowledged_at'].toString())
-          : null,
+      acknowledgedAt: parseApiDateTime(json['acknowledged_at']),
     );
   }
 }

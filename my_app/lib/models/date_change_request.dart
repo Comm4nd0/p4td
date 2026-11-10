@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 enum RequestType { cancel, change, addDay }
 
 enum RequestStatus { pending, approved, denied }
@@ -91,7 +93,7 @@ class DateChangeRequest {
       status: _parseStatus(json['status']),
       approvedByName: json['approved_by_name'],
       isCharged: json['is_charged'] ?? false,
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
       newDateSummary: json['new_date_summary'] is Map
           ? DayBookingSummary.fromJson(Map<String, dynamic>.from(json['new_date_summary']))
           : null,

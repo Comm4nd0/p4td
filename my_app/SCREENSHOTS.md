@@ -75,11 +75,12 @@ images — swap for real photos any time via the app):
 ```bash
 python manage.py seed_demo_data \
   --email demo-owner@paws4thoughtdogs.com \
-  --password 'Paws4Demo!2026' \
+  --password "$DEMO_PASSWORD" \
   --dog-name Luna
 ```
 
-It prints the `DEMO_EMAIL` / `DEMO_PASSWORD` to use next. Re-running is safe
+There is no default password and none is written here: choose one, keep it in
+the `DEMO_PASSWORD` repository secret, and pass it in. It prints the `DEMO_EMAIL` to use next. Re-running is safe
 (idempotent).
 
 **Re-run this immediately before every capture.** The feed is communal (every
@@ -96,7 +97,7 @@ end up on the public store listing.
 ```bash
 cd my_app
 export DEMO_EMAIL='demo-owner@paws4thoughtdogs.com'
-export DEMO_PASSWORD='Paws4Demo!2026'
+export DEMO_PASSWORD='<the demo account password>'
 
 ./tool/screenshots.sh          # iOS + Android
 ./tool/screenshots.sh ios      # iOS only (needs macOS)

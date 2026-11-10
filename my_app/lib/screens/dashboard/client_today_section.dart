@@ -5,6 +5,7 @@ import 'package:picons/picons.dart';
 import '../../constants/app_colors.dart';
 import '../../models/owner_calendar.dart';
 import '../../utils/date_formats.dart';
+import '../../widgets/day_span.dart';
 
 enum TodayStatus { daycare, boarding, home }
 
@@ -106,7 +107,7 @@ class ClientTodaySection extends StatelessWidget {
       .where((d) => DogTodaySummary._sameDay(d.date, today))
       .firstOrNull;
 
-  int get _horizonDays => calendar.end.difference(today).inDays;
+  int get _horizonDays => calendarDaysBetween(today, calendar.end);
 
   @override
   Widget build(BuildContext context) {

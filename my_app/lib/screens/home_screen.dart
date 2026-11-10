@@ -8,8 +8,6 @@ import 'package:upgrader/upgrader.dart';
 import '../constants/app_colors.dart';
 import '../models/dog.dart';
 import '../models/user_profile.dart';
-import '../models/date_change_request.dart';
-import '../models/boarding_request.dart';
 import '../models/intake_request.dart';
 import '../models/dog_link_request.dart';
 import '../services/data_service.dart';
@@ -46,6 +44,7 @@ import 'incidents_screen.dart';
 import 'incident_detail_screen.dart';
 import 'my_payments_screen.dart';
 import 'customer_payments_screen.dart';
+import 'dashboard/dashboard_counts.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? scrollToPostId;
@@ -91,10 +90,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _canManageBoarding = false;
   bool _canManageCompliance = false;
   int _currentIndex = 1;
-  int _pendingRequestCount = 0;
-  int _unresolvedQueryCount = 0;
-  int _unreadInquiryCount = 0;
-  int _pendingBookingFormCount = 0;
+
+  /// Every inbox count in the app — the badges beside the bell, the drawer
+  /// and the dashboard's Action Items all read this one object, so acting on
+  /// something from any of them updates the others.
+  late final DashboardCounts _counts = DashboardCounts(
+    dataService: _dataService,
+    isStaff: false,
+  )..addListener(_onCountsChanged);
+
+  /// What the staff dashboard remembers across tab switches (its State is
+  /// rebuilt each time the tab is shown).
+  final DashboardSession _dashboardSession = DashboardSession();
+
+  int get _pendingRequestCount => _counts.pendingRequestCount;
+  int get _unresolvedQueryCount => _counts.unresolvedQueryCount;
+  int get _unreadInquiryCount => _counts.unreadInquiryCount;
+  int get _pendingBookingFormCount => _counts.pendingBookingFormCount;
+
+  void _onCountsChanged() {
+    if (mounted) setState(() {});
+  }
   StreamSubscription<Map<String, dynamic>>? _pushSubscription;
   String _appVersion = '';
   final GlobalKey<UnifiedDashboardScreenState> _dashboardKey = GlobalKey();
@@ -142,6 +158,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _pushSubscription?.cancel();
+    _counts.removeListener(_onCountsChanged);
+    _counts.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -279,6 +297,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _canManageBoarding = profile.canManageBoarding;
       _canManageCompliance = profile.canManageCompliance;
     });
+    _counts.updatePermissions(
+      isStaff: profile.isStaff,
+      canViewInquiries: profile.canViewInquiries,
+      canManageRequests: profile.canManageRequests,
+      canManageBoarding: profile.canManageBoarding,
+    );
   }
 
   /// Re-read permissions when the app comes back to the foreground, so a
@@ -313,18 +337,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // Warm the offline caches (route + dog photos) while on WiFi, so
           // the app keeps working through signal dead zones mid-route.
           getIt<OfflinePrefetchService>().prefetchForToday();
-          await _loadPendingRequestCount();
-          await _notificationService.subscribeToTopic('staff_notifications');
-        } else {
-          await _notificationService.unsubscribeFromTopic('staff_notifications');
         }
-        await _loadUnresolvedQueryCount();
-        if (profile.isStaff) await _loadPendingBookingFormCount();
-        if (profile.isStaff && profile.canViewInquiries) {
-          await _loadUnreadInquiryCount();
-        }
+        // Counts load alongside; a notification tap must not wait behind
+        // them, nor be lost because the topic call failed.
+        _loadInboxCounts();
         // Handle deep-link navigation after permissions are known
         _handleInitialRoute();
+        try {
+          if (profile.isStaff) {
+            await _notificationService.subscribeToTopic('staff_notifications');
+          } else {
+            await _notificationService.unsubscribeFromTopic('staff_notifications');
+          }
+        } catch (e) {
+          debugPrint('Staff topic subscription failed: $e');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -341,69 +368,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadPendingRequestCount() async {
-    if (!_isStaff) return;
-    try {
-      final dateRequests = await _dataService.getDateChangeRequests();
-      final pendingDateCount = dateRequests.where((r) => r.status == RequestStatus.pending).length;
-
-      // Pending boardings only alert staff who can act on them.
-      var pendingBoardingCount = 0;
-      if (_canManageBoarding) {
-        final boardingRequests = await _dataService.getBoardingRequests();
-        // Includes date changes owners asked for on approved stays.
-        pendingBoardingCount = boardingRequests
-            .where((r) => r.status == BoardingRequestStatus.pending || r.hasPendingChange)
-            .length;
-      }
-
-      if (mounted) {
-        setState(() => _pendingRequestCount = pendingDateCount + pendingBoardingCount);
-      }
-    } catch (e) {
-      // Ignore errors
-    }
-  }
-
-  Future<void> _loadUnresolvedQueryCount() async {
-    try {
-      final count = await _dataService.getUnresolvedQueryCount();
-      if (mounted) {
-        setState(() => _unresolvedQueryCount = count);
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadUnreadInquiryCount() async {
-    try {
-      final count = await _dataService.getUnreadInquiryCount();
-      if (mounted) {
-        setState(() => _unreadInquiryCount = count);
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadPendingBookingFormCount() async {
-    if (!_isStaff) return;
-    try {
-      final count = await _dataService.getPendingIntakeRequestCount();
-      if (mounted) {
-        setState(() => _pendingBookingFormCount = count);
-      }
-    } catch (_) {}
-  }
-
   /// Every count shown beside the bell, in parallel. Called on resume and
   /// whenever a push lands in the foreground, so the badges are never older
   /// than the last time the phone was looked at.
-  Future<void> _loadInboxCounts() async {
-    await Future.wait([
-      _loadPendingRequestCount(),
-      _loadUnresolvedQueryCount(),
-      _loadPendingBookingFormCount(),
-      if (_canViewInquiries) _loadUnreadInquiryCount(),
-    ]);
-  }
+  Future<void> _loadInboxCounts() => _counts.refreshInbox();
 
   void _refresh() {
     _loadDogs();
@@ -428,14 +396,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       switch (widget.initialRoute) {
         case 'requests':
-          _push(
-            MaterialPageRoute(
-              builder: (_) => StaffNotificationsScreen(
-                canManageRequests: _canManageRequests,
-                canManageBoarding: _canManageBoarding,
-              ),
-            ),
-          );
+          // Staff: the requests inbox. An owner gets here from the push that
+          // says their own request was decided — the staff inbox would show
+          // them "No pending requests", so take them to the decision.
+          if (_isStaff) {
+            _openPendingRequests();
+          } else {
+            _openOwnerRequestDecision(widget.routePayload);
+          }
           break;
         case 'boarding_requests':
           _push(
@@ -458,9 +426,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
           break;
         case 'inquiries':
-          _push(
-            MaterialPageRoute(builder: (_) => const InquiryListScreen()),
-          );
+          // Website enquiries are for staff holding the flag only.
+          if (_isStaff && _canViewInquiries) _openInquiries();
           break;
         case 'booking_forms':
           _openBookingForms();
@@ -557,6 +524,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
 
 
+  /// An owner tapped "your request was approved/denied". The decision shows
+  /// on the dog's profile (calendar plus its requests list), so open that
+  /// dog: the one the request names when the push carried its id, else the
+  /// only dog. With several dogs and no id, My Calendar shows them all.
+  Future<void> _openOwnerRequestDecision(String? requestId) async {
+    var dogs = _allDogs;
+    if (dogs.isEmpty) {
+      try {
+        dogs = await _dataService.getDogs();
+      } catch (_) {
+        dogs = const [];
+      }
+    }
+    if (!mounted) return;
+    Dog? dog = dogs.length == 1 ? dogs.first : null;
+    final id = int.tryParse(requestId ?? '');
+    if (dog == null && id != null && dogs.isNotEmpty) {
+      try {
+        final requests = await _dataService.getDateChangeRequests();
+        final request = requests.where((r) => r.id == id).firstOrNull;
+        if (request != null) {
+          dog = dogs.where((d) => d.id == request.dogId).firstOrNull;
+        }
+      } catch (_) {
+        // Fall through to the calendar.
+      }
+      if (!mounted) return;
+    }
+    if (dog != null) {
+      await _push(MaterialPageRoute(builder: (_) => DogHomeScreen(dog: dog!, isStaff: false)));
+    } else {
+      await _push(MaterialPageRoute(builder: (_) => const MyCalendarScreen()));
+    }
+  }
+
   Future<void> _addDog() async {
     final result = await _push(
       MaterialPageRoute(builder: (_) => const AddDogScreen()),
@@ -587,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (changed == true) {
       _refresh();
     } else {
-      _loadPendingBookingFormCount();
+      _counts.reloadPendingBookingFormCount();
     }
   }
 
@@ -600,14 +602,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
-    _loadUnresolvedQueryCount();
+    _counts.reloadUnresolvedQueryCount();
   }
 
   Future<void> _openInquiries() async {
     await _push(
       MaterialPageRoute(builder: (_) => const InquiryListScreen()),
     );
-    _loadUnreadInquiryCount();
+    _counts.reloadUnreadInquiryCount();
   }
 
   Future<void> _openPendingRequests() async {
@@ -619,7 +621,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
-    _loadPendingRequestCount();
+    _counts.reloadPendingRequestCount();
   }
 
   Future<void> _onNavTap(int index) async {
@@ -633,7 +635,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           builder: (_) => DogHomeScreen(dog: _allDogs.first, isStaff: false),
         ),
       );
-      if (result == 'deleted') _refresh();
+      // The profile is where a single-dog owner attaches a certificate or
+      // edits the dog, and they have no list to pull down on.
+      if (result == 'deleted') {
+        _refresh();
+      } else {
+        _loadDogs();
+      }
       return;
     }
     setState(() {
@@ -658,6 +666,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 : !_isStaff
                     ? ClientDashboardScreen(
                         dogs: _allDogs,
+                        // Its tiles read the dogs loaded here (the
+                        // certificate nag above all), so anything done from
+                        // the dashboard has to refresh them.
+                        onDogsChanged: _loadDogs,
                         onSwitchToFeed: () => setState(() => _currentIndex = 1),
                       )
                     : UnifiedDashboardScreen(
@@ -678,6 +690,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     onDashboardLayoutChanged: (ids) => setState(() => _dashboardLayout = ids),
                     initialStaffId: _dogGroupsStaffFilter,
                     initialDate: _deepLinkDate,
+                    session: _dashboardSession,
+                    counts: _counts,
                     onSwitchToFeed: () => setState(() => _currentIndex = 1),
                   );
     return UpgradeAlert(
@@ -1254,6 +1268,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
                         icon: Picon(PiconsDuotone.x),
+                        tooltip: 'Clear search',
                         onPressed: () {
                           _searchController.clear();
                           _filterDogs('');

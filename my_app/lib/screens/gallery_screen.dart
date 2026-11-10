@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import 'package:picons/picons.dart';
@@ -8,8 +9,10 @@ import 'package:video_player/video_player.dart';
 import 'dart:typed_data';
 import '../models/photo.dart';
 import '../services/data_service.dart';
+import '../services/media_limits.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
+import '../utils/snacks.dart' show userMessage;
 
 class GalleryScreen extends StatefulWidget {
   final String dogId;
@@ -17,11 +20,18 @@ class GalleryScreen extends StatefulWidget {
 
   final bool embed;
 
+  /// Build as a sliver, for a parent `CustomScrollView` (the dog profile).
+  /// The grid then builds only the cells on screen. Embedded as a box it had
+  /// to be shrink-wrapped, which built every photo the dog has ever had the
+  /// moment the profile opened — and gallery photos are never pruned.
+  final bool asSliver;
+
   const GalleryScreen({
     super.key, 
     required this.dogId, 
     this.isStaff = false,
     this.embed = false,
+    this.asSliver = false,
   });
 
   @override
@@ -53,6 +63,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
     if (image == null) return;
 
+    if (!mounted) return;
     try {
       setState(() => _uploading = true);
       
@@ -66,7 +77,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
         now,
       );
 
-      // Refresh the gallery
+      // Refresh the gallery — unless the profile was left mid-upload.
+      if (!mounted) return;
       setState(() {
         _photosFuture = _dataService.getPhotos(widget.dogId);
         _uploading = false;
@@ -78,6 +90,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _uploading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -106,6 +119,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     for (final image in images) {
       imagesToUpload.add((await image.readAsBytes(), image.name, now));
     }
+    if (!mounted) return;
 
     await _uploadPhotoBatch(imagesToUpload);
   }
@@ -194,24 +208,41 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _pickAndUploadVideo() async {
     final ImagePicker picker = ImagePicker();
-    final XFile? video = await picker.pickVideo(source: ImageSource.gallery);
+    final XFile? video = await picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: MediaLimits.maxVideoDuration,
+    );
 
     if (video == null) return;
 
+    if (!mounted) return;
     try {
       setState(() => _uploading = true);
       
-      final videoBytes = await video.readAsBytes();
       final now = DateTime.now();
-      
-      await _dataService.uploadPhoto(
-        widget.dogId,
-        videoBytes,
-        video.name,
-        now,
-      );
 
-      // Refresh the gallery
+      // Streamed from disk: a two-minute clip read into memory first is
+      // hundreds of megabytes on a phone that may not have them. The web has
+      // no file to stream from, so it still sends bytes.
+      if (kIsWeb) {
+        await _dataService.uploadPhoto(
+          widget.dogId,
+          await video.readAsBytes(),
+          video.name,
+          now,
+        );
+      } else {
+        await _dataService.uploadPhoto(
+          widget.dogId,
+          Uint8List(0),
+          video.name,
+          now,
+          filePath: video.path,
+        );
+      }
+
+      // Refresh the gallery — unless the profile was left mid-upload.
+      if (!mounted) return;
       setState(() {
         _photosFuture = _dataService.getPhotos(widget.dogId);
         _uploading = false;
@@ -223,6 +254,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _uploading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -234,8 +266,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.embed) {
-      return Column(
+    if (widget.embed || widget.asSliver) {
+      final header = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (!widget.isStaff) _privateNote(),
@@ -250,8 +282,19 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 label: Text(_uploading ? 'Uploading...' : 'Add Photo/Video'),
               ),
             ),
-          _buildGalleryContent(),
         ],
+      );
+      if (widget.asSliver) {
+        return SliverMainAxisGroup(
+          slivers: [
+            SliverToBoxAdapter(child: header),
+            _buildGalleryContent(sliver: true),
+          ],
+        );
+      }
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [header, _buildGalleryContent()],
       );
     }
 
@@ -345,24 +388,31 @@ class _GalleryScreenState extends State<GalleryScreen> {
     );
   }
 
-  Widget _buildGalleryContent() {
+  Widget _buildGalleryContent({bool sliver = false}) {
+    Widget box(Widget child) => sliver ? SliverToBoxAdapter(child: child) : child;
     return FutureBuilder<List<Photo>>(
       future: _photosFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()));
+          return box(const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())));
         } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          return box(Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(userMessage(snapshot.error), textAlign: TextAlign.center),
+            ),
+          ));
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Padding(
+          return box(const Padding(
             padding: EdgeInsets.all(32.0),
             child: Center(child: Text('No photos yet.')),
-          );
+          ));
         }
 
-        final photos = snapshot.data!;
-        // Sort by takenAt descending (newest first)
-        photos.sort((a, b) => b.takenAt.compareTo(a.takenAt));
+        // Newest first. A sorted copy: the snapshot's list is handed back on
+        // every rebuild and shouldn't be reordered in place under the grid.
+        final photos = [...snapshot.data!]
+          ..sort((a, b) => b.takenAt.compareTo(a.takenAt));
 
         // Size the decoded bitmap to the grid cell so we don't decode
         // full-resolution images for tiny thumbnails. Cells are capped at
@@ -370,17 +420,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
         final media = MediaQuery.of(context);
         final cellCacheWidth = (media.devicePixelRatio * 150).round();
 
-        return GridView.builder(
-          padding: const EdgeInsets.all(4),
-          shrinkWrap: widget.embed,
-          physics: widget.embed ? const NeverScrollableScrollPhysics() : null,
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 150,
-            crossAxisSpacing: 4,
-            mainAxisSpacing: 4,
-          ),
-          itemCount: photos.length,
-          itemBuilder: (context, index) {
+        const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 150,
+          crossAxisSpacing: 4,
+          mainAxisSpacing: 4,
+        );
+        Widget cell(BuildContext context, int index) {
             final photo = photos[index];
             return GestureDetector(
               onTap: () {
@@ -411,7 +456,25 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 ),
               ),
             );
-          },
+        }
+
+        if (sliver) {
+          return SliverPadding(
+            padding: const EdgeInsets.all(4),
+            sliver: SliverGrid.builder(
+              gridDelegate: gridDelegate,
+              itemCount: photos.length,
+              itemBuilder: cell,
+            ),
+          );
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.all(4),
+          shrinkWrap: widget.embed,
+          physics: widget.embed ? const NeverScrollableScrollPhysics() : null,
+          gridDelegate: gridDelegate,
+          itemCount: photos.length,
+          itemBuilder: cell,
         );
       },
     );
@@ -423,6 +486,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         photos: photos,
         initialIndex: initialIndex,
         onRefresh: () {
+          if (!mounted) return;
           setState(() {
             _photosFuture = _dataService.getPhotos(widget.dogId);
           });

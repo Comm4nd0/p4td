@@ -14,6 +14,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import '../widgets/dog_quick_info_sheet.dart';
+import 'dashboard/reassign_dogs_dialog.dart' show staffDisplayName;
 import 'dog_home_screen.dart';
 
 /// Continuous card/text sizing for the board, driven by pinch-zoom on the
@@ -314,10 +315,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   List<({int id, String name})> get _staffColumns {
     final byId = <int, String>{};
     for (final s in widget.staffMembers) {
-      final name = (s['first_name'] as String?)?.isNotEmpty == true
-          ? s['first_name'] as String
-          : s['username'] as String? ?? '?';
-      byId[s['id'] as int] = name;
+      byId[s['id'] as int] = staffDisplayName(s);
     }
     for (final a in _assignments) {
       byId.putIfAbsent(a.staffMemberId, () => a.staffMemberName);
@@ -358,6 +356,11 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
       _dataChanged = true;
     } catch (e) {
       if (mounted) _error('$e');
+      // A move is two calls (reassign, then position). When the second
+      // fails the first has still happened, so show the board as the server
+      // has it rather than leaving the dog in its old column.
+      _dataChanged = true;
+      if (mounted) await _reload();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -526,7 +529,7 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
                     width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
               )
             else
-              IconButton(icon: const Icon(Icons.refresh), onPressed: _reload),
+              IconButton(icon: const Icon(Icons.refresh), tooltip: 'Refresh', onPressed: _reload),
           ],
         ),
         // The column view must stay MOUNTED (Offstage, not removed) while the

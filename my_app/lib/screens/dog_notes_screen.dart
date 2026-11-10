@@ -490,6 +490,7 @@ class _RelatedDogsPickerState extends State<_RelatedDogsPicker> {
             suffixIcon: controller.text.isEmpty
                 ? null
                 : IconButton(
+                    tooltip: 'Clear search',
                     icon: Picon(PiconsDuotone.x, size: 18),
                     onPressed: controller.clear,
                   ),

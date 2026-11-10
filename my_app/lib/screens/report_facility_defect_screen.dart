@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/page_body.dart';
+import '../widgets/form_scroll_body.dart';
 
 class ReportFacilityDefectScreen extends StatefulWidget {
   const ReportFacilityDefectScreen({super.key});
@@ -44,6 +45,7 @@ class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen>
       );
       if (image != null) {
         final bytes = await image.readAsBytes();
+        if (!mounted) return;
         setState(() => _photos.add((bytes, image.name)));
       }
     } catch (e) {
@@ -66,7 +68,7 @@ class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen>
         final bytes = await image.readAsBytes();
         _photos.add((bytes, image.name));
       }
-      if (images.isNotEmpty) setState(() {});
+      if (images.isNotEmpty && mounted) setState(() {});
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -106,7 +108,7 @@ class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen>
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
     setState(() => _isSaving = true);
     try {
       final location = _locationController.text.trim();
@@ -142,8 +144,7 @@ class _ReportFacilityDefectScreenState extends State<ReportFacilityDefectScreen>
       ),
       body: PageBody(child: Form(
         key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+        child: FormScrollBody(
           children: [
             TextFormField(
               controller: _titleController,

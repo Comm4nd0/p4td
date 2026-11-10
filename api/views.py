@@ -95,6 +95,52 @@ def _require_dog_access(user, dog, message):
         raise PermissionDenied(message)
 
 
+def _staff_has_flag(user, flag):
+    """True when ``user`` holds the ``UserProfile`` capability ``flag``.
+    Superusers always pass; everyone else must be staff with the flag set."""
+    if user.is_superuser:
+        return True
+    return bool(user.is_staff and getattr(getattr(user, 'profile', None), flag, False))
+
+
+def _require_staff_flag(user, flag, message):
+    """Raise PermissionDenied unless ``user`` holds ``flag`` (see above)."""
+    if not _staff_has_flag(user, flag):
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied(message)
+
+
+def _bad_request(message):
+    """A 400 whose body is ``{"detail": message}``, raised from anywhere."""
+    from rest_framework.exceptions import ValidationError
+    return ValidationError({'detail': message})
+
+
+def _parse_id(value, name):
+    """``value`` as a positive int, or a 400 naming the parameter. Client ids
+    reach ``.get(id=...)``/``.filter(...)`` raw otherwise, and a non-numeric
+    one is a ValueError — a 500 — rather than a bad request."""
+    if isinstance(value, bool):
+        raise _bad_request(f'{name} must be a whole number.')
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise _bad_request(f'{name} must be a whole number.')
+
+
+def _parse_iso_date(value, default=None):
+    """A YYYY-MM-DD string as a date (``default`` when empty), or a 400.
+    Anything that isn't a string is refused too: ``date.fromisoformat`` raises
+    TypeError on a number, which the ValueError handlers never caught."""
+    from datetime import date as date_cls
+    if value in (None, ''):
+        return default
+    try:
+        return date_cls.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise _bad_request('Invalid date format. Use YYYY-MM-DD.')
+
+
 def _uk(d):
     """A date as the log writes it."""
     return d.strftime('%d/%m/%Y') if d else ''
@@ -197,6 +243,42 @@ def _apply_schedule_change(dog, old_daycare_days, old_schedule_type, *, actor):
     release_dropped_weekdays(dog, old_days - new_days, actor=actor)
 
 
+def _validate_proposed_dog_changes(dog, proposed, context):
+    """Hold an owner's proposed dog changes to ``DogSerializer``'s rules.
+
+    Returns ``(stored, validated)``: ``stored`` is the JSON-safe dict kept on
+    the change request (``daycare_days`` normalised to sorted ints),
+    ``validated`` the typed values to put on the dog. Raises DRF's
+    ValidationError (a 400) when a value would not be accepted from staff
+    either. Used when the request is made and again when it is approved, so a
+    row written before this check existed can't reach ``dog.save()`` unchecked.
+    """
+    from rest_framework import serializers as drf_serializers
+
+    proposed = {f: v for f, v in proposed.items() if f in OWNER_EDITABLE_DOG_FIELDS}
+    if not proposed:
+        return {}, {}
+    fields = DogSerializer(context=context).fields
+    stored = {}
+    for name, value in proposed.items():
+        field = fields.get(name)
+        if field is None:
+            continue
+        # "Cleared" arrives as '' or null depending on the client; give each
+        # column the empty value it can hold.
+        if value is None and not field.allow_null:
+            value = ''
+        elif value == '' and isinstance(field, drf_serializers.DateField) and field.allow_null:
+            value = None
+        stored[name] = value
+    serializer = DogSerializer(dog, data=stored, partial=True, context=context)
+    serializer.is_valid(raise_exception=True)
+    validated = dict(serializer.validated_data)
+    if 'daycare_days' in validated:
+        stored['daycare_days'] = list(validated['daycare_days'])
+    return stored, validated
+
+
 _WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 
@@ -294,9 +376,21 @@ class ImageProcessingError(DRFValidationError):
 def _decode_upload(image_file):
     """Open an upload as a Pillow image, oriented per its EXIF data."""
     from PIL import ImageOps
+    from .validators import MAX_IMAGE_UPLOAD_BYTES, MAX_IMAGE_UPLOAD_PIXELS
     try:
+        # Every image upload comes through here, so this is where the two
+        # limits live: bytes on the wire, and pixels once decoded. A file
+        # under a megabyte can declare a canvas that decodes to half a
+        # gigabyte, and Image.open only reads the header — so check the
+        # declared size before anything (exif_transpose, convert) loads it.
+        size = getattr(image_file, 'size', None)
+        if size is not None and size > MAX_IMAGE_UPLOAD_BYTES:
+            raise ValueError(f'upload is {size} bytes, over the {MAX_IMAGE_UPLOAD_BYTES} limit')
         image_file.seek(0)
         img = Image.open(image_file)
+        if img.width * img.height > MAX_IMAGE_UPLOAD_PIXELS:
+            raise ValueError(
+                f'image is {img.width}x{img.height}, over the {MAX_IMAGE_UPLOAD_PIXELS} pixel limit')
         img = ImageOps.exif_transpose(img)
         # JPEG can only encode RGB/L/CMYK, so normalise everything else —
         # palette, transparency, 16-bit greyscale — rather than letting save()
@@ -373,7 +467,13 @@ def generate_video_thumbnail(file_obj):
 
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_video:
             if hasattr(file_obj, 'read'):
-                tmp_video.write(file_obj.read())
+                # In 1 MB pieces: a video may be 200 MB, and read() with no
+                # size put the whole of it in memory per upload.
+                while True:
+                    piece = file_obj.read(1024 * 1024)
+                    if not piece:
+                        break
+                    tmp_video.write(piece)
             else:
                 for chunk in file_obj.chunks():
                     tmp_video.write(chunk)
@@ -465,7 +565,7 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             return Response({'detail': 'user_id query parameter required'}, status=400)
 
         try:
-            profile = UserProfile.objects.get(user_id=user_id)
+            profile = UserProfile.objects.get(user_id=_parse_id(user_id, 'user_id'))
         except UserProfile.DoesNotExist:
             return Response({'detail': 'User profile not found'}, status=404)
 
@@ -484,22 +584,27 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             return Response({'detail': 'user_id query parameter required'}, status=400)
 
         try:
-            profile = UserProfile.objects.get(user_id=user_id)
+            profile = UserProfile.objects.select_related('user').get(user_id=_parse_id(user_id, 'user_id'))
         except UserProfile.DoesNotExist:
             return Response({'detail': 'User profile not found'}, status=404)
 
+        # This is the client-details editor. A colleague's phone and address
+        # are HR data, which belongs to whoever manages staff.
+        if profile.user.is_staff and profile.user_id != request.user.id:
+            _require_staff_flag(
+                request.user, 'can_manage_staff',
+                "Only staff who manage staff can change another staff member's details.")
+
         client_fields = {'phone_number': 'Phone', 'address': 'Address'}
         before = snapshot_fields(profile, client_fields)
-        before_name = person(profile.user)
+        # Names are read-only on OwnerDetailSerializer, so only these two
+        # fields can differ.
         serializer = OwnerDetailSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         profile.refresh_from_db()
-        profile.user.refresh_from_db()
         changes = diff_fields(before, snapshot_fields(profile, client_fields), client_fields)
         name = person(profile.user)
-        if name != before_name:
-            changes.insert(0, {'field': 'name', 'label': 'Name', 'old': before_name, 'new': name})
         if changes:
             log_activity(
                 'CLIENTS', name, action='UPDATED', actor=request.user, changes=changes,
@@ -546,7 +651,7 @@ class UserProfileViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, vie
             return Response({'detail': 'user_id query parameter required'}, status=400)
 
         try:
-            profile = UserProfile.objects.select_related('user').get(user_id=user_id)
+            profile = UserProfile.objects.select_related('user').get(user_id=_parse_id(user_id, 'user_id'))
         except UserProfile.DoesNotExist:
             return Response({'detail': 'User profile not found'}, status=404)
 
@@ -828,12 +933,14 @@ class DogViewSet(viewsets.ModelViewSet):
 
         if not names:
             return Response({'detail': 'names list is required'}, status=400)
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            return Response({'detail': 'names must be a list of dog names'}, status=400)
 
         owner = None
         if owner_id:
             from django.contrib.auth.models import User
             try:
-                owner = User.objects.get(id=owner_id)
+                owner = User.objects.get(id=_parse_id(owner_id, 'owner'))
             except User.DoesNotExist:
                 return Response({'detail': 'Owner not found'}, status=404)
 
@@ -934,6 +1041,13 @@ class DogViewSet(viewsets.ModelViewSet):
         if proposed_changes.get('preferred_dropoff_time', '') not in valid_dropoff:
             from rest_framework.exceptions import ValidationError
             raise ValidationError({'preferred_dropoff_time': 'Not a valid choice.'})
+
+        # Every proposed value is held to the rules a staff edit of the same
+        # field is: what is stored here is written straight onto the dog when
+        # staff approve, so a malformed daycare_days or date must be refused
+        # now, while the owner can still correct it.
+        proposed_changes, _validated = _validate_proposed_dog_changes(
+            dog, proposed_changes, self.get_serializer_context())
 
         # A client may change a contact number but never clear one.
         missing = {
@@ -1183,7 +1297,7 @@ class DogViewSet(viewsets.ModelViewSet):
                 dog.owner = None
             else:
                 try:
-                    owner = User.objects.get(id=owner_id)
+                    owner = User.objects.get(id=_parse_id(owner_id, 'owner'))
                 except User.DoesNotExist:
                     return Response({'detail': 'Owner not found.'}, status=404)
                 dog.owner = owner
@@ -1191,7 +1305,13 @@ class DogViewSet(viewsets.ModelViewSet):
             dog.save()
 
         if 'additional_owners' in request.data:
-            additional_owner_ids = request.data.get('additional_owners', [])
+            if hasattr(request.data, 'getlist'):  # form-encoded: one value per id
+                additional_owner_ids = request.data.getlist('additional_owners')
+            else:
+                additional_owner_ids = request.data.get('additional_owners') or []
+            if not isinstance(additional_owner_ids, list):
+                return Response({'detail': 'additional_owners must be a list of user ids.'}, status=400)
+            additional_owner_ids = [_parse_id(i, 'additional_owners') for i in additional_owner_ids]
             additional_owners = User.objects.filter(id__in=additional_owner_ids)
             if len(additional_owners) != len(additional_owner_ids):
                 return Response({'detail': 'One or more additional owners not found.'}, status=404)
@@ -1264,67 +1384,106 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
         if not request.user.is_staff:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can approve change requests.")
+        # The app only offers this screen to staff who manage requests.
+        _require_staff_flag(
+            request.user, 'can_manage_requests',
+            'You do not have permission to manage requests.')
+
+        from django.db import transaction
+        from rest_framework.exceptions import ValidationError
+        from .serializers import owner_display_name
 
         change_request = self.get_object()
-        if change_request.status != 'PENDING':
-            return Response(
-                {'detail': f'Request is already {change_request.get_status_display().lower()}.'},
-                status=400,
+        replaced_image = None
+        # One transaction, with the request row locked: the dog, the roster
+        # release and the request's status land together or not at all, and a
+        # second approver (two phones, a double tap) waits here and then finds
+        # the request already decided instead of applying it twice.
+        with transaction.atomic():
+            change_request = (
+                DogProfileChangeRequest.objects.select_for_update().get(pk=change_request.pk)
             )
+            if change_request.status != 'PENDING':
+                return Response(
+                    {'detail': f'Request is already {change_request.get_status_display().lower()}.'},
+                    status=400,
+                )
 
-        dog = change_request.dog
-        # Captured before the proposed values land on the instance: the roster
-        # release below compares old with new, and reading them afterwards
-        # made a schedule change look like no change at all.
-        old_daycare_days = list(dog.daycare_days or [])
-        old_schedule_type = dog.schedule_type
+            dog = change_request.dog
+            # Captured before the proposed values land on the instance: the roster
+            # release below compares old with new, and reading them afterwards
+            # made a schedule change look like no change at all.
+            old_daycare_days = list(dog.daycare_days or [])
+            old_schedule_type = dog.schedule_type
 
-        # Apply proposed text/JSON field changes. Re-enforce the whitelist here
-        # so a malformed/stale proposed_changes can never write a field an owner
-        # was never allowed to edit, e.g. owner (B19).
-        for field, value in change_request.proposed_changes.items():
-            if field in OWNER_EDITABLE_DOG_FIELDS and hasattr(dog, field):
-                setattr(dog, field, value)
+            # Apply proposed text/JSON field changes. Re-enforce the whitelist here
+            # so a malformed/stale proposed_changes can never write a field an owner
+            # was never allowed to edit, e.g. owner (B19) — and re-validate the
+            # values, so nothing reaches the dog that a staff edit would refuse.
+            try:
+                _stored, validated = _validate_proposed_dog_changes(
+                    dog, change_request.proposed_changes or {}, self.get_serializer_context())
+            except ValidationError as exc:
+                problems = '; '.join(
+                    f"{field}: {' '.join(str(m) for m in (msgs if isinstance(msgs, (list, tuple)) else [msgs]))}"
+                    for field, msgs in exc.detail.items()
+                ) if isinstance(exc.detail, dict) else str(exc.detail)
+                return Response(
+                    {'detail': f"This request can't be applied as it stands ({problems}). "
+                               'Reject it and ask the owner to send it again.'},
+                    status=400,
+                )
+            for field, value in validated.items():
+                if hasattr(dog, field):
+                    setattr(dog, field, value)
 
-        # Apply image changes
-        if change_request.delete_image:
-            if dog.profile_image:
-                dog.profile_image.delete(save=False)
-            dog.profile_image = None
-        elif change_request.proposed_image:
-            # Delete old image file first
-            if dog.profile_image:
-                dog.profile_image.delete(save=False)
-            dog.profile_image = change_request.proposed_image
+            # Apply image changes. The old file is removed once the change has
+            # committed, so a rolled-back approval never leaves the dog pointing
+            # at a deleted image.
+            if change_request.delete_image or change_request.proposed_image:
+                if dog.profile_image:
+                    replaced_image = (dog.profile_image.storage, dog.profile_image.name)
+                dog.profile_image = (
+                    None if change_request.delete_image else change_request.proposed_image
+                )
 
-        # Attribute the change to the owner who requested it so the
-        # care-instructions staff notification names them (not "A user").
-        dog._changed_by = change_request.requested_by
-        # ...while the change log credits the staff member who approved it,
-        # and says whose request it was.
-        from .serializers import owner_display_name
-        dog._audit_actor = request.user
-        dog._audit_source = 'OWNER_REQUEST'
-        dog._audit_summary_prefix = (
-            f"Approved {owner_display_name(change_request.requested_by)}'s request:"
-        )
-        dog.save()
+            # Attribute the change to the owner who requested it so the
+            # care-instructions staff notification names them (not "A user").
+            dog._changed_by = change_request.requested_by
+            # ...while the change log credits the staff member who approved it,
+            # and says whose request it was.
+            dog._audit_actor = request.user
+            dog._audit_source = 'OWNER_REQUEST'
+            dog._audit_summary_prefix = (
+                f"Approved {owner_display_name(change_request.requested_by)}'s request:"
+            )
+            dog.save()
 
-        dog.refresh_from_db()
+            dog.refresh_from_db()
+            _apply_schedule_change(dog, old_daycare_days, old_schedule_type, actor=request.user)
+
+            # Mark as approved
+            change_request.status = 'APPROVED'
+            change_request.reviewed_by = request.user
+            change_request.reviewed_at = timezone.now()
+            change_request.save()
+
+        if replaced_image is not None:
+            storage, name = replaced_image
+            if name and name != (dog.profile_image.name if dog.profile_image else None):
+                try:
+                    storage.delete(name)
+                except Exception as e:
+                    print(f"Failed to delete replaced profile image: {e}")
+
         # Refresh cached pickup coordinates if an approved change altered the
-        # address. Best-effort, bounded by the short provider timeout (B32).
+        # address. Best-effort, bounded by the short provider timeout (B32) —
+        # and outside the transaction, so a slow lookup never holds the lock.
         try:
             from .geocoding import geocode_dog
             geocode_dog(dog)
         except Exception as e:
             print(f"Geocoding failed for dog {getattr(dog, 'id', '?')}: {e}")
-        _apply_schedule_change(dog, old_daycare_days, old_schedule_type, actor=request.user)
-
-        # Mark as approved
-        change_request.status = 'APPROVED'
-        change_request.reviewed_by = request.user
-        change_request.reviewed_at = timezone.now()
-        change_request.save()
 
         # Notify the owner
         try:
@@ -1350,18 +1509,27 @@ class DogProfileChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
         if not request.user.is_staff:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can reject change requests.")
+        _require_staff_flag(
+            request.user, 'can_manage_requests',
+            'You do not have permission to manage requests.')
 
+        from django.db import transaction
         change_request = self.get_object()
-        if change_request.status != 'PENDING':
-            return Response(
-                {'detail': f'Request is already {change_request.get_status_display().lower()}.'},
-                status=400,
+        # Locked, like approve: a reject racing an approve must not both win.
+        with transaction.atomic():
+            change_request = (
+                DogProfileChangeRequest.objects.select_for_update().get(pk=change_request.pk)
             )
+            if change_request.status != 'PENDING':
+                return Response(
+                    {'detail': f'Request is already {change_request.get_status_display().lower()}.'},
+                    status=400,
+                )
 
-        change_request.status = 'REJECTED'
-        change_request.reviewed_by = request.user
-        change_request.reviewed_at = timezone.now()
-        change_request.save()
+            change_request.status = 'REJECTED'
+            change_request.reviewed_by = request.user
+            change_request.reviewed_at = timezone.now()
+            change_request.save()
         log_change(
             change_request.dog, action='DENIED', actor=request.user, source='OWNER_REQUEST',
             summary=f"Rejected {person(change_request.requested_by)}'s profile change request",
@@ -1545,10 +1713,10 @@ class PhotoViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'dog_id query parameter required'}, status=400)
         
         try:
-            dog = Dog.objects.get(id=dog_id)
+            dog = Dog.objects.get(id=_parse_id(dog_id, 'dog_id'))
         except Dog.DoesNotExist:
             return Response({'detail': 'Dog not found'}, status=404)
-        
+
         # Check permissions
         if dog.owner != request.user and not request.user.is_staff and not dog.additional_owners.filter(id=request.user.id).exists():
             from rest_framework.exceptions import PermissionDenied
@@ -1566,14 +1734,39 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         base = DateChangeRequest.objects.select_related('dog', 'dog__owner', 'approved_by')
         if self.request.user.is_staff:
-            return base.all()
+            return self._filter_listing(base.all())
         from django.db.models import Q
-        return base.filter(
+        return self._filter_listing(base.filter(
             Q(dog__owner=self.request.user) | Q(dog__additional_owners=self.request.user)
-        ).distinct()
+        ).distinct())
+
+    def _filter_listing(self, queryset):
+        """Optional ``?status=`` and ``?dog=<id>`` on the list, so the staff
+        badge needn't download every request ever made. Applied on top of the
+        owner/staff scoping above — a filter can only narrow what the caller
+        already sees — and to the list alone, so a detail route never 404s
+        over a stray parameter. No parameter = the full list, as older app
+        builds expect."""
+        if self.action != 'list':
+            return queryset
+        status = self.request.query_params.get('status')
+        if status:
+            if status.upper() not in dict(DateChangeRequest.STATUS_CHOICES):
+                raise _bad_request('status must be one of PENDING, APPROVED, DENIED.')
+            queryset = queryset.filter(status=status.upper())
+        dog = self.request.query_params.get('dog')
+        if dog:
+            queryset = queryset.filter(dog_id=_parse_id(dog, 'dog'))
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def pending_count(self, request):
+        """``{"count": n}`` — requests still waiting for a decision. Staff get
+        the whole business's, an owner their own dogs'."""
+        return Response({'count': self.get_queryset().filter(status='PENDING').count()})
 
     @staticmethod
-    def _apply_approved_schedule_change(instance, past_added_by=None):
+    def _apply_approved_schedule_change(instance, past_added_by=None, may_free_past=True):
         """Apply the roster side-effects of approving a CANCEL/CHANGE request.
 
         Must run inside the approval transaction so the request can never end up
@@ -1597,6 +1790,11 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         member recorded on such a row; when None (the change_status approval
         path, where a stale request may be approved after its date has passed)
         past additions are skipped rather than fabricating attendance.
+        ``may_free_past`` is the mirror of that for the original date: False
+        (an approver without ``can_manage_payments``) leaves a past day's
+        attendance row alone, because the dog came in and the day is billed
+        from that row — a cancellation nobody reviewed in time must not
+        quietly take it off the invoice.
         """
         from datetime import date as date_cls
         from .scheduling import process_waitlist_for_date
@@ -1604,9 +1802,10 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
 
         if instance.request_type in ('CANCEL', 'CHANGE') and instance.original_date:
-            DailyDogAssignment.objects.filter(
-                dog=instance.dog, date=instance.original_date,
-            ).delete()
+            if instance.original_date >= today or may_free_past:
+                DailyDogAssignment.objects.filter(
+                    dog=instance.dog, date=instance.original_date,
+                ).delete()
             if instance.original_date >= today:
                 try:
                     process_waitlist_for_date(instance.original_date)
@@ -1646,6 +1845,42 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
                 assignment.staff_member = past_added_by
                 assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
 
+    @staticmethod
+    def _revert_approved_schedule_change(instance):
+        """Undo what approving ``instance`` put on the board, when an approved
+        request is set back to pending or denied.
+
+        The request stops counting the moment it is no longer APPROVED
+        (``scheduling.effective_change_actions`` reads approved rows only), so
+        the day it cancelled is a booked day again by itself: the roster
+        re-books a regular day the next time the date is looked at, and an
+        earlier approved extra day resurfaces in ``unassigned_dogs``. What
+        does not undo itself is the day it *added*: once staff have given the
+        dog a driver there is a board row, and ``ScheduleIndex`` and invoicing
+        count any row that isn't REMOVED. That row goes here — from today on
+        only (a past day happened and is billing history), never a boarding
+        row, and never one already in progress (collected / dropped off).
+        A day that was booked only through Add Dog to Day, with no request
+        behind it, and then cancelled by this request cannot be rebuilt — the
+        row was deleted on approval and nothing else records it.
+        """
+        from .scheduling import process_waitlist_for_date
+
+        today = timezone.localdate()
+        if not (instance.request_type in ('ADD_DAY', 'CHANGE') and instance.new_date
+                and instance.new_date >= today):
+            return
+        deleted, _ = DailyDogAssignment.objects.filter(
+            dog=instance.dog, date=instance.new_date,
+            booking=DailyDogAssignment.BOOKING_EXTRA, from_boarding=False,
+            status__in=('ASSIGNED', 'UNASSIGNED'),
+        ).delete()
+        if deleted:
+            try:
+                process_waitlist_for_date(instance.new_date)
+            except Exception as e:
+                print(f"Failed to process waitlist: {e}")
+
     def _check_dog_and_dates(self, dog, original_date, new_date):
         """Ownership + past-date guards shared by create and update.
 
@@ -1674,16 +1909,52 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = serializer.instance
         data = serializer.validated_data
+        is_staff = self.request.user.is_staff
+        what_changed = [
+            field for field in ('dog', 'request_type', 'original_date', 'new_date')
+            if field in data and data[field] != getattr(instance, field)
+        ]
+        # A decided request is a record of what was approved or denied, and an
+        # APPROVED one is live: scheduling reads its dates straight off the row
+        # (effective_change_actions). `status` is read-only here, so an owner
+        # who moved the date of an approved request would have approved the
+        # new day themselves — no staff decision, no capacity check.
+        if instance.status != 'PENDING':
+            from rest_framework.exceptions import PermissionDenied
+            if not is_staff:
+                raise PermissionDenied(
+                    'This request has already been reviewed and can no longer be changed. '
+                    'Send a new request instead.')
+            if what_changed:
+                raise PermissionDenied(
+                    "A reviewed request's dog, type and dates can't be changed. "
+                    'Set it back to pending first, or create a new request.')
         self._check_dog_and_dates(
             data.get('dog', instance.dog),
             data.get('original_date', instance.original_date),
             data.get('new_date', instance.new_date),
         )
-        instance = serializer.save()
+        extra = {}
+        if not is_staff and {'request_type', 'original_date'} & set(what_changed):
+            # The late-change fee follows the date being given up, exactly as
+            # on create — otherwise ask for a far-off day and move it closer.
+            extra['is_charged'] = _compute_date_change_is_charged(
+                data.get('request_type', instance.request_type),
+                data.get('original_date', instance.original_date),
+            )
+        instance = serializer.save(**extra)
         log_change(instance.dog, category='BOOKINGS', action='UPDATED', actor=self.request.user,
                    summary=f'Updated {_date_request_desc(instance)}')
 
     def perform_destroy(self, instance):
+        # Owners withdraw a request only while it is still waiting. Deleting
+        # an approved cancellation would silently book the day again (and an
+        # approved extra day would vanish from the record of what was agreed).
+        if not self.request.user.is_staff and instance.status != 'PENDING':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                'This request has already been reviewed and can no longer be withdrawn. '
+                'Contact the daycare if it needs changing.')
         verb = 'Deleted' if self.request.user.is_staff else 'Withdrew'
         log_change(instance.dog, category='BOOKINGS', action='DELETED', actor=self.request.user,
                    summary=f'{verb} {_date_request_desc(instance)}')
@@ -1797,14 +2068,18 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         if not request.user.is_staff:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only staff can change request status")
+        # The app shows Approve / Deny / Set Pending only to staff who manage
+        # requests; the server holds the same line.
+        _require_staff_flag(
+            request.user, 'can_manage_requests',
+            'You do not have permission to manage requests.')
 
         instance = self.get_object()
         new_status = request.data.get('status')
         if new_status not in dict(DateChangeRequest.STATUS_CHOICES).keys():
             return Response({'detail': 'Invalid status'}, status=400)
 
-        old_status = instance.status
-        if old_status == new_status:
+        if instance.status == new_status:
             return Response({'detail': 'Status unchanged'}, status=200)
 
         override = _truthy(request.data.get('override_capacity'))
@@ -1824,6 +2099,16 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
         # rather than fixed with an advisory lock — but do not read the
         # transaction as a guard against it.
         with transaction.atomic():
+            # The row lock IS mutual exclusion for this one request: a second
+            # manager pressing Approve at the same moment waits here, then
+            # reads the status the first one wrote and stops, instead of
+            # applying the roster change, the history row and the owner push
+            # a second time.
+            instance = DateChangeRequest.objects.select_for_update().get(pk=instance.pk)
+            old_status = instance.status
+            if old_status == new_status:
+                return Response({'detail': 'Status unchanged'}, status=200)
+
             # No capacity check for dates that have already passed — approving a
             # stale request can't overbook a day that already happened.
             from datetime import date as date_cls
@@ -1851,8 +2136,16 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             # Approving a CANCEL frees the original date; approving a CHANGE frees
             # the original date and moves the dog onto the new one (clearing any
             # stale removal so it lands in the unassigned list for the new date).
+            # A past original date is attendance that happened and is billed:
+            # only a payments manager's approval takes it off the board (the
+            # same rule create and update apply to past dates).
             if new_status == 'APPROVED':
-                self._apply_approved_schedule_change(instance)
+                self._apply_approved_schedule_change(
+                    instance, may_free_past=_user_can_manage_payments(request.user))
+            elif old_status == 'APPROVED':
+                # Set Pending / Deny on an approved request takes the day it
+                # added back off the board.
+                self._revert_approved_schedule_change(instance)
 
             # History is recorded in the same transaction so an approval always
             # has its audit row (previously it could be skipped if notification
@@ -1869,7 +2162,8 @@ class DateChangeRequestViewSet(viewsets.ModelViewSet):
             action={'APPROVED': 'APPROVED', 'DENIED': 'DENIED'}.get(new_status, 'STATUS'),
             summary=f'{new_status.title()} {_date_request_desc(instance)}',
         )
-        if new_status == 'APPROVED':
+        # Approving changes the day; so does taking an approval back.
+        if 'APPROVED' in (old_status, new_status):
             _notify_late_change(instance.dog, _date_request_days(instance), request.user)
 
         # Send push notification to all owners — after commit, best-effort.
@@ -1937,7 +2231,7 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
             return qs.none()
         dog_id = self.request.query_params.get('dog_id')
         if dog_id:
-            qs = qs.filter(tagged_dogs__id=dog_id).distinct()
+            qs = qs.filter(tagged_dogs__id=_parse_id(dog_id, 'dog_id')).distinct()
         return qs
 
     def get_permissions(self):
@@ -1948,6 +2242,12 @@ class GroupMediaViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
+        # Posting is for staff with can_add_feed_media — the app shows the
+        # upload button to nobody else. Editing and deleting a post stay open
+        # to every staff member, as the app offers them.
+        _require_staff_flag(
+            self.request.user, 'can_add_feed_media',
+            'You do not have permission to post to the feed.')
         try:
             print(f"Creating GroupMedia for user: {self.request.user}")
             # Generate thumbnail and resize for photos
@@ -2083,14 +2383,45 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             'dogs', 'history__changed_by'
         )
         if self.request.user.is_staff:
-            return base.all()
+            return self._filter_listing(base.all())
         # Co-owners see (and can amend) bookings for the dogs they co-own, not
         # only ones they personally created — otherwise a partner gets a 404 on
         # a booking for their own dog.
         from django.db.models import Q
-        return base.filter(
+        return self._filter_listing(base.filter(
             Q(owner=self.request.user) | Q(dogs__additional_owners=self.request.user)
-        ).distinct()
+        ).distinct())
+
+    #: What every staff badge counts as pending: a request nobody has decided,
+    #: or an approved stay whose owner is waiting on a date change
+    #: (``BoardingRequest.has_pending_change``, as a query).
+    _AWAITING_DECISION = Q(status='PENDING') | Q(
+        status='APPROVED', requested_start_date__isnull=False, requested_end_date__isnull=False)
+
+    def _filter_listing(self, queryset):
+        """Optional ``?status=`` on the list, inside the scoping above and on
+        the list only. ``PENDING`` means "awaiting a decision" (see above), so
+        the list matches the badge; any other status is the plain column. No
+        parameter = the full list, as older app builds expect."""
+        if self.action != 'list':
+            return queryset
+        status = self.request.query_params.get('status')
+        if not status:
+            return queryset
+        status = status.upper()
+        if status not in dict(BoardingRequest.STATUS_CHOICES):
+            raise _bad_request(
+                'status must be one of ' + ', '.join(dict(BoardingRequest.STATUS_CHOICES)) + '.')
+        if status == 'PENDING':
+            return queryset.filter(self._AWAITING_DECISION)
+        return queryset.filter(status=status)
+
+    @action(detail=False, methods=['get'])
+    def pending_count(self, request):
+        """``{"count": n}`` — bookings awaiting a decision, by the same
+        definition as ``?status=PENDING``. Staff get the whole business's,
+        an owner their own."""
+        return Response({'count': self.get_queryset().filter(self._AWAITING_DECISION).count()})
 
     def perform_destroy(self, instance):
         # Boarding managers can delete any booking (e.g. removing duplicates);
@@ -2265,7 +2596,9 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
         if self.request.user.is_staff and 'owner' in self.request.data:
             owner_id = self.request.data['owner']
             from django.contrib.auth.models import User
-            owner = User.objects.get(pk=owner_id)
+            owner = User.objects.filter(pk=_parse_id(owner_id, 'owner')).first()
+            if owner is None:
+                raise _bad_request('Owner not found.')
         else:
             owner = self.request.user
 
@@ -2337,44 +2670,68 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
 
-        old_status = instance.status
-        if old_status == new_status:
+        if instance.status == new_status:
              return Response({'detail': 'Status unchanged'}, status=200)
 
+        from django.db import transaction
         from django.utils import timezone
-        if new_status == 'APPROVED':
-            # Flag double bookings at approval time too: two separate pending
-            # requests for the same dog can both pass creation validation, so
-            # block approving one when it overlaps an already-approved booking.
-            conflicts = []
-            for dog in instance.dogs.all():
-                clash = dog.boarding_requests.filter(
-                    status='APPROVED',
-                    start_date__lte=instance.end_date,
-                    end_date__gte=instance.start_date,
-                ).exclude(pk=instance.pk).first()
-                if clash:
-                    conflicts.append(
-                        f"{dog.name} already has an approved boarding "
-                        f"{clash.start_date.strftime('%d/%m/%Y')} to {clash.end_date.strftime('%d/%m/%Y')}"
+        # The decision is taken under a lock on the booking and on its dogs:
+        # two managers deciding the same request can't both apply it, and two
+        # overlapping pending stays for one dog can't both pass the overlap
+        # check below in the same second. Attendance, pushes and the log
+        # follow once it has committed — they are best-effort and must not
+        # hold the lock (or poison the transaction if one of them fails).
+        with transaction.atomic():
+            instance = BoardingRequest.objects.select_for_update().get(pk=instance.pk)
+            old_status = instance.status
+            if old_status == new_status:
+                return Response({'detail': 'Status unchanged'}, status=200)
+            dogs = list(
+                Dog.objects.select_for_update()
+                .filter(boarding_requests=instance).order_by('id')
+            )
+
+            if new_status == 'APPROVED':
+                # Flag double bookings at approval time too: two separate pending
+                # requests for the same dog can both pass creation validation, so
+                # block approving one when it overlaps an already-approved booking.
+                conflicts = []
+                for dog in dogs:
+                    clash = dog.boarding_requests.filter(
+                        status='APPROVED',
+                        start_date__lte=instance.end_date,
+                        end_date__gte=instance.start_date,
+                    ).exclude(pk=instance.pk).first()
+                    if clash:
+                        conflicts.append(
+                            f"{dog.name} already has an approved boarding "
+                            f"{clash.start_date.strftime('%d/%m/%Y')} to {clash.end_date.strftime('%d/%m/%Y')}"
+                        )
+                if conflicts:
+                    return Response(
+                        {'detail': '; '.join(conflicts) + ". Deny or amend the existing booking first."},
+                        status=400,
                     )
-            if conflicts:
-                return Response(
-                    {'detail': '; '.join(conflicts) + ". Deny or amend the existing booking first."},
-                    status=400,
-                )
-            instance.approved_by = request.user
-            instance.approved_at = timezone.now()
-            # Optionally record who the dog boards with, supplied at approval time.
-            assigned_staff = self._resolve_assigned_staff(request.data.get('assigned_staff_id'))
-            if assigned_staff is not None:
-                instance.assigned_staff = assigned_staff
-        instance.status = new_status
-        # A date change only means something on an approved stay; once it is
-        # denied, cancelled or reopened the owner's request is moot.
-        if new_status != 'APPROVED' and instance.has_pending_change:
-            instance.clear_change_request()
-        instance.save()
+                instance.approved_by = request.user
+                instance.approved_at = timezone.now()
+                # Optionally record who the dog boards with, supplied at approval time.
+                assigned_staff = self._resolve_assigned_staff(request.data.get('assigned_staff_id'))
+                if assigned_staff is not None:
+                    instance.assigned_staff = assigned_staff
+            instance.status = new_status
+            # A date change only means something on an approved stay; once it is
+            # denied, cancelled or reopened the owner's request is moot.
+            if new_status != 'APPROVED' and instance.has_pending_change:
+                instance.clear_change_request()
+            instance.save()
+
+            # Record history
+            BoardingRequestHistory.objects.create(
+                request=instance,
+                changed_by=request.user,
+                from_status=old_status,
+                to_status=new_status,
+            )
 
         # Approving books the stay into daycare; anything else (denied,
         # cancelled, re-opened to pending) takes those bookings back out.
@@ -2389,14 +2746,6 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             )
 
         self._notify_owner_boarding_status(instance, new_status)
-
-        # Record history
-        BoardingRequestHistory.objects.create(
-            request=instance,
-            changed_by=request.user,
-            from_status=old_status,
-            to_status=new_status,
-        )
 
         verb = {'APPROVED': 'Approved', 'DENIED': 'Denied', 'CANCELLED': 'Cancelled', 'PENDING': 'Reopened'}.get(new_status, new_status.title())
         _log_boarding(instance, request.user,
@@ -2645,27 +2994,45 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         )
         date = self.request.query_params.get('date')
         if date:
-            queryset = queryset.filter(date=date)
+            queryset = queryset.filter(date=_parse_iso_date(date))
         staff_id = self.request.query_params.get('staff_member')
         if staff_id:
-            queryset = queryset.filter(staff_member_id=staff_id)
+            queryset = queryset.filter(staff_member_id=_parse_id(staff_id, 'staff_member'))
         return queryset
 
+    # The plain create / PATCH / DELETE routes reach the same rows as the
+    # assign, reassign, unassign and mark_removed actions, so they are held to
+    # the same permission. The app only ever uses the actions.
+    _GENERIC_WRITE_DENIED = 'You do not have permission to assign dogs.'
+
     def perform_update(self, serializer):
+        _require_staff_flag(self.request.user, 'can_assign_dogs', self._GENERIC_WRITE_DENIED)
         # update_status, mark_removed and unassign all gate past-day billing
         # edits on can_manage_payments. The generic PATCH route reaches the same
         # rows, so it has to enforce the same rule — otherwise any staff member
         # could quietly un-bill a past day with
         # `PATCH /daily-assignments/<id>/ {"status": "REMOVED"}`.
         instance = serializer.instance
-        new_status = serializer.validated_data.get('status', instance.status)
+        data = serializer.validated_data
+        # A row is one dog's attendance on one day, and that pair is what is
+        # billed. Moving it — PATCH a past row onto a future date — would take
+        # the past day off the invoice without ever touching `status`, so the
+        # pair is fixed once the row exists: remove this day, add the other.
+        for field, label in (('dog', 'dog'), ('date', 'date')):
+            if field in data and data[field] != getattr(instance, field):
+                raise _bad_request(
+                    f"An assignment's {label} can't be changed. Remove this day and add the other instead.")
+        new_status = data.get('status', instance.status)
         self._require_payments_permission_for_past_billing_change(
             instance.date, instance.status, new_status)
         old_status = instance.status
         instance = serializer.save()
         self._log_removed_or_restored(instance, old_status)
+        if instance.status == 'REMOVED' and old_status != 'REMOVED':
+            self._offer_freed_spot(instance.date)
 
     def perform_destroy(self, instance):
+        _require_staff_flag(self.request.user, 'can_assign_dogs', self._GENERIC_WRITE_DENIED)
         # Deleting a past row removes the day from the invoice just as surely as
         # marking it REMOVED does, so it needs the same permission.
         self._require_payments_permission_for_past_billing_change(
@@ -2685,6 +3052,18 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             summary = f'Put {assignment.dog.name} back on {_uk(assignment.date)}'
         _log_assignment(assignment, self.request.user, summary, action='STATUS')
         _notify_late_change(assignment.dog, [assignment.date], self.request.user)
+
+    @staticmethod
+    def _offer_freed_spot(target_date):
+        """A dog came off ``target_date``: let the waitlist know. Never for a
+        past day — nobody can be offered a spot on a day that has happened."""
+        if target_date < timezone.localdate():
+            return
+        try:
+            from .scheduling import process_waitlist_for_date
+            process_waitlist_for_date(target_date)
+        except Exception as e:
+            print(f"Failed to process waitlist: {e}")
 
     def _require_payments_permission_for_past_billing_change(self, when, old_status, new_status):
         from django.utils import timezone
@@ -2732,7 +3111,19 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         return ctx
 
     def perform_create(self, serializer):
-        serializer.save()
+        _require_staff_flag(self.request.user, 'can_assign_dogs', self._GENERIC_WRITE_DENIED)
+        # A new row on a past day is attendance invoicing will charge (or,
+        # created REMOVED, a day it will not): billing history, which is the
+        # payment managers' — the rule assign_dogs and mark_removed apply.
+        when = serializer.validated_data['date']
+        if when < timezone.localdate() and not _user_can_manage_payments(self.request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                'Only staff who can manage payments can add attendance to a past day.')
+        instance = serializer.save()
+        who = person(instance.staff_member) if instance.staff_member else 'nobody'
+        _log_assignment(instance, self.request.user,
+                        f'Assigned {instance.dog.name} to {who} for {_uk(instance.date)}')
 
     def _parse_date(self, request):
         """Parse a date from query params, defaulting to today.
@@ -3164,15 +3555,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         from .models import ScheduleChangeAcknowledgement
         from .scheduling import change_involves, changes_cutoff, day_changes
 
-        date_str = request.data.get('date')
-        if date_str:
-            from datetime import date as date_cls
-            try:
-                target_date = date_cls.fromisoformat(date_str)
-            except ValueError:
-                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        else:
-            target_date = timezone.localdate()
+        target_date = _parse_iso_date(request.data.get('date'), default=timezone.localdate())
 
         current = day_changes(target_date)
         wanted = request.data.get('changes')
@@ -3236,7 +3619,11 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                 'dog_name': a.dog.name,
                 'dog_profile_image': request.build_absolute_uri(image.url) if image else None,
                 'staff_member_id': a.staff_member_id,
-                'staff_member_name': a.staff_member.first_name or a.staff_member.username,
+                # Null on a day whose driver's account has since been deleted,
+                # or an arrival nobody claimed before it was marked collected.
+                'staff_member_name': (
+                    (a.staff_member.first_name or a.staff_member.username)
+                    if a.staff_member else ''),
             })
         untagged.sort(key=lambda d: (d['staff_member_name'].lower(), d['dog_name'].lower()))
         return Response({
@@ -3336,23 +3723,17 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             self._materialize_roster_for_date(target_date)
             return Response(self._owner_handover_status(target_date, request))
 
-        date_str = request.data.get('date')
-        if date_str:
-            try:
-                target_date = date_cls.fromisoformat(str(date_str))
-            except ValueError:
-                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        else:
-            target_date = timezone.localdate()
+        target_date = _parse_iso_date(request.data.get('date'), default=timezone.localdate())
 
         leg = request.data.get('leg')
-        if leg not in dict(OwnerHandoverDuty.LEG_CHOICES):
+        if not isinstance(leg, str) or leg not in dict(OwnerHandoverDuty.LEG_CHOICES):
             return Response({'detail': 'leg must be DROP_OFF or COLLECTION.'}, status=400)
 
         staff_member_id = request.data.get('staff_member_id')
         staff = None
         if staff_member_id not in (None, ''):
-            staff = User.objects.filter(pk=staff_member_id, is_staff=True).first()
+            staff = User.objects.filter(
+                pk=_parse_id(staff_member_id, 'staff_member_id'), is_staff=True).first()
             if staff is None:
                 return Response({'detail': 'staff_member_id must be a staff member.'}, status=400)
 
@@ -3382,7 +3763,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         assignment = self.get_object()
         new_status = request.data.get('status')
         valid_statuses = dict(DailyDogAssignment.STATUS_CHOICES).keys()
-        if new_status not in valid_statuses:
+        if not isinstance(new_status, str) or new_status not in valid_statuses:
             return Response({'detail': 'Invalid status'}, status=400)
         # On past rows, moving into or out of REMOVED changes whether the day
         # is billed — that's a billing-history edit reserved for payment
@@ -3395,10 +3776,20 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             and not _user_can_manage_payments(request.user)
         ):
             return Response({'detail': 'Only staff who can manage payments can change whether a past day is billed.'}, status=403)
+        # Taking a dog off a day is mark_removed's job and needs its
+        # permission; this route is how drivers record collected / dropped
+        # off, which stays open to every staff member.
+        if (
+            new_status == 'REMOVED' and assignment.status != 'REMOVED'
+            and not _staff_has_flag(request.user, 'can_assign_dogs')
+        ):
+            return Response({'detail': 'You do not have permission to remove dogs from a day.'}, status=403)
         previous_status = assignment.status
         assignment.status = new_status
         assignment.save()
         self._log_removed_or_restored(assignment, previous_status)
+        if new_status == 'REMOVED' and previous_status != 'REMOVED':
+            self._offer_freed_spot(assignment.date)
         try:
             from .notifications import notify_dog_status
             notify_dog_status(assignment, previous_status)
@@ -3505,6 +3896,20 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         # do not show up as "unassigned".
         self._materialize_roster_for_date(target_date)
 
+        # Reuse the shared prefetch set — building a bespoke queryset here is
+        # what made cancelled_dates fall back to a query per dog.
+        unassigned = dog_listing_queryset().filter(
+            id__in=self._unassigned_dog_ids(target_date)
+        )
+        serializer = DogSerializer(unassigned, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def _unassigned_dog_ids(self, target_date):
+        """Ids (a queryset) of the dogs attending ``target_date`` that still
+        need a driver. The one definition behind both ``unassigned_dogs`` (the
+        list staff see) and ``auto_assign`` (what gets a driver), so the
+        button can never act on a dog the list doesn't show. Call
+        ``_materialize_roster_for_date`` first."""
         day_number = target_date.isoweekday()  # Monday=1, Sunday=7
 
         # Dogs with this weekday in their daycare_days
@@ -3546,14 +3951,10 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             date=target_date
         ).exclude(status='UNASSIGNED').values_list('dog_id', flat=True)
 
-        # Reuse the shared prefetch set — building a bespoke queryset here is
-        # what made cancelled_dates fall back to a query per dog.
-        unassigned = dog_listing_queryset().filter(
-            id__in=scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids)
+        return (
+            scheduled_dogs.exclude(id__in=assigned_or_removed_dog_ids)
             .values_list('id', flat=True)
         )
-        serializer = DogSerializer(unassigned, many=True, context={'request': request})
-        return Response(serializer.data)
 
     @action(detail=False, methods=['post'])
     def assign_to_me(self, request):
@@ -3566,19 +3967,21 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         member, only the single-day assignment is created and the roster is
         left alone (use ``reassign`` with scope=from_now_on to change it).
         """
-        from datetime import date
-        date_str = request.data.get('date')
-        if date_str:
-            try:
-                target_date = date.fromisoformat(date_str)
-            except ValueError:
-                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        else:
-            target_date = timezone.localdate()
+        target_date = _parse_iso_date(request.data.get('date'), default=timezone.localdate())
+        return self._assign_dogs_for_date(
+            request, request.data.get('dog_ids', []), request.user, target_date)
 
-        dog_ids = request.data.get('dog_ids', [])
+    def _assign_dogs_for_date(self, request, dog_ids, target_staff, target_date):
+        """Put ``dog_ids`` on ``target_staff``'s list for ``target_date`` —
+        the whole of ``assign_to_me`` and ``assign_dogs`` once each has
+        decided who the driver is and whether the caller may name them."""
+        from django.db import transaction
+
         if not dog_ids:
             return Response({'detail': 'dog_ids is required'}, status=400)
+        if not isinstance(dog_ids, list):
+            return Response({'detail': 'dog_ids must be a list of dog ids'}, status=400)
+        dog_ids = [_parse_id(dog_id, 'dog_ids') for dog_id in dog_ids]
 
         # Nobody attends on a CLOSED closure day — refuse rather than create
         # assignments roster materialisation would never produce (B14).
@@ -3613,35 +4016,46 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             # Silently upsert the persistent roster for recurring dogs, but
             # do not clobber an existing roster entry pointing elsewhere.
             # Never for past days: recording history must not rewrite who
-            # picks the dog up every week from now on.
-            if dog.schedule_type != 'ad_hoc' and not is_past:
+            # picks the dog up every week from now on. And only on a weekday
+            # the dog regularly comes: an extra day is a one-off, and a roster
+            # entry for it would sit unused until the owner one day added
+            # that weekday — and then silently decide the driver.
+            if is_regular_day(dog, weekday) and not is_past:
                 existing = DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).first()
                 if existing is None:
                     DogWeekdayPickup.objects.create(
                         dog=dog,
                         weekday=weekday,
-                        staff_member=request.user,
+                        staff_member=target_staff,
                         created_by=request.user,
                     )
 
-            assignment, was_created = DailyDogAssignment.objects.get_or_create(
-                dog=dog,
-                date=target_date,
-                defaults={'staff_member': request.user},
-            )
-            if was_created:
-                created.append(assignment)
-                if not is_regular_day(dog, weekday):
-                    newly_in.append(assignment)
-            elif assignment.status in ('REMOVED', 'UNASSIGNED'):
-                if assignment.status == 'REMOVED':
-                    newly_in.append(assignment)
-                assignment.status = 'ASSIGNED'
-                assignment.staff_member = request.user
-                assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
-                created.append(assignment)
-            else:
-                skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
+            # The row is read under a lock and decided on what it says then:
+            # two drivers claiming the same unclaimed dog at once used to both
+            # be told it was theirs, with the second save silently winning.
+            with transaction.atomic():
+                assignment, was_created = DailyDogAssignment.objects.select_for_update().get_or_create(
+                    dog=dog,
+                    date=target_date,
+                    defaults={'staff_member': target_staff},
+                )
+                if was_created:
+                    created.append(assignment)
+                    if not is_regular_day(dog, weekday):
+                        newly_in.append(assignment)
+                elif assignment.status in ('REMOVED', 'UNASSIGNED') or assignment.staff_member_id is None:
+                    # No driver on a row that is otherwise live (its driver's
+                    # account was deleted, or an unclaimed arrival was marked
+                    # collected): claimable, keeping the progress it has.
+                    if assignment.status == 'REMOVED':
+                        newly_in.append(assignment)
+                    if assignment.status in ('REMOVED', 'UNASSIGNED'):
+                        assignment.status = 'ASSIGNED'
+                    assignment.staff_member = target_staff
+                    assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
+                    created.append(assignment)
+                else:
+                    skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
 
         for assignment in created:
             _log_assignment(assignment, request.user,
@@ -3674,15 +4088,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date
-        date_str = request.data.get('date')
-        if date_str:
-            try:
-                target_date = date.fromisoformat(date_str)
-            except ValueError:
-                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        else:
-            target_date = timezone.localdate()
+        target_date = _parse_iso_date(request.data.get('date'), default=timezone.localdate())
 
         dog_ids = request.data.get('dog_ids', [])
         staff_member_id = request.data.get('staff_member_id')
@@ -3694,80 +4100,14 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         from django.contrib.auth.models import User
         try:
-            target_staff = User.objects.get(id=staff_member_id, is_staff=True)
+            target_staff = User.objects.get(
+                id=_parse_id(staff_member_id, 'staff_member_id'), is_staff=True)
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
-        # Nobody attends on a CLOSED closure day — refuse rather than create
-        # assignments roster materialisation would never produce (B14).
-        from .models import ClosureDay
-        if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
-            return Response({'detail': 'The daycare is closed on that date.'}, status=400)
-
-        from .scheduling import is_regular_day
-        weekday = target_date.isoweekday()
-        is_past = target_date < timezone.localdate()
-        created = []
-        newly_in = []  # rows that put the dog on the day, not just named a driver
-        skipped = []
-        for dog_id in dog_ids:
-            try:
-                dog = Dog.objects.get(id=dog_id)
-            except Dog.DoesNotExist:
-                continue
-
-            # Same past-day rules as assign_to_me: recording the driver on an
-            # already-attended day is open to assigners, but making a past day
-            # (newly or via a REMOVED row) billable needs the payments
-            # permission, and history must never rewrite the weekly roster.
-            if is_past:
-                existing_row = DailyDogAssignment.objects.filter(dog=dog, date=target_date).first()
-                changes_billing = existing_row is None or existing_row.status == 'REMOVED'
-                if changes_billing and not _user_can_manage_payments(request.user):
-                    skipped.append({'dog': dog.name, 'reason': 'Past day — only staff who manage payments can add attendance'})
-                    continue
-
-            if dog.schedule_type != 'ad_hoc' and not is_past:
-                existing = DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).first()
-                if existing is None:
-                    DogWeekdayPickup.objects.create(
-                        dog=dog,
-                        weekday=weekday,
-                        staff_member=target_staff,
-                        created_by=request.user,
-                    )
-
-            assignment, was_created = DailyDogAssignment.objects.get_or_create(
-                dog=dog,
-                date=target_date,
-                defaults={'staff_member': target_staff},
-            )
-            if was_created:
-                created.append(assignment)
-                if not is_regular_day(dog, weekday):
-                    newly_in.append(assignment)
-            elif assignment.status in ('REMOVED', 'UNASSIGNED'):
-                if assignment.status == 'REMOVED':
-                    newly_in.append(assignment)
-                assignment.status = 'ASSIGNED'
-                assignment.staff_member = target_staff
-                assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
-                created.append(assignment)
-            else:
-                skipped.append({'dog': dog.name, 'reason': f'Already assigned to {assignment.staff_member.first_name or assignment.staff_member.username}'})
-
-        for assignment in created:
-            _log_assignment(assignment, request.user,
-                            f'Assigned {assignment.dog.name} to {person(assignment.staff_member)} for {_uk(target_date)}')
-        # A dog put on a day it doesn't normally come (or back on one it was
-        # taken off) changes the routine; claiming a regular dog doesn't.
-        for assignment in newly_in:
-            _notify_late_change(assignment.dog, [target_date], request.user)
-        serializer = self.get_serializer(created, many=True)
-        data = serializer.data
-        if skipped:
-            return Response({'created': data, 'skipped': skipped}, status=200)
-        return Response(data, status=201)
+        # Same rules as assign_to_me from here on — one helper, so the two
+        # can't drift: closure days, past-day billing, the weekly roster.
+        return self._assign_dogs_for_date(request, dog_ids, target_staff, target_date)
 
     @action(detail=False, methods=['post'])
     def mark_removed(self, request):
@@ -3792,17 +4132,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date as date_cls
         dog_id = request.data.get('dog_id')
         date_str = request.data.get('date')
         if not dog_id:
             return Response({'detail': 'dog_id is required'}, status=400)
         if not date_str:
             return Response({'detail': 'date is required'}, status=400)
-        try:
-            target_date = date_cls.fromisoformat(date_str)
-        except ValueError:
-            return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        target_date = _parse_iso_date(date_str)
 
         # Removing a past day takes it off the invoice — a billing-history
         # edit reserved for payment managers (same rule as the dog calendar).
@@ -3810,7 +4146,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Only staff who can manage payments can remove past days.'}, status=403)
 
         try:
-            dog = Dog.objects.get(id=dog_id)
+            dog = Dog.objects.get(id=_parse_id(dog_id, 'dog_id'))
         except Dog.DoesNotExist:
             return Response({'detail': 'Dog not found'}, status=404)
 
@@ -3827,12 +4163,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         # Removing a dog frees a spot — let the waitlist know. Not for past
         # days: nobody can be offered a spot on a day that already happened.
-        if target_date >= timezone.localdate():
-            try:
-                from .scheduling import process_waitlist_for_date
-                process_waitlist_for_date(target_date)
-            except Exception as e:
-                print(f"Failed to process waitlist: {e}")
+        self._offer_freed_spot(target_date)
         return Response(status=204)
 
     @action(detail=True, methods=['post'])
@@ -3866,7 +4197,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         from django.contrib.auth.models import User
         try:
-            new_staff = User.objects.get(id=staff_member_id, is_staff=True)
+            new_staff = User.objects.get(
+                id=_parse_id(staff_member_id, 'staff_member_id'), is_staff=True)
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
@@ -3889,24 +4221,35 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         """Point one assignment at ``new_staff``; the single- and bulk-reassign
         actions share this so a multi-dog move behaves exactly like doing each
         dog by hand. ``from_now_on`` also rewrites the dog's weekday roster
-        entry and cascades to its future same-weekday rows still ASSIGNED."""
+        entry and cascades to its future same-weekday rows still ASSIGNED —
+        the regular ones. An extra day and a boarding day are one-offs with
+        their own arrangements (a boarding dog sits under the house account),
+        the same line ``scheduling.release_dropped_weekdays`` draws."""
+        from .scheduling import is_regular_day
+
         assignment.staff_member = new_staff
         assignment.save()
 
         if scope == 'from_now_on':
             weekday = assignment.date.isoweekday()
             dog = assignment.dog
-            if dog.schedule_type != 'ad_hoc':
+            if is_regular_day(dog, weekday):
                 DogWeekdayPickup.objects.update_or_create(
                     dog=dog,
                     weekday=weekday,
                     defaults={'staff_member': new_staff, 'created_by': changed_by},
                 )
+            else:
+                # Not a weekday the dog routinely comes: nothing to add to the
+                # roster, but an entry already there follows the move.
+                DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).update(staff_member=new_staff)
             DailyDogAssignment.objects.filter(
                 dog=dog,
                 date__gt=assignment.date,
                 date__iso_week_day=weekday,
                 status='ASSIGNED',
+                booking=DailyDogAssignment.BOOKING_REGULAR,
+                from_boarding=False,
             ).update(staff_member=new_staff)
 
     @action(detail=False, methods=['post'])
@@ -3952,7 +4295,8 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         from django.contrib.auth.models import User
         try:
-            new_staff = User.objects.get(id=staff_member_id, is_staff=True)
+            new_staff = User.objects.get(
+                id=_parse_id(staff_member_id, 'staff_member_id'), is_staff=True)
         except User.DoesNotExist:
             return Response({'detail': 'Staff member not found'}, status=404)
 
@@ -4027,11 +4371,18 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                             action='DELETED')
             assignment.delete()
             DogWeekdayPickup.objects.filter(dog=dog, weekday=weekday).delete()
+            # Regular days only, as scheduling.release_dropped_weekdays does:
+            # an extra day booked on a later week (often with no request
+            # behind it — Add Dog to Day) and a boarding day are not part of
+            # the weekly routine being ended, and deleting one loses a booking
+            # nothing else remembers.
             DailyDogAssignment.objects.filter(
                 dog=dog,
                 date__gt=assignment_date,
                 date__iso_week_day=weekday,
                 status='ASSIGNED',
+                booking=DailyDogAssignment.BOOKING_REGULAR,
+                from_boarding=False,
             ).delete()
         else:
             _log_assignment(assignment, request.user,
@@ -4058,56 +4409,66 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         target_date, error = self._parse_date(request)
         if error:
             return error
+        return Response(self._suggested_staff_by_dog(target_date))
 
+    #: How far back a driver suggestion looks. Both queries below used to read
+    #: every assignment ever written, on each dashboard load; two months is
+    #: the recent routine, and a dog away longer than that has no "usual"
+    #: driver worth guessing.
+    SUGGESTION_HISTORY_WEEKS = 8
+
+    def _suggested_staff_by_dog(self, target_date):
+        """``dog_id -> {staff_member_id, staff_member_name, source}`` from the
+        last ``SUGGESTION_HISTORY_WEEKS`` of the board — behind both
+        ``suggested_assignments`` and ``auto_assign``. Only people who are
+        still staff are suggested."""
+        from datetime import timedelta
         from django.db.models import Count
         from django.db.models.functions import ExtractIsoWeekDay
 
         day_number = target_date.isoweekday()  # Monday=1 … Sunday=7
-
-        # 1) Most recent same-weekday assignment per dog. Days nobody drove
-        # (a boarding arrival still waiting for a driver, or a day whose
-        # driver has since been deleted) teach nothing — and being the most
-        # recent, they would otherwise shadow the last real assignment.
-        same_weekday_history = (
-            DailyDogAssignment.objects
-            .annotate(weekday=ExtractIsoWeekDay('date'))
-            .filter(weekday=day_number, staff_member__isnull=False)
-            .exclude(date=target_date)
-            .order_by('dog_id', '-date')
-            .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
+        since = target_date - timedelta(weeks=self.SUGGESTION_HISTORY_WEEKS)
+        # Days nobody drove (a boarding arrival still waiting for a driver, or
+        # a day whose driver has since been deleted) teach nothing — and being
+        # the most recent, they would otherwise shadow the last real one.
+        history = DailyDogAssignment.objects.filter(
+            date__gte=since, staff_member__isnull=False, staff_member__is_staff=True,
         )
+        columns = ('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
 
         suggestions = {}
-        for entry in same_weekday_history:
-            dog_id = entry['dog_id']
-            if dog_id not in suggestions:
-                name = entry['staff_member__first_name'] or entry['staff_member__username']
-                suggestions[dog_id] = {
+
+        def offer(entry, source):
+            if entry['dog_id'] not in suggestions:
+                suggestions[entry['dog_id']] = {
                     'staff_member_id': entry['staff_member_id'],
-                    'staff_member_name': name,
-                    'source': 'same_weekday',
+                    'staff_member_name': entry['staff_member__first_name'] or entry['staff_member__username'],
+                    'source': source,
                 }
+
+        # 1) Most recent same-weekday assignment per dog.
+        same_weekday_history = (
+            history
+            .annotate(weekday=ExtractIsoWeekDay('date'))
+            .filter(weekday=day_number)
+            .exclude(date=target_date)
+            .order_by('dog_id', '-date')
+            .values(*columns)
+        )
+        for entry in same_weekday_history:
+            offer(entry, 'same_weekday')
 
         # 2) Fallback: overall most-frequent staff member for remaining dogs
         fallback_history = (
-            DailyDogAssignment.objects
-            .filter(staff_member__isnull=False)
-            .values('dog_id', 'staff_member_id', 'staff_member__username', 'staff_member__first_name')
+            history
+            .values(*columns)
             .annotate(times=Count('id'))
             .order_by('dog_id', '-times')
         )
-
         for entry in fallback_history:
-            dog_id = entry['dog_id']
-            if dog_id not in suggestions:
-                name = entry['staff_member__first_name'] or entry['staff_member__username']
-                suggestions[dog_id] = {
-                    'staff_member_id': entry['staff_member_id'],
-                    'staff_member_name': name,
-                    'source': 'frequency',
-                }
+            offer(entry, 'frequency')
 
-        return Response(suggestions)
+        return suggestions
 
     @action(detail=False, methods=['post'])
     def auto_assign(self, request):
@@ -4123,85 +4484,56 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'detail': 'Permission check failed.'}, status=403)
 
-        from datetime import date
-        from django.db.models import Count
-        from django.db.models.functions import ExtractIsoWeekDay
+        from django.db import transaction
 
-        date_str = request.data.get('date')
-        if date_str:
-            try:
-                target_date = date.fromisoformat(date_str)
-            except ValueError:
-                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
-        else:
-            target_date = timezone.localdate()
+        target_date = _parse_iso_date(request.data.get('date'), default=timezone.localdate())
+
+        # Nobody attends on a CLOSED closure day. Roster materialisation
+        # already stands down then, which left every regular dog looking
+        # "unassigned" — and this used to book the lot onto a closed day.
+        from .models import ClosureDay
+        if ClosureDay.objects.filter(date=target_date, closure_type='CLOSED').exists():
+            return Response({'detail': 'The daycare is closed on that date.'}, status=400)
 
         # Materialize the persistent weekday roster first so auto_assign only
         # needs to fill in dogs that don't already have a default staff member.
         self._materialize_roster_for_date(target_date)
 
-        day_number = target_date.isoweekday()
+        # Exactly the dogs unassigned_dogs lists for the date.
+        unassigned = Dog.objects.filter(id__in=self._unassigned_dog_ids(target_date))
 
-        # Get unassigned dogs for this date (same logic as unassigned_dogs)
-        daycare_dogs = Dog.objects.filter(daycare_days__contains=[day_number])
-        boarding_dogs = Dog.objects.filter(
-            boarding_requests__status='APPROVED',
-            boarding_requests__start_date__lte=target_date,
-            boarding_requests__end_date__gte=target_date,
-        )
-        add_day_dogs = self._added_dogs_for_date(target_date)
-        cancelled_dog_ids = self._cancelled_dog_ids_for_date(target_date)
+        suggestions = self._suggested_staff_by_dog(target_date)
+        staff_by_id = {
+            user.id: user for user in User.objects.filter(
+                id__in={s['staff_member_id'] for s in suggestions.values()}, is_staff=True)
+        }
 
-        scheduled_dogs = (daycare_dogs | boarding_dogs | add_day_dogs).exclude(
-            id__in=cancelled_dog_ids
-        ).distinct()
-
-        assigned_dog_ids = DailyDogAssignment.objects.filter(
-            date=target_date
-        ).exclude(status='UNASSIGNED').values_list('dog_id', flat=True)
-
-        unassigned = scheduled_dogs.exclude(id__in=assigned_dog_ids)
-
-        # 1) Most recent same-weekday assignment per dog
-        same_weekday_history = (
-            DailyDogAssignment.objects
-            .annotate(weekday=ExtractIsoWeekDay('date'))
-            .filter(weekday=day_number, staff_member__isnull=False)
-            .exclude(date=target_date)
-            .order_by('dog_id', '-date')
-            .values('dog_id', 'staff_member_id')
-        )
-        best_staff = {}
-        for entry in same_weekday_history:
-            dog_id = entry['dog_id']
-            if dog_id not in best_staff:
-                best_staff[dog_id] = entry['staff_member_id']
-
-        # 2) Fallback: overall most-frequent staff member for remaining dogs
-        fallback_history = (
-            DailyDogAssignment.objects
-            .filter(staff_member__isnull=False)
-            .values('dog_id', 'staff_member_id')
-            .annotate(times=Count('id'))
-            .order_by('dog_id', '-times')
-        )
-        for entry in fallback_history:
-            dog_id = entry['dog_id']
-            if dog_id not in best_staff:
-                best_staff[dog_id] = entry['staff_member_id']
+        # Same past-day rule as assign_dogs: naming the driver of a day the
+        # dog attended is fine, but a new row on a past day is new billable
+        # attendance, which only a payments manager may create.
+        is_past = target_date < timezone.localdate()
+        may_add_past_days = _user_can_manage_payments(request.user)
+        attended_dog_ids = set()
+        if is_past and not may_add_past_days:
+            attended_dog_ids = set(
+                DailyDogAssignment.objects
+                .filter(date=target_date, status='UNASSIGNED')
+                .values_list('dog_id', flat=True)
+            )
 
         created = []
         skipped = []
         for dog in unassigned:
-            staff_id = best_staff.get(dog.id)
-            if staff_id:
-                from django.contrib.auth.models import User
-                try:
-                    staff = User.objects.get(id=staff_id, is_staff=True)
-                except User.DoesNotExist:
-                    skipped.append(dog.id)
-                    continue
-                assignment, was_created = DailyDogAssignment.objects.get_or_create(
+            suggestion = suggestions.get(dog.id)
+            staff = staff_by_id.get(suggestion['staff_member_id']) if suggestion else None
+            if staff is None:
+                skipped.append(dog.id)
+                continue
+            if is_past and not may_add_past_days and dog.id not in attended_dog_ids:
+                skipped.append(dog.id)
+                continue
+            with transaction.atomic():
+                assignment, was_created = DailyDogAssignment.objects.select_for_update().get_or_create(
                     dog=dog,
                     date=target_date,
                     defaults={'staff_member': staff},
@@ -4215,8 +4547,6 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
                     assignment.staff_member = staff
                     assignment.save(update_fields=['status', 'staff_member', 'updated_at'])
                     created.append(assignment)
-            else:
-                skipped.append(dog.id)
 
         if created:
             log_activity('SCHEDULE', f'Roster {_uk(target_date)}', action='ASSIGNED', actor=request.user,
@@ -4290,10 +4620,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             date_str = request.data.get('date')
             if not date_str:
                 return Response({'detail': 'date is required for this scope'}, status=400)
-            try:
-                target_date = date_cls.fromisoformat(date_str)
-            except ValueError:
-                return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            target_date = _parse_iso_date(date_str)
 
         from django.db import transaction
         roster_updated = 0
@@ -4394,6 +4721,7 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
         assignment_ids = request.data.get('assignment_ids', [])
         if not isinstance(assignment_ids, list) or not assignment_ids:
             return Response({'detail': 'assignment_ids list is required.'}, status=400)
+        assignment_ids = [_parse_id(a, 'assignment_ids') for a in assignment_ids]
 
         from django.db import transaction
 
@@ -4738,6 +5066,9 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             ],
             'conflicts': [sorted(by_dog[i].dog.name for i in group) for group in plan.conflicts],
             'over_capacity': [names[s] for s in plan.over_capacity],
+            # The solver stopped at its time budget: the plan is complete
+            # and usable, just not searched as far as it could have been.
+            'timed_out': bool(getattr(plan, 'timed_out', False)),
         })
 
     @action(detail=False, methods=['post'])
@@ -4837,6 +5168,12 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
 class SupportQueryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    # A thread changes only through its actions (add_message, mark_read,
+    # resolve, reopen). The generic PUT/PATCH/DELETE routes were live and
+    # unguarded: an owner could delete a thread with the staff replies in it,
+    # and any staff member could delete or retitle any client's thread, none
+    # of it logged. The app has never called them.
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_serializer_class(self):
         from .serializers import SupportQuerySerializer, SupportQueryListSerializer
@@ -4845,7 +5182,18 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         return SupportQuerySerializer
 
     def get_queryset(self):
+        from django.db.models import Count, Max
         from .models import SupportQuery
+        if self.action == 'list':
+            # The list shows a count and the time of the last message, so ask
+            # the database for those two numbers rather than loading every
+            # message of every thread (and, for staff, every owner's dogs,
+            # which the list never reads).
+            queryset = SupportQuery.objects.select_related('owner').annotate(
+                message_total=Count('messages'), last_message=Max('messages__created_at'))
+            if self.request.user.is_staff:
+                return queryset
+            return queryset.filter(owner=self.request.user)
         queryset = SupportQuery.objects.prefetch_related('messages')
         if self.request.user.is_staff:
             # The detail serializer lists the owner's dogs for staff.
@@ -4858,7 +5206,7 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
             from django.contrib.auth.models import User
             try:
                 owner = User.objects.get(id=self.request.data['owner_id'])
-            except User.DoesNotExist:
+            except (User.DoesNotExist, ValueError, TypeError):
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError({'owner_id': 'User not found'})
             query = serializer.save(owner=owner)
@@ -4914,6 +5262,15 @@ class SupportQueryViewSet(viewsets.ModelViewSet):
         else:
             query.has_unread_reply = False
             query.staff_has_unread = True
+            # The staff badge counts OPEN threads awaiting a reply. A client
+            # writing on a resolved thread is asking again, so it reopens —
+            # otherwise the message was pushed once and then sat on no count.
+            if query.status == 'RESOLVED':
+                query.status = 'OPEN'
+                query.resolved_by = None
+                query.resolved_at = None
+                log_activity('COMMS', person(query.owner), action='STATUS', actor=user,
+                             summary=f"Reopened '{query.subject}' by sending a new message")
         query.save()  # Update updated_at timestamp
         try:
             from .notifications import notify_support_message
@@ -5014,8 +5371,8 @@ class ClosureDayViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         from .models import ClosureDay
         queryset = ClosureDay.objects.all()
         # Optional date range filtering
-        from_date = self.request.query_params.get('from_date')
-        to_date = self.request.query_params.get('to_date')
+        from_date = _date_param(self.request.query_params, 'from_date')
+        to_date = _date_param(self.request.query_params, 'to_date')
         if from_date:
             queryset = queryset.filter(date__gte=from_date)
         if to_date:
@@ -5067,7 +5424,7 @@ class DogAddressViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         from .models import DogAddress
         base = DogAddress.objects.select_related('dog')
-        dog_id = self.request.query_params.get('dog')
+        dog_id = _int_param(self.request.query_params, 'dog')
         if dog_id:
             base = base.filter(dog_id=dog_id)
         if self.request.user.is_staff:
@@ -5148,7 +5505,7 @@ class VaccinationRecordViewSet(viewsets.ModelViewSet):
         from .models import VaccinationRecord
         from django.db.models import Q
         base = VaccinationRecord.objects.select_related('dog', 'created_by')
-        dog_id = self.request.query_params.get('dog')
+        dog_id = _int_param(self.request.query_params, 'dog')
         if dog_id:
             base = base.filter(dog_id=dog_id)
         if self.request.user.is_staff:
@@ -5236,7 +5593,7 @@ class VaccinationCertificateViewSet(mixins.CreateModelMixin, mixins.ListModelMix
         from .models import VaccinationCertificate
         from django.db.models import Q
         base = VaccinationCertificate.objects.select_related('dog', 'uploaded_by')
-        dog_id = self.request.query_params.get('dog')
+        dog_id = _int_param(self.request.query_params, 'dog')
         if dog_id:
             base = base.filter(dog_id=dog_id)
         if self.request.user.is_staff:
@@ -5328,7 +5685,7 @@ class WaitlistEntryViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
         from .models import WaitlistEntry
         from django.db.models import Q
         base = WaitlistEntry.objects.select_related('dog')
-        date_param = self.request.query_params.get('date')
+        date_param = _date_param(self.request.query_params, 'date')
         if date_param:
             base = base.filter(date=date_param)
         if self.request.user.is_staff:
@@ -5355,7 +5712,7 @@ class WaitlistEntryViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
 
         try:
             dog = Dog.objects.get(id=dog_id)
-        except Dog.DoesNotExist:
+        except (Dog.DoesNotExist, ValueError, TypeError):
             return Response({'detail': 'Dog not found.'}, status=404)
         is_owner = (
             dog.owner_id == request.user.id
@@ -5390,7 +5747,7 @@ class DogNoteViewSet(viewsets.ModelViewSet):
             DogNote.objects.select_related('dog', 'related_dog', 'created_by')
             .prefetch_related('extra_dogs')
         )
-        dog_id = self.request.query_params.get('dog_id')
+        dog_id = _int_param(self.request.query_params, 'dog_id')
         if dog_id:
             # Compatibility notes describe a relationship between dogs and
             # should surface on every dog's profile they name.
@@ -5468,7 +5825,7 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
 
         params = self.request.query_params
         queryset = self._visible(DogChangeLog.objects.select_related('dog', 'actor'))
-        dog_id = params.get('dog')
+        dog_id = _int_param(params, 'dog')
         if dog_id:
             queryset = queryset.filter(dog_id=dog_id)
         category = params.get('category')
@@ -5478,7 +5835,7 @@ class DogChangeLogViewSet(viewsets.ReadOnlyModelViewSet):
         if actor == 'system':
             queryset = queryset.filter(actor__isnull=True)
         elif actor:
-            queryset = queryset.filter(actor_id=actor)
+            queryset = queryset.filter(actor_id=_int_param(params, 'actor'))
         action_type = params.get('action')
         if action_type:
             queryset = queryset.filter(action=action_type)
@@ -5552,7 +5909,7 @@ class StaffAvailabilityViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         from .models import StaffAvailability
         queryset = StaffAvailability.objects.select_related('staff_member')
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             queryset = queryset.filter(staff_member_id=staff_id)
         # Everyone may *read* the rota — the day board and roster screens need
@@ -5600,7 +5957,10 @@ class StaffAvailabilityViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         results = []
         for entry in availability_data:
             # Coerce defensively — a JSON client may send day_of_week/is_available
-            # as strings, which would otherwise raise a TypeError 500 (B24).
+            # as strings, which would otherwise raise a TypeError 500 (B24),
+            # or a list of something other than objects.
+            if not isinstance(entry, dict):
+                continue
             try:
                 day = int(entry.get('day_of_week'))
             except (TypeError, ValueError):
@@ -5843,7 +6203,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         try:
             target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        except ValueError:
+        except (ValueError, TypeError):
             return Response({'detail': 'Invalid date format. Use YYYY-MM-DD.'}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         # Check for duplicate
@@ -5877,6 +6237,48 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
                              + (f': {obj.reason}' if obj.reason else ''))
         serializer = DayOffRequestSerializer(obj)
         return Response(serializer.data, status=drf_status.HTTP_201_CREATED)
+
+    def perform_update(self, serializer):
+        """Change the date or reason of a request that is still PENDING.
+
+        ``get_queryset`` already limits who reaches this to the request's own
+        staff member or a staff manager. Once a manager has decided, the
+        request is fixed: an approved day off used to be movable to any other
+        date by its holder with a plain PATCH, straight past the review —
+        holiday used, the team calendar and who can be assigned dogs all
+        followed it. A different day needs a new request.
+        """
+        from django.db import IntegrityError, transaction
+        from rest_framework.exceptions import ValidationError
+        from .models import DayOffRequest
+
+        obj = serializer.instance
+        if obj.status != 'PENDING':
+            raise ValidationError({'detail': 'Only pending requests can be changed. '
+                                             'Cancel it or ask for a new day instead.'})
+        new_date = serializer.validated_data.get('date', obj.date)
+        clash = DayOffRequest.objects.filter(
+            staff_member=obj.staff_member, date=new_date, status__in=['PENDING', 'APPROVED'],
+        ).exclude(pk=obj.pk).exists()
+        if clash:
+            raise ValidationError({'detail': 'There is already an active request for this date.'})
+        old_date, old_reason = obj.date, obj.reason
+        try:
+            with transaction.atomic():
+                obj = serializer.save()
+        except IntegrityError:
+            raise ValidationError({'detail': 'There is already an active request for this date.'})
+        changes = []
+        if obj.date != old_date:
+            changes.append({'field': 'date', 'label': 'Date', 'old': _uk(old_date), 'new': _uk(obj.date)})
+        if obj.reason != old_reason:
+            changes.append({'field': 'reason', 'label': 'Reason', 'old': old_reason, 'new': obj.reason})
+        if changes:
+            whose = 'their' if obj.staff_member_id == self.request.user.id else f"{person(obj.staff_member)}'s"
+            log_activity('STAFF', person(obj.staff_member), action='UPDATED', actor=self.request.user,
+                         changes=changes,
+                         summary=f'Changed {whose} day-off request for {_uk(old_date)}'
+                                 + (f' to {_uk(obj.date)}' if obj.date != old_date else ''))
 
     def destroy(self, request, pk=None):
         """Cancel (delete) a pending day-off request. Only the owner can cancel."""
@@ -5987,14 +6389,17 @@ def daycare_settings(request):
 # PASSWORD RESET & CHANGE VIEWS
 # =============================================================================
 
-class PasswordResetRequestThrottle(AnonRateThrottle):
-    """Limits OTP emails per client IP (rate set in DEFAULT_THROTTLE_RATES)."""
-    scope = 'password_reset'
-
-
-class PasswordResetConfirmThrottle(AnonRateThrottle):
-    """Limits OTP/token verification attempts per client IP."""
-    scope = 'password_reset_confirm'
+# Per client IP and per target mailbox, and — unlike AnonRateThrottle, which
+# these used to be — counted whether or not the request carries a token.
+# Sign-up is self-service, so a throttle that exempts signed-in callers is one
+# anybody can switch off. See api/throttles.py.
+from .throttles import (  # noqa: E402
+    ContactInquiryCreateThrottle,
+    PasswordResetConfirmEmailThrottle,
+    PasswordResetConfirmThrottle,
+    PasswordResetRequestEmailThrottle,
+    PasswordResetRequestThrottle,
+)
 
 
 def _user_for_reset_email(email):
@@ -6027,7 +6432,7 @@ def _user_for_reset_email(email):
 
 
 @api_view(['POST'])
-@throttle_classes([PasswordResetRequestThrottle])
+@throttle_classes([PasswordResetRequestThrottle, PasswordResetRequestEmailThrottle])
 @perm_classes([AllowAny])
 def request_password_reset(request):
     """Step 1: User provides email, receives a 6-digit OTP."""
@@ -6066,10 +6471,21 @@ def request_password_reset(request):
 
 
 @api_view(['POST'])
-@throttle_classes([PasswordResetConfirmThrottle])
+@throttle_classes([PasswordResetConfirmThrottle, PasswordResetConfirmEmailThrottle])
 @perm_classes([AllowAny])
 def verify_otp(request):
-    """Step 2: User provides email + OTP, receives a temporary reset token."""
+    """Step 2: User provides email + OTP, receives a temporary reset token.
+
+    A wrong guess is counted against the account's live code, and the code is
+    burnt at ``PasswordResetOTP.MAX_FAILED_ATTEMPTS`` — a six-digit code is
+    only a secret while guesses are scarce, and the throttles alone leave that
+    to how many addresses the guesser has. The count is on the code, under a
+    row lock, so parallel guesses can't share one read of it. The reply is
+    the same whether the code was wrong, expired or burnt.
+    """
+    import secrets
+    from django.db import transaction
+
     serializer = VerifyOTPSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     email = serializer.validated_data['email']
@@ -6077,13 +6493,23 @@ def verify_otp(request):
 
     user = _user_for_reset_email(email)
     if user is not None:
-        otp_obj = PasswordResetOTP.objects.filter(
-            user=user, otp=otp, is_used=False,
-        ).order_by('-created_at').first()
-
-        if otp_obj and otp_obj.is_valid():
-            reset_token = otp_obj.generate_reset_token()
-            return Response({'reset_token': reset_token}, status=drf_status.HTTP_200_OK)
+        with transaction.atomic():
+            # create_for_user leaves at most one unused code per account.
+            otp_obj = (
+                PasswordResetOTP.objects.select_for_update()
+                .filter(user=user, is_used=False)
+                .order_by('-created_at').first()
+            )
+            if otp_obj and otp_obj.is_valid():
+                if secrets.compare_digest(otp_obj.otp.encode(), otp.encode()):
+                    reset_token = otp_obj.generate_reset_token()
+                    return Response({'reset_token': reset_token}, status=drf_status.HTTP_200_OK)
+                otp_obj.failed_attempts += 1
+                if otp_obj.failed_attempts >= PasswordResetOTP.MAX_FAILED_ATTEMPTS:
+                    otp_obj.is_used = True
+                    logger.warning('Password reset code for user %s burnt after %s wrong guesses',
+                                   user.pk, otp_obj.failed_attempts)
+                otp_obj.save(update_fields=['failed_attempts', 'is_used'])
 
     return Response(
         {'detail': 'Invalid or expired code.'},
@@ -6245,6 +6671,18 @@ def delete_account(request):
             status=drf_status.HTTP_400_BAD_REQUEST,
         )
 
+    # A staff account is not its holder's to delete: it carries the business's
+    # records about them and by them — pay history, appraisals, sickness,
+    # training and DBS records, every reply they wrote to a client and every
+    # feed post they uploaded all cascade from the user row. Leaving is a
+    # manager's job (employment end date, permissions off).
+    if user.is_staff or user.is_superuser:
+        return Response(
+            {'detail': 'Staff accounts cannot be deleted from the app. '
+                       'Ask a manager to close your account.'},
+            status=drf_status.HTTP_403_FORBIDDEN,
+        )
+
     # All-or-nothing. Without the transaction, the co-owner promotion below
     # commits and *then* user.delete() can fail — leaving the customer with an
     # account they can still log into but whose dog now belongs to someone else.
@@ -6264,6 +6702,18 @@ def delete_account(request):
         # Remove user from additional_owners on any dogs (M2M cleanup)
         for dog in Dog.objects.filter(additional_owners=user):
             dog.additional_owners.remove(user)
+
+        # Boarding, while the stays still exist: an upcoming stay is called
+        # off the normal way so its daycare days are released. One that has
+        # already started is a record billing depends on (its days are charged
+        # as nights, not daycare) and it cascades from the user row — so then
+        # the account is emptied rather than deleted, like an invoiced one.
+        if _release_boarding_for_departing_owner(user):
+            _anonymise_user(user)
+            return Response(
+                {'detail': 'Account deleted successfully.'},
+                status=drf_status.HTTP_200_OK,
+            )
 
         # Delete the user — cascades to profile, tokens, reactions, comments, etc.
         # Any dog still owned only by this user keeps owner=NULL (SET_NULL).
@@ -6287,27 +6737,95 @@ def delete_account(request):
     )
 
 
+def _release_boarding_for_departing_owner(user):
+    """Call off the boarding an owner deleting their account still has ahead.
+
+    A stay that hasn't started (and any request still pending) is CANCELLED
+    the way ``BoardingRequestViewSet.change_status`` does it: any date-change
+    ask dropped, the daycare days it booked released
+    (``clear_boarding_daycare_assignments`` — only ``from_boarding`` rows),
+    a history row, the activity log, and the late-change push when it was due
+    today or tomorrow. Without this the stay row simply cascaded away with
+    the user and left its dogs booked into daycare under the house account.
+
+    Returns True when the owner has an approved stay that has already
+    started. Those are left exactly as they are: the caller keeps the account
+    row so they survive.
+    """
+    from .scheduling import clear_boarding_daycare_assignments
+
+    today = timezone.localdate()
+    started = False
+    stays = BoardingRequest.objects.filter(owner=user, status__in=('PENDING', 'APPROVED')).prefetch_related('dogs')
+    for stay in stays:
+        if stay.status == 'APPROVED' and stay.start_date <= today:
+            started = True
+            continue
+        old_status = stay.status
+        stay.status = 'CANCELLED'
+        if stay.has_pending_change:
+            stay.clear_change_request()
+        stay.save()
+        clear_boarding_daycare_assignments(stay)
+        BoardingRequestHistory.objects.create(
+            request=stay, changed_by=user, from_status=old_status, to_status='CANCELLED')
+        _log_boarding(stay, user, 'STATUS',
+                      f'Cancelled {_boarding_desc(stay)}: the owner deleted their account')
+        if old_status == 'APPROVED':
+            dog_ids = set(stay.dogs.values_list('id', flat=True))
+            try:
+                _notify_boarding_late_change(
+                    (stay.start_date, stay.end_date), dog_ids, None, dog_ids, user)
+            except Exception:
+                logger.exception('Failed to send the late-change push for boarding %s', stay.pk)
+    return started
+
+
 def _anonymise_user(user):
     """Strip personal data from an account that cannot be hard-deleted.
 
     Used when a user is referenced by records that must survive (invoices are
-    kept for accounting). The account is deactivated, credentials are made
-    unusable, and every identifying field is cleared, so nothing personal
-    remains and the user can never sign in again.
+    kept for accounting; so is a boarding stay that has happened). The account
+    is deactivated, credentials are made unusable, and every identifying field
+    is cleared, so nothing personal remains and the user can never sign in
+    again.
+
+    What is kept is what the ledger needs and no more: the user row itself
+    (invoices and stays hang off it), the profile's rates, billing mode and
+    Xero contact id, and the *fact* of each booking form and link request
+    that staff reviewed — who decided, when, and which dog it concerned.
+    Everything else goes:
+
+    * every way of reaching or signing in as the person — auth tokens, push
+      device tokens (a push would otherwise keep arriving on their phone),
+      the calendar feed, reset codes;
+    * staff/superuser status;
+    * ownership of dogs nobody else owns, which become ownerless exactly as a
+      hard delete leaves them (``Dog.owner`` is SET_NULL) — so staff see a dog
+      with no client rather than one belonging to "deleted-user-12", and it
+      bills in its own name from then on;
+    * the contact details and free text on reviewed booking forms and link
+      requests, and any still-pending request outright (nothing was decided,
+      so there is nothing to keep, and it would sit on the staff badge).
     """
     from rest_framework.authtoken.models import Token
     from .models import CalendarFeed
 
     Token.objects.filter(user=user).delete()
+    DeviceToken.objects.filter(user=user).delete()
     CalendarFeed.objects.filter(user=user).delete()
+    PasswordResetOTP.objects.filter(user=user).delete()
     user.username = f'deleted-user-{user.pk}'
     user.first_name = ''
     user.last_name = ''
     user.email = ''
     user.is_active = False
+    user.is_staff = False
+    user.is_superuser = False
     user.set_unusable_password()
     user.save(update_fields=[
-        'username', 'first_name', 'last_name', 'email', 'is_active', 'password',
+        'username', 'first_name', 'last_name', 'email', 'is_active', 'is_staff',
+        'is_superuser', 'password',
     ])
 
     profile = getattr(user, 'profile', None)
@@ -6317,6 +6835,34 @@ def _anonymise_user(user):
         if profile.profile_photo:
             profile.profile_photo.delete(save=False)
         profile.save(update_fields=['address', 'phone_number', 'profile_photo'])
+
+    # delete_account has already promoted a co-owner where there was one, so
+    # anything still owned here has nobody else.
+    for dog in Dog.objects.filter(owner=user):
+        dog.owner = None
+        dog.save(update_fields=['owner'])
+    for dog in Dog.objects.filter(additional_owners=user):
+        dog.additional_owners.remove(user)
+
+    for form in IntakeRequest.objects.filter(owner=user).prefetch_related('dogs'):
+        for intake_dog in form.dogs.all():
+            intake_dog.discard_certificate_file()
+        if form.status == 'PENDING':
+            form.delete()
+            continue
+        form.phone_number = ''
+        form.emergency_contact_number = ''
+        form.address = ''
+        form.postcode = ''
+        form.pickup_instructions = ''
+        form.additional_info = ''
+        form.save(update_fields=[
+            'phone_number', 'emergency_contact_number', 'address', 'postcode',
+            'pickup_instructions', 'additional_info',
+        ])
+    DogLinkRequest.objects.filter(owner=user, status='PENDING').delete()
+    DogLinkRequest.objects.filter(owner=user).update(phone_number='', postcode='', notes='')
+    DogProfileChangeRequest.objects.filter(requested_by=user, status='PENDING').delete()
 
 
 # =============================================================================
@@ -6332,7 +6878,15 @@ from .geocoding import (  # noqa: E402
 )
 
 
+from .throttles import PostcodeLookupThrottle  # noqa: E402
+
+#: How long a postcode's address list is reused. Addresses barely change, and
+#: every miss is a paid call to the provider.
+POSTCODE_LOOKUP_CACHE_SECONDS = 24 * 60 * 60
+
+
 @api_view(['GET'])
+@throttle_classes([PostcodeLookupThrottle])
 @perm_classes([IsAuthenticated])
 def postcode_lookup(request):
     """Look up UK addresses for a postcode so the app can autofill a dog's
@@ -6362,9 +6916,21 @@ def postcode_lookup(request):
         )
 
     provider = getattr(settings, 'POSTCODE_LOOKUP_PROVIDER', 'getaddress').lower()
+    # Only found addresses are cached: a miss or a provider error is retried,
+    # so a typo corrected or an outage over is seen at once.
+    from django.core.cache import cache
+    cache_key = f"postcode_lookup:{provider}:{''.join(postcode.split()).upper()}"[:200]
+    if all(ch.isalnum() for ch in ''.join(postcode.split())):
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response({'postcode': postcode.upper(), 'addresses': cached})
+    else:
+        cache_key = None
     try:
         if provider == 'getaddress':
             addresses = lookup_addresses(postcode, api_key)
+            if cache_key and addresses:
+                cache.set(cache_key, addresses, POSTCODE_LOOKUP_CACHE_SECONDS)
         else:
             return Response(
                 {'detail': f'Unsupported postcode provider "{provider}".'},
@@ -6466,10 +7032,8 @@ class ContactInquiryViewSet(viewsets.ModelViewSet):
         return Response({'count': ContactInquiry.objects.filter(is_replied=False).count()})
 
 
-class ContactInquiryCreateThrottle(AnonRateThrottle):
-    """Limits anonymous enquiry submissions per client IP (rate set in
-    DEFAULT_THROTTLE_RATES)."""
-    scope = 'contact_inquiry'
+# ContactInquiryCreateThrottle (api/throttles.py, imported above): enquiry
+# submissions per client IP, counted for signed-in callers too.
 
 
 @api_view(['POST'])
@@ -6636,7 +7200,7 @@ class VehicleDefectViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         from .models import VehicleDefect
         qs = VehicleDefect.objects.select_related('vehicle', 'reported_by', 'resolved_by').prefetch_related('images', 'comments__user')
-        vehicle_id = self.request.query_params.get('vehicle')
+        vehicle_id = _int_param(self.request.query_params, 'vehicle')
         if vehicle_id:
             qs = qs.filter(vehicle_id=vehicle_id)
         status_param = self.request.query_params.get('status')
@@ -6923,7 +7487,7 @@ class IncidentViewSet(ActivityLogMixin, viewsets.ModelViewSet):
                 'dog_entries__dog__owner',
             )
         params = self.request.query_params
-        dog_id = params.get('dog')
+        dog_id = _int_param(params, 'dog')
         if dog_id:
             qs = qs.filter(dog_entries__dog_id=dog_id)
         if params.get('status'):
@@ -7302,50 +7866,73 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can approve booking forms')
 
-        instance = self.get_object()
-        if instance.status != 'PENDING':
-            return Response({'detail': 'This booking form has already been reviewed.'}, status=400)
+        self.get_object()  # 404 and scoping, before any lock is taken
 
+        # One transaction, with the form row locked and its status re-read
+        # under the lock. Approval creates a Dog per entry, so two approvals
+        # racing (a double tap, the app retrying a slow reply, two members of
+        # staff) each used to pass the PENDING check and each create every
+        # dog; and a failure part-way left some dogs created on a form still
+        # PENDING, which the retry then duplicated.
+        from django.db import transaction
         from django.utils import timezone
-        for intake_dog in instance.dogs.all():
-            with acting_as(request.user, 'BOOKING_FORM'):
-                dog = Dog.objects.create(
-                    owner=instance.owner,
-                    name=intake_dog.name,
-                    sex=intake_dog.sex,
-                    date_of_birth=intake_dog.date_of_birth,
-                    is_spayed=intake_dog.is_spayed,
-                    food_instructions=intake_dog.food_instructions or None,
-                    medical_notes=intake_dog.medical_notes or None,
-                    registered_vet=intake_dog.registered_vet or None,
-                    address=instance.address or None,
-                    postcode=instance.postcode,
-                    access_instructions=instance.pickup_instructions or None,
-                    contact_number=instance.phone_number,
-                    emergency_contact_number=instance.emergency_contact_number,
-                    daycare_days=intake_dog.daycare_days,
-                    schedule_type=intake_dog.schedule_type,
-                    last_vaccination_date=intake_dog.last_vaccination_date,
-                )
-            intake_dog.created_dog = dog
-            intake_dog.save(update_fields=['created_dog'])
-            self._file_intake_certificate(intake_dog, dog)
+        filed = []
+        with transaction.atomic():
+            # Unjoined: PostgreSQL won't lock the nullable side of the
+            # reviewed_by outer join that get_queryset() adds.
+            instance = IntakeRequest.objects.select_for_update().get(pk=pk)
+            if instance.status != 'PENDING':
+                return Response({'detail': 'This booking form has already been reviewed.'}, status=400)
 
-        instance.status = 'APPROVED'
-        instance.reviewed_by = request.user
-        instance.reviewed_at = timezone.now()
-        instance.save()
-        self._log(instance, 'APPROVED', f"Approved {person(instance.owner)}'s booking form for {self._dog_names(instance)}")
+            for intake_dog in instance.dogs.all():
+                with acting_as(request.user, 'BOOKING_FORM'):
+                    dog = Dog.objects.create(
+                        owner=instance.owner,
+                        name=intake_dog.name,
+                        sex=intake_dog.sex,
+                        date_of_birth=intake_dog.date_of_birth,
+                        is_spayed=intake_dog.is_spayed,
+                        food_instructions=intake_dog.food_instructions or None,
+                        medical_notes=intake_dog.medical_notes or None,
+                        registered_vet=intake_dog.registered_vet or None,
+                        address=instance.address or None,
+                        postcode=instance.postcode,
+                        access_instructions=instance.pickup_instructions or None,
+                        contact_number=instance.phone_number,
+                        emergency_contact_number=instance.emergency_contact_number,
+                        daycare_days=intake_dog.daycare_days,
+                        schedule_type=intake_dog.schedule_type,
+                        last_vaccination_date=intake_dog.last_vaccination_date,
+                    )
+                intake_dog.created_dog = dog
+                intake_dog.save(update_fields=['created_dog'])
+                if self._file_intake_certificate(intake_dog, dog):
+                    filed.append(intake_dog)
 
+            instance.status = 'APPROVED'
+            instance.reviewed_by = request.user
+            instance.reviewed_at = timezone.now()
+            instance.save()
+            self._log(instance, 'APPROVED', f"Approved {person(instance.owner)}'s booking form for {self._dog_names(instance)}")
+
+        # Only once the approval has committed: deleting a file can't be
+        # rolled back, and a form put back to PENDING must still have its
+        # certificates to file next time.
+        for intake_dog in filed:
+            intake_dog.discard_certificate_file()
+
+        instance = self.get_object()
         self._notify_owner_status(instance, approved=True)
         return Response(self.get_serializer(instance).data)
 
     def _file_intake_certificate(self, intake_dog, dog):
         """Turn the certificate attached to the form into the new dog's
-        VaccinationCertificate (uploaded by the owner, dated from the form)
-        and drop the intake copy — private-media/ is never swept."""
+        VaccinationCertificate (uploaded by the owner, dated from the form).
+        Returns True when there was one; the caller then drops the intake
+        copy (``discard_certificate_file``) after its transaction commits —
+        private-media/ is never swept."""
         if not intake_dog.certificate_file:
-            return
+            return False
         with intake_dog.certificate_file.open('rb') as source:
             content = ContentFile(source.read(), name=os.path.basename(intake_dog.certificate_file.name))
         certificate = VaccinationCertificate(
@@ -7358,9 +7945,9 @@ class IntakeRequestViewSet(viewsets.ModelViewSet):
         )
         certificate.file.save(content.name, content, save=False)
         certificate.save()
-        intake_dog.discard_certificate_file()
         log_change(dog, action='VACCINATION', actor=self.request.user,
                    summary='Filed the vaccination certificate from the booking form')
+        return True
 
     @action(detail=True, methods=['post'])
     def deny(self, request, pk=None):
@@ -7480,37 +8067,46 @@ class DogLinkRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff can approve link requests')
 
-        instance = self.get_object()
-        if instance.status != 'PENDING':
-            return Response({'detail': 'This link request has already been reviewed.'}, status=400)
+        self.get_object()  # 404 and scoping, before any lock is taken
 
-        try:
-            dog = Dog.objects.get(pk=int(request.data.get('dog')))
-        except (TypeError, ValueError, Dog.DoesNotExist):
-            return Response({'dog': 'Choose which dog to link.'}, status=400)
-
+        # Request and dog are locked and re-read together, so two approvals
+        # at once can't both act on a PENDING request, and two requests for
+        # one ownerless dog can't each make their client its owner.
+        from django.db import transaction
         from django.utils import timezone
-        owner = instance.owner
-        with acting_as(request.user, 'LINK_REQUEST'):
-            if dog.owner_id is None:
-                dog.owner = owner
-                how = 'as owner'
-            elif dog.owner_id == owner.id or dog.additional_owners.filter(pk=owner.pk).exists():
-                how = 'already linked'
-            else:
-                dog.additional_owners.add(owner)
-                how = 'as co-owner'
-            # Staff may have left the number blank; the client just gave it.
-            if not dog.contact_number and instance.phone_number:
-                dog.contact_number = instance.phone_number
-            dog.save()
+        with transaction.atomic():
+            # Unjoined: PostgreSQL won't lock the nullable side of the outer
+            # joins get_queryset() adds.
+            instance = DogLinkRequest.objects.select_for_update().get(pk=pk)
+            if instance.status != 'PENDING':
+                return Response({'detail': 'This link request has already been reviewed.'}, status=400)
 
-        instance.status = 'APPROVED'
-        instance.dog = dog
-        instance.reviewed_by = request.user
-        instance.reviewed_at = timezone.now()
-        instance.save()
-        self._log(instance, 'APPROVED', f"Linked {dog.name} to {person(owner)} ({how})", dog=dog)
+            try:
+                dog = Dog.objects.select_for_update().get(pk=int(request.data.get('dog')))
+            except (TypeError, ValueError, Dog.DoesNotExist):
+                return Response({'dog': 'Choose which dog to link.'}, status=400)
+
+            owner = instance.owner
+            with acting_as(request.user, 'LINK_REQUEST'):
+                if dog.owner_id is None:
+                    dog.owner = owner
+                    how = 'as owner'
+                elif dog.owner_id == owner.id or dog.additional_owners.filter(pk=owner.pk).exists():
+                    how = 'already linked'
+                else:
+                    dog.additional_owners.add(owner)
+                    how = 'as co-owner'
+                # Staff may have left the number blank; the client just gave it.
+                if not dog.contact_number and instance.phone_number:
+                    dog.contact_number = instance.phone_number
+                dog.save()
+
+            instance.status = 'APPROVED'
+            instance.dog = dog
+            instance.reviewed_by = request.user
+            instance.reviewed_at = timezone.now()
+            instance.save()
+            self._log(instance, 'APPROVED', f"Linked {dog.name} to {person(owner)} ({how})", dog=dog)
 
         self._notify_owner_status(instance, approved=True)
         return Response(self.get_serializer(instance).data)
@@ -7561,6 +8157,72 @@ def _user_can_manage_payments(user):
     return user.is_staff and getattr(getattr(user, 'profile', None), 'can_manage_payments', False)
 
 
+#: The largest single amount any money field here takes — every one is a
+#: DecimalField(max_digits=6, decimal_places=2) or an invoice line.
+MAX_MONEY_AMOUNT = Decimal('9999.99')
+#: An identical manual payment inside this window is taken for a repeat of
+#: the same press (see InvoiceViewSet.record_payment).
+PAYMENT_REPEAT_WINDOW_SECONDS = 60
+#: How long an invoice may sit in SENDING before a void is allowed. A send is
+#: a few seconds of Xero calls; one still SENDING after this was stranded by a
+#: restart mid-push, and voiding is the only way out of that state.
+SENDING_VOID_GRACE_MINUTES = 5
+
+
+def _parse_money(value, *, allow_negative=False, maximum=MAX_MONEY_AMOUNT):
+    """An amount of money from a request, or ``ValueError``.
+
+    The one place a client-supplied amount becomes a ``Decimal``: finite
+    (``Decimal('NaN')`` and ``'Infinity'`` both parse, then blow up on the
+    first comparison or at the database), rounded half-up to pence, and
+    within ``±maximum``. Negative only when the caller says so (a discount
+    line). Every money endpoint goes through it so none of them can 500 on,
+    or store, a value the next one would choke on.
+    """
+    from decimal import InvalidOperation, ROUND_HALF_UP
+
+    if isinstance(value, bool) or value is None:
+        raise ValueError('Enter a valid amount.')
+    try:
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError('Enter a valid amount.')
+    if not amount.is_finite():
+        raise ValueError('Enter a valid amount.')
+    if abs(amount) > maximum:
+        raise ValueError(f'Enter an amount up to £{maximum}.')
+    amount = amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    if amount < 0 and not allow_negative:
+        raise ValueError('Enter a valid amount.')
+    return amount
+
+
+def _int_param(params, name):
+    """An optional integer query parameter: None when absent, a 400 when it
+    isn't a number — it used to reach the ORM as typed and 500 there."""
+    raw = params.get(name)
+    if raw in (None, ''):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError({name: 'Must be a whole number.'})
+
+
+def _date_param(params, name):
+    """An optional YYYY-MM-DD query parameter, on the same terms."""
+    from datetime import date as date_cls
+    raw = params.get(name)
+    if raw in (None, ''):
+        return None
+    try:
+        return date_cls.fromisoformat(raw)
+    except (TypeError, ValueError):
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError({name: 'Use YYYY-MM-DD.'})
+
+
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     """Monthly customer invoices.
 
@@ -7578,17 +8240,19 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         from .models import Invoice
 
-        qs = Invoice.objects.select_related('customer__profile').prefetch_related('lines__dog', 'payments__recorded_by')
+        qs = Invoice.objects.select_related('customer__profile', 'billed_dog').prefetch_related('lines__dog', 'payments__recorded_by')
         if _user_can_manage_payments(self.request.user):
             params = self.request.query_params
-            if params.get('year'):
-                qs = qs.filter(period_year=params['year'])
-            if params.get('month'):
-                qs = qs.filter(period_month=params['month'])
+            year, month = _int_param(params, 'year'), _int_param(params, 'month')
+            customer = _int_param(params, 'customer')
+            if year is not None:
+                qs = qs.filter(period_year=year)
+            if month is not None:
+                qs = qs.filter(period_month=month)
             if params.get('status'):
                 qs = qs.filter(status=params['status'].upper())
-            if params.get('customer'):
-                qs = qs.filter(customer_id=params['customer'])
+            if customer is not None:
+                qs = qs.filter(customer_id=customer)
             return qs
         # Owners: own invoices only, and never unreviewed drafts.
         # SENDING is a draft that is mid-push to Xero — not yet the customer's.
@@ -7749,8 +8413,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Payments can only be recorded against sent invoices.'}, status=400)
 
         try:
-            amount = Decimal(str(request.data.get('amount')))
-        except (InvalidOperation, TypeError, ValueError):
+            amount = _parse_money(request.data.get('amount'), maximum=Decimal('99999.99'))
+        except ValueError:
             return Response({'amount': 'Enter a valid amount.'}, status=400)
         if amount <= 0:
             return Response({'amount': 'Amount must be greater than zero.'}, status=400)
@@ -7759,19 +8423,59 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         if method not in dict(PaymentRecord.METHOD_CHOICES):
             return Response({'method': 'Invalid payment method.'}, status=400)
 
-        payment_date = None
+        # Today in the UK, not UTC: for the first hour of a summer day the two
+        # differ, and the payment would be dated yesterday.
+        payment_date = timezone.localdate()
         if request.data.get('payment_date'):
             try:
                 payment_date = date_cls.fromisoformat(str(request.data['payment_date']))
             except ValueError:
                 return Response({'payment_date': 'Enter a valid date (YYYY-MM-DD).'}, status=400)
 
-        billing.record_manual_payment(
-            invoice, amount, method,
-            payment_date=payment_date,
-            recorded_by=request.user,
-            notes=(request.data.get('notes') or '')[:255],
-        )
+        # The invoice row is locked for the checks *and* the write, so two
+        # requests can't both read the same balance. What is refused:
+        #   * anything but SENT / PART_PAID — a PAID invoice has nothing left
+        #     to pay, and SENDING is mid-push to Xero, where the payment
+        #     would be stored but never reflected in the status;
+        #   * more than is outstanding, which used to leave amount_paid above
+        #     the total and the dashboard's outstanding figure negative;
+        #   * the same amount by the same method from the same person within
+        #     a minute — the double tap, or the app retrying a reply it timed
+        #     out waiting for. Each repeat was a second PaymentRecord and a
+        #     second payment in Xero. ``confirm_duplicate`` says it is real.
+        from datetime import timedelta
+        from django.db import transaction
+        from .models import Invoice
+        with transaction.atomic():
+            invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
+            if invoice.status not in ('SENT', 'PART_PAID'):
+                return Response(
+                    {'detail': 'This invoice is already paid in full.' if invoice.status == 'PAID'
+                     else 'Payments can only be recorded against sent invoices.'},
+                    status=400)
+            paid = invoice.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            outstanding = invoice.total - paid
+            if amount > outstanding:
+                return Response(
+                    {'amount': f'Only £{outstanding:.2f} is outstanding on this invoice.',
+                     'code': 'exceeds_balance', 'balance': f'{outstanding:.2f}'},
+                    status=400)
+            repeated = invoice.payments.filter(
+                amount=amount, method=method, source='MANUAL', recorded_by=request.user,
+                created_at__gte=timezone.now() - timedelta(seconds=PAYMENT_REPEAT_WINDOW_SECONDS),
+            ).exists()
+            if repeated and not _truthy(request.data.get('confirm_duplicate')):
+                return Response(
+                    {'detail': f'A £{amount:.2f} payment was recorded on this invoice a moment ago. '
+                               'If this is a second payment, wait a minute and record it again.',
+                     'code': 'duplicate_payment'},
+                    status=400)
+            billing.record_manual_payment(
+                invoice, amount, method,
+                payment_date=payment_date,
+                recorded_by=request.user,
+                notes=(request.data.get('notes') or '')[:255],
+            )
         invoice.refresh_from_db()
         self._log(invoice, 'COMPLETED',
                   f'Recorded a £{amount:.2f} {dict(PaymentRecord.METHOD_CHOICES).get(method, method).lower()} payment '
@@ -7793,6 +8497,19 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         invoice = self.get_object()
         if invoice.status == 'PAID':
             return Response({'detail': 'A paid invoice cannot be voided.'}, status=400)
+        # SENDING is send_invoice's claim on the row while it talks to Xero.
+        # Voiding underneath it lost the race the other way round: the send
+        # finished, wrote SENT over the VOID, and the customer was emailed an
+        # invoice staff had just withdrawn. Wait for the send to land (it is
+        # SENT or back to DRAFT within seconds) and void that. A claim older
+        # than the grace period was abandoned by a restart and can go.
+        if invoice.status == 'SENDING':
+            from datetime import timedelta
+            if invoice.updated_at > timezone.now() - timedelta(minutes=SENDING_VOID_GRACE_MINUTES):
+                return Response(
+                    {'detail': 'This invoice is being sent right now. Try again in a moment.',
+                     'code': 'invoice_sending'},
+                    status=409)
         # A PART_PAID invoice used to void freely. Because the period's unique
         # constraints and generate_invoices_for_month both ignore VOID rows, the
         # month could then be regenerated at full price while the payments that
@@ -7849,9 +8566,9 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         self._require_manager()
         invoice = self.get_object()
         try:
-            amount = Decimal(str(request.data.get('amount')))
-        except (InvalidOperation, TypeError, ValueError):
-            return Response({'amount': 'Enter a valid amount.'}, status=400)
+            amount = _parse_money(request.data.get('amount'), allow_negative=True)
+        except ValueError as exc:
+            return Response({'amount': str(exc)}, status=400)
         try:
             billing.add_adjustment(invoice, request.data.get('description', ''), amount)
         except ValueError as exc:
@@ -7940,11 +8657,14 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         self._require_manager()
         qs = Invoice.objects.exclude(status='VOID')
         params = request.query_params
-        if params.get('year'):
-            qs = qs.filter(period_year=params['year'])
-        if params.get('month'):
-            qs = qs.filter(period_month=params['month'])
-        today = timezone.now().date()
+        year, month = _int_param(params, 'year'), _int_param(params, 'month')
+        if year is not None:
+            qs = qs.filter(period_year=year)
+        if month is not None:
+            qs = qs.filter(period_month=month)
+        # The UK date: due dates are UK dates, and for the first hour of a
+        # summer day UTC is still on yesterday.
+        today = timezone.localdate()
         agg = qs.aggregate(
             draft=Count('id', filter=Q(status='DRAFT')),
             sent=Count('id', filter=Q(status='SENT')),
@@ -8066,10 +8786,8 @@ def billing_settings(request):
             if field not in request.data:
                 continue
             try:
-                value = Decimal(str(request.data[field]))
-            except (InvalidOperation, TypeError, ValueError):
-                return Response({field: 'Enter a valid amount.'}, status=400)
-            if value < 0 or value > Decimal('9999.99'):
+                value = _parse_money(request.data[field])
+            except ValueError:
                 return Response({field: 'Enter a valid amount.'}, status=400)
             setattr(pricing, field, value)
             updated = True
@@ -8142,10 +8860,8 @@ def customer_rates(request):
             setattr(profile, field, None)
             continue
         try:
-            value = Decimal(str(value))
-        except (InvalidOperation, TypeError, ValueError):
-            return Response({field: 'Enter a valid amount, or blank for the standard price.'}, status=400)
-        if value < 0 or value > Decimal('9999.99'):
+            value = _parse_money(value)
+        except ValueError:
             return Response({field: 'Enter a valid amount, or blank for the standard price.'}, status=400)
         setattr(profile, field, value)
     if 'billing_mode' in request.data:
@@ -8429,6 +9145,13 @@ def street_manager_webhook(request):
     if msg_type != 'Notification':
         return Response({'ignored': msg_type})
 
+    # SNS delivers at least once, and the topic is open data anyone can hold a
+    # signed copy of: a MessageId seen inside the freshness window is not
+    # applied twice. 200, so SNS doesn't retry it.
+    from .sns import is_duplicate as _sns_is_duplicate
+    if _sns_is_duplicate(message):
+        return Response({'ignored': 'duplicate'})
+
     import json as _json
     try:
         event = _json.loads(message.get('Message') or '{}')
@@ -8669,7 +9392,7 @@ class StaffPayRateViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         from .models import StaffPayRate
         qs = StaffPayRate.objects.select_related('staff_member', 'created_by')
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             qs = qs.filter(staff_member_id=staff_id)
         return qs
@@ -8708,7 +9431,7 @@ class StaffMeetingViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         qs = StaffMeeting.objects.prefetch_related('attendees').select_related('created_by')
         if not _is_staff_manager(self.request.user):
             qs = qs.filter(attendees=self.request.user)
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             qs = qs.filter(attendees__id=staff_id)
         return qs.distinct()
@@ -8754,7 +9477,7 @@ class StaffAppraisalViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         qs = StaffAppraisal.objects.select_related('staff_member', 'appraiser')
         if not _is_staff_manager(self.request.user):
             qs = qs.filter(staff_member=self.request.user).exclude(status='DRAFT')
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             qs = qs.filter(staff_member_id=staff_id)
         return qs
@@ -8842,7 +9565,7 @@ class SicknessAbsenceViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         qs = SicknessAbsence.objects.select_related('staff_member', 'recorded_by')
         if not _is_staff_manager(self.request.user):
             qs = qs.filter(staff_member=self.request.user)
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             qs = qs.filter(staff_member_id=staff_id)
         return qs
@@ -8878,7 +9601,7 @@ class StaffTrainingRecordViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         qs = StaffTrainingRecord.objects.select_related('staff_member', 'created_by')
         if not _is_staff_manager(self.request.user):
             qs = qs.filter(staff_member=self.request.user)
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             qs = qs.filter(staff_member_id=staff_id)
         return qs
@@ -8919,7 +9642,7 @@ class StaffCertificationViewSet(ActivityLogMixin, viewsets.ModelViewSet):
         qs = StaffCertification.objects.select_related('staff_member', 'created_by')
         if not _is_staff_manager(self.request.user):
             qs = qs.filter(staff_member=self.request.user)
-        staff_id = self.request.query_params.get('staff_member')
+        staff_id = _int_param(self.request.query_params, 'staff_member')
         if staff_id:
             qs = qs.filter(staff_member_id=staff_id)
         return qs
@@ -9019,7 +9742,7 @@ class ComplianceCheckLogViewSet(ActivityLogMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         from .models import ComplianceCheckLog
         qs = ComplianceCheckLog.objects.select_related('check_type', 'performed_by')
-        check_id = self.request.query_params.get('check_type')
+        check_id = _int_param(self.request.query_params, 'check_type')
         if check_id:
             qs = qs.filter(check_type_id=check_id)
         return qs

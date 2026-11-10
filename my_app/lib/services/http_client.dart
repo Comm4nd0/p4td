@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 
 import 'connectivity_status.dart';
 import 'no_connection_exception.dart';
@@ -27,18 +28,57 @@ export 'package:http/http.dart' hide get, post, put, patch, delete, head;
 /// offline banner and stale-cache fallback.
 const Duration _defaultTimeout = Duration(seconds: 30);
 
-/// Invoked once when the server rejects the auth token (HTTP 401). Wired up in
+/// Invoked when the server rejects the auth token (HTTP 401). Wired up in
 /// main.dart to sign the user out and route to the login screen, so an
 /// invalidated token doesn't leave the app permanently broken (F3). Note: 403
 /// is NOT treated as an auth failure here — in this API it means "authenticated
 /// but not permitted" (a role check), which must not log the user out.
-void Function()? onUnauthorized;
+///
+/// [rejectedToken] is the token the failed request was sent with (null for an
+/// anonymous request). The handler must compare it with the active token: a
+/// phone can hold several accounts, and a late 401 for the account that was
+/// just signed out must not sign out the one that took its place.
+void Function(String? rejectedToken)? onUnauthorized;
+
+/// The token in a request's `Authorization: Token <key>` header, or null when
+/// the request was anonymous (or carried the literal "null" older code sent).
+String? tokenFromHeaders(Map<String, String>? headers) {
+  if (headers == null) return null;
+  String? value;
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() == 'authorization') value = entry.value;
+  }
+  if (value == null || !value.startsWith('Token ')) return null;
+  final token = value.substring(6).trim();
+  if (token.isEmpty || token == 'null') return null;
+  return token;
+}
+
+/// Responses worth sending the same upload again for: the server said it did
+/// not take the request (timed out reading it, rate limited, or unavailable).
+/// A 500, 502 or 504 is deliberately absent — the upload may have been saved
+/// before the failure (a proxy giving up on a slow worker is the usual one),
+/// and a second copy of a feed post also sends its pushes a second time.
+bool isRetryableUploadStatus(int statusCode) =>
+    statusCode == 408 || statusCode == 429 || statusCode == 503;
+
+/// Thrown when an upload's whole body reached the server but no answer came
+/// back, so nobody knows whether it was saved. Never retried automatically.
+class UploadUnconfirmedException implements Exception {
+  const UploadUnconfirmedException();
+
+  @override
+  String toString() =>
+      'The upload was sent but the server did not confirm it. '
+      'Check whether it arrived before sending it again.';
+}
 
 Future<http.Response> _log(
   String method,
   Uri url,
   Future<http.Response> Function() send, {
   Duration timeout = _defaultTimeout,
+  Map<String, String>? headers,
 }) async {
   final sw = Stopwatch()..start();
   try {
@@ -51,7 +91,7 @@ Future<http.Response> _log(
           '(${sw.elapsedMilliseconds}ms)');
     }
     if (response.statusCode == 401) {
-      onUnauthorized?.call();
+      onUnauthorized?.call(tokenFromHeaders(headers));
     }
     return response;
   } catch (e) {
@@ -71,31 +111,70 @@ Future<http.Response> _log(
 /// of holding the UI on the full default timeout.
 Future<http.Response> get(Uri url,
         {Map<String, String>? headers, Duration timeout = _defaultTimeout}) =>
-    _log('GET', url, () => http.get(url, headers: headers), timeout: timeout);
+    _log('GET', url, () => http.get(url, headers: headers),
+        timeout: timeout, headers: headers);
 
 Future<http.Response> post(Uri url,
         {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
     _log('POST', url,
-        () => http.post(url, headers: headers, body: body, encoding: encoding));
+        () => http.post(url, headers: headers, body: body, encoding: encoding),
+        headers: headers);
 
 Future<http.Response> put(Uri url,
         {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
     _log('PUT', url,
-        () => http.put(url, headers: headers, body: body, encoding: encoding));
+        () => http.put(url, headers: headers, body: body, encoding: encoding),
+        headers: headers);
 
 Future<http.Response> patch(Uri url,
         {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
     _log('PATCH', url,
-        () => http.patch(url, headers: headers, body: body, encoding: encoding));
+        () => http.patch(url, headers: headers, body: body, encoding: encoding),
+        headers: headers);
 
 Future<http.Response> delete(Uri url,
         {Map<String, String>? headers, Object? body, Encoding? encoding}) =>
     _log('DELETE', url,
-        () => http.delete(url, headers: headers, body: body, encoding: encoding));
+        () => http.delete(url, headers: headers, body: body, encoding: encoding),
+        headers: headers);
 
 Future<http.Response> head(Uri url,
         {Map<String, String>? headers, Duration timeout = _defaultTimeout}) =>
-    _log('HEAD', url, () => http.head(url, headers: headers), timeout: timeout);
+    _log('HEAD', url, () => http.head(url, headers: headers),
+        timeout: timeout, headers: headers);
+
+/// A file part for [sendMultipart] built from bytes already in memory, handed
+/// to the socket in [chunkSize] pieces.
+///
+/// `MultipartFile.fromBytes` gives the whole file as a single chunk, and
+/// [sendMultipart] only knows the upload is alive when a chunk is taken. One
+/// chunk means one sign of life: a photo was fine, but a video sent that way
+/// showed no progress until it was done and was declared "stalled" whenever
+/// it took longer than the stall timeout — on a slow connection, always.
+http.MultipartFile chunkedMultipartFile(
+  String field,
+  List<int> bytes, {
+  String? filename,
+  MediaType? contentType,
+  int chunkSize = 64 * 1024,
+}) {
+  Stream<List<int>> chunks() async* {
+    for (var start = 0; start < bytes.length; start += chunkSize) {
+      final end = min(start + chunkSize, bytes.length);
+      yield bytes is Uint8List
+          ? Uint8List.sublistView(bytes, start, end)
+          : bytes.sublist(start, end);
+    }
+  }
+
+  return http.MultipartFile(
+    field,
+    http.ByteStream(chunks()),
+    bytes.length,
+    filename: filename,
+    contentType: contentType,
+  );
+}
 
 /// A [http.MultipartRequest] that reports how many body bytes have been
 /// handed to the HTTP client. The socket applies backpressure, so this tracks
@@ -124,7 +203,9 @@ class _ProgressMultipartRequest extends http.MultipartRequest {
 /// stop flowing.
 ///
 /// [fill] is called once per attempt with a fresh request and must add all
-/// headers, fields and files (a multipart body can only be sent once).
+/// headers, fields and files (a multipart body can only be sent once). It may
+/// be async, so a large file can be attached with `MultipartFile.fromPath` and
+/// streamed from disk instead of being held in memory.
 ///
 /// Behaviour per attempt:
 /// - [stallTimeout]: aborts if no body bytes are accepted by the socket for
@@ -133,13 +214,20 @@ class _ProgressMultipartRequest extends http.MultipartRequest {
 ///   server's reply (covers server-side image/video processing; production
 ///   gunicorn gives up at 120s, so nothing useful arrives after that).
 ///
-/// Network errors and stalls are retried up to [maxAttempts] with [retryDelays]
-/// between attempts, as are 408/429/5xx responses. Other 4xx responses are
-/// permanent and returned to the caller immediately.
+/// **Retried** (up to [maxAttempts], [retryDelays] apart): a connection that
+/// fails or stalls while the body is still going up — the server never had the
+/// whole request, so nothing was saved — and the responses in
+/// [isRetryableUploadStatus].
+///
+/// **Never retried**: anything after the last byte has been handed over. From
+/// there the server may already have stored the upload, and sending it again
+/// posts it twice. A silent server or a dropped connection at that point
+/// throws [UploadUnconfirmedException]; every other response, 5xx included, is
+/// returned to the caller, who can offer the person a retry they chose.
 Future<http.Response> sendMultipart({
   required String method,
   required Uri url,
-  required void Function(http.MultipartRequest request) fill,
+  required FutureOr<void> Function(http.MultipartRequest request) fill,
   void Function(int sentBytes, int totalBytes)? onProgress,
   int maxAttempts = 3,
   Duration stallTimeout = const Duration(seconds: 45),
@@ -162,7 +250,7 @@ Future<http.Response> sendMultipart({
     final sw = Stopwatch()..start();
     try {
       final request = _ProgressMultipartRequest(method, url);
-      fill(request);
+      await fill(request);
       request.onChunk = (sent, total) {
         onProgress?.call(sent, total);
         // While the body is flowing, each chunk resets the stall watchdog.
@@ -180,31 +268,34 @@ Future<http.Response> sendMultipart({
             '(upload attempt $attempt, ${sw.elapsedMilliseconds}ms)');
       }
       if (response.statusCode == 401) {
-        onUnauthorized?.call();
+        onUnauthorized?.call(tokenFromHeaders(request.headers));
       }
-      final transientStatus = response.statusCode == 408 ||
-          response.statusCode == 429 ||
-          response.statusCode >= 500;
-      if (!transientStatus || attempt >= maxAttempts) return response;
+      if (!isRetryableUploadStatus(response.statusCode) || attempt >= maxAttempts) {
+        return response;
+      }
     } catch (e) {
       watchdog?.cancel();
-      final Object error = timedOut
-          ? TimeoutException(waitingOnServer
-              ? 'Upload timed out waiting for the server to respond'
-              : 'Upload stalled — the connection appears to be dead')
-          : e;
-      if (NoConnectionException.isNetworkError(error)) {
+      // The whole body went up and then the line went quiet or dropped: the
+      // server may have saved it. Say so rather than send it twice.
+      final unconfirmed = waitingOnServer &&
+          (timedOut || e is http.ClientException || NoConnectionException.isNetworkError(e));
+      final Object error = unconfirmed
+          ? const UploadUnconfirmedException()
+          : timedOut
+              ? TimeoutException('Upload stalled — the connection appears to be dead')
+              : e;
+      if (timedOut || NoConnectionException.isNetworkError(e)) {
         ConnectivityStatus().reportNetworkFailure();
       }
       if (kDebugMode) {
         debugPrint('[http] $method ${url.path} -> ERROR $error '
             '(upload attempt $attempt, ${sw.elapsedMilliseconds}ms)');
       }
-      // Only connection-level failures are worth retrying; anything else
-      // (e.g. a bug building the request) would fail identically again.
-      final transient = timedOut ||
-          e is http.ClientException ||
-          NoConnectionException.isNetworkError(e);
+      // Only connection-level failures before the body finished are worth
+      // retrying; anything else (e.g. a bug building the request) would fail
+      // identically again.
+      final transient = !unconfirmed &&
+          (timedOut || e is http.ClientException || NoConnectionException.isNetworkError(e));
       if (!transient || attempt >= maxAttempts) {
         if (error is Exception) throw error;
         rethrow;

@@ -10,6 +10,7 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/page_body.dart';
 import 'dashboard/reassign_dogs_dialog.dart' show staffDisplayName;
+import '../widgets/form_scroll_body.dart';
 
 class AddEditVehicleScreen extends StatefulWidget {
   /// When null this screen creates a new vehicle; otherwise it edits [vehicle].
@@ -93,6 +94,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       );
       if (image != null) {
         final bytes = await image.readAsBytes();
+        if (!mounted) return;
         setState(() {
           _imageBytes = bytes;
           _imageName = image.name;
@@ -148,7 +150,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       firstDate: DateTime.now().subtract(const Duration(days: 365 * 2)),
       lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         if (field == 'mot') {
           _motDueDate = picked;
@@ -162,7 +164,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
     setState(() => _isSaving = true);
     try {
       final name = _nameController.text.trim();
@@ -236,8 +238,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       ),
       body: PageBody(child: Form(
         key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+        child: FormScrollBody(
           children: [
             Center(child: _buildImagePicker()),
             const SizedBox(height: 24),

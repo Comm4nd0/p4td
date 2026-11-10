@@ -1,4 +1,5 @@
 import 'dog.dart';
+import 'api_datetime.dart';
 
 enum IntakeRequestStatus { pending, approved, denied }
 
@@ -159,8 +160,8 @@ class IntakeRequest {
       status: parseIntakeRequestStatus(json['status']),
       denialReason: json['denial_reason'],
       reviewedByName: json['reviewed_by_name'],
-      reviewedAt: parseApiDate(json['reviewed_at']),
-      createdAt: parseApiDate(json['created_at']),
+      reviewedAt: parseApiDateTime(json['reviewed_at']),
+      createdAt: parseApiDateTime(json['created_at']),
       dogs: (json['dogs'] as List? ?? [])
           .map((d) => IntakeDog.fromJson(d as Map<String, dynamic>))
           .toList(),

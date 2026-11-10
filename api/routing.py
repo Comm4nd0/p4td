@@ -25,6 +25,7 @@ import hashlib
 import itertools
 import json as _json
 import math
+import time
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -42,6 +43,9 @@ _MATRIX_TILE = 59
 # Drive times barely change, and the free plan allows 500 matrix requests a
 # day, so a set of locations is fetched once a fortnight at most.
 _MATRIX_CACHE_SECONDS = 14 * 24 * 3600
+
+# The most time fetch_drive_times will spend starting new tile requests.
+_MATRIX_SECONDS_BUDGET = 45.0
 
 # How much a suggestion must save before it moves a dog off its usual driver.
 # Owners and dogs value the same face every day; a plan that reshuffles the
@@ -66,6 +70,13 @@ SHORT_SHARE_PENALTY = 5_000
 # Exhaustive search is exact and instant for short runs; beyond this the
 # heuristic takes over.
 _BRUTE_FORCE_MAX_STOPS = 7
+
+# How long plan_routes may spend improving a plan before it hands back the
+# best one it has. The search is pure Python and holds a web worker (there are
+# two) for as long as it runs; the app gives up at 30 seconds and the person
+# presses the button again. A plan that is nearly as good, in time, beats a
+# slightly better one nobody is waiting for any more.
+PLAN_SECONDS_BUDGET = 15.0
 
 
 class RoutingError(Exception):
@@ -164,8 +175,14 @@ def fetch_drive_times(points):
     n = len(points)
     matrix = [[0.0] * n for _ in range(n)]
     blocks = [list(range(i, min(i + _MATRIX_TILE, n))) for i in range(0, n, _MATRIX_TILE)]
+    # A day with more than one tile's worth of stops needs several requests,
+    # each allowed 30 seconds. Give up while the web worker still has time to
+    # say so, rather than be killed at its own timeout with nothing returned.
+    give_up_at = time.monotonic() + _MATRIX_SECONDS_BUDGET
     for src in blocks:
         for dst in blocks:
+            if time.monotonic() >= give_up_at:
+                raise RoutingError('OpenRouteService is responding too slowly. Try again in a minute.')
             # Only the locations this tile needs go in the request.
             tile_ids = sorted(set(src) | set(dst))
             local = {g: i for i, g in enumerate(tile_ids)}
@@ -182,15 +199,26 @@ def fetch_drive_times(points):
 
 
 def drive_times(points):
-    """``fetch_drive_times`` behind the shared cache."""
-    digest = hashlib.sha1(_json.dumps(points).encode('utf-8')).hexdigest()
+    """``fetch_drive_times`` behind the shared cache.
+
+    The cache is keyed on the *set* of locations, not the order they arrive
+    in: the matrix is fetched and stored for the points sorted, then
+    re-indexed to the caller's order. The caller lists dogs in board order,
+    so saving an optimised route (which reorders the board) used to miss the
+    cache and spend another of the day's OpenRouteService requests on drive
+    times it already had.
+    """
+    points = [tuple(p) for p in points]
+    canonical = sorted(set(points))
+    digest = hashlib.sha1(_json.dumps(canonical).encode('utf-8')).hexdigest()
     key = f'routing:matrix:{digest}'
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
-    matrix = fetch_drive_times(points)
-    cache.set(key, matrix, _MATRIX_CACHE_SECONDS)
-    return matrix
+    stored = cache.get(key)
+    if stored is None:
+        stored = fetch_drive_times(canonical)
+        cache.set(key, stored, _MATRIX_CACHE_SECONDS)
+    at = {point: i for i, point in enumerate(canonical)}
+    order = [at[point] for point in points]
+    return [[stored[a][b] for b in order] for a in order]
 
 
 # ─── One run ─────────────────────────────────────────────────────────────────
@@ -320,6 +348,7 @@ class Plan:
     unplaced: list             # assignment ids the plan couldn't put anywhere
     conflicts: list            # sets of dog ids still sharing a van
     over_capacity: list        # staff ids still over their van's capacity
+    timed_out: bool = False    # the search stopped on its time budget
 
 
 def _load(units):
@@ -348,7 +377,7 @@ def _minimum_dogs(units, driver_ids):
     return {staff: min(held[staff], even_share) or even_share for staff in driver_ids}
 
 
-def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
+def plan_routes(dogs, drivers, matrix, conflicts=(), base=0, budget_seconds=PLAN_SECONDS_BUDGET):
     """Share ``dogs`` (PlanDog) between ``drivers`` (PlanDriver) and order
     each run.
 
@@ -360,8 +389,16 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
     penalties for an over-full van or for every dog of a ``conflicts`` group
     (sets of dog ids) riding together, or for each dog a driver falls short
     of ``_minimum_dogs`` (or their van, if smaller). Deterministic for the
-    same input.
+    same input — unless it runs out of time: after ``budget_seconds`` the
+    search stops and the best plan found so far is returned with
+    ``timed_out`` set (every dog is still placed and every run still
+    ordered; it is a complete plan, just not polished further).
     """
+    deadline = time.monotonic() + budget_seconds if budget_seconds is not None else None
+
+    def out_of_time():
+        return deadline is not None and time.monotonic() >= deadline
+
     driver_ids = [d.staff_id for d in drivers]
     if not driver_ids:
         return Plan(routes=[], unplaced=[d.assignment_id for d in dogs], conflicts=[], over_capacity=[])
@@ -453,9 +490,13 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
     where = {i: staff for staff, members in loads.items() for i in members}
     movable = [i for i, u in enumerate(units) if not u.pinned]
     current_cost = objective(loads)
+    timed_out = False
     for _ in range(500):
         best_move = None
         for i in movable:
+            if out_of_time():
+                timed_out = True
+                break
             src = where[i]
             for dst in driver_ids:
                 if dst == src:
@@ -466,7 +507,10 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
                 c = objective(trial)
                 if c < current_cost - 1e-6 and (best_move is None or c < best_move[0]):
                     best_move = (c, trial)
-        for a, b in itertools.combinations(movable, 2):
+        for n, (a, b) in enumerate(itertools.combinations(movable, 2)):
+            if timed_out or (n % 64 == 0 and out_of_time()):
+                timed_out = True
+                break
             sa, sb = where[a], where[b]
             if sa == sb:
                 continue
@@ -476,10 +520,18 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
             c = objective(trial)
             if c < current_cost - 1e-6 and (best_move is None or c < best_move[0]):
                 best_move = (c, trial)
-        if best_move is None:
+        if best_move is not None:
+            # An improvement found before the clock ran out is still taken.
+            current_cost, loads = best_move
+            where = {i: staff for staff, members in loads.items() for i in members}
+        if best_move is None or timed_out:
             break
-        current_cost, loads = best_move
-        where = {i: staff for staff, members in loads.items() for i in members}
+        # Every candidate van ever costed is remembered; over hundreds of
+        # rounds on a big day that is millions of entries. Start again
+        # rather than let one request eat the worker's memory.
+        if len(van_cache) > 200_000:
+            van_cache.clear()
+            tour_cache.clear()
 
     routes, still_conflicting, over = [], [], []
     for staff in driver_ids:
@@ -500,5 +552,6 @@ def plan_routes(dogs, drivers, matrix, conflicts=(), base=0):
             staff_id=staff, assignment_ids=[d.assignment_id for d in ordered],
             seconds=secs, load=load, capacity=capacity[staff],
         ))
-    return Plan(routes=routes, unplaced=unplaced, conflicts=still_conflicting, over_capacity=over)
+    return Plan(routes=routes, unplaced=unplaced, conflicts=still_conflicting,
+                over_capacity=over, timed_out=timed_out)
 

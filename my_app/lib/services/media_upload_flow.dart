@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:picons/picons.dart';
@@ -6,6 +7,8 @@ import '../constants/app_colors.dart';
 import '../widgets/media_tag_dialog.dart';
 import '../screens/multi_photo_capture_screen.dart';
 import 'data_service.dart';
+import 'http_client.dart' show UploadUnconfirmedException;
+import 'media_limits.dart';
 
 /// Shared camera / gallery / multi-file upload flow for group-feed media.
 ///
@@ -91,13 +94,34 @@ class MediaUploadFlow {
 
       final fileData = <(Uint8List, String)>[];
       final tagDialogFiles = <(Uint8List, String, bool)>[];
+      final filePaths = <String?>[];
+      final tooLarge = <String>[];
       for (final file in files) {
-        final bytes = await file.readAsBytes();
         final isVideo = _isVideoName(file.name);
+        // Sized before it is read: a video over the limit is never loaded.
+        final problem = MediaLimits.problem(
+            bytes: await file.length(), isVideo: isVideo, fileName: file.name);
+        if (problem != null) {
+          tooLarge.add(problem);
+          continue;
+        }
+        // A video stays on disk: the tag screen plays it and the upload
+        // streams it from its path.
+        final path = isVideo && !kIsWeb ? file.path : null;
+        final bytes = path == null ? await file.readAsBytes() : Uint8List(0);
         fileData.add((bytes, file.name));
         tagDialogFiles.add((bytes, file.name, isVideo));
+        filePaths.add(path);
       }
-      await _processAndUploadFiles(fileData, tagDialogFiles);
+      if (tooLarge.isNotEmpty && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(tooLarge.join('\n')),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 8),
+        ));
+      }
+      if (fileData.isEmpty) return;
+      await _processAndUploadFiles(fileData, tagDialogFiles, filePaths: filePaths);
       return;
     }
 
@@ -122,12 +146,24 @@ class MediaUploadFlow {
     final isVideo = choice.contains('video');
     final source = choice.contains('camera') ? ImageSource.camera : ImageSource.gallery;
     if (isVideo) {
-      file = await picker.pickVideo(source: source);
+      file = await picker.pickVideo(source: source, maxDuration: MediaLimits.maxVideoDuration);
     } else {
       file = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85);
     }
     if (file == null) return;
     final pickedFile = file;
+
+    // Sized before it is read into memory for the tag screen.
+    final problem = MediaLimits.problem(
+        bytes: await pickedFile.length(), isVideo: isVideo, fileName: pickedFile.name);
+    if (problem != null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(problem), backgroundColor: AppColors.error),
+        );
+      }
+      return;
+    }
 
     final bytes = await pickedFile.readAsBytes();
     if (!context.mounted) return;
@@ -150,6 +186,9 @@ class MediaUploadFlow {
         fileBytes: uploadBytes,
         fileName: pickedFile.name,
         isVideo: isVideo,
+        // A video goes up from the file itself (it can't be cropped, so the
+        // tag screen never changes it) rather than from a second copy.
+        filePath: isVideo && !kIsWeb ? pickedFile.path : null,
         caption: tagResult.caption,
         taggedDogIds: tagResult.taggedDogIdsByFile.isNotEmpty
             ? tagResult.taggedDogIdsByFile[0]
@@ -174,10 +213,14 @@ class MediaUploadFlow {
 
   /// Shared tag-prompt + batch upload pipeline used by both gallery multi-pick
   /// and in-app multi-photo capture.
+  ///
+  /// [filePaths] lines up with [fileData]: an entry that is not null is a
+  /// video still on disk, with empty bytes until the tag screen needs them.
   Future<void> _processAndUploadFiles(
     List<(Uint8List, String)> fileData,
-    List<(Uint8List, String, bool)> tagDialogFiles,
-  ) async {
+    List<(Uint8List, String, bool)> tagDialogFiles, {
+    List<String?>? filePaths,
+  }) async {
     final total = fileData.length;
     if (!context.mounted) return;
     final wantTag = await showDialog<bool>(
@@ -198,12 +241,14 @@ class MediaUploadFlow {
     List<List<String>>? taggedDogIdsByFile;
 
     if (wantTag) {
+      // A video left on disk is played from its path by the tag screen, so
+      // it is never read into memory here.
       if (!context.mounted) return;
       final tagResult = await Navigator.push<MediaTagResult>(
         context,
         MaterialPageRoute(
           fullscreenDialog: true,
-          builder: (_) => MediaTagDialog(files: tagDialogFiles),
+          builder: (_) => MediaTagDialog(files: tagDialogFiles, filePaths: filePaths),
         ),
       );
       if (tagResult == null) return; // User cancelled
@@ -218,7 +263,7 @@ class MediaUploadFlow {
       }
     }
 
-    await _uploadBatch(fileData, captionsByFile, taggedDogIdsByFile);
+    await _uploadBatch(fileData, captionsByFile, taggedDogIdsByFile, filePaths);
   }
 
   /// Upload a batch behind a progress dialog and report the outcome.
@@ -228,8 +273,9 @@ class MediaUploadFlow {
   Future<void> _uploadBatch(
     List<(Uint8List, String)> files,
     List<String?>? captionsByFile,
-    List<List<String>>? taggedDogIdsByFile,
-  ) async {
+    List<List<String>>? taggedDogIdsByFile, [
+    List<String?>? filePaths,
+  ]) async {
     final total = files.length;
     // Whole files completed, plus byte-level progress within the current
     // file so the bar moves smoothly during large/slow uploads.
@@ -267,6 +313,7 @@ class MediaUploadFlow {
         files: files,
         captionsByFile: captionsByFile,
         taggedDogIdsByFile: taggedDogIdsByFile,
+        filePathsByFile: filePaths,
         onProgress: (done, count) {
           completed.value = done;
           fraction.value = count > 0 ? done / count : 0;
@@ -306,17 +353,28 @@ class MediaUploadFlow {
                       ? taggedDogIdsByFile[f.index]
                       : <String>[]
               ];
+        final failedPaths = filePaths == null
+            ? null
+            : [for (final f in failures) f.index < filePaths.length ? filePaths[f.index] : null];
+        // Say why when every failure has the same plain reason (a file over
+        // the limit, an upload the server never confirmed); otherwise it is
+        // most likely the connection.
+        final reasons = {for (final f in failures) f.error.toString()};
+        final specific = failures.every((f) =>
+            f.error is MediaTooLargeException || f.error is UploadUnconfirmedException);
+        final why = specific && reasons.length == 1
+            ? reasons.first
+            : '${failures.length} failed — check your connection.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Uploaded $succeeded/$total. '
-                '${failures.length} failed — check your connection.'),
+            content: Text('Uploaded $succeeded/$total. $why'),
             backgroundColor: AppColors.warning,
             duration: const Duration(seconds: 10),
             action: SnackBarAction(
               label: 'Retry',
               onPressed: () {
                 if (context.mounted) {
-                  _uploadBatch(failedFiles, failedCaptions, failedTags);
+                  _uploadBatch(failedFiles, failedCaptions, failedTags, failedPaths);
                 }
               },
             ),

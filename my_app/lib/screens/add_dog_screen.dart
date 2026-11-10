@@ -12,6 +12,7 @@ import '../widgets/transport_default_row.dart';
 import '../widgets/page_body.dart';
 import '../widgets/dog_contact_rules.dart';
 import '../widgets/owner_picker.dart';
+import '../widgets/form_scroll_body.dart';
 
 class AddDogScreen extends StatefulWidget {
   const AddDogScreen({super.key});
@@ -117,12 +118,14 @@ class _AddDogScreenState extends State<AddDogScreen> {
   Future<void> _fetchOwners() async {
     try {
       final owners = await _dataService.getOwners();
+      if (!mounted) return;
       setState(() {
         _owners = owners;
         _isLoadingOwners = false;
       });
     } catch (e) {
       debugPrint('Error fetching owners: $e');
+      if (!mounted) return;
       setState(() {
         _isLoadingOwners = false;
       });
@@ -139,6 +142,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
       );
       if (image != null) {
         final bytes = await image.readAsBytes();
+        if (!mounted) return;
         setState(() {
           _selectedImage = image;
           _imageBytes = bytes;
@@ -183,7 +187,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
   }
 
   Future<void> _saveDog() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
     // Clients are stopped by the validators above; staff are asked once.
     if (_isStaff) {
       final ok = await confirmSaveWithoutContacts(
@@ -257,6 +261,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
         title: const Text('Add Dog'),
         actions: [
           IconButton(
+            tooltip: 'Save',
             icon: Picon(PiconsDuotone.floppyDisk),
             onPressed: _isSaving ? null : _saveDog,
           ),
@@ -264,8 +269,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
       ),
       body: PageBody(child: Form(
                   key: _formKey,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
+                  child: FormScrollBody(
                     children: [
                       // Photo Section
                       Center(
@@ -469,7 +473,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             firstDate: DateTime(now.year - 30),
                             lastDate: now,
                           );
-                          if (picked != null) {
+                          if (picked != null && mounted) {
                             setState(() => _selectedDateOfBirth = picked);
                           }
                         },
@@ -479,6 +483,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             suffixIcon: _selectedDateOfBirth == null
                                 ? null
                                 : IconButton(
+                                    tooltip: 'Clear',
                                     icon: const Picon(PiconsDuotone.x),
                                     onPressed: () => setState(() => _selectedDateOfBirth = null),
                                   ),
@@ -500,7 +505,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             firstDate: DateTime(now.year - 20),
                             lastDate: now,
                           );
-                          if (picked != null) {
+                          if (picked != null && mounted) {
                             setState(() => _selectedLastVaccination = picked);
                           }
                         },
@@ -511,6 +516,7 @@ class _AddDogScreenState extends State<AddDogScreen> {
                             suffixIcon: _selectedLastVaccination == null
                                 ? null
                                 : IconButton(
+                                    tooltip: 'Clear',
                                     icon: const Picon(PiconsDuotone.x),
                                     onPressed: () => setState(() => _selectedLastVaccination = null),
                                   ),

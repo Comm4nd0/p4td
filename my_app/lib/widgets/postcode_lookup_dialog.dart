@@ -82,6 +82,7 @@ class _PostcodeLookupDialogState extends State<_PostcodeLookupDialog> {
                 hintText: 'e.g. RG1 1AA',
                 prefixIcon: const Picon(PiconsDuotone.mapPin),
                 suffixIcon: IconButton(
+                  tooltip: 'Look up',
                   icon: const Picon(PiconsDuotone.magnifyingGlass),
                   onPressed: _loading ? null : _search,
                 ),

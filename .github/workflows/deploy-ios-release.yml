@@ -47,6 +47,11 @@ on:
         type: string
         required: false
 
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -111,15 +116,15 @@ jobs:
           TAG: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          pip install --quiet pyjwt cryptography
+          pip install --quiet pyjwt==2.15.1 cryptography==50.0.2
           python3 scripts/xcode_cloud_start_build.py
 
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
         with:
           ruby-version: "3.3"
 
       - name: Tooling (fastlane)
-        run: gem install fastlane --no-document
+        run: gem install fastlane -v 2.241.2 --no-document
 
       - name: Write App Store Connect API key
         env:

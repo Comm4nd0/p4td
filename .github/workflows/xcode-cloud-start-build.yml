@@ -15,6 +15,11 @@ on:
         description: "The tag to build (e.g. v1.12.43)"
         required: true
 
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
+
 jobs:
   start:
     runs-on: ubuntu-latest
@@ -25,7 +30,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install PyJWT
-        run: pip install --quiet pyjwt cryptography
+        run: pip install --quiet pyjwt==2.15.1 cryptography==50.0.2
 
       - name: Start the Production build for the tag
         env:

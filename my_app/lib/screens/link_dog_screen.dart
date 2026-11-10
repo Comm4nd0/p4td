@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/page_body.dart';
+import '../widgets/form_scroll_body.dart';
 
 /// "Link my dog": for a client whose dog already comes to daycare. They give
 /// the dog's name plus the postcode and phone number staff hold for it, and
@@ -36,7 +37,7 @@ class _LinkDogScreenState extends State<LinkDogScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
     setState(() => _submitting = true);
     try {
       await _dataService.submitDogLinkRequest(
@@ -75,8 +76,7 @@ class _LinkDogScreenState extends State<LinkDogScreen> {
       body: PageBody(
         child: Form(
           key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
+          child: FormScrollBody(
             children: [
               Container(
                 padding: const EdgeInsets.all(12),

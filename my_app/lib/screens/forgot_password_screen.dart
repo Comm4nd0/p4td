@@ -62,6 +62,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     final error = await _authService.requestPasswordReset(email);
 
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       if (error == null) {
@@ -89,6 +90,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     final result = await _authService.verifyOTP(_emailController.text.trim(), otp);
 
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       if (result['success'] == true) {
@@ -125,6 +127,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     final error = await _authService.resetPassword(_resetToken!, password);
 
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       if (error == null) {
@@ -296,6 +299,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     decoration: InputDecoration(
                       labelText: 'New Password',                    prefixIcon: Picon(PiconsDuotone.lock),
                       suffixIcon: IconButton(
+                        tooltip: _obscurePassword ? 'Show password' : 'Hide password',
                         icon: Picon(
                           _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                         ),
@@ -313,6 +317,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     decoration: InputDecoration(
                       labelText: 'Confirm Password',                    prefixIcon: Picon(PiconsDuotone.lock),
                       suffixIcon: IconButton(
+                        tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
                         icon: Picon(
                           _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                         ),

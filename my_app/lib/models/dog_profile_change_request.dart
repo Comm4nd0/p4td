@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 /// Represents a pending change to a dog's profile that needs staff approval.
 class DogProfileChangeRequest {
   final int id;
@@ -83,10 +85,8 @@ class DogProfileChangeRequest {
       status: json['status'] ?? 'PENDING',
       reviewedById: json['reviewed_by'],
       reviewedByName: json['reviewed_by_name'],
-      reviewedAt: json['reviewed_at'] != null
-          ? DateTime.parse(json['reviewed_at'])
-          : null,
-      createdAt: DateTime.parse(json['created_at']),
+      reviewedAt: parseApiDateTime(json['reviewed_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

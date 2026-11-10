@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/staff_hr.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import '../utils/snacks.dart' show userMessage;
 import '../widgets/page_body.dart';
 
 /// Everything a manager needs about one staff member, in five tabs:
@@ -79,6 +80,16 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
   void _snack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Controllers made for a sheet, disposed once its exit animation (which
+  /// still paints the fields) has finished.
+  void _disposeLater(List<TextEditingController> controllers) {
+    Future.delayed(const Duration(milliseconds: 400), () {
+      for (final c in controllers) {
+        c.dispose();
+      }
+    });
   }
 
   Future<void> _run(Future<void> Function() action, String failure) async {
@@ -245,7 +256,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     DateTime? startDate = record.employmentStartDate;
     DateTime? endDate = record.employmentEndDate;
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: 'Edit employment details',
       builder: (context, setSheetState) => [
         TextField(
@@ -294,24 +305,24 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           maxLines: 4,
         ),
       ],
-    );
-    if (saved != true) return;
+      failure: 'Failed to save employment details',
+      onSave: () async {
 
-    await _run(
-      () => _dataService.updateStaffHrRecord(record.id, {
-        'job_title': jobTitle.text.trim(),
-        'employment_start_date': _isoOrNull(startDate),
-        'employment_end_date': _isoOrNull(endDate),
-        'holiday_allowance_days': allowance.text.trim().isEmpty
-            ? '28'
-            : allowance.text.trim(),
-        'emergency_contact_name': ecName.text.trim(),
-        'emergency_contact_phone': ecPhone.text.trim(),
-        'emergency_contact_relationship': ecRel.text.trim(),
-        'manager_notes': notes.text.trim(),
-      }),
-      'Failed to save employment details',
+        await (_dataService.updateStaffHrRecord(record.id, {
+            'job_title': jobTitle.text.trim(),
+            'employment_start_date': _isoOrNull(startDate),
+            'employment_end_date': _isoOrNull(endDate),
+            'holiday_allowance_days': allowance.text.trim().isEmpty
+                ? '28'
+                : allowance.text.trim(),
+            'emergency_contact_name': ecName.text.trim(),
+            'emergency_contact_phone': ecPhone.text.trim(),
+            'emergency_contact_relationship': ecRel.text.trim(),
+            'manager_notes': notes.text.trim(),
+          }));
+      },
     );
+    _disposeLater([jobTitle, allowance, ecName, ecPhone, ecRel, notes]);
   }
 
   // ---------- Pay ----------
@@ -359,6 +370,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
               ),
               isThreeLine: rate.createdByName != null,
               trailing: IconButton(
+                tooltip: 'Delete',
                 icon: const Picon(PiconsDuotone.trash, size: 20),
                 onPressed: () => _confirmDelete(
                   'Delete this pay rate?',
@@ -378,7 +390,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     String payType = 'HOURLY';
     DateTime effectiveFrom = DateTime.now();
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: 'New pay rate',
       builder: (context, setSheetState) => [
         SegmentedButton<String>(
@@ -409,23 +421,22 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
               labelText: 'Note (e.g. annual review, promotion)'),
         ),
       ],
-    );
-    if (saved != true) return;
-    if (rate.text.trim().isEmpty) {
-      _snack('Enter a rate.');
-      return;
-    }
+      failure: 'Failed to add pay rate',
+      onSave: () async {
+        if (rate.text.trim().isEmpty) {
+          throw _FormProblem('Enter a rate.');
+        }
 
-    await _run(
-      () => _dataService.createStaffPayRate({
-        'staff_member': widget.staffId,
-        'pay_type': payType,
-        'rate': rate.text.trim(),
-        'effective_from': _iso(effectiveFrom),
-        'note': note.text.trim(),
-      }),
-      'Failed to add pay rate',
+        await (_dataService.createStaffPayRate({
+            'staff_member': widget.staffId,
+            'pay_type': payType,
+            'rate': rate.text.trim(),
+            'effective_from': _iso(effectiveFrom),
+            'note': note.text.trim(),
+          }));
+      },
     );
+    _disposeLater([rate, note]);
   }
 
   // ---------- Meetings ----------
@@ -487,86 +498,126 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
 
   Future<void> _openMeeting(StaffMeeting meeting) async {
     final minutes = TextEditingController(text: meeting.minutes);
-    await showModalBottomSheet<void>(
+    var saving = false;
+    String? problem;
+    final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(meeting.title,
-                style: Theme.of(sheetContext).textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text(
-                '${meeting.meetingTypeLabel} · ${_formatDateTime(meeting.scheduledFor)}'),
-            if (meeting.attendeeNames.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text('With: ${meeting.attendeeNames.join(', ')}'),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          // Save from inside the sheet; close only when it has gone through,
+          // so minutes typed on a bad connection aren't lost.
+          Future<void> submit(Map<String, dynamic> fields, String failure) async {
+            setSheetState(() {
+              saving = true;
+              problem = null;
+            });
+            try {
+              await _dataService.updateStaffMeeting(meeting.id, fields);
+              if (sheetContext.mounted) Navigator.pop(sheetContext, true);
+            } catch (e) {
+              if (!sheetContext.mounted) return;
+              setSheetState(() {
+                saving = false;
+                problem = '$failure: ${userMessage(e)}';
+              });
+            }
+          }
+
+          return PopScope(
+            canPop: !saving,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
               ),
-            if (meeting.agenda.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text('Agenda',
-                  style: Theme.of(sheetContext).textTheme.titleSmall),
-              Text(meeting.agenda),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: minutes,
-              decoration: const InputDecoration(
-                labelText: 'Minutes / notes',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 5,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (meeting.status == 'SCHEDULED')
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      _run(
-                        () => _dataService.updateStaffMeeting(
-                            meeting.id, {'status': 'CANCELLED'}),
-                        'Failed to cancel meeting',
-                      );
-                    },
-                    child: const Text('Cancel meeting',
-                        style: TextStyle(color: AppColors.error)),
-                  ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _run(
-                      () => _dataService.updateStaffMeeting(meeting.id, {
-                        'minutes': minutes.text.trim(),
-                        if (meeting.status == 'SCHEDULED' &&
-                            minutes.text.trim().isNotEmpty)
-                          'status': 'COMPLETED',
-                      }),
-                      'Failed to save meeting',
-                    );
-                  },
-                  child: Text(meeting.status == 'SCHEDULED'
-                      ? 'Save & complete'
-                      : 'Save notes'),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(meeting.title,
+                        style: Theme.of(sheetContext).textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                        '${meeting.meetingTypeLabel} · ${_formatDateTime(meeting.scheduledFor)}'),
+                    if (meeting.attendeeNames.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text('With: ${meeting.attendeeNames.join(', ')}'),
+                      ),
+                    if (meeting.agenda.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Agenda',
+                          style: Theme.of(sheetContext).textTheme.titleSmall),
+                      Text(meeting.agenda),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: minutes,
+                      decoration: const InputDecoration(
+                        labelText: 'Minutes / notes',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 5,
+                    ),
+                    if (problem != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text(problem!,
+                              style: const TextStyle(
+                                  color: AppColors.error, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        if (meeting.status == 'SCHEDULED')
+                          TextButton(
+                            onPressed: saving
+                                ? null
+                                : () => submit(
+                                    {'status': 'CANCELLED'}, 'Failed to cancel meeting'),
+                            child: const Text('Cancel meeting',
+                                style: TextStyle(color: AppColors.error)),
+                          ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: saving
+                              ? null
+                              : () => submit({
+                                    'minutes': minutes.text.trim(),
+                                    if (meeting.status == 'SCHEDULED' &&
+                                        minutes.text.trim().isNotEmpty)
+                                      'status': 'COMPLETED',
+                                  }, 'Failed to save meeting'),
+                          child: saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Text(meeting.status == 'SCHEDULED'
+                                  ? 'Save & complete'
+                                  : 'Save notes'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+    _disposeLater([minutes]);
+    if (saved == true && mounted) await _load();
   }
 
   Future<void> _addMeeting() async {
@@ -576,7 +627,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     String meetingType = 'ONE_TO_ONE';
     DateTime scheduledFor = DateTime.now().add(const Duration(days: 1));
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: 'Schedule meeting',
       builder: (context, setSheetState) => [
         TextField(
@@ -634,24 +685,23 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           maxLines: 3,
         ),
       ],
-    );
-    if (saved != true) return;
-    if (title.text.trim().isEmpty) {
-      _snack('Enter a title.');
-      return;
-    }
+      failure: 'Failed to schedule meeting',
+      onSave: () async {
+        if (title.text.trim().isEmpty) {
+          throw _FormProblem('Enter a title.');
+        }
 
-    await _run(
-      () => _dataService.createStaffMeeting({
-        'title': title.text.trim(),
-        'meeting_type': meetingType,
-        'scheduled_for': scheduledFor.toIso8601String(),
-        'location': location.text.trim(),
-        'agenda': agenda.text.trim(),
-        'attendees': [widget.staffId],
-      }),
-      'Failed to schedule meeting',
+        await (_dataService.createStaffMeeting({
+            'title': title.text.trim(),
+            'meeting_type': meetingType,
+            'scheduled_for': scheduledFor.toIso8601String(),
+            'location': location.text.trim(),
+            'agenda': agenda.text.trim(),
+            'attendees': [widget.staffId],
+          }));
+      },
     );
+    _disposeLater([title, location, agenda]);
   }
 
   // ---------- Appraisals ----------
@@ -819,7 +869,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     DateTime? nextReview = existing?.nextReviewDate;
     int? rating = existing?.overallRating;
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: existing == null ? 'New appraisal (draft)' : 'Edit appraisal',
       builder: (context, setSheetState) => [
         _datePickerTile(
@@ -834,6 +884,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
             ...List.generate(
               5,
               (i) => IconButton(
+                tooltip: '${i + 1} out of 5',
                 visualDensity: VisualDensity.compact,
                 icon: Picon(
                   PiconsDuotone.star,
@@ -878,25 +929,25 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           onCleared: () => setSheetState(() => nextReview = null),
         ),
       ],
-    );
-    if (saved != true) return;
+      failure: 'Failed to save appraisal',
+      onSave: () async {
 
-    final fields = {
-      'appraisal_date': _iso(appraisalDate),
-      'overall_rating': rating,
-      'summary': summary.text.trim(),
-      'strengths': strengths.text.trim(),
-      'areas_for_improvement': areas.text.trim(),
-      'goals': goals.text.trim(),
-      'next_review_date': _isoOrNull(nextReview),
-    };
-    await _run(
-      () => existing == null
-          ? _dataService
-              .createStaffAppraisal({...fields, 'staff_member': widget.staffId})
-          : _dataService.updateStaffAppraisal(existing.id, fields),
-      'Failed to save appraisal',
+        final fields = {
+          'appraisal_date': _iso(appraisalDate),
+          'overall_rating': rating,
+          'summary': summary.text.trim(),
+          'strengths': strengths.text.trim(),
+          'areas_for_improvement': areas.text.trim(),
+          'goals': goals.text.trim(),
+          'next_review_date': _isoOrNull(nextReview),
+        };
+        await (existing == null
+              ? _dataService
+                  .createStaffAppraisal({...fields, 'staff_member': widget.staffId})
+              : _dataService.updateStaffAppraisal(existing.id, fields));
+      },
     );
+    _disposeLater([summary, strengths, areas, goals]);
   }
 
   // ---------- Records (certifications + sickness + training) ----------
@@ -1012,6 +1063,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
                         : 'Expires ${_formatDate(record.expiryDate!)}',
                 ].join(' · ')),
                 trailing: IconButton(
+                  tooltip: 'Delete',
                   icon: const Picon(PiconsDuotone.trash, size: 20),
                   onPressed: () => _confirmDelete(
                     'Delete "${record.name}"?',
@@ -1050,6 +1102,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
         ].join(' · ')),
         onTap: () => _editCertification(cert),
         trailing: IconButton(
+          tooltip: 'Delete',
           icon: const Picon(PiconsDuotone.trash, size: 20),
           onPressed: () => _confirmDelete(
             'Delete this ${cert.certTypeDisplay}?',
@@ -1072,7 +1125,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     DateTime? recheck = existing?.renewalDate;
     bool updateService = existing?.onUpdateService ?? false;
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: existing == null ? 'Add DBS check' : 'Edit DBS check',
       builder: (context, setSheetState) => [
         DropdownButtonFormField<String>(
@@ -1112,29 +1165,28 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           decoration: const InputDecoration(labelText: 'Notes'),
         ),
       ],
-    );
-    if (saved != true) return;
-    if (issued != null && recheck != null && recheck!.isBefore(issued!)) {
-      _snack('The recheck date can\'t be before the issue date.');
-      return;
-    }
+      failure: 'Failed to save DBS check',
+      onSave: () async {
+        if (issued != null && recheck != null && recheck!.isBefore(issued!)) {
+          throw _FormProblem('The recheck date can\'t be before the issue date.');
+        }
 
-    final fields = <String, dynamic>{
-      'cert_type': 'DBS',
-      'level': level,
-      'certificate_number': number.text.trim(),
-      'issue_date': _isoOrNull(issued),
-      'renewal_date': _isoOrNull(recheck),
-      'on_update_service': updateService,
-      'notes': notes.text.trim(),
-    };
-    await _run(
-      () => existing == null
-          ? _dataService
-              .createStaffCertification({...fields, 'staff_member': widget.staffId})
-          : _dataService.updateStaffCertification(existing.id, fields),
-      'Failed to save DBS check',
+        final fields = <String, dynamic>{
+          'cert_type': 'DBS',
+          'level': level,
+          'certificate_number': number.text.trim(),
+          'issue_date': _isoOrNull(issued),
+          'renewal_date': _isoOrNull(recheck),
+          'on_update_service': updateService,
+          'notes': notes.text.trim(),
+        };
+        await (existing == null
+              ? _dataService
+                  .createStaffCertification({...fields, 'staff_member': widget.staffId})
+              : _dataService.updateStaffCertification(existing.id, fields));
+      },
     );
+    _disposeLater([number, notes]);
   }
 
   Color _trainingColor(String status) => switch (status) {
@@ -1149,7 +1201,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     DateTime startDate = DateTime.now();
     DateTime? endDate;
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: 'Record sickness absence',
       builder: (context, setSheetState) => [
         _datePickerTile(
@@ -1177,19 +1229,19 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           maxLines: 3,
         ),
       ],
-    );
-    if (saved != true) return;
+      failure: 'Failed to record absence',
+      onSave: () async {
 
-    await _run(
-      () => _dataService.createSicknessAbsence({
-        'staff_member': widget.staffId,
-        'start_date': _iso(startDate),
-        'end_date': _isoOrNull(endDate),
-        'reason': reason.text.trim(),
-        'notes': notes.text.trim(),
-      }),
-      'Failed to record absence',
+        await (_dataService.createSicknessAbsence({
+            'staff_member': widget.staffId,
+            'start_date': _iso(startDate),
+            'end_date': _isoOrNull(endDate),
+            'reason': reason.text.trim(),
+            'notes': notes.text.trim(),
+          }));
+      },
     );
+    _disposeLater([reason, notes]);
   }
 
   Future<void> _endAbsence(SicknessAbsence absence) async {
@@ -1215,7 +1267,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
     DateTime? completed = DateTime.now();
     DateTime? expiry;
 
-    final saved = await _showFormSheet(
+    await _showFormSheet(
       title: 'Add training / qualification',
       builder: (context, setSheetState) => [
         TextField(
@@ -1246,24 +1298,23 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
           decoration: const InputDecoration(labelText: 'Notes'),
         ),
       ],
-    );
-    if (saved != true) return;
-    if (name.text.trim().isEmpty) {
-      _snack('Enter a name.');
-      return;
-    }
+      failure: 'Failed to add training record',
+      onSave: () async {
+        if (name.text.trim().isEmpty) {
+          throw _FormProblem('Enter a name.');
+        }
 
-    await _run(
-      () => _dataService.createStaffTrainingRecord({
-        'staff_member': widget.staffId,
-        'name': name.text.trim(),
-        'provider': provider.text.trim(),
-        'completed_date': _isoOrNull(completed),
-        'expiry_date': _isoOrNull(expiry),
-        'notes': notes.text.trim(),
-      }),
-      'Failed to add training record',
+        await (_dataService.createStaffTrainingRecord({
+            'staff_member': widget.staffId,
+            'name': name.text.trim(),
+            'provider': provider.text.trim(),
+            'completed_date': _isoOrNull(completed),
+            'expiry_date': _isoOrNull(expiry),
+            'notes': notes.text.trim(),
+          }));
+      },
     );
+    _disposeLater([name, provider, notes]);
   }
 
   // ---------- shared building blocks ----------
@@ -1315,6 +1366,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
                 ),
                 if (onEdit != null)
                   IconButton(
+                    tooltip: 'Edit',
                     visualDensity: VisualDensity.compact,
                     icon: const Picon(PiconsDuotone.notePencil, size: 18),
                     onPressed: onEdit,
@@ -1380,6 +1432,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
         children: [
           if (allowClear && value != null)
             IconButton(
+              tooltip: 'Clear',
               icon: const Picon(PiconsDuotone.xCircle, size: 20),
               onPressed: onCleared,
             ),
@@ -1399,42 +1452,98 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
   }
 
   /// Modal bottom-sheet form. Resolves true when "Save" is tapped.
-  Future<bool?> _showFormSheet({
+  /// A form in a bottom sheet that saves from inside the sheet and closes
+  /// only once the save has gone through. [onSave] throws [_FormProblem] for
+  /// something the person can fix (a missing title) and anything else for a
+  /// failed request; either way the sheet stays open with what was typed and
+  /// says what went wrong. It used to close first and save afterwards, so a
+  /// dropped connection threw away a whole appraisal.
+  Future<void> _showFormSheet({
     required String title,
     required List<Widget> Function(
             BuildContext context, StateSetter setSheetState)
         builder,
-  }) {
-    return showModalBottomSheet<bool>(
+    required Future<void> Function() onSave,
+    required String failure,
+  }) async {
+    var saving = false;
+    String? problem;
+    final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                ...builder(context, setSheetState)
-                    .expand((w) => [w, const SizedBox(height: 10)]),
-                FilledButton(
-                  onPressed: () => Navigator.pop(sheetContext, true),
-                  child: const Text('Save'),
-                ),
-              ],
+        builder: (context, setSheetState) => PopScope(
+          // Not mid-save: the request would finish with nowhere to report.
+          canPop: !saving,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  ...builder(context, setSheetState)
+                      .expand((w) => [w, const SizedBox(height: 10)]),
+                  if (problem != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          problem!,
+                          style: const TextStyle(
+                              color: AppColors.error, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  FilledButton(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheetState(() {
+                              saving = true;
+                              problem = null;
+                            });
+                            try {
+                              await onSave();
+                              if (sheetContext.mounted) Navigator.pop(sheetContext, true);
+                            } on _FormProblem catch (e) {
+                              if (!sheetContext.mounted) return;
+                              setSheetState(() {
+                                saving = false;
+                                problem = e.message;
+                              });
+                            } catch (e) {
+                              if (!sheetContext.mounted) return;
+                              setSheetState(() {
+                                saving = false;
+                                problem = '$failure: ${userMessage(e)}';
+                              });
+                            }
+                          },
+                    child: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
+    if (saved == true && mounted) await _load();
   }
 
   Future<void> _confirmDelete(
@@ -1475,4 +1584,11 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
 
   String _trimZero(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+}
+
+
+/// Something in a form the person can put right; shown in the sheet.
+class _FormProblem implements Exception {
+  final String message;
+  const _FormProblem(this.message);
 }

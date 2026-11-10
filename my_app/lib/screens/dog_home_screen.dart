@@ -15,6 +15,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../utils/dog_schedule.dart';
+import '../utils/snacks.dart' show userMessage;
 import '../widgets/dog_address_map.dart';
 import '../widgets/dog_schedule_calendar.dart';
 import '../widgets/quick_actions_fab.dart';
@@ -35,6 +36,7 @@ import '../widgets/owner_picker.dart';
 import '../widgets/app_sheets.dart';
 import '../widgets/boarding_request_card.dart' show promptBoardingChangeDeclineReason;
 import 'request_boarding_screen.dart';
+import '../widgets/day_span.dart';
 
 class DogHomeScreen extends StatefulWidget {
   final Dog dog;
@@ -85,6 +87,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   // Which invoice charges each day — payment managers only.
   Map<DateTime, InvoiceCoverage>? _invoiceCoverage;
 
+  // The three loads the calendar is drawn from. When one fails the calendar
+  // falls back to the regular weekdays alone — a cancelled day reads as
+  // booked, an extra day is missing — so the screen has to say so.
+  bool _requestsFailed = false;
+  bool _boardDatesFailed = false;
+  bool _boardingFailed = false;
+  bool _retryingSchedule = false;
+
+  bool get _scheduleLoadFailed =>
+      _requestsFailed || _boardDatesFailed || _boardingFailed;
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +121,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   Future<void> _loadLastChange() async {
+    if (!mounted) return;
     setState(() => _loadingLastChange = true);
     try {
       final entries = await _dataService.getDogChangeLogs(dogId: _dog.id, limit: 1);
@@ -143,7 +157,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ),
       ),
     );
-    if (removed == true) _loadCertificates();
+    if (removed == true && mounted) _loadCertificates();
   }
 
   Future<void> _attachCertificate() async {
@@ -226,6 +240,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   Future<void> _loadIncidents() async {
+    if (!mounted) return;
     setState(() => _loadingIncidents = true);
     try {
       final incidents = await _dataService.getIncidents(dogId: _dog.id);
@@ -292,16 +307,66 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   /// Picks up the dog's board days. Assigned and removed dates are what the
   /// calendar is drawn from, so they go stale the moment a day changes. A
   /// failed fetch keeps what was shown; the requests still update the rest.
+  ///
+  /// The whole fresh dog is kept, not only its dates: Edit opens its form
+  /// from [_dog] and saves the form back, so a copy that predates someone
+  /// else's change (to the daycare days, say) would quietly undo it.
   Future<void> _reloadBoardDates() async {
     try {
       final fresh = await _dataService.getDogById(_dog.id);
       if (mounted) {
-        setState(() => _dog = _dog.copyWith(
-              cancelledDates: fresh.cancelledDates,
-              assignedDates: fresh.assignedDates,
-            ));
+        setState(() {
+          _dog = fresh;
+          _boardDatesFailed = false;
+        });
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _boardDatesFailed = true);
+    }
+  }
+
+  /// Retry strip above the calendar: reload whatever failed.
+  Future<void> _retrySchedule() async {
+    setState(() => _retryingSchedule = true);
+    await Future.wait<void>([
+      _loadRequests(),
+      _reloadBoardDates(),
+      _loadBoardingRequests(),
+    ]);
+    if (mounted) setState(() => _retryingSchedule = false);
+  }
+
+  Widget _buildScheduleLoadFailedStrip() {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const ValueKey('schedule-load-failed'),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        decoration: BoxDecoration(
+          color: AppColors.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.warning.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            const Picon(PiconsDuotone.warning, size: 18, color: AppColors.warning),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                "Couldn't load the latest changes — this calendar may be missing "
+                'cancelled or extra days.',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+            TextButton(
+              onPressed: _retryingSchedule ? null : _retrySchedule,
+              child: Text(_retryingSchedule ? 'Retrying…' : 'Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Everything the calendar reads after a day is added, cancelled or moved.
@@ -335,7 +400,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         builder: (_) => InvoiceDetailScreen(invoiceId: coverage.invoiceId, canManagePayments: true),
       ),
     );
-    _loadInvoiceCoverage();
+    if (mounted) _loadInvoiceCoverage();
   }
 
   Future<void> _loadClosureDays() async {
@@ -354,6 +419,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   Future<void> _loadRequests() async {
+    if (!mounted) return;
     setState(() => _loadingRequests = true);
     try {
       final requests = await _dataService.getDateChangeRequests(dogId: _dog.id);
@@ -361,11 +427,15 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         setState(() {
           _requests = requests;
           _loadingRequests = false;
+          _requestsFailed = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loadingRequests = false);
+        setState(() {
+          _loadingRequests = false;
+          _requestsFailed = true;
+        });
       }
     }
   }
@@ -381,27 +451,33 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     } else {
       // Multiple owners - show picker
       if (!mounted) return;
-      final selectedId = await showDialog<int>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('Select Owner'),
-          children: allOwners.map((owner) => SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, owner.userId),
-            child: ListTile(
-              leading: Picon(PiconsDuotone.user),
-              title: Text(owner.displayName),
-              subtitle: owner.email.isEmpty || owner.email == owner.displayName
-                  ? null
-                  : Text(owner.email),
-              dense: true,
-            ),
-          )).toList(),
-        ),
-      );
-      if (selectedId != null && mounted) {
-        await _showOwnerDetailsFor(selectedId);
+      final selected = await _pickOwner('Select Owner', allOwners);
+      if (selected != null && mounted) {
+        await _showOwnerDetailsFor(selected.userId);
       }
     }
+  }
+
+  /// Which of a dog's owners: one dialog for both "see details" and
+  /// "message", by name with the email underneath to tell namesakes apart.
+  Future<OwnerDetails?> _pickOwner(String title, List<OwnerDetails> owners) {
+    return showDialog<OwnerDetails>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(title),
+        children: owners.map((owner) => SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, owner),
+          child: ListTile(
+            leading: Picon(PiconsDuotone.user),
+            title: Text(owner.displayName),
+            subtitle: owner.email.isEmpty || owner.email == owner.displayName
+                ? null
+                : Text(owner.email),
+            dense: true,
+          ),
+        )).toList(),
+      ),
+    );
   }
 
   Future<void> _showOwnerDetailsFor(int ownerId) async {
@@ -437,23 +513,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
     if (allOwners.length > 1) {
       // Multiple owners - let staff choose
-      final selected = await showDialog<OwnerDetails>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('Message Which Owner?'),
-          children: allOwners.map((owner) => SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, owner),
-            child: ListTile(
-              leading: Picon(PiconsDuotone.user),
-              title: Text(owner.displayName),
-              subtitle: owner.email.isEmpty || owner.email == owner.displayName
-                  ? null
-                  : Text(owner.email),
-              dense: true,
-            ),
-          )).toList(),
-        ),
-      );
+      final selected = await _pickOwner('Message Which Owner?', allOwners);
       if (selected == null || !mounted) return;
       selectedOwnerDetails = selected;
     } else {
@@ -467,7 +527,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Message ${selectedOwnerDetails.username}'),
+        title: Text('Message ${selectedOwnerDetails.displayName}'),
         content: Form(
           key: formKey,
           child: SingleChildScrollView(
@@ -541,8 +601,47 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       }
     }
 
-    subjectController.dispose();
-    messageController.dispose();
+    // After the dialog's exit animation, which still paints the fields.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 400), () {
+        subjectController.dispose();
+        messageController.dispose();
+      });
+    });
+  }
+
+  bool _openingEdit = false;
+
+  /// Edit opens on the dog as the server has it now. The form saves every
+  /// field it shows, so one seeded from a copy loaded this morning would
+  /// write this morning's schedule back over a change made since. A short
+  /// wait at most: offline, the copy on screen is the best there is.
+  Future<void> _editDog() async {
+    setState(() => _openingEdit = true);
+    var dog = _dog;
+    try {
+      dog = await _dataService.getDogById(_dog.id).timeout(const Duration(seconds: 4));
+    } catch (_) {
+      // Keep the copy on screen.
+    }
+    if (!mounted) return;
+    setState(() {
+      _dog = dog;
+      _openingEdit = false;
+    });
+    final updatedDog = await Navigator.push<Dog>(
+      context,
+      MaterialPageRoute(builder: (_) => EditDogScreen(dog: dog)),
+    );
+    if (!mounted) return;
+    if (updatedDog != null) {
+      setState(() => _dog = updatedDog);
+      // The days may have changed; the calendar reads the board too.
+      _reloadBoardDates();
+    }
+    // A certificate may have been attached or removed either way
+    // (owners' profile edits wait for approval; the file doesn't).
+    _loadCertificates();
   }
 
   Future<void> _deleteDog() async {
@@ -954,11 +1053,17 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     final now = DateTime.now();
     // Payment managers may move a day to (or from) a past date — attendance
     // corrections; everyone else picks from today onwards.
+    final firstDate = calendarFirstDay(now, canEditPastDates: _canEditPastDates);
+    final lastDate = _calendarLastDay(now);
+    // Same weekday next week, kept inside what the picker allows.
+    var suggested = addCalendarDays(originalDate, 7);
+    if (suggested.isAfter(lastDate)) suggested = lastDate;
+    if (suggested.isBefore(firstDate)) suggested = firstDate;
     final newDate = await showDatePicker(
       context: context,
-      initialDate: originalDate.add(const Duration(days: 7)),
-      firstDate: calendarFirstDay(now, canEditPastDates: _canEditPastDates),
-      lastDate: _calendarLastDay(now),
+      initialDate: suggested,
+      firstDate: firstDate,
+      lastDate: lastDate,
       helpText: 'Select new date',
     );
 
@@ -1304,7 +1409,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
 
   Future<void> _submitAdditionalDayRequests(List<DateTime> dates) async {
     int successCount = 0;
-    int failCount = 0;
+    final failedDates = <DateTime>[];
+    Object? firstError;
 
     for (final date in dates) {
       try {
@@ -1314,12 +1420,13 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         );
         successCount++;
       } catch (e) {
-        failCount++;
+        failedDates.add(date);
+        firstError ??= e;
       }
     }
 
     if (mounted) {
-      if (failCount == 0) {
+      if (failedDates.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(successCount == 1
@@ -1331,8 +1438,14 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$successCount submitted, $failCount failed'),
+            // Say which days, or they can only guess what to send again.
+            content: Text(
+              '${successCount == 0 ? 'Nothing submitted' : '$successCount submitted'}. '
+              'Not submitted: ${failedDates.map(ukDateWithDay).join(', ')} '
+              '(${userMessage(firstError)})',
+            ),
             backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 8),
           ),
         );
       }
@@ -1341,6 +1454,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   }
 
   Future<void> _loadBoardingRequests() async {
+    if (!mounted) return;
     setState(() => _loadingBoardingRequests = true);
     try {
       final allRequests = await _dataService.getBoardingRequests();
@@ -1351,11 +1465,15 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
               .where((r) => r.dogIds.contains(dogId))
               .toList();
           _loadingBoardingRequests = false;
+          _boardingFailed = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loadingBoardingRequests = false);
+        setState(() {
+          _loadingBoardingRequests = false;
+          _boardingFailed = true;
+        });
       }
     }
   }
@@ -1390,7 +1508,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         lastDate: now.add(const Duration(days: 365)),
                         initialDateRange: selectedRange,
                       );
-                      if (picked != null) {
+                      if (picked != null && context.mounted) {
                         setDialogState(() {
                           selectedRange = picked;
                         });
@@ -1414,7 +1532,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                   if (selectedRange != null) ...[
                     const SizedBox(height: 4),
                     Text(
-                      '${selectedRange!.end.difference(selectedRange!.start).inDays} night${selectedRange!.end.difference(selectedRange!.start).inDays == 1 ? '' : 's'}',
+                      nightsLabel(nightsBetween(selectedRange!.start, selectedRange!.end)),
                       style: TextStyle(color: Colors.grey[600], fontSize: 13),
                     ),
                   ],
@@ -1459,7 +1577,9 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
       ),
     );
 
-    instructionsController.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 400), instructionsController.dispose);
+    });
   }
 
   Future<void> _submitBoardingRequest(DateTimeRange dateRange, String? instructions) async {
@@ -1607,7 +1727,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         initiallyExpanded: false,
         childrenPadding: const EdgeInsets.all(8),
         children: _boardingRequests.map((request) {
-          final nights = request.endDate.difference(request.startDate).inDays;
+          final nights = nightsBetween(request.startDate, request.endDate);
           return Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
@@ -1765,7 +1885,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   Future<void> _reviewBoardingChange(BoardingRequest request) async {
     final start = request.requestedStartDate!;
     final end = request.requestedEndDate!;
-    final nights = end.difference(start).inDays;
+    final nights = nightsBetween(start, end);
     final note = request.changeNote;
     final choice = await showAppActionSheet<bool>(
       context,
@@ -1782,7 +1902,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     String? reason;
     if (!choice) {
       reason = await promptBoardingChangeDeclineReason(context);
-      if (reason == null) return;
+      if (reason == null || !mounted) return;
     }
     try {
       await _dataService.reviewBoardingChange(request.id, approve: choice, reason: reason);
@@ -1804,7 +1924,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
   /// confirmation. Unlike delete/approve/deny this is open to all staff —
   /// the backend allows any staff member to set CANCELLED.
   Future<void> _cancelBoardingRequest(BoardingRequest request) async {
-    final nights = request.endDate.difference(request.startDate).inDays;
+    final nights = nightsBetween(request.startDate, request.endDate);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1828,7 +1948,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     try {
       await _dataService.updateBoardingRequestStatus(request.id, 'CANCELLED');
       if (mounted) {
@@ -1871,7 +1991,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     try {
       await _dataService.deleteBoardingRequest(request.id);
       if (mounted) {
@@ -2268,9 +2388,58 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
     );
   }
 
+  /// Everything the calendar is drawn from, worked out once per change of
+  /// its inputs rather than on every build: for staff the projection runs
+  /// five years ahead, and this screen rebuilds a dozen times while loading.
+  _ScheduleSets? _scheduleSets;
+
+  _ScheduleSets _currentScheduleSets() {
+    final today = _dateOnly(DateTime.now());
+    final cached = _scheduleSets;
+    if (cached != null &&
+        identical(cached.dog, _dog) &&
+        identical(cached.requests, _requests) &&
+        identical(cached.boardingRequests, _boardingRequests) &&
+        identical(cached.closureDays, _closureDays) &&
+        identical(cached.pastAttendance, _pastAttendance) &&
+        identical(cached.pastRemoved, _pastRemoved) &&
+        cached.today == today) {
+      return cached;
+    }
+    final weekdays = _dog.daysInDaycare.map((d) => d.dayNumber).toSet();
+    final bookedDates = {..._getUpcomingDaycareDates(), ..._pastAttendance};
+    return _scheduleSets = _ScheduleSets(
+      dog: _dog,
+      requests: _requests,
+      boardingRequests: _boardingRequests,
+      closureDays: _closureDays,
+      pastAttendance: _pastAttendance,
+      pastRemoved: _pastRemoved,
+      today: today,
+      bookedDates: bookedDates,
+      extraDates: extraDaycareDates(
+        bookedDates: bookedDates,
+        daycareWeekdays: weekdays,
+        requests: _requests,
+      ),
+      cancelledDates: cancelledDaycareDates(
+        bookedDates: bookedDates,
+        requests: _requests,
+        staffRemovedDates: {..._dog.cancelledDates, ..._pastRemoved},
+      ),
+      pendingAddDates: _pendingAddDates(),
+      pendingRemoveDates: _pendingRemoveDates(),
+      boardingDates: _boardingDates(BoardingRequestStatus.approved),
+      pendingBoardingDates: _boardingDates(BoardingRequestStatus.pending),
+      boardingNights: _boardingNights(BoardingRequestStatus.approved),
+      pendingBoardingNights: _boardingNights(BoardingRequestStatus.pending),
+      closures: _closureMap(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final bookedDates = {..._getUpcomingDaycareDates(), ..._pastAttendance};
+    final schedule = _currentScheduleSets();
 
     return Scaffold(
       floatingActionButton: _buildQuickActionsFab(),
@@ -2285,22 +2454,8 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             ),
           IconButton(
             icon: Picon(PiconsDuotone.pencilSimple),
-            onPressed: () async {
-              final updatedDog = await Navigator.push<Dog>(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => EditDogScreen(dog: _dog),
-                ),
-              );
-              if (updatedDog != null) {
-                setState(() {
-                  _dog = updatedDog;
-                });
-              }
-              // A certificate may have been attached or removed either way
-              // (owners' profile edits wait for approval; the file doesn't).
-              _loadCertificates();
-            },
+            tooltip: 'Edit ${_dog.name}',
+            onPressed: _openingEdit ? null : _editDog,
           ),
           if (widget.isStaff)
             PopupMenuButton<String>(
@@ -2336,10 +2491,11 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
             ),
         ],
       ),
-      body: PageBody(child: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
+      // Slivers, so the gallery underneath builds only the photos on screen.
+      body: PageBody(child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Container(
               padding: const EdgeInsets.all(16),
               color: Theme.of(context).primaryColor.withOpacity(0.1),
               child: Column(
@@ -2443,6 +2599,7 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      if (_scheduleLoadFailed) _buildScheduleLoadFailedStrip(),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
@@ -2455,24 +2612,16 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                               canEditPastDates:
                                   _canEditPastDates || _pastAttendanceLoaded),
                           lastDay: calendarLastDay(DateTime.now(), isStaff: widget.isStaff),
-                          bookedDates: bookedDates,
-                          extraDates: extraDaycareDates(
-                            bookedDates: bookedDates,
-                            daycareWeekdays: _dog.daysInDaycare.map((d) => d.dayNumber).toSet(),
-                            requests: _requests,
-                          ),
-                          cancelledDates: cancelledDaycareDates(
-                            bookedDates: bookedDates,
-                            requests: _requests,
-                            staffRemovedDates: {..._dog.cancelledDates, ..._pastRemoved},
-                          ),
-                          pendingAddDates: _pendingAddDates(),
-                          pendingRemoveDates: _pendingRemoveDates(),
-                          boardingDates: _boardingDates(BoardingRequestStatus.approved),
-                          pendingBoardingDates: _boardingDates(BoardingRequestStatus.pending),
-                          boardingNights: _boardingNights(BoardingRequestStatus.approved),
-                          pendingBoardingNights: _boardingNights(BoardingRequestStatus.pending),
-                          closures: _closureMap(),
+                          bookedDates: schedule.bookedDates,
+                          extraDates: schedule.extraDates,
+                          cancelledDates: schedule.cancelledDates,
+                          pendingAddDates: schedule.pendingAddDates,
+                          pendingRemoveDates: schedule.pendingRemoveDates,
+                          boardingDates: schedule.boardingDates,
+                          pendingBoardingDates: schedule.pendingBoardingDates,
+                          boardingNights: schedule.boardingNights,
+                          pendingBoardingNights: schedule.pendingBoardingNights,
+                          closures: schedule.closures,
                           isStaff: widget.isStaff,
                           allowPastEdits: _canEditPastDates,
                           onBookedDayTap: _showDateChangeRequest,
@@ -2492,19 +2641,62 @@ class _DogHomeScreenState extends State<DogHomeScreen> {
                 ],
               ),
             ),
-            // Embedded Gallery
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-              child: GalleryScreen(
-                dogId: _dog.id, 
-                isStaff: widget.isStaff, 
-                embed: true, // IMPORTANT: Enable embedding mode
-              ),
+          ),
+          // Embedded Gallery
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            sliver: GalleryScreen(
+              dogId: _dog.id,
+              isStaff: widget.isStaff,
+              asSliver: true,
             ),
-            const SizedBox(height: 80), // Extra space at bottom for scrolling nicely
-          ],
-        ),
+          ),
+          // Extra space at bottom for scrolling nicely
+          const SliverToBoxAdapter(child: SizedBox(height: 80)),
+        ],
       )),
     );
   }
+}
+
+/// The calendar's date sets with the inputs they were computed from.
+class _ScheduleSets {
+  final Dog dog;
+  final List<DateChangeRequest> requests;
+  final List<BoardingRequest> boardingRequests;
+  final List<ClosureDay> closureDays;
+  final Set<DateTime> pastAttendance;
+  final Set<DateTime> pastRemoved;
+  final DateTime today;
+
+  final Set<DateTime> bookedDates;
+  final Set<DateTime> extraDates;
+  final Set<DateTime> cancelledDates;
+  final Set<DateTime> pendingAddDates;
+  final Set<DateTime> pendingRemoveDates;
+  final Set<DateTime> boardingDates;
+  final Set<DateTime> pendingBoardingDates;
+  final Set<DateTime> boardingNights;
+  final Set<DateTime> pendingBoardingNights;
+  final Map<DateTime, ClosureDay> closures;
+
+  const _ScheduleSets({
+    required this.dog,
+    required this.requests,
+    required this.boardingRequests,
+    required this.closureDays,
+    required this.pastAttendance,
+    required this.pastRemoved,
+    required this.today,
+    required this.bookedDates,
+    required this.extraDates,
+    required this.cancelledDates,
+    required this.pendingAddDates,
+    required this.pendingRemoveDates,
+    required this.boardingDates,
+    required this.pendingBoardingDates,
+    required this.boardingNights,
+    required this.pendingBoardingNights,
+    required this.closures,
+  });
 }

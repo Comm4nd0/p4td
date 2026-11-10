@@ -125,6 +125,7 @@ class _ChangeEmailScreenState extends State<ChangeEmailScreen> {
                 labelText: 'Current Password',
                 prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
+                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
                   icon: Picon(
                     _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                   ),

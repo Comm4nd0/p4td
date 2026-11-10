@@ -17,7 +17,12 @@ abstract class DataService {
   CachedEntry<Dog>? cachedDogById(String dogId);
   CachedEntry<List<DailyDogAssignment>>? cachedTodayAssignments(DateTime date);
   Future<List<Photo>> getPhotos(String dogId);
-  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt);
+  /// [filePath], when given, is streamed from disk and [imageBytes] is
+  /// ignored (pass an empty list) — use it for a video, so the whole file is
+  /// never held in memory. A file over the server's size limit is refused
+  /// with a [MediaTooLargeException] before anything is sent; the same goes
+  /// for [uploadGroupMedia] and incident media.
+  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt, {String? filePath});
   Future<PhotoBatchResult> uploadMultiplePhotos(
     String dogId,
     List<(Uint8List, String, DateTime)> images, {
@@ -64,6 +69,7 @@ abstract class DataService {
   Future<gm.GroupMedia> getFeedItem(String mediaId);
   Future<List<gm.GroupMedia>> getFeed({String? dogId});
   Future<FeedPage> getFeedPage({String? dogId, int page = 1});
+  /// [filePath]: as for [uploadPhoto].
   Future<void> uploadGroupMedia({
     required Uint8List fileBytes,
     required String fileName,
@@ -72,7 +78,10 @@ abstract class DataService {
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
     void Function(int sentBytes, int totalBytes)? onSendProgress,
+    String? filePath,
   });
+  /// [filePathsByFile], when given, lines up with [files]: an entry that is
+  /// not null is uploaded from that path instead of its bytes.
   Future<List<UploadFailure>> uploadMultipleGroupMedia({
     required List<(Uint8List, String)> files,
     String? caption,
@@ -80,6 +89,7 @@ abstract class DataService {
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
     void Function(int index, int sentBytes, int totalBytes)? onFileProgress,
+    List<String?>? filePathsByFile,
   });
   Future<void> deleteGroupMedia(String mediaId);
   Future<gm.GroupMedia> updateGroupMedia(String mediaId, {String? caption, List<String>? taggedDogIds});

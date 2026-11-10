@@ -77,6 +77,12 @@ class PasswordResetOTP(models.Model):
     is_used = models.BooleanField(default=False)
     # Temporary token returned after OTP verification, used to authorize the password change
     reset_token = models.CharField(max_length=64, blank=True, null=True, unique=True)
+    # Wrong guesses made against this code. A six-digit code is only safe
+    # while guesses are scarce, so the code is burnt at MAX_FAILED_ATTEMPTS
+    # whoever is guessing and from wherever (see views.verify_otp).
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+
+    MAX_FAILED_ATTEMPTS = 5
 
     class Meta:
         ordering = ['-created_at']
@@ -2021,7 +2027,7 @@ class Invoice(models.Model):
         return (
             self.status in ('SENT', 'PART_PAID')
             and self.due_date is not None
-            and self.due_date < timezone.now().date()
+            and self.due_date < timezone.localdate()
         )
 
     @property

@@ -42,8 +42,11 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     _loadRequests();
   }
 
-  Future<void> _loadRequests() async {
-    setState(() => _loading = true);
+  /// [quiet] reloads in place after a decision, without swapping the list
+  /// for the skeleton (which also lost the scroll position).
+  Future<void> _loadRequests({bool quiet = false}) async {
+    if (!mounted) return;
+    if (!quiet) setState(() => _loading = true);
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
       final boardingRequests = await _dataService.getBoardingRequests();
@@ -83,24 +86,49 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     }).toList();
   }
 
-  Future<void> _updateDateStatus(DateChangeRequest request, String newStatus) async {
+  /// Requests with a decision on its way to the server ('d<id>' date
+  /// change, 'b<id>' boarding). Their buttons are dead until it lands, so a
+  /// second tap on Approve can't send the decision twice.
+  final Set<String> _inFlight = {};
+
+  bool _dateBusy(DateChangeRequest r) => _inFlight.contains('d${r.id}');
+  bool _boardingBusy(BoardingRequest r) => _inFlight.contains('b${r.id}');
+
+  /// Runs [action] for the request behind [key] unless one is already
+  /// running, keeping it marked busy until the list has reloaded.
+  Future<void> _decide(String key, Future<void> Function() action) async {
+    if (!_inFlight.add(key)) return;
+    if (mounted) setState(() {});
     try {
-      await _dataService.updateDateChangeRequestStatus(request.id, newStatus);
-      showSuccess('Request ${newStatus.toLowerCase()}');
-      _loadRequests();
-    } catch (e) {
-      showError('Failed to update: $e');
+      await action();
+    } finally {
+      _inFlight.remove(key);
+      if (mounted) setState(() {});
     }
   }
 
-  Future<void> _updateBoardingStatus(BoardingRequest request, String newStatus) async {
-    try {
-      await _dataService.updateBoardingRequestStatus(request.id, newStatus);
-      showSuccess('Request ${newStatus.toLowerCase()}');
-      _loadRequests();
-    } catch (e) {
-      showError('Failed to update: $e');
-    }
+  Future<void> _updateDateStatus(DateChangeRequest request, String newStatus) {
+    return _decide('d${request.id}', () async {
+      try {
+        await _dataService.updateDateChangeRequestStatus(request.id, newStatus);
+        showSuccess('Request ${newStatus.toLowerCase()}');
+        await _loadRequests(quiet: true);
+      } catch (e) {
+        showError('Failed to update: $e');
+      }
+    });
+  }
+
+  Future<void> _updateBoardingStatus(BoardingRequest request, String newStatus) {
+    return _decide('b${request.id}', () async {
+      try {
+        await _dataService.updateBoardingRequestStatus(request.id, newStatus);
+        showSuccess('Request ${newStatus.toLowerCase()}');
+        await _loadRequests(quiet: true);
+      } catch (e) {
+        showError('Failed to update: $e');
+      }
+    });
   }
 
   /// Permanently delete a boarding booking (e.g. an accidental duplicate),
@@ -130,14 +158,16 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
-    try {
-      await _dataService.deleteBoardingRequest(request.id);
-      showSuccess('Booking deleted');
-      _loadRequests();
-    } catch (e) {
-      showError('Failed to delete: $e');
-    }
+    if (confirmed != true || !mounted) return;
+    await _decide('b${request.id}', () async {
+      try {
+        await _dataService.deleteBoardingRequest(request.id);
+        showSuccess('Booking deleted');
+        await _loadRequests(quiet: true);
+      } catch (e) {
+        showError('Failed to delete: $e');
+      }
+    });
   }
 
   /// Approve a boarding request, first letting the approver pick which staff
@@ -153,14 +183,16 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
       loadStaff: () => _dataService.getStaffMembers(),
       loadAvailableIds: () => _dataService.getAvailableStaffForDate(request.startDate),
     );
-    if (staffId == null) return; // cancelled
-    try {
-      await _dataService.updateBoardingRequestStatus(request.id, 'APPROVED', assignedStaffId: staffId);
-      showSuccess('Request approved');
-      _loadRequests();
-    } catch (e) {
-      showError('Failed to update: $e');
-    }
+    if (staffId == null || !mounted) return; // cancelled
+    await _decide('b${request.id}', () async {
+      try {
+        await _dataService.updateBoardingRequestStatus(request.id, 'APPROVED', assignedStaffId: staffId);
+        showSuccess('Request approved');
+        await _loadRequests(quiet: true);
+      } catch (e) {
+        showError('Failed to update: $e');
+      }
+    });
   }
 
   static bool _boardingAwaitingReview(BoardingRequest r) =>
@@ -170,15 +202,17 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     String? reason;
     if (!approve) {
       reason = await promptBoardingChangeDeclineReason(context);
-      if (reason == null) return; // backed out
+      if (reason == null || !mounted) return; // backed out
     }
-    try {
-      await _dataService.reviewBoardingChange(request.id, approve: approve, reason: reason);
-      showSuccess(approve ? 'Booking moved to the new dates' : 'Change declined — the booking stays as it was');
-      _loadRequests();
-    } catch (e) {
-      showError('Failed to update: $e');
-    }
+    await _decide('b${request.id}', () async {
+      try {
+        await _dataService.reviewBoardingChange(request.id, approve: approve, reason: reason);
+        showSuccess(approve ? 'Booking moved to the new dates' : 'Change declined — the booking stays as it was');
+        await _loadRequests(quiet: true);
+      } catch (e) {
+        showError('Failed to update: $e');
+      }
+    });
   }
 
   /// Edit the dates/instructions of a booking (any status — staff only).
@@ -187,7 +221,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
       context,
       MaterialPageRoute(builder: (_) => RequestBoardingScreen(existing: request)),
     );
-    if (changed == true) _loadRequests();
+    if (changed == true && mounted) _loadRequests();
   }
 
 
@@ -233,6 +267,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
           actions: [
             IconButton(
               icon: Picon(PiconsDuotone.arrowClockwise),
+              tooltip: 'Refresh',
               onPressed: _loadRequests,
             ),
           ],
@@ -303,7 +338,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     if (filtered.isEmpty) return _buildEmptyState();
 
     return RefreshIndicator.adaptive(
-      onRefresh: _loadRequests,
+      onRefresh: () => _loadRequests(quiet: true),
       child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 16),
         itemCount: filtered.length,
@@ -321,7 +356,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
     if (filtered.isEmpty) return _buildEmptyState();
 
     return RefreshIndicator.adaptive(
-      onRefresh: _loadRequests,
+      onRefresh: () => _loadRequests(quiet: true),
       child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 16),
         itemCount: filtered.length,
@@ -332,7 +367,7 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
 
   Widget _buildEmptyState() {
     return RefreshIndicator.adaptive(
-      onRefresh: _loadRequests,
+      onRefresh: () => _loadRequests(quiet: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
@@ -493,24 +528,25 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
             // Actions
             if (widget.canManageRequests) ...[
               const SizedBox(height: 16),
+              if (_dateBusy(request)) const LinearProgressIndicator(minHeight: 2),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   if (request.status != RequestStatus.pending)
                     TextButton(
-                      onPressed: () => _updateDateStatus(request, 'PENDING'),
+                      onPressed: _dateBusy(request) ? null : () => _updateDateStatus(request, 'PENDING'),
                       child: const Text('Set Pending'),
                     ),
                   if (request.status != RequestStatus.denied)
                     OutlinedButton(
-                      onPressed: () => _updateDateStatus(request, 'DENIED'),
+                      onPressed: _dateBusy(request) ? null : () => _updateDateStatus(request, 'DENIED'),
                       style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                       child: const Text('Deny'),
                     ),
                   const SizedBox(width: 8),
                   if (request.status != RequestStatus.approved)
                     FilledButton(
-                      onPressed: () => _updateDateStatus(request, 'APPROVED'),
+                      onPressed: _dateBusy(request) ? null : () => _updateDateStatus(request, 'APPROVED'),
                       child: const Text('Approve'),
                     ),
                 ],
@@ -603,6 +639,27 @@ class _StaffNotificationsScreenState extends State<StaffNotificationsScreen> {
 
   Widget _buildBoardingRequestCard(BoardingRequest request) {
     final canManage = widget.canManageBoarding;
+    final busy = _boardingBusy(request);
+    // While a decision is in flight the card ignores taps (and says so),
+    // rather than dropping its buttons, which made the card jump.
+    return AbsorbPointer(
+      absorbing: busy,
+      child: Stack(
+        children: [
+          Opacity(opacity: busy ? 0.6 : 1, child: _boardingCard(request, canManage)),
+          if (busy)
+            const Positioned(
+              left: 16,
+              right: 16,
+              top: 8,
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _boardingCard(BoardingRequest request, bool canManage) {
     return BoardingRequestCard(
       request: request,
       showOwner: true,

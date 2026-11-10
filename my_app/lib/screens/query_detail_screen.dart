@@ -400,6 +400,7 @@ class _QueryDetailScreenState extends State<QueryDetailScreen> with WidgetsBindi
                               ),
                               const SizedBox(width: 8),
                               IconButton(
+                                tooltip: 'Send',
                                 icon: _sending
                                     ? const SizedBox(
                                         width: 24,

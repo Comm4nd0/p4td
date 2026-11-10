@@ -5,6 +5,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/page_body.dart';
+import '../widgets/day_span.dart';
 
 /// Owner asks to move the dates of an approved boarding stay — add days or
 /// drop them. Nothing changes until a boarding manager approves, so the
@@ -65,7 +66,7 @@ class _RequestBoardingChangeScreenState extends State<RequestBoardingChangeScree
       lastDate: DateTime.now().add(const Duration(days: 365)),
       helpText: 'New arrival date',
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() {
       _start = _day(picked);
       if (_end.isBefore(_start)) _end = _start;
@@ -81,7 +82,7 @@ class _RequestBoardingChangeScreenState extends State<RequestBoardingChangeScree
       lastDate: DateTime.now().add(const Duration(days: 365)),
       helpText: 'New departure date',
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() => _end = _day(picked));
   }
 
@@ -110,7 +111,7 @@ class _RequestBoardingChangeScreenState extends State<RequestBoardingChangeScree
   }
 
   String _nights(DateTime start, DateTime end) {
-    final n = end.difference(start).inDays;
+    final n = nightsBetween(start, end);
     return '$n night${n == 1 ? '' : 's'}';
   }
 

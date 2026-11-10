@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 enum DogNoteType {
   compatibility,
   behavioral,
@@ -105,7 +107,7 @@ class DogNote {
       text: json['text'] ?? '',
       isPositive: json['is_positive'] ?? true,
       createdByName: json['created_by_name'],
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

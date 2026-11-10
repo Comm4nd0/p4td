@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' show Color;
 
 import '../constants/app_colors.dart';
 import 'comment.dart';
+import 'api_datetime.dart';
 
 /// Media attached to an incident — a photo of a wound, a clip of a gate.
 class IncidentMedia {
@@ -175,7 +176,7 @@ class Incident {
       severityDisplay: json['severity_display'] ?? 'Minor',
       status: json['status'] ?? 'OPEN',
       statusDisplay: json['status_display'] ?? 'Open',
-      occurredAt: DateTime.parse(json['occurred_at']),
+      occurredAt: requireApiDateTime(json['occurred_at']),
       location: json['location'] ?? '',
       description: json['description'] ?? '',
       injuries: json['injuries'] ?? '',
@@ -187,7 +188,7 @@ class Incident {
           (json['staff_present_names'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
       reportedByName: json['reported_by_name'],
       resolvedByName: json['resolved_by_name'],
-      resolvedAt: json['resolved_at'] != null ? DateTime.parse(json['resolved_at']) : null,
+      resolvedAt: parseApiDateTime(json['resolved_at']),
       dogsInvolved: (json['dogs_involved'] as List<dynamic>? ?? [])
           .map((e) => IncidentDog.fromJson(e as Map<String, dynamic>))
           .toList(),

@@ -1,3 +1,4 @@
+import 'api_datetime.dart';
 
 enum BoardingRequestStatus {
   pending,
@@ -75,10 +76,13 @@ class BoardingRequest {
   factory BoardingRequest.fromJson(Map<String, dynamic> json) {
     return BoardingRequest(
       id: json['id'],
-      ownerId: json['owner'],
-      ownerName: json['owner_name'],
-      dogIds: List<int>.from(json['dogs']),
-      dogNames: List<String>.from(json['dog_names']),
+      ownerId: (json['owner'] as num?)?.toInt() ?? 0,
+      ownerName: json['owner_name'] ?? '',
+      dogIds: (json['dogs'] as List? ?? const [])
+          .map((d) => d is num ? d.toInt() : int.tryParse(d.toString()))
+          .whereType<int>()
+          .toList(),
+      dogNames: (json['dog_names'] as List? ?? const []).map((n) => n.toString()).toList(),
       startDate: DateTime.parse(json['start_date']),
       endDate: DateTime.parse(json['end_date']),
       specialInstructions: json['special_instructions'],
@@ -87,16 +91,16 @@ class BoardingRequest {
         orElse: () => BoardingRequestStatus.pending,
       ),
       approvedByName: json['approved_by_name'],
-      approvedAt: json['approved_at'] != null ? DateTime.parse(json['approved_at']) : null,
+      approvedAt: parseApiDateTime(json['approved_at']),
       assignedStaffId: json['assigned_staff'],
       assignedStaffName: json['assigned_staff_name'],
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
       hasPendingChange: json['has_pending_change'] ?? false,
       requestedStartDate: json['requested_start_date'] != null ? DateTime.parse(json['requested_start_date']) : null,
       requestedEndDate: json['requested_end_date'] != null ? DateTime.parse(json['requested_end_date']) : null,
       changeNote: json['change_note'],
       changeRequestedByName: json['change_requested_by_name'],
-      changeRequestedAt: json['change_requested_at'] != null ? DateTime.parse(json['change_requested_at']) : null,
+      changeRequestedAt: parseApiDateTime(json['change_requested_at']),
     );
   }
 
