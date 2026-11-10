@@ -1,5 +1,5 @@
 import json
-from datetime import date, time as dtime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from decimal import Decimal
 from unittest import skipUnless
 from unittest.mock import patch
@@ -14172,8 +14172,13 @@ class CertificateReminderTests(TestCase):
         return out.getvalue(), push
 
     def _created(self, dog, days_ago):
+        # Midday on the calendar day meant, not "now minus N days": late in
+        # the evening that lands the other side of midnight once a clock
+        # change sits in between, and the dog was then created a day out —
+        # which failed this class every night between 23:00 and midnight.
+        day = self.today - timedelta(days=days_ago)
         Dog.objects.filter(pk=dog.pk).update(
-            created_at=timezone.now() - timedelta(days=days_ago))
+            created_at=timezone.make_aware(datetime.combine(day, dtime(12, 0))))
         dog.refresh_from_db()
         return dog
 
