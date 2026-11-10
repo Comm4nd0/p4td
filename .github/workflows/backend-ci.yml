@@ -14,8 +14,13 @@ on:
       # change what runs in production has to be covered — otherwise an
       # infra-only change would silently never deploy.
       - 'Dockerfile'
+      - '.dockerignore'
       - 'docker-compose.prod.yml'
       - 'deploy.sh'
+      # deploy.sh runs these on the server (crontab, backups).
+      - 'scripts/install-cron.sh'
+      - 'scripts/run-cron.sh'
+      - 'scripts/backup-db.sh'
   pull_request:
     paths:
       - 'api/**'
@@ -27,8 +32,18 @@ on:
       # change what runs in production has to be covered — otherwise an
       # infra-only change would silently never deploy.
       - 'Dockerfile'
+      - '.dockerignore'
       - 'docker-compose.prod.yml'
       - 'deploy.sh'
+      # deploy.sh runs these on the server (crontab, backups).
+      - 'scripts/install-cron.sh'
+      - 'scripts/run-cron.sh'
+      - 'scripts/backup-db.sh'
+
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -96,18 +111,24 @@ jobs:
         # and takes about 17 minutes serially.
         run: python manage.py test --parallel auto
 
-  # Dependency vulnerability scan. Advisory (does not block the build) so a new
-  # CVE disclosure doesn't halt deploys, but it makes them visible.
+  # Dependency vulnerability scan. BLOCKING: a known-vulnerable pin fails
+  # Backend CI, and so stops the deploy that a green run would trigger.
+  #
+  # It used to be advisory (continue-on-error), which is how djoser sat on a
+  # version with a published CVE with nothing saying so. The cost is that a
+  # newly disclosed advisory can stop an unrelated deploy. When that happens
+  # and the fix cannot ship first, name the advisory explicitly — add
+  # `--ignore-vuln <ID>` to the command below with a comment saying why and
+  # until when — rather than switching the whole job back to advisory.
   audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install pip-audit
-        run: pip install pip-audit
+        run: pip install pip-audit==2.10.1
       - name: Audit dependencies
         run: pip-audit -r requirements-prod.txt --desc
 

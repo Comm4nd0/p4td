@@ -39,6 +39,11 @@ on:
         type: boolean
         default: false
 
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -87,12 +92,12 @@ jobs:
 
           echo "Shipping $version — promoting build $version_code from alpha to production" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
         with:
           ruby-version: "3.3"
 
       - name: Tooling (fastlane)
-        run: gem install fastlane --no-document
+        run: gem install fastlane -v 2.241.2 --no-document
 
       - name: Promote the alpha build to production
         env:

@@ -16,6 +16,18 @@
 #     bind-mounts at /app/media. Media must NOT move to a Docker named volume.
 
 paws4thoughtdogs.com, www.paws4thoughtdogs.com {
+    # Largest request body accepted. Without a cap Caddy streams any size
+    # through and Django spools it to disk before a single check runs, so one
+    # client could fill the disk Postgres lives on. The app's own limits are
+    # 200 MB for a video and 25 MB for an image (api/validators.py); several
+    # photos can travel in one request, hence the headroom.
+    #
+    # REFERENCE ONLY, like the rest of this file: it does nothing until the
+    # same three lines are in /root/caddy/Caddyfile on the server.
+    request_body {
+        max_size 250MB
+    }
+
     # Serve uploaded media straight from the shared host directory.
     handle_path /media/* {
         root * /srv/p4td-media

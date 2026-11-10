@@ -1,123 +1,56 @@
 #!/usr/bin/env bash
-# Deploy latest code to Hetzner server
-# Usage: ./scripts/deploy-to-hetzner.sh
+# Deploy the current `main` to production from a laptop.
+#
+#   HETZNER_HOST=root@<server> ./scripts/deploy-to-hetzner.sh [--no-cache]
+#   ./scripts/deploy-to-hetzner.sh root@<server> [--no-cache]
+#
+# This is a thin wrapper: it SSHes in and runs ./deploy.sh, the same script the
+# automatic deploy runs. It used to be a second implementation of the deploy —
+# its own pull (without --ff-only), its own health gate, and the only place the
+# crontab was ever installed — and the two drifted. Everything it did now lives
+# in deploy.sh: the rollback point, the pull, the migration, the health gate,
+# the scheduled jobs.
+#
+# The server's address is deliberately not in this file: the repository is
+# public. Pass it as HETZNER_HOST or as the first argument. SSH_KEY may name an
+# identity file; HETZNER_APP_DIR overrides the checkout's path.
 
 set -euo pipefail
 
-HETZNER_HOST="${HETZNER_HOST:-root@178.104.29.66}"
-# The checkout on the server is /root/p4td (see DEPLOYMENT.md). This said
-# /opt/p4td, which does not exist on the box — the script would have failed at
-# its first `cd`.
-APP_DIR="/root/p4td"
-SSH_KEY="${SSH_KEY:-}"
-
-# Build SSH command
-SSH_CMD="ssh"
-if [ -n "$SSH_KEY" ]; then
-    SSH_CMD="ssh -i $SSH_KEY"
+HETZNER_HOST="${HETZNER_HOST:-}"
+if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
+    HETZNER_HOST="$1"
+    shift
 fi
 
-echo "=== Deploying P4TD to Hetzner ==="
+if [ -z "$HETZNER_HOST" ]; then
+    echo "ERROR: no server given." >&2
+    echo "Set HETZNER_HOST (e.g. HETZNER_HOST=root@<server>) or pass it as the first argument." >&2
+    exit 1
+fi
+
+APP_DIR="${HETZNER_APP_DIR:-/root/p4td}"
+SSH_KEY="${SSH_KEY:-}"
+
+for arg in "$@"; do
+    case "$arg" in
+        --no-cache|--skip-pull) ;;
+        *) echo "ERROR: unknown option '$arg' (expected --no-cache or --skip-pull)." >&2; exit 1 ;;
+    esac
+done
+
+ssh_cmd=(ssh)
+if [ -n "$SSH_KEY" ]; then
+    ssh_cmd+=(-i "$SSH_KEY")
+fi
+
+echo "=== Deploying P4TD ==="
 echo "Host: $HETZNER_HOST"
 echo ""
 
-$SSH_CMD "$HETZNER_HOST" "
-    set -eo pipefail
-    cd $APP_DIR
-
-    echo '>>> Recording rollback point...'
-    # Record the currently-deployed commit and the current web image id so a
-    # failed deploy can be reverted manually. To roll back:
-    #   git checkout <PREV_COMMIT> && docker compose -f docker-compose.prod.yml up -d --build
-    # (or re-tag/run the saved image id below if the build is the problem).
-    PREV_COMMIT=\$(git rev-parse HEAD)
-    PREV_IMAGE=\$(docker compose -f docker-compose.prod.yml images -q web 2>/dev/null || echo '')
-    echo \"    Previous commit: \$PREV_COMMIT\"
-    echo \"    Previous web image: \$PREV_IMAGE\"
-    printf '%s\t%s\t%s\n' \"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"\$PREV_COMMIT\" \"\$PREV_IMAGE\" >> $APP_DIR/.deploy-history
-
-    echo '>>> Pulling latest code...'
-    git pull origin main
-
-    echo '>>> Rebuilding and restarting...'
-    docker compose -f docker-compose.prod.yml up -d --build
-
-    echo '>>> Waiting for app to become healthy...'
-    # Poll the dependency-free liveness endpoint instead of a blind sleep, so we
-    # only migrate once the new container is actually serving requests.
-    ready=0
-    for i in \$(seq 1 30); do
-        if docker compose -f docker-compose.prod.yml exec -T web \
-            python -c 'import urllib.request,sys; r=urllib.request.Request(\"http://localhost:8000/healthz/\", headers={\"X-Forwarded-Proto\": \"https\"}); sys.exit(0 if urllib.request.urlopen(r, timeout=3).status==200 else 1)' 2>/dev/null; then
-            ready=1
-            echo '    App is responding.'
-            break
-        fi
-        sleep 2
-    done
-    if [ \"\$ready\" -ne 1 ]; then
-        echo '    ERROR: app did not become healthy in time. Aborting deploy.' >&2
-        docker compose -f docker-compose.prod.yml logs --tail=40 web >&2 || true
-        exit 1
-    fi
-
-    echo '>>> Running migrations...'
-    docker compose -f docker-compose.prod.yml exec -T web python manage.py migrate --noinput
-
-    echo '>>> Post-deploy health check...'
-    # Fail loudly on a non-200 so a broken deploy does not look successful.
-    if ! docker compose -f docker-compose.prod.yml exec -T web \
-        python -c 'import urllib.request,sys; r=urllib.request.Request(\"http://localhost:8000/healthz/\", headers={\"X-Forwarded-Proto\": \"https\"}); sys.exit(0 if urllib.request.urlopen(r, timeout=5).status==200 else 1)'; then
-        echo '    ERROR: /healthz/ did not return 200 after migrate.' >&2
-        echo \"    Roll back with: git checkout \$PREV_COMMIT && docker compose -f docker-compose.prod.yml up -d --build\" >&2
-        exit 1
-    fi
-    echo '    Health check passed.'
-
-    echo '>>> Service status:'
-    docker compose -f docker-compose.prod.yml ps
-
-    echo '>>> Setting up media pruning cron job...'
-    CRON_CMD='0 3 * * 0 cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py prune_feed_media --include-orphans >> /var/log/p4td-prune.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'prune_feed_media'; echo \"\$CRON_CMD\" ) | crontab -
-
-    echo '>>> Setting up vaccination reminder cron job...'
-    VAX_CRON='0 8 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_vaccination_reminders >> /var/log/p4td-vaccinations.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'send_vaccination_reminders'; echo \"\$VAX_CRON\" ) | crontab -
-
-    echo '>>> Setting up fleet reminder cron job...'
-    FLEET_CRON='5 8 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_fleet_reminders >> /var/log/p4td-fleet.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'send_fleet_reminders'; echo \"\$FLEET_CRON\" ) | crontab -
-
-    echo '>>> Setting up monthly invoice generation cron job...'
-    INVOICE_CRON='0 6 1 * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py generate_monthly_invoices >> /var/log/p4td-invoices.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'generate_monthly_invoices'; echo \"\$INVOICE_CRON\" ) | crontab -
-
-    echo '>>> Setting up Xero payment sync cron job...'
-    XERO_CRON='*/30 * * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py sync_xero_invoices >> /var/log/p4td-xero.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'sync_xero_invoices'; echo \"\$XERO_CRON\" ) | crontab -
-
-    echo '>>> Setting up invoice reminder cron job...'
-    INVOICE_REMINDER_CRON='0 9 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_invoice_reminders >> /var/log/p4td-invoices.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'send_invoice_reminders'; echo \"\$INVOICE_REMINDER_CRON\" ) | crontab -
-
-    echo '>>> Setting up compliance reminder cron job...'
-    COMPLIANCE_CRON='10 8 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_compliance_reminders >> /var/log/p4td-compliance.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'send_compliance_reminders'; echo \"\$COMPLIANCE_CRON\" ) | crontab -
-
-    echo '>>> Setting up end-of-day exception alert cron job...'
-    EOD_CRON='30 17 * * * cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_end_of_day_alerts >> /var/log/p4td-eod.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'send_end_of_day_alerts'; echo \"\$EOD_CRON\" ) | crontab -
-
-    echo '>>> Setting up tomorrow-changes summary cron job...'
-    # 18:00 UK time, which is what scheduling.CHANGES_SUMMARY_HOUR means. The
-    # host clock is UTC, so fire at 17:00 and 18:00 UTC and run on the one that
-    # is 18:00 in London, whatever the clocks are doing.
-    CHANGES_CRON='0 17,18 * * * [ \"\$(TZ=Europe/London date +\%H)\" = 18 ] && cd $APP_DIR && docker compose -f docker-compose.prod.yml exec -T web python manage.py send_tomorrow_changes >> /var/log/p4td-changes.log 2>&1'
-    ( crontab -l 2>/dev/null | grep -v 'send_tomorrow_changes'; echo \"\$CHANGES_CRON\" ) | crontab -
-
-    echo '=== Deployment complete ==='
-"
+# The options were checked against a fixed list above, so they are safe to
+# place in the remote command line as they are.
+"${ssh_cmd[@]}" "$HETZNER_HOST" "cd '$APP_DIR' && ./deploy.sh $*"
 
 echo ""
 echo "Done. App is live at: https://paws4thoughtdogs.com"

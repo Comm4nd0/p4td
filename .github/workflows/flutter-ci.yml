@@ -20,6 +20,11 @@ on:
       - '.github/workflows/*.yml'
       - 'scripts/check-flutter-pin.sh'
 
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -37,13 +42,15 @@ jobs:
         id: flutter_pin
         run: echo "version=$(cat "$GITHUB_WORKSPACE/my_app/.flutter-version")" >> "$GITHUB_OUTPUT"
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ steps.flutter_pin.outputs.version }}
 
       - name: Check the installed SDK matches the pin
+        env:
+          PINNED: ${{ steps.flutter_pin.outputs.version }}
         run: |
-          pinned="${{ steps.flutter_pin.outputs.version }}"
+          pinned="$PINNED"
           installed="$(flutter --version | sed -n 's/^Flutter \([0-9][0-9.]*\).*/\1/p' | head -1)"
           echo "pinned=$pinned installed=$installed"
           if [ "$installed" != "$pinned" ]; then
@@ -120,9 +127,11 @@ jobs:
           fetch-depth: 0
 
       - name: Check the build number increased
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          base="origin/${{ github.base_ref }}"
-          git fetch origin "${{ github.base_ref }}" --depth=1
+          base="origin/$BASE_REF"
+          git fetch origin "$BASE_REF" --depth=1
 
           # This workflow also runs for workflow-only changes now (the
           # flutter-pin job has to see those). The bump is only required when

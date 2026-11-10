@@ -17,6 +17,11 @@ on:
         description: "How many of the newest failures to pull log bundles for"
         default: "1"
 
+# Least privilege: the GITHUB_TOKEN this workflow gets can only read the
+# repository. Nothing here pushes, comments or publishes with it.
+permissions:
+  contents: read
+
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -25,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install PyJWT
-        run: pip install --quiet pyjwt cryptography
+        run: pip install --quiet pyjwt==2.15.1 cryptography==50.0.2
 
       - name: Pull the latest Xcode Cloud build issues
         env:

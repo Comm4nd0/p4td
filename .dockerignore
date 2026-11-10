@@ -20,6 +20,21 @@ backups/
 media/
 staticfiles/
 
+# Vaccination certificates. Bind-mounted at runtime like media/, but unlike
+# media/ this was missing here, so `COPY . .` baked every certificate into
+# every image built on the server: copies that outlived the originals when a
+# client deleted one or closed their account, and a full extra set per deploy
+# on a disk shared with Postgres.
+private-media/
+
+# Server-side state that sits in the checkout and has no business in an image.
+.deploy-history
+*.log
+migration-data/
+
+# CI and deploy tooling: runs on the host or in GitHub, never in the container.
+.github/
+
 # Flutter mobile app (built and deployed separately)
 my_app/
 
@@ -31,3 +46,10 @@ __pycache__/
 # Tooling / editor state
 .claude/
 node_modules/
+
+# NOT listed, on purpose: the Firebase service-account JSON. Push notifications
+# read it from the path in FIREBASE_SERVICE_ACCOUNT_KEY, and the compose file
+# mounts nothing for it — so if that path is inside this checkout, the copy in
+# the image is the only one the container can see. Excluding it here would
+# silently stop every push on the next deploy. See DEPLOYMENT.md ("Firebase
+# key") for moving it to a mount first.
