@@ -1,5 +1,5 @@
-import 'dog.dart';
 import 'intake_request.dart';
+import 'api_datetime.dart';
 
 /// An existing dog the server thinks a link request may be about, with the
 /// reasons it was suggested. Staff-only: owners never receive candidates.
@@ -106,8 +106,8 @@ class DogLinkRequest {
       linkedDogId: json['dog'],
       linkedDogName: json['linked_dog_name'],
       reviewedByName: json['reviewed_by_name'],
-      reviewedAt: parseApiDate(json['reviewed_at']),
-      createdAt: parseApiDate(json['created_at']),
+      reviewedAt: parseApiDateTime(json['reviewed_at']),
+      createdAt: parseApiDateTime(json['created_at']),
       candidates: json['candidates'] is List
           ? (json['candidates'] as List)
               .map((c) => LinkCandidate.fromJson(c as Map<String, dynamic>))

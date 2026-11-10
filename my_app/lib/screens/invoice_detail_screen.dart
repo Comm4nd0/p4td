@@ -100,7 +100,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         ],
       ),
     );
-    if (confirmed == true) {
+    if (confirmed == true && mounted) {
       await _runAction(() => _dataService.sendInvoice(invoice.id), 'Invoice sent');
     }
   }
@@ -124,6 +124,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       ),
     );
     if (confirmed == true) {
+      if (!mounted) return;
       await _runAction(() => _dataService.voidInvoice(_invoice!.id), 'Invoice voided');
       final updated = _invoice;
       if (hadXeroCopy &&
@@ -137,68 +138,143 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     }
   }
 
+  /// The actions of a dialog that saves from inside itself: Cancel, and a
+  /// primary button that runs [submit] and closes with its invoice only when
+  /// that succeeds. A bad amount or a failed request leaves the dialog open
+  /// with everything typed and the reason in [problem]; it used to close
+  /// first and report afterwards, so the entry had to be typed again.
+  List<Widget> _savingDialogActions({
+    required BuildContext dialogContext,
+    required StateSetter setDialogState,
+    required String label,
+    required bool saving,
+    required void Function(bool saving, String? problem) onState,
+    required Future<Invoice> Function() submit,
+  }) {
+    return [
+      TextButton(
+        onPressed: saving ? null : () => Navigator.pop(dialogContext),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: saving
+            ? null
+            : () async {
+                setDialogState(() => onState(true, null));
+                try {
+                  final updated = await submit();
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, updated);
+                } catch (e) {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() => onState(false, userMessage(e)));
+                }
+              },
+        child: saving
+            ? const SizedBox(
+                width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            : Text(label),
+      ),
+    ];
+  }
+
+  Widget _dialogProblem(String? problem) => problem == null
+      ? const SizedBox.shrink()
+      : Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(problem,
+                style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
+          ),
+        );
+
+  /// A positive amount from [text], or a message for the dialog.
+  double _parseAmount(String text) {
+    final amount = double.tryParse(text.trim());
+    if (amount == null || amount <= 0) throw 'Enter a valid amount';
+    return amount;
+  }
+
+  void _disposeLater(List<TextEditingController> controllers) {
+    Future.delayed(const Duration(milliseconds: 400), () {
+      for (final c in controllers) {
+        c.dispose();
+      }
+    });
+  }
+
   Future<void> _addAdjustmentDialog() async {
     final invoice = _invoice!;
     final descriptionController = TextEditingController();
     final amountController = TextEditingController();
     var isDiscount = false;
+    var saving = false;
+    String? problem;
 
-    final confirmed = await showDialog<bool>(
+    final updated = await showDialog<Invoice>(
       context: context,
-      builder: (context) => StatefulBuilder(
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Add charge or discount'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: false, label: Text('Charge')),
-                  ButtonSegment(value: true, label: Text('Discount')),
-                ],
-                selected: {isDiscount},
-                onSelectionChanged: (selection) =>
-                    setDialogState(() => isDiscount = selection.first),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: descriptionController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  labelText: 'Description',
-                  hintText: isDiscount ? 'e.g. Loyalty discount' : 'e.g. Damaged lead',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('Charge')),
+                    ButtonSegment(value: true, label: Text('Discount')),
+                  ],
+                  selected: {isDiscount},
+                  onSelectionChanged: (selection) =>
+                      setDialogState(() => isDiscount = selection.first),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Amount', prefixText: '£'),
-              ),
-            ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    hintText: isDiscount ? 'e.g. Loyalty discount' : 'e.g. Damaged lead',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Amount', prefixText: '£'),
+                ),
+                _dialogProblem(problem),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Add')),
-          ],
+          actions: _savingDialogActions(
+            dialogContext: dialogContext,
+            setDialogState: setDialogState,
+            label: 'Add',
+            saving: saving,
+            onState: (s, p) {
+              saving = s;
+              problem = p;
+            },
+            submit: () async {
+              final amount = _parseAmount(amountController.text);
+              return _dataService.addInvoiceLine(
+                invoice.id,
+                description: descriptionController.text.trim(),
+                amount: isDiscount ? -amount : amount,
+              );
+            },
+          ),
         ),
       ),
     );
-    if (confirmed != true) return;
-
-    final amount = double.tryParse(amountController.text.trim());
-    if (amount == null || amount <= 0) {
-      showError('Enter a valid amount');
-      return;
-    }
-    await _runAction(
-      () => _dataService.addInvoiceLine(
-        invoice.id,
-        description: descriptionController.text.trim(),
-        amount: isDiscount ? -amount : amount,
-      ),
-      isDiscount ? 'Discount added' : 'Charge added',
-    );
+    _disposeLater([descriptionController, amountController]);
+    if (updated == null || !mounted) return;
+    setState(() => _invoice = updated);
+    showSuccess(isDiscount ? 'Discount added' : 'Charge added');
   }
 
   Future<void> _removeAdjustment(InvoiceLine line) async {
@@ -215,78 +291,87 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     final notesController = TextEditingController();
     String method = 'BANK_TRANSFER';
     DateTime paymentDate = DateTime.now();
+    var saving = false;
+    String? problem;
 
-    final confirmed = await showDialog<bool>(
+    final updated = await showDialog<Invoice>(
       context: context,
-      builder: (context) => StatefulBuilder(
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Record payment'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Amount', prefixText: '£'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: method,
-                decoration: const InputDecoration(labelText: 'Method'),
-                items: const [
-                  DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank transfer')),
-                  DropdownMenuItem(value: 'CASH', child: Text('Cash')),
-                  DropdownMenuItem(value: 'OTHER', child: Text('Other')),
-                ],
-                onChanged: (v) => setDialogState(() => method = v ?? 'BANK_TRANSFER'),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Payment date'),
-                subtitle: Text(ukDate(paymentDate)),
-                trailing: Picon(PiconsDuotone.calendar, size: 20),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: paymentDate,
-                    firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                    lastDate: DateTime.now(),
-                  );
-                  if (picked != null) setDialogState(() => paymentDate = picked);
-                },
-              ),
-              TextField(
-                controller: notesController,
-                decoration: const InputDecoration(labelText: 'Notes (optional)'),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Amount', prefixText: '£'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: method,
+                  decoration: const InputDecoration(labelText: 'Method'),
+                  items: const [
+                    DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank transfer')),
+                    DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                    DropdownMenuItem(value: 'OTHER', child: Text('Other')),
+                  ],
+                  onChanged: (v) => setDialogState(() => method = v ?? 'BANK_TRANSFER'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Payment date'),
+                  subtitle: Text(ukDate(paymentDate)),
+                  trailing: Picon(PiconsDuotone.calendar, size: 20),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: paymentDate,
+                      firstDate: DateTime(now.year - 1, now.month, now.day),
+                      lastDate: now,
+                    );
+                    if (picked != null && context.mounted) {
+                      setDialogState(() => paymentDate = picked);
+                    }
+                  },
+                ),
+                TextField(
+                  controller: notesController,
+                  decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                ),
+                _dialogProblem(problem),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Record')),
-          ],
+          actions: _savingDialogActions(
+            dialogContext: dialogContext,
+            setDialogState: setDialogState,
+            label: 'Record',
+            saving: saving,
+            onState: (s, p) {
+              saving = s;
+              problem = p;
+            },
+            submit: () => _dataService.recordInvoicePayment(
+              invoice.id,
+              amount: _parseAmount(amountController.text),
+              method: method,
+              paymentDate: paymentDate,
+              notes: notesController.text.trim(),
+            ),
+          ),
         ),
       ),
     );
-
-    if (confirmed == true) {
-      final amount = double.tryParse(amountController.text.trim());
-      if (amount == null || amount <= 0) {
-        showError('Enter a valid amount');
-        return;
-      }
-      await _runAction(
-        () => _dataService.recordInvoicePayment(
-          invoice.id,
-          amount: amount,
-          method: method,
-          paymentDate: paymentDate,
-          notes: notesController.text.trim(),
-        ),
-        'Payment recorded',
-      );
-    }
+    _disposeLater([amountController, notesController]);
+    if (updated == null || !mounted) return;
+    setState(() => _invoice = updated);
+    showSuccess('Payment recorded');
   }
 
   @override

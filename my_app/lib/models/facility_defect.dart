@@ -1,4 +1,5 @@
 import 'comment.dart';
+import 'api_datetime.dart';
 
 class FacilityDefectImage {
   final int id;
@@ -87,16 +88,14 @@ class FacilityDefect {
       status: json['status'] ?? 'REPORTED',
       reportedByName: json['reported_by_name'],
       resolvedByName: json['resolved_by_name'],
-      resolvedAt: json['resolved_at'] != null
-          ? DateTime.parse(json['resolved_at'])
-          : null,
+      resolvedAt: parseApiDateTime(json['resolved_at']),
       images: (json['images'] as List<dynamic>? ?? [])
           .map((i) => FacilityDefectImage.fromJson(i))
           .toList(),
       comments: (json['comments'] as List<dynamic>? ?? [])
           .map((c) => Comment.fromJson(c))
           .toList(),
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

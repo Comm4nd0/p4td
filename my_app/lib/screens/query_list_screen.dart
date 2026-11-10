@@ -10,6 +10,7 @@ import 'query_detail_screen.dart';
 import '../widgets/new_query_dialog.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../widgets/page_body.dart';
+import '../widgets/dispose_later.dart';
 
 class QueryListScreen extends StatefulWidget {
   final bool isStaff;
@@ -189,6 +190,7 @@ class _QueryListScreenState extends State<QueryListScreen> with WidgetsBindingOb
         ),
       ),
     );
+    disposeControllersLater([subjectController, messageController]);
 
     if (result == true && selectedOwner != null) {
       try {

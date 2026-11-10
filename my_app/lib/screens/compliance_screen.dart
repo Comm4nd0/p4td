@@ -5,6 +5,7 @@ import '../models/compliance.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/page_body.dart';
+import '../widgets/dispose_later.dart';
 
 /// The Safety & Compliance register: recurring facility checks (fire alarm
 /// tests, extinguisher servicing, first aid kits, licence and insurance
@@ -271,6 +272,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
                 ),
                 if (widget.canManage)
                   IconButton(
+                    tooltip: 'Edit',
                     icon: const Picon(PiconsDuotone.notePencil, size: 20),
                     onPressed: () {
                       Navigator.pop(sheetContext);
@@ -417,6 +419,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
         ),
       ),
     );
+    disposeControllersLater([notes]);
     if (saved != true) return;
 
     await _run(
@@ -530,6 +533,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
         ),
       ),
     );
+    disposeControllersLater([name, description]);
     if (saved != true) return;
     if (name.text.trim().isEmpty) {
       _snack('Enter a name.');

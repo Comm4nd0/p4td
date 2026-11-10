@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'http_client.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
+import '../models/api_datetime.dart';
 import '../models/dog.dart';
 import '../models/dog_address.dart';
 import '../models/photo.dart';
@@ -45,6 +48,7 @@ import '../models/staff_hr.dart';
 import '../models/compliance.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
+import 'media_limits.dart';
 import 'no_connection_exception.dart';
 
 part 'data_service_exceptions.dart';
@@ -137,6 +141,77 @@ class ApiDataService implements DataService {
     return headers;
   }
 
+  /// Sends a multipart request as the signed-in user through
+  /// [http.sendMultipart], so every upload gets the same stall detection,
+  /// retry rules, offline reporting and 401 sign-out as the rest of the app.
+  /// Nothing here should build an `http.MultipartRequest` and `send()` it by
+  /// hand: those had no timeout at all, and a dead connection left the
+  /// spinner turning for ever.
+  ///
+  /// [fill] adds the fields and files; it runs once per attempt.
+  Future<http.Response> _multipart(
+    String method,
+    Uri url,
+    FutureOr<void> Function(http.MultipartRequest request) fill, {
+    void Function(int sentBytes, int totalBytes)? onProgress,
+  }) async {
+    final token = await _authService.getToken();
+    return http.sendMultipart(
+      method: method,
+      url: url,
+      onProgress: onProgress,
+      fill: (request) async {
+        // No header at all when signed out, never the literal "Token null".
+        if (token != null && token.isNotEmpty) {
+          request.headers['Authorization'] = 'Token $token';
+        }
+        await fill(request);
+      },
+    );
+  }
+
+  /// The file part for an upload: streamed from [filePath] when there is one
+  /// (a video is never read into memory whole), otherwise from [bytes].
+  /// Refuses a file over the server's limit before anything is sent.
+  Future<http.MultipartFile> _mediaPart(
+    String field, {
+    required Uint8List bytes,
+    required String fileName,
+    required bool isVideo,
+    String? filePath,
+    http_parser.MediaType? contentType,
+  }) async {
+    if (filePath != null) {
+      MediaLimits.check(bytes: await File(filePath).length(), isVideo: isVideo, fileName: fileName);
+      return http.MultipartFile.fromPath(field, filePath, filename: fileName, contentType: contentType);
+    }
+    MediaLimits.check(bytes: bytes.length, isVideo: isVideo, fileName: fileName);
+    return http.chunkedMultipartFile(field, bytes, filename: fileName, contentType: contentType);
+  }
+
+  /// Whether [e] means the server could not be reached at all — the only case
+  /// in which a saved copy may stand in for a fetch. A reply of any kind (a
+  /// 500 mid-deploy, a body the app can't parse) marks the app online, so the
+  /// saved-data banner is down; serving old data then would pass it off as
+  /// live.
+  bool _unreachable(Object e) => NoConnectionException.isNetworkError(e);
+
+  /// The number in a `{"count": n}` reply.
+  ///
+  /// Throws on anything else. These feed the badges beside the bell, and a
+  /// failed request used to be reported as 0 — "nothing waiting" — which is
+  /// the one answer a badge must never make up. Callers keep the count they
+  /// already had when this throws.
+  int _countFrom(http.Response response, String what) {
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load $what: ${response.statusCode}');
+    }
+    final data = json.decode(response.body);
+    final count = data is Map ? data['count'] : null;
+    if (count is! num) throw Exception('Failed to load $what: unexpected reply');
+    return count.toInt();
+  }
+
   /// Fetches every page of a (possibly) paginated list endpoint and returns the
   /// aggregated raw JSON list.
   ///
@@ -187,77 +262,32 @@ class ApiDataService implements DataService {
     return aggregated;
   }
 
-  List<Dog> _parseDogsList(List<dynamic> data) {
-    return data.map((json) {
-      final daysInDaycare = (json['daycare_days'] as List<dynamic>?)
-          ?.map((day) => Weekday.values.firstWhere(
-            (w) => w.dayNumber == day,
-            orElse: () => Weekday.monday,
-          ))
-          .toList() ?? [];
+  /// Dogs as any dog endpoint serves them. The fields live in [Dog.fromJson];
+  /// every method that gets a dog back from the server goes through here.
+  List<Dog> _parseDogsList(List<dynamic> data) => data
+      .map((json) => Dog.fromJson(Map<String, dynamic>.from(json as Map)))
+      .toList();
 
-      OwnerDetails? ownerDetails;
-      if (json['owner_details'] != null) {
-        ownerDetails = OwnerDetails.fromJson(json['owner_details']);
-      }
-      final additionalOwners = (json['additional_owners_details'] as List<dynamic>?)
-          ?.map((o) => OwnerDetails.fromJson(o))
-          .toList() ?? [];
-
-      return Dog(
-        id: json['id'].toString(),
-        name: json['name'],
-        ownerId: (json['owner'] ?? '').toString(),
-        profileImageUrl: json['profile_image'],
-        foodInstructions: json['food_instructions'],
-        medicalNotes: json['medical_notes'],
-        registeredVet: json['registered_vet'],
-        contactNumber: json['contact_number'],
-        emergencyContactNumber: json['emergency_contact_number'],
-        address: json['address'],
-        postcode: json['postcode'],
-        accessInstructions: json['access_instructions'],
-        alternativeAddresses: DogAddress.listFromJson(json['alternative_addresses']),
-        vanPlacement: json['van_placement'],
-        generalNotes: json['general_notes'],
-        latitude: parseApiDouble(json['latitude']),
-        longitude: parseApiDouble(json['longitude']),
-        daysInDaycare: daysInDaycare,
-        ownerDetails: ownerDetails,
-        additionalOwners: additionalOwners,
-        preferredDropoffTime: DropoffTimeExtension.fromApiValue(json['preferred_dropoff_time']),
-        scheduleType: ScheduleTypeExtension.fromApiValue(json['schedule_type']),
-        ownerBringsDefault: json['owner_brings_default'] ?? false,
-        ownerCollectsDefault: json['owner_collects_default'] ?? false,
-        ownerBringsDefaultTime: parseApiTime(json['owner_brings_default_time']),
-        ownerCollectsDefaultTime: parseApiTime(json['owner_collects_default_time']),
-        sex: parseDogSex(json['sex']),
-        dateOfBirth: parseApiDate(json['date_of_birth']),
-        lastVaccinationDate: parseApiDate(json['last_vaccination_date']),
-        vaccinationOverdue: json['vaccination_overdue'] ?? false,
-        certificateStatus: json['certificate_status']?.toString() ?? 'OK',
-        certificateNeededSince: parseApiDate(json['certificate_needed_since'] as String?),
-        isSpayed: json['is_spayed'] ?? false,
-        dailyRate: double.tryParse(json['daily_rate']?.toString() ?? ''),
-        cancelledDates: parseApiDateList(json['cancelled_dates']),
-        assignedDates: parseApiDateList(json['assigned_dates']),
-      );
-    }).toList();
-  }
+  Dog _parseDog(dynamic json) => Dog.fromJson(Map<String, dynamic>.from(json as Map));
 
   @override
   Future<List<Dog>> getDogs() async {
     final cache = CacheService();
+    final session = cache.session;
     try {
       final data = await _fetchAllPages(Uri.parse('${AuthService.baseUrl}/api/dogs/'));
-      // Cache the raw JSON for offline use
-      cache.cacheDogs(data.cast<Map<String, dynamic>>());
-      return _parseDogsList(data);
+      final dogs = _parseDogsList(data);
+      // Cache the raw JSON for offline use — once it has parsed, and only if
+      // the account that asked is still the one signed in.
+      cache.cacheDogs(data.cast<Map<String, dynamic>>(), session: session);
+      return dogs;
     } catch (e) {
-      // On network error, try to return cached data
-      final cached = cache.getCachedDogs();
-      if (cached != null && cached.isNotEmpty) {
-        return _parseDogsList(cached);
+      // The saved list stands in only when the server can't be reached.
+      if (_unreachable(e)) {
+        final cached = cache.getCachedDogs();
+        if (cached != null && cached.isNotEmpty) {
+          return _parseDogsList(cached);
+        }
       }
       rethrow;
     }
@@ -340,6 +370,7 @@ class ApiDataService implements DataService {
   @override
   Future<UserProfile> getProfile() async {
     final cache = CacheService();
+    final session = cache.session;
     // 401/403 mean this token is no longer valid — serving a cached profile
     // would present a session that no longer exists as if it were live.
     var allowCacheFallback = true;
@@ -350,7 +381,7 @@ class ApiDataService implements DataService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        await cache.cacheProfile(Map<String, dynamic>.from(data));
+        await cache.cacheProfile(Map<String, dynamic>.from(data), session: session);
         return UserProfile.fromJson(data);
       }
       if (response.statusCode == 401 || response.statusCode == 403) {
@@ -410,20 +441,18 @@ class ApiDataService implements DataService {
 
   @override
   Future<UserProfile> uploadProfilePhoto(Uint8List imageBytes, String imageName) async {
-    final token = await _authService.getToken();
-    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/profile/'));
-    request.headers['Authorization'] = 'Token $token';
-
-    final filename = imageName;
-    request.files.add(http.MultipartFile.fromBytes(
-      'profile_photo',
-      imageBytes,
-      filename: filename,
-      contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
-    ));
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    final response = await _multipart(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/profile/'),
+      (request) {
+        request.files.add(http.chunkedMultipartFile(
+          'profile_photo',
+          imageBytes,
+          filename: imageName,
+          contentType: http_parser.MediaType('image', imageName.endsWith('.png') ? 'png' : 'jpeg'),
+        ));
+      },
+    );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       return UserProfile.fromJson(json.decode(response.body));
@@ -434,13 +463,11 @@ class ApiDataService implements DataService {
 
   @override
   Future<UserProfile> deleteProfilePhoto() async {
-    final token = await _authService.getToken();
-    var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/profile/'));
-    request.headers['Authorization'] = 'Token $token';
-    request.fields['profile_photo'] = '';
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    final response = await _multipart(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/profile/'),
+      (request) => request.fields['profile_photo'] = '',
+    );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       return UserProfile.fromJson(json.decode(response.body));
@@ -491,97 +518,61 @@ class ApiDataService implements DataService {
 
   @override
   Future<Dog> updateDog(Dog dog, {String? name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, bool deletePhoto = false, List<Weekday>? daysInDaycare, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, bool clearDateOfBirth = false, DateTime? lastVaccinationDate, bool clearLastVaccinationDate = false, double? dailyRate, bool clearDailyRate = false, bool clearPreferredDropoffTime = false}) async {
-    final token = await _authService.getToken();
+    final changes = _dogChanges(
+      dog,
+      name: name,
+      foodInstructions: foodInstructions,
+      medicalNotes: medicalNotes,
+      registeredVet: registeredVet,
+      contactNumber: contactNumber,
+      emergencyContactNumber: emergencyContactNumber,
+      address: address,
+      postcode: postcode,
+      accessInstructions: accessInstructions,
+      vanPlacement: vanPlacement,
+      generalNotes: generalNotes,
+      daysInDaycare: daysInDaycare,
+      preferredDropoffTime: preferredDropoffTime,
+      clearPreferredDropoffTime: clearPreferredDropoffTime,
+      scheduleType: scheduleType,
+      ownerBringsDefault: ownerBringsDefault,
+      ownerCollectsDefault: ownerCollectsDefault,
+      ownerBringsDefaultTime: ownerBringsDefaultTime,
+      ownerCollectsDefaultTime: ownerCollectsDefaultTime,
+      sex: sex,
+      dateOfBirth: dateOfBirth,
+      clearDateOfBirth: clearDateOfBirth,
+      lastVaccinationDate: lastVaccinationDate,
+      clearLastVaccinationDate: clearLastVaccinationDate,
+      isSpayed: isSpayed,
+      dailyRate: dailyRate,
+      clearDailyRate: clearDailyRate,
+    );
+    final url = Uri.parse('${AuthService.baseUrl}/api/dogs/${dog.id}/');
     http.Response response;
 
     if (imageBytes != null || deletePhoto) {
-      // Use multipart request for photo changes
-      var request = http.MultipartRequest('PATCH', Uri.parse('${AuthService.baseUrl}/api/dogs/${dog.id}/'));
-      request.headers['Authorization'] = 'Token $token';
-
-      if (name != null) request.fields['name'] = name;
-      if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
-      if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
-      if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
-      if (contactNumber != null) request.fields['contact_number'] = contactNumber;
-      if (emergencyContactNumber != null) request.fields['emergency_contact_number'] = emergencyContactNumber;
-      if (address != null) request.fields['address'] = address;
-      if (postcode != null) request.fields['postcode'] = postcode;
-      if (accessInstructions != null) request.fields['access_instructions'] = accessInstructions;
-      if (vanPlacement != null) request.fields['van_placement'] = vanPlacement;
-      if (generalNotes != null) request.fields['general_notes'] = generalNotes;
-      // Always send schedule_type and daycare_days (falling back to the dog's
-      // current values) so they can never be silently dropped from the payload.
-      request.fields['daycare_days'] = json.encode((daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList());
-      if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
-      if (clearPreferredDropoffTime) request.fields['preferred_dropoff_time'] = '';
-      request.fields['schedule_type'] = (scheduleType ?? dog.scheduleType).apiValue;
-      if (ownerBringsDefault != null) request.fields['owner_brings_default'] = ownerBringsDefault.toString();
-      if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
-      if (ownerBringsDefaultTime != null) request.fields['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
-      if (ownerCollectsDefaultTime != null) request.fields['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
-      if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
-      if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
-      if (clearDateOfBirth) request.fields['date_of_birth'] = '';
-      if (lastVaccinationDate != null) request.fields['last_vaccination_date'] = formatApiDate(lastVaccinationDate)!;
-      if (clearLastVaccinationDate) request.fields['last_vaccination_date'] = '';
-      if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
-      if (dailyRate != null) request.fields['daily_rate'] = dailyRate.toStringAsFixed(2);
-      if (clearDailyRate) request.fields['daily_rate'] = '';
-
-      if (deletePhoto) {
-        request.fields['profile_image'] = '';  // Empty string to clear the image
-      } else if (imageBytes != null) {
-        final filename = imageName ?? 'dog_photo.jpg';
-        request.files.add(http.MultipartFile.fromBytes(
-          'profile_image',
-          imageBytes,
-          filename: filename,
-          contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
-        ));
-      }
-
-      final streamedResponse = await request.send();
-      response = await http.Response.fromStream(streamedResponse);
+      // Photo changes need a multipart body; the changed fields ride along.
+      response = await _multipart('PATCH', url, (request) {
+        changes.forEach((key, value) => request.fields[key] = _multipartValue(value));
+        if (deletePhoto) {
+          request.fields['profile_image'] = ''; // Empty string to clear the image
+        } else if (imageBytes != null) {
+          final filename = imageName ?? 'dog_photo.jpg';
+          request.files.add(http.chunkedMultipartFile(
+            'profile_image',
+            imageBytes,
+            filename: filename,
+            contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+          ));
+        }
+      });
     } else {
-      // No photo changes, use regular JSON request
+      // Nothing changed still goes to the server (an empty PATCH writes
+      // nothing): the reply is the dog as it stands now, which is what the
+      // caller shows next.
       final headers = await _getHeaders();
-      response = await http.patch(
-        Uri.parse('${AuthService.baseUrl}/api/dogs/${dog.id}/'),
-        headers: headers,
-        body: json.encode({
-          'name': name ?? dog.name,
-          'food_instructions': foodInstructions ?? dog.foodInstructions,
-          'medical_notes': medicalNotes ?? dog.medicalNotes,
-          'registered_vet': registeredVet ?? dog.registeredVet,
-          'contact_number': contactNumber ?? dog.contactNumber,
-          'emergency_contact_number': emergencyContactNumber ?? dog.emergencyContactNumber,
-          'address': address ?? dog.address,
-          'postcode': postcode ?? dog.postcode,
-          'access_instructions': accessInstructions ?? dog.accessInstructions,
-          'van_placement': vanPlacement ?? dog.vanPlacement,
-          'general_notes': generalNotes ?? dog.generalNotes,
-          // Always send schedule_type and daycare_days (falling back to the
-          // dog's current values) so they can never be silently dropped from
-          // the payload when the caller passes null.
-          'daycare_days': (daysInDaycare ?? dog.daysInDaycare).map((d) => d.dayNumber).toList(),
-          if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
-          if (clearPreferredDropoffTime) 'preferred_dropoff_time': '',
-          'schedule_type': (scheduleType ?? dog.scheduleType).apiValue,
-          if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
-          if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
-          if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
-          if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
-          if (sex != null) 'sex': dogSexToApi(sex),
-          if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
-          if (clearDateOfBirth) 'date_of_birth': null,
-          if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
-          if (clearLastVaccinationDate) 'last_vaccination_date': null,
-          if (isSpayed != null) 'is_spayed': isSpayed,
-          if (dailyRate != null) 'daily_rate': dailyRate.toStringAsFixed(2),
-          if (clearDailyRate) 'daily_rate': null,
-        }),
-      );
+      response = await http.patch(url, headers: headers, body: json.encode(changes));
     }
 
     // 202 means the changes were submitted for staff approval
@@ -596,57 +587,122 @@ class ApiDataService implements DataService {
       throw Exception('Failed to update dog: ${response.body}');
     }
 
-    final data = json.decode(response.body);
-    final updatedDaysInDaycare = (data['daycare_days'] as List<dynamic>?)
-        ?.map((day) => Weekday.values.firstWhere(
-              (w) => w.dayNumber == day,
-              orElse: () => Weekday.monday,
-            ))
-        .toList() ?? [];
-    OwnerDetails? ownerDetails;
-    if (data['owner_details'] != null) {
-      ownerDetails = OwnerDetails.fromJson(data['owner_details']);
-    }
-    final additionalOwners = (data['additional_owners_details'] as List<dynamic>?)
-        ?.map((o) => OwnerDetails.fromJson(o))
-        .toList() ?? [];
+    return _parseDog(json.decode(response.body));
+  }
 
-    return Dog(
-      id: data['id'].toString(),
-      name: data['name'],
-      ownerId: (data['owner'] ?? '').toString(),
-      profileImageUrl: data['profile_image'],
-      foodInstructions: data['food_instructions'],
-      medicalNotes: data['medical_notes'],
-      registeredVet: data['registered_vet'],
-      contactNumber: data['contact_number'],
-      emergencyContactNumber: data['emergency_contact_number'],
-      address: data['address'],
-      postcode: data['postcode'],
-      accessInstructions: data['access_instructions'],
-      alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
-      vanPlacement: data['van_placement'],
-      generalNotes: data['general_notes'],
-      latitude: parseApiDouble(data['latitude']),
-      longitude: parseApiDouble(data['longitude']),
-      daysInDaycare: updatedDaysInDaycare,
-      ownerDetails: ownerDetails,
-      additionalOwners: additionalOwners,
-      preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
-      scheduleType: ScheduleTypeExtension.fromApiValue(data['schedule_type']),
-      ownerBringsDefault: data['owner_brings_default'] ?? false,
-      ownerCollectsDefault: data['owner_collects_default'] ?? false,
-      ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
-      ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
-      sex: parseDogSex(data['sex']),
-      dateOfBirth: parseApiDate(data['date_of_birth']),
-      lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
-      vaccinationOverdue: data['vaccination_overdue'] ?? false,
-      certificateStatus: data['certificate_status']?.toString() ?? 'OK',
-      certificateNeededSince: parseApiDate(data['certificate_needed_since'] as String?),
-      isSpayed: data['is_spayed'] ?? false,
-      dailyRate: double.tryParse(data['daily_rate']?.toString() ?? ''),
-    );
+  /// A JSON value as a multipart form field: null clears (the empty string),
+  /// a list goes as JSON, everything else as its text.
+  String _multipartValue(dynamic value) {
+    if (value == null) return '';
+    if (value is List) return json.encode(value);
+    return value.toString();
+  }
+
+  /// The fields of an edit that differ from [dog] — the dog the form was
+  /// opened with — keyed and valued as the API takes them.
+  ///
+  /// Only these are sent. The form used to send every field it held, so a
+  /// form opened on an hours-old copy wrote all of it back: someone fixing a
+  /// typo in the notes also put back an address the owner had since changed,
+  /// and the old daycare days — which the server then acted on, taking the
+  /// dog off the board for a day it had just been booked in for. A field the
+  /// person didn't touch now can't overwrite anything.
+  ///
+  /// A null argument means "not offered by this form" and is never a change.
+  /// Text compares with null and empty as the same thing.
+  Map<String, dynamic> _dogChanges(
+    Dog dog, {
+    String? name,
+    String? foodInstructions,
+    String? medicalNotes,
+    String? registeredVet,
+    String? contactNumber,
+    String? emergencyContactNumber,
+    String? address,
+    String? postcode,
+    String? accessInstructions,
+    String? vanPlacement,
+    String? generalNotes,
+    List<Weekday>? daysInDaycare,
+    DropoffTime? preferredDropoffTime,
+    bool clearPreferredDropoffTime = false,
+    ScheduleType? scheduleType,
+    bool? ownerBringsDefault,
+    bool? ownerCollectsDefault,
+    TimeOfDay? ownerBringsDefaultTime,
+    TimeOfDay? ownerCollectsDefaultTime,
+    DogSex? sex,
+    DateTime? dateOfBirth,
+    bool clearDateOfBirth = false,
+    DateTime? lastVaccinationDate,
+    bool clearLastVaccinationDate = false,
+    bool? isSpayed,
+    double? dailyRate,
+    bool clearDailyRate = false,
+  }) {
+    final changes = <String, dynamic>{};
+    void text(String key, String? now, String? was) {
+      if (now != null && now != (was ?? '')) changes[key] = now;
+    }
+
+    text('name', name, dog.name);
+    text('food_instructions', foodInstructions, dog.foodInstructions);
+    text('medical_notes', medicalNotes, dog.medicalNotes);
+    text('registered_vet', registeredVet, dog.registeredVet);
+    text('contact_number', contactNumber, dog.contactNumber);
+    text('emergency_contact_number', emergencyContactNumber, dog.emergencyContactNumber);
+    text('address', address, dog.address);
+    text('postcode', postcode, dog.postcode);
+    text('access_instructions', accessInstructions, dog.accessInstructions);
+    text('van_placement', vanPlacement, dog.vanPlacement);
+    text('general_notes', generalNotes, dog.generalNotes);
+
+    if (daysInDaycare != null &&
+        (daysInDaycare.toSet().length != dog.daysInDaycare.toSet().length ||
+            !daysInDaycare.toSet().containsAll(dog.daysInDaycare))) {
+      // With any weekend day the dog already has: this form can't show one,
+      // so it must not be the thing that removes it.
+      changes['daycare_days'] = dog.daycareDayNumbers(daysInDaycare);
+    }
+    if (scheduleType != null && scheduleType != dog.scheduleType) {
+      changes['schedule_type'] = scheduleType.apiValue;
+    }
+    if (preferredDropoffTime != null && preferredDropoffTime != dog.preferredDropoffTime) {
+      changes['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
+    } else if (clearPreferredDropoffTime) {
+      changes['preferred_dropoff_time'] = '';
+    }
+    if (ownerBringsDefault != null && ownerBringsDefault != dog.ownerBringsDefault) {
+      changes['owner_brings_default'] = ownerBringsDefault;
+    }
+    if (ownerCollectsDefault != null && ownerCollectsDefault != dog.ownerCollectsDefault) {
+      changes['owner_collects_default'] = ownerCollectsDefault;
+    }
+    if (ownerBringsDefaultTime != null && ownerBringsDefaultTime != dog.ownerBringsDefaultTime) {
+      changes['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
+    }
+    if (ownerCollectsDefaultTime != null && ownerCollectsDefaultTime != dog.ownerCollectsDefaultTime) {
+      changes['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
+    }
+    if (sex != null && sex != dog.sex) changes['sex'] = dogSexToApi(sex);
+    if (dateOfBirth != null && formatApiDate(dateOfBirth) != formatApiDate(dog.dateOfBirth)) {
+      changes['date_of_birth'] = formatApiDate(dateOfBirth);
+    } else if (clearDateOfBirth) {
+      changes['date_of_birth'] = null;
+    }
+    if (lastVaccinationDate != null &&
+        formatApiDate(lastVaccinationDate) != formatApiDate(dog.lastVaccinationDate)) {
+      changes['last_vaccination_date'] = formatApiDate(lastVaccinationDate);
+    } else if (clearLastVaccinationDate) {
+      changes['last_vaccination_date'] = null;
+    }
+    if (isSpayed != null && isSpayed != dog.isSpayed) changes['is_spayed'] = isSpayed;
+    if (dailyRate != null && dailyRate.toStringAsFixed(2) != dog.dailyRate?.toStringAsFixed(2)) {
+      changes['daily_rate'] = dailyRate.toStringAsFixed(2);
+    } else if (clearDailyRate) {
+      changes['daily_rate'] = null;
+    }
+    return changes;
   }
 
   @override
@@ -662,22 +718,22 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt) async {
-    final token = await _authService.getToken();
+  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt, {String? filePath}) async {
     final isVideo = _isVideoFileName(imageName);
 
-    final response = await http.sendMultipart(
-      method: 'POST',
-      url: Uri.parse('${AuthService.baseUrl}/api/photos/'),
-      fill: (request) {
-        request.headers['Authorization'] = 'Token $token';
+    final response = await _multipart(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/photos/'),
+      (request) async {
         request.fields['dog'] = dogId;
         request.fields['taken_at'] = takenAt.toIso8601String();
         request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
-        request.files.add(http.MultipartFile.fromBytes(
+        request.files.add(await _mediaPart(
           'file',
-          imageBytes,
-          filename: imageName,
+          bytes: imageBytes,
+          fileName: imageName,
+          isVideo: isVideo,
+          filePath: filePath,
         ));
       },
     );
@@ -725,192 +781,57 @@ class ApiDataService implements DataService {
 
   @override
   Future<Dog> createDog({required String name, String? foodInstructions, String? medicalNotes, String? registeredVet, String? contactNumber, String? emergencyContactNumber, String? address, String? postcode, String? accessInstructions, String? vanPlacement, String? generalNotes, Uint8List? imageBytes, String? imageName, List<Weekday>? daysInDaycare, String? ownerId, DropoffTime? preferredDropoffTime, ScheduleType? scheduleType, bool? ownerBringsDefault, bool? ownerCollectsDefault, TimeOfDay? ownerBringsDefaultTime, TimeOfDay? ownerCollectsDefaultTime, DogSex? sex, DateTime? dateOfBirth, bool? isSpayed, DateTime? lastVaccinationDate}) async {
-    final token = await _authService.getToken();
+    final fields = <String, dynamic>{
+      'name': name,
+      if (foodInstructions != null) 'food_instructions': foodInstructions,
+      if (medicalNotes != null) 'medical_notes': medicalNotes,
+      if (registeredVet != null) 'registered_vet': registeredVet,
+      if (contactNumber != null) 'contact_number': contactNumber,
+      if (emergencyContactNumber != null) 'emergency_contact_number': emergencyContactNumber,
+      if (address != null) 'address': address,
+      if (postcode != null) 'postcode': postcode,
+      if (accessInstructions != null) 'access_instructions': accessInstructions,
+      if (vanPlacement != null) 'van_placement': vanPlacement,
+      if (generalNotes != null) 'general_notes': generalNotes,
+      if (daysInDaycare != null && daysInDaycare.isNotEmpty)
+        'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
+      if (ownerId != null) 'owner': int.tryParse(ownerId) ?? ownerId,
+      if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
+      if (scheduleType != null) 'schedule_type': scheduleType.apiValue,
+      if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
+      if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
+      if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
+      if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
+      if (sex != null) 'sex': dogSexToApi(sex),
+      if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
+      if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
+      if (isSpayed != null) 'is_spayed': isSpayed,
+    };
+    final url = Uri.parse('${AuthService.baseUrl}/api/dogs/');
+    http.Response response;
 
     if (imageBytes != null) {
-      // Use multipart request for file upload
-      var request = http.MultipartRequest('POST', Uri.parse('${AuthService.baseUrl}/api/dogs/'));
-      request.headers['Authorization'] = 'Token $token';
-
-      request.fields['name'] = name;
-      if (foodInstructions != null) request.fields['food_instructions'] = foodInstructions;
-      if (medicalNotes != null) request.fields['medical_notes'] = medicalNotes;
-      if (registeredVet != null) request.fields['registered_vet'] = registeredVet;
-      if (contactNumber != null) request.fields['contact_number'] = contactNumber;
-      if (emergencyContactNumber != null) request.fields['emergency_contact_number'] = emergencyContactNumber;
-      if (address != null) request.fields['address'] = address;
-      if (postcode != null) request.fields['postcode'] = postcode;
-      if (accessInstructions != null) request.fields['access_instructions'] = accessInstructions;
-      if (vanPlacement != null) request.fields['van_placement'] = vanPlacement;
-      if (generalNotes != null) request.fields['general_notes'] = generalNotes;
-      if (daysInDaycare != null && daysInDaycare.isNotEmpty) request.fields['daycare_days'] = json.encode(daysInDaycare.map((d) => d.dayNumber).toList());
-      if (ownerId != null) request.fields['owner'] = ownerId;
-      if (preferredDropoffTime != null) request.fields['preferred_dropoff_time'] = preferredDropoffTime.apiValue;
-      if (scheduleType != null) request.fields['schedule_type'] = scheduleType.apiValue;
-      if (ownerBringsDefault != null) request.fields['owner_brings_default'] = ownerBringsDefault.toString();
-      if (ownerCollectsDefault != null) request.fields['owner_collects_default'] = ownerCollectsDefault.toString();
-      if (ownerBringsDefaultTime != null) request.fields['owner_brings_default_time'] = formatApiTime(ownerBringsDefaultTime);
-      if (ownerCollectsDefaultTime != null) request.fields['owner_collects_default_time'] = formatApiTime(ownerCollectsDefaultTime);
-      if (sex != null) request.fields['sex'] = dogSexToApi(sex)!;
-      if (dateOfBirth != null) request.fields['date_of_birth'] = formatApiDate(dateOfBirth)!;
-      if (lastVaccinationDate != null) request.fields['last_vaccination_date'] = formatApiDate(lastVaccinationDate)!;
-      if (isSpayed != null) request.fields['is_spayed'] = isSpayed.toString();
-
-      // Use bytes instead of file path for cross-platform compatibility
-      final filename = imageName ?? 'dog_photo.jpg';
-      request.files.add(http.MultipartFile.fromBytes(
-        'profile_image',
-        imageBytes,
-        filename: filename,
-        contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
-      ));
-      
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      
-      if (response.statusCode == 201) {
-        final data = json.decode(response.body);
-        final daysInDaycareResult = (data['daycare_days'] as List<dynamic>?)
-            ?.map((day) => Weekday.values.firstWhere(
-              (w) => w.dayNumber == day,
-              orElse: () => Weekday.monday,
-            ))
-            .toList() ?? [];
-        
-        OwnerDetails? ownerDetails;
-        if (data['owner_details'] != null) {
-          ownerDetails = OwnerDetails.fromJson(data['owner_details']);
-        }
-        final additionalOwners = (data['additional_owners_details'] as List<dynamic>?)
-            ?.map((o) => OwnerDetails.fromJson(o))
-            .toList() ?? [];
-
-        return Dog(
-          id: data['id'].toString(),
-          name: data['name'],
-          ownerId: data['owner'].toString(),
-          profileImageUrl: data['profile_image'],
-          foodInstructions: data['food_instructions'],
-          medicalNotes: data['medical_notes'],
-          registeredVet: data['registered_vet'],
-          contactNumber: data['contact_number'],
-          emergencyContactNumber: data['emergency_contact_number'],
-          address: data['address'],
-          postcode: data['postcode'],
-          accessInstructions: data['access_instructions'],
-          alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
-          vanPlacement: data['van_placement'],
-          generalNotes: data['general_notes'],
-          latitude: parseApiDouble(data['latitude']),
-          longitude: parseApiDouble(data['longitude']),
-          daysInDaycare: daysInDaycareResult,
-          ownerDetails: ownerDetails,
-          additionalOwners: additionalOwners,
-          preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
-          scheduleType: ScheduleTypeExtension.fromApiValue(data['schedule_type']),
-          ownerBringsDefault: data['owner_brings_default'] ?? false,
-          ownerCollectsDefault: data['owner_collects_default'] ?? false,
-          ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
-          ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
-          sex: parseDogSex(data['sex']),
-          dateOfBirth: parseApiDate(data['date_of_birth']),
-          lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
-          vaccinationOverdue: data['vaccination_overdue'] ?? false,
-          certificateStatus: data['certificate_status']?.toString() ?? 'OK',
-          certificateNeededSince: parseApiDate(data['certificate_needed_since'] as String?),
-          isSpayed: data['is_spayed'] ?? false,
-        );
-      } else {
-        throw Exception('Failed to create dog: ${response.body}');
-      }
+      // A photo needs a multipart body; bytes rather than a path so it works
+      // on every platform.
+      response = await _multipart('POST', url, (request) {
+        fields.forEach((key, value) => request.fields[key] = _multipartValue(value));
+        final filename = imageName ?? 'dog_photo.jpg';
+        request.files.add(http.chunkedMultipartFile(
+          'profile_image',
+          imageBytes,
+          filename: filename,
+          contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+        ));
+      });
     } else {
-      // No image, use regular JSON request
       final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${AuthService.baseUrl}/api/dogs/'),
-        headers: headers,
-        body: json.encode({
-          'name': name,
-          'food_instructions': foodInstructions,
-          'medical_notes': medicalNotes,
-          'registered_vet': registeredVet,
-          'contact_number': contactNumber,
-          'emergency_contact_number': emergencyContactNumber,
-          'address': address,
-          'postcode': postcode,
-          'access_instructions': accessInstructions,
-          'van_placement': vanPlacement,
-          'general_notes': generalNotes,
-          if (daysInDaycare != null && daysInDaycare.isNotEmpty) 'daycare_days': daysInDaycare.map((d) => d.dayNumber).toList(),
-          if (ownerId != null) 'owner': int.parse(ownerId),
-          if (preferredDropoffTime != null) 'preferred_dropoff_time': preferredDropoffTime.apiValue,
-          if (scheduleType != null) 'schedule_type': scheduleType.apiValue,
-          if (ownerBringsDefault != null) 'owner_brings_default': ownerBringsDefault,
-          if (ownerCollectsDefault != null) 'owner_collects_default': ownerCollectsDefault,
-          if (ownerBringsDefaultTime != null) 'owner_brings_default_time': formatApiTime(ownerBringsDefaultTime),
-          if (ownerCollectsDefaultTime != null) 'owner_collects_default_time': formatApiTime(ownerCollectsDefaultTime),
-          if (sex != null) 'sex': dogSexToApi(sex),
-          if (dateOfBirth != null) 'date_of_birth': formatApiDate(dateOfBirth),
-          if (lastVaccinationDate != null) 'last_vaccination_date': formatApiDate(lastVaccinationDate),
-          if (isSpayed != null) 'is_spayed': isSpayed,
-        }),
-      );
-
-      if (response.statusCode == 201) {
-        final data = json.decode(response.body);
-        final daysInDaycareResult = (data['daycare_days'] as List<dynamic>?)
-            ?.map((day) => Weekday.values.firstWhere(
-              (w) => w.dayNumber == day,
-              orElse: () => Weekday.monday,
-            ))
-            .toList() ?? [];
-
-        OwnerDetails? ownerDetails;
-        if (data['owner_details'] != null) {
-          ownerDetails = OwnerDetails.fromJson(data['owner_details']);
-        }
-        final additionalOwners = (data['additional_owners_details'] as List<dynamic>?)
-            ?.map((o) => OwnerDetails.fromJson(o))
-            .toList() ?? [];
-
-        return Dog(
-          id: data['id'].toString(),
-          name: data['name'],
-          ownerId: data['owner'].toString(),
-          foodInstructions: data['food_instructions'],
-          medicalNotes: data['medical_notes'],
-          registeredVet: data['registered_vet'],
-          contactNumber: data['contact_number'],
-          emergencyContactNumber: data['emergency_contact_number'],
-          address: data['address'],
-          postcode: data['postcode'],
-          accessInstructions: data['access_instructions'],
-          alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
-          vanPlacement: data['van_placement'],
-          generalNotes: data['general_notes'],
-          latitude: parseApiDouble(data['latitude']),
-          longitude: parseApiDouble(data['longitude']),
-          daysInDaycare: daysInDaycareResult,
-          ownerDetails: ownerDetails,
-          additionalOwners: additionalOwners,
-          preferredDropoffTime: DropoffTimeExtension.fromApiValue(data['preferred_dropoff_time']),
-          scheduleType: ScheduleTypeExtension.fromApiValue(data['schedule_type']),
-          ownerBringsDefault: data['owner_brings_default'] ?? false,
-          ownerCollectsDefault: data['owner_collects_default'] ?? false,
-          ownerBringsDefaultTime: parseApiTime(data['owner_brings_default_time']),
-          ownerCollectsDefaultTime: parseApiTime(data['owner_collects_default_time']),
-          sex: parseDogSex(data['sex']),
-          dateOfBirth: parseApiDate(data['date_of_birth']),
-          lastVaccinationDate: parseApiDate(data['last_vaccination_date']),
-          vaccinationOverdue: data['vaccination_overdue'] ?? false,
-          certificateStatus: data['certificate_status']?.toString() ?? 'OK',
-          certificateNeededSince: parseApiDate(data['certificate_needed_since'] as String?),
-          isSpayed: data['is_spayed'] ?? false,
-        );
-      } else {
-        throw Exception('Failed to create dog: ${response.body}');
-      }
+      response = await http.post(url, headers: headers, body: json.encode(fields));
     }
+
+    if (response.statusCode != 201) {
+      throw Exception('Failed to create dog: ${response.body}');
+    }
+    return _parseDog(json.decode(response.body));
   }
 
   @override
@@ -1022,45 +943,7 @@ class ApiDataService implements DataService {
       throw Exception(errorMessage);
     }
 
-    final data = json.decode(response.body);
-    final daysInDaycare = (data['daycare_days'] as List<dynamic>?)
-        ?.map((day) => Weekday.values.firstWhere(
-              (w) => w.dayNumber == day,
-              orElse: () => Weekday.monday,
-            ))
-        .toList() ?? [];
-    OwnerDetails? ownerDetails;
-    if (data['owner_details'] != null) {
-      ownerDetails = OwnerDetails.fromJson(data['owner_details']);
-    }
-    final additionalOwnersList = (data['additional_owners_details'] as List<dynamic>?)
-        ?.map((o) => OwnerDetails.fromJson(o))
-        .toList() ?? [];
-
-    return Dog(
-      id: data['id'].toString(),
-      name: data['name'],
-      ownerId: (data['owner'] ?? '').toString(),
-      profileImageUrl: data['profile_image'],
-      foodInstructions: data['food_instructions'],
-      medicalNotes: data['medical_notes'],
-      registeredVet: data['registered_vet'],
-      contactNumber: data['contact_number'],
-      emergencyContactNumber: data['emergency_contact_number'],
-      address: data['address'],
-      postcode: data['postcode'],
-      accessInstructions: data['access_instructions'],
-      alternativeAddresses: DogAddress.listFromJson(data['alternative_addresses']),
-      vanPlacement: data['van_placement'],
-      generalNotes: data['general_notes'],
-      latitude: parseApiDouble(data['latitude']),
-      longitude: parseApiDouble(data['longitude']),
-      daysInDaycare: daysInDaycare,
-      ownerDetails: ownerDetails,
-      additionalOwners: additionalOwnersList,
-      cancelledDates: parseApiDateList(data['cancelled_dates']),
-      assignedDates: parseApiDateList(data['assigned_dates']),
-    );
+    return _parseDog(json.decode(response.body));
   }
 
   Future<void> submitDateChangeRequest({
@@ -1226,6 +1109,7 @@ class ApiDataService implements DataService {
   /// unpaginated. Only the first page is cached, for offline warm-start.
   Future<FeedPage> getFeedPage({String? dogId, int page = 1}) async {
     final cache = CacheService();
+    final session = cache.session;
     try {
       final headers = await _getHeaders();
       final params = <String, String>{'page': '$page'};
@@ -1237,14 +1121,16 @@ class ApiDataService implements DataService {
       if (response.statusCode == 200) {
         // Decode + parse off the UI isolate to keep feed loads/refreshes smooth.
         final parsed = await compute(_parseFeedResponseBody, response.body);
-        if (page == 1) cache.cacheFeed(parsed.rawItems);
+        if (page == 1) cache.cacheFeed(parsed.rawItems, session: session);
         return FeedPage(items: parsed.items, hasMore: parsed.hasMore);
       } else {
         throw Exception('Failed to load feed');
       }
     } catch (e) {
-      // Offline: fall back to the cached first page only.
-      if (page == 1) {
+      // Offline: fall back to the cached first page only — and only when
+      // offline. After a reply the app is "online" and an old feed would be
+      // taken for the current one.
+      if (page == 1 && _unreachable(e)) {
         final cached = cache.getCachedFeed();
         if (cached != null && cached.isNotEmpty) {
           return FeedPage(
@@ -1265,15 +1151,13 @@ class ApiDataService implements DataService {
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
     void Function(int sentBytes, int totalBytes)? onSendProgress,
+    String? filePath,
   }) async {
-    final token = await _authService.getToken();
-
-    final response = await http.sendMultipart(
-      method: 'POST',
-      url: Uri.parse('${AuthService.baseUrl}/api/feed/'),
+    final response = await _multipart(
+      'POST',
+      Uri.parse('${AuthService.baseUrl}/api/feed/'),
       onProgress: onSendProgress,
-      fill: (request) {
-        request.headers['Authorization'] = 'Token $token';
+      (request) async {
         request.fields['media_type'] = isVideo ? 'VIDEO' : 'PHOTO';
         if (caption != null && caption.isNotEmpty) {
           request.fields['caption'] = caption;
@@ -1284,17 +1168,19 @@ class ApiDataService implements DataService {
           }
         }
 
-        request.files.add(http.MultipartFile.fromBytes(
+        request.files.add(await _mediaPart(
           'file',
-          fileBytes,
-          filename: fileName,
+          bytes: fileBytes,
+          fileName: fileName,
+          isVideo: isVideo,
+          filePath: filePath,
           contentType: isVideo
               ? http_parser.MediaType('video', 'mp4')
               : http_parser.MediaType('image', fileName.endsWith('.png') ? 'png' : 'jpeg'),
         ));
 
         if (thumbnailBytes != null) {
-          request.files.add(http.MultipartFile.fromBytes(
+          request.files.add(http.chunkedMultipartFile(
             'thumbnail',
             thumbnailBytes,
             filename: 'thumbnail.jpg',
@@ -1335,6 +1221,7 @@ class ApiDataService implements DataService {
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
     void Function(int index, int sentBytes, int totalBytes)? onFileProgress,
+    List<String?>? filePathsByFile,
   }) async {
     final failures = <UploadFailure>[];
 
@@ -1354,6 +1241,9 @@ class ApiDataService implements DataService {
           isVideo: _isVideoFileName(fileName),
           caption: fileCaption,
           taggedDogIds: dogIds,
+          filePath: filePathsByFile != null && i < filePathsByFile.length
+              ? filePathsByFile[i]
+              : null,
           onSendProgress: onFileProgress == null
               ? null
               : (sent, total) => onFileProgress(i, sent, total),
@@ -1731,6 +1621,7 @@ class ApiDataService implements DataService {
   @override
   Future<List<DailyDogAssignment>> getTodayAssignments({DateTime? date}) async {
     final cache = CacheService();
+    final session = cache.session;
     final effectiveDate = date ?? DateTime.now();
     try {
       final headers = await _getHeaders();
@@ -1742,7 +1633,7 @@ class ApiDataService implements DataService {
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         // Cache the raw JSON so staff can view their route offline
-        await cache.cacheAssignments(effectiveDate, data.cast<Map<String, dynamic>>());
+        await cache.cacheAssignments(effectiveDate, data.cast<Map<String, dynamic>>(), session: session);
         return data.map((j) => DailyDogAssignment.fromJson(j)).toList();
       } else {
         throw Exception('Failed to load today assignments');
@@ -2442,12 +2333,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getUnresolvedQueryCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/support-queries/unresolved_count/'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['count'] ?? 0;
-    } else {
-      return 0;
-    }
+    return _countFrom(response, 'the unanswered message count');
   }
 
   // ---- Contact Inquiries ----
@@ -2534,12 +2420,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getUnreadInquiryCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/contact-inquiries/unread_count/'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['count'] ?? 0;
-    } else {
-      return 0;
-    }
+    return _countFrom(response, 'the enquiry count');
   }
 
   @override
@@ -2773,25 +2654,19 @@ class ApiDataService implements DataService {
     required String filename,
     DateTime? vaccinationDate,
   }) async {
-    final token = await _authService.getToken();
     final mime = _certificateMimeType(filename).split('/');
-    final response = await http.sendMultipart(
-      method: 'POST',
-      url: Uri.parse('${AuthService.baseUrl}/api/vaccination-certificates/'),
-      fill: (request) {
-        request.headers['Authorization'] = 'Token $token';
-        request.fields['dog'] = dogId;
-        if (vaccinationDate != null) {
-          request.fields['vaccination_date'] = formatApiDate(vaccinationDate)!;
-        }
-        request.files.add(http.MultipartFile.fromBytes(
-          'file',
-          bytes,
-          filename: filename,
-          contentType: http_parser.MediaType(mime[0], mime[1]),
-        ));
-      },
-    );
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/vaccination-certificates/'), (request) {
+      request.fields['dog'] = dogId;
+      if (vaccinationDate != null) {
+        request.fields['vaccination_date'] = formatApiDate(vaccinationDate)!;
+      }
+      request.files.add(http.chunkedMultipartFile(
+        'file',
+        bytes,
+        filename: filename,
+        contentType: http_parser.MediaType(mime[0], mime[1]),
+      ));
+    });
     if (response.statusCode == 201) {
       return VaccinationCertificate.fromJson(json.decode(response.body));
     }
@@ -3226,11 +3101,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getPendingIntakeRequestCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/intake-requests/pending_count/'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['count'] ?? 0;
-    }
-    return 0;
+    return _countFrom(response, 'the booking form count');
   }
 
   @override
@@ -3285,25 +3156,19 @@ class ApiDataService implements DataService {
     required String filename,
     DateTime? vaccinationDate,
   }) async {
-    final token = await _authService.getToken();
     final mime = _certificateMimeType(filename).split('/');
-    final response = await http.sendMultipart(
-      method: 'POST',
-      url: Uri.parse('${AuthService.baseUrl}/api/intake-requests/$requestId/certificate/'),
-      fill: (request) {
-        request.headers['Authorization'] = 'Token $token';
-        request.fields['dog'] = intakeDogId.toString();
-        if (vaccinationDate != null) {
-          request.fields['vaccination_date'] = formatApiDate(vaccinationDate)!;
-        }
-        request.files.add(http.MultipartFile.fromBytes(
-          'file',
-          bytes,
-          filename: filename,
-          contentType: http_parser.MediaType(mime[0], mime[1]),
-        ));
-      },
-    );
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/intake-requests/$requestId/certificate/'), (request) {
+      request.fields['dog'] = intakeDogId.toString();
+      if (vaccinationDate != null) {
+        request.fields['vaccination_date'] = formatApiDate(vaccinationDate)!;
+      }
+      request.files.add(http.chunkedMultipartFile(
+        'file',
+        bytes,
+        filename: filename,
+        contentType: http_parser.MediaType(mime[0], mime[1]),
+      ));
+    });
     if (response.statusCode == 200) {
       return IntakeRequest.fromJson(json.decode(response.body));
     }
@@ -3493,10 +3358,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getPendingDogProfileChangeCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/dog-profile-changes/pending_count/'));
-    if (response.statusCode == 200) {
-      return json.decode(response.body)['count'] ?? 0;
-    }
-    return 0;
+    return _countFrom(response, 'the profile change count');
   }
 
   @override
@@ -3570,20 +3432,18 @@ class ApiDataService implements DataService {
     Uint8List? imageBytes,
     String? imageName,
   ) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(method, uri);
-    request.headers['Authorization'] = 'Token $token';
-    request.fields.addAll(fields);
-    if (imageBytes != null) {
-      final filename = imageName ?? 'vehicle.jpg';
-      request.files.add(http.MultipartFile.fromBytes(
-        'image',
-        imageBytes,
-        filename: filename,
-        contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
-      ));
-    }
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart(method, uri, (request) {
+      request.fields.addAll(fields);
+      if (imageBytes != null) {
+        final filename = imageName ?? 'vehicle.jpg';
+        request.files.add(http.chunkedMultipartFile(
+          'image',
+          imageBytes,
+          filename: filename,
+          contentType: http_parser.MediaType('image', filename.endsWith('.png') ? 'png' : 'jpeg'),
+        ));
+      }
+    });
     if (response.statusCode == 200 || response.statusCode == 201) {
       return Vehicle.fromJson(json.decode(response.body));
     }
@@ -3746,7 +3606,7 @@ class ApiDataService implements DataService {
 
   void _addDefectImages(http.MultipartRequest request, List<(Uint8List, String)> images) {
     for (final (bytes, name) in images) {
-      request.files.add(http.MultipartFile.fromBytes(
+      request.files.add(http.chunkedMultipartFile(
         'images',
         bytes,
         filename: name,
@@ -3763,18 +3623,13 @@ class ApiDataService implements DataService {
     String? severity,
     List<(Uint8List, String)> images = const [],
   }) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/'),
-    );
-    request.headers['Authorization'] = 'Token $token';
-    request.fields['vehicle'] = vehicleId.toString();
-    request.fields['title'] = title;
-    if (description != null) request.fields['description'] = description;
-    if (severity != null) request.fields['severity'] = severity;
-    _addDefectImages(request, images);
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/'), (request) {
+      request.fields['vehicle'] = vehicleId.toString();
+      request.fields['title'] = title;
+      if (description != null) request.fields['description'] = description;
+      if (severity != null) request.fields['severity'] = severity;
+      _addDefectImages(request, images);
+    });
     if (response.statusCode == 201) {
       return VehicleDefect.fromJson(json.decode(response.body));
     }
@@ -3783,14 +3638,9 @@ class ApiDataService implements DataService {
 
   @override
   Future<VehicleDefect> addDefectImages(int defectId, List<(Uint8List, String)> images) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$defectId/add_images/'),
-    );
-    request.headers['Authorization'] = 'Token $token';
-    _addDefectImages(request, images);
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/$defectId/add_images/'), (request) {
+      _addDefectImages(request, images);
+    });
     if (response.statusCode == 200) {
       return VehicleDefect.fromJson(json.decode(response.body));
     }
@@ -3828,12 +3678,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getUnresolvedVehicleDefectCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/vehicle-defects/unresolved_count/'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['count'] ?? 0;
-    } else {
-      return 0;
-    }
+    return _countFrom(response, 'the vehicle defect count');
   }
 
   // ---- Facility Defects ----
@@ -3870,18 +3715,13 @@ class ApiDataService implements DataService {
     String? severity,
     List<(Uint8List, String)> images = const [],
   }) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${AuthService.baseUrl}/api/facility-defects/'),
-    );
-    request.headers['Authorization'] = 'Token $token';
-    request.fields['title'] = title;
-    if (location != null) request.fields['location'] = location;
-    if (description != null) request.fields['description'] = description;
-    if (severity != null) request.fields['severity'] = severity;
-    _addDefectImages(request, images);
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/facility-defects/'), (request) {
+      request.fields['title'] = title;
+      if (location != null) request.fields['location'] = location;
+      if (description != null) request.fields['description'] = description;
+      if (severity != null) request.fields['severity'] = severity;
+      _addDefectImages(request, images);
+    });
     if (response.statusCode == 201) {
       return FacilityDefect.fromJson(json.decode(response.body));
     }
@@ -3890,14 +3730,9 @@ class ApiDataService implements DataService {
 
   @override
   Future<FacilityDefect> addFacilityDefectImages(int defectId, List<(Uint8List, String)> images) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${AuthService.baseUrl}/api/facility-defects/$defectId/add_images/'),
-    );
-    request.headers['Authorization'] = 'Token $token';
-    _addDefectImages(request, images);
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/facility-defects/$defectId/add_images/'), (request) {
+      _addDefectImages(request, images);
+    });
     if (response.statusCode == 200) {
       return FacilityDefect.fromJson(json.decode(response.body));
     }
@@ -3935,12 +3770,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getUnresolvedFacilityDefectCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/facility-defects/unresolved_count/'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['count'] ?? 0;
-    } else {
-      return 0;
-    }
+    return _countFrom(response, 'the facility defect count');
   }
 
   // ---- Incidents (staff only) ----
@@ -3951,7 +3781,8 @@ class ApiDataService implements DataService {
   void _addIncidentMediaFiles(http.MultipartRequest request, List<(Uint8List, String)> media) {
     for (final (bytes, name) in media) {
       final isVideo = _isVideoFileName(name);
-      request.files.add(http.MultipartFile.fromBytes(
+      MediaLimits.check(bytes: bytes.length, isVideo: isVideo, fileName: name);
+      request.files.add(http.chunkedMultipartFile(
         'media',
         bytes,
         filename: name,
@@ -4050,30 +3881,25 @@ class ApiDataService implements DataService {
     List<int> staffPresentIds = const [],
     List<(Uint8List, String)> media = const [],
   }) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${AuthService.baseUrl}/api/incidents/'),
-    );
-    request.headers['Authorization'] = 'Token $token';
-    request.fields['title'] = title;
-    request.fields['incident_type'] = incidentType;
-    request.fields['severity'] = severity;
-    request.fields['occurred_at'] = occurredAt.toUtc().toIso8601String();
-    // Multipart can't nest, so the per-dog role/injuries ride along as JSON in
-    // a single field — the server accepts that or plain ids.
-    request.fields['dog_entries'] = json.encode(dogs.map((d) => d.toJson()).toList());
-    if (location != null) request.fields['location'] = location;
-    if (description != null) request.fields['description'] = description;
-    if (injuries != null) request.fields['injuries'] = injuries;
-    if (actionTaken != null) request.fields['action_taken'] = actionTaken;
-    request.fields['vet_required'] = vetRequired.toString();
-    if (vetDetails != null) request.fields['vet_details'] = vetDetails;
-    if (staffPresentIds.isNotEmpty) {
-      request.fields['staff_present'] = json.encode(staffPresentIds);
-    }
-    _addIncidentMediaFiles(request, media);
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/incidents/'), (request) {
+      request.fields['title'] = title;
+      request.fields['incident_type'] = incidentType;
+      request.fields['severity'] = severity;
+      request.fields['occurred_at'] = occurredAt.toUtc().toIso8601String();
+      // Multipart can't nest, so the per-dog role/injuries ride along as JSON in
+      // a single field — the server accepts that or plain ids.
+      request.fields['dog_entries'] = json.encode(dogs.map((d) => d.toJson()).toList());
+      if (location != null) request.fields['location'] = location;
+      if (description != null) request.fields['description'] = description;
+      if (injuries != null) request.fields['injuries'] = injuries;
+      if (actionTaken != null) request.fields['action_taken'] = actionTaken;
+      request.fields['vet_required'] = vetRequired.toString();
+      if (vetDetails != null) request.fields['vet_details'] = vetDetails;
+      if (staffPresentIds.isNotEmpty) {
+        request.fields['staff_present'] = json.encode(staffPresentIds);
+      }
+      _addIncidentMediaFiles(request, media);
+    });
     if (response.statusCode == 201) {
       return Incident.fromJson(json.decode(response.body));
     }
@@ -4082,14 +3908,9 @@ class ApiDataService implements DataService {
 
   @override
   Future<Incident> addIncidentMedia(int incidentId, List<(Uint8List, String)> media) async {
-    final token = await _authService.getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${AuthService.baseUrl}/api/incidents/$incidentId/add_media/'),
-    );
-    request.headers['Authorization'] = 'Token $token';
-    _addIncidentMediaFiles(request, media);
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _multipart('POST', Uri.parse('${AuthService.baseUrl}/api/incidents/$incidentId/add_media/'), (request) {
+      _addIncidentMediaFiles(request, media);
+    });
     if (response.statusCode == 200) {
       return Incident.fromJson(json.decode(response.body));
     }
@@ -4144,11 +3965,7 @@ class ApiDataService implements DataService {
   @override
   Future<int> getOpenIncidentCount() async {
     final response = await _get(Uri.parse('${AuthService.baseUrl}/api/incidents/open_count/'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['count'] ?? 0;
-    }
-    return 0;
+    return _countFrom(response, 'the open incident count');
   }
   // ---------------------------------------------------------------------
   // Customer payments

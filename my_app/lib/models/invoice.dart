@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 /// Monthly customer invoice models, mirroring the /api/invoices/ payload.
 ///
 /// Money comes over the wire as decimal strings (DRF DecimalField); parse
@@ -42,7 +44,7 @@ class InvoiceLine {
       dogId: json['dog'],
       dogName: json['dog_name'],
       description: json['description'] ?? '',
-      quantity: json['quantity'] ?? 0,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 0,
       unitPrice: _parseAmount(json['unit_price']),
       lineTotal: _parseAmount(json['line_total']),
       attendanceDates: (json['attendance_dates'] as List<dynamic>?)
@@ -247,8 +249,8 @@ class Invoice {
       // billed_name covers both clients and dog-name invoices server-side.
       customerName: json['billed_name'] ?? fallbackName,
       customerEmail: customer?['email'] ?? '',
-      periodYear: json['period_year'],
-      periodMonth: json['period_month'],
+      periodYear: (json['period_year'] as num?)?.toInt() ?? 0,
+      periodMonth: (json['period_month'] as num?)?.toInt() ?? 0,
       periodLabel: json['period_label'] ?? '',
       status: json['status'] ?? 'DRAFT',
       total: _parseAmount(json['total']),
@@ -257,8 +259,8 @@ class Invoice {
       dueDate:
           json['due_date'] != null ? DateTime.parse(json['due_date']) : null,
       isOverdue: json['is_overdue'] ?? false,
-      sentAt: json['sent_at'] != null ? DateTime.parse(json['sent_at']) : null,
-      paidAt: json['paid_at'] != null ? DateTime.parse(json['paid_at']) : null,
+      sentAt: parseApiDateTime(json['sent_at']),
+      paidAt: parseApiDateTime(json['paid_at']),
       xeroInvoiceNumber: json['xero_invoice_number'] ?? '',
       inXero: json['in_xero'] ?? (json['xero_invoice_number'] ?? '').toString().isNotEmpty,
       xeroSyncError: json['xero_sync_error'] ?? '',

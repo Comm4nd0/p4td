@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/boarding_request.dart';
 import '../utils/date_formats.dart';
 import 'request_timeline.dart';
+import 'day_span.dart';
 
 /// Full boarding-request card shared by the staff dashboard tab and the
 /// Manage Boarding screen: header, dates, carer, instructions, timeline,
@@ -130,7 +131,7 @@ class BoardingRequestCard extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
                       ),
                       Text(
-                        '${request.endDate.difference(request.startDate).inDays} nights',
+                        nightsLabel(nightsBetween(request.startDate, request.endDate)),
                         style: TextStyle(color: Colors.grey[600], fontSize: 12),
                       ),
                     ],
@@ -282,7 +283,7 @@ extension on BoardingRequestCard {
   Widget _buildChangeRequest() {
     final start = request.requestedStartDate!;
     final end = request.requestedEndDate!;
-    final nights = end.difference(start).inDays;
+    final nights = nightsBetween(start, end);
     final note = request.changeNote;
     return Container(
       width: double.infinity,

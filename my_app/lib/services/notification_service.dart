@@ -145,6 +145,8 @@ class NotificationService {
         }
         String deviceType = Platform.isIOS ? 'IOS' : 'ANDROID';
         await _dataService.registerDeviceToken(token, deviceType);
+        // Registered again, so a later sign-out has something to detach.
+        _detachedForAuthToken = null;
       }
     } catch (e) {
       if (kDebugMode) {
@@ -153,14 +155,25 @@ class NotificationService {
     }
   }
 
+  /// The auth token of the account this phone's push token was last detached
+  /// from. Sign-out detaches in [AuthService] itself now, and the Profile
+  /// screen still calls [deregisterToken] first, so the second call for the
+  /// same account must cost nothing — on a poor connection it would otherwise
+  /// double the wait before the screen changes.
+  String? _detachedForAuthToken;
+
   /// Remove this device's token from the account that is currently signed in,
   /// so the device stops receiving that user's notifications after logout.
   /// Best-effort: must be called while the user is still authenticated.
+  /// Safe to call more than once for the same account.
   Future<void> deregisterToken() async {
     try {
+      final authToken = await AuthService().getToken();
+      if (authToken == null || authToken == _detachedForAuthToken) return;
       String? token = await _fcm.getToken();
       if (token != null) {
         await _dataService.deregisterDeviceToken(token);
+        _detachedForAuthToken = authToken;
       }
     } catch (e) {
       if (kDebugMode) {
@@ -184,10 +197,16 @@ class NotificationService {
   }
 
   /// Handle tap from FCM message data (already a Map)
-  void _handleNotificationTapFromData(Map<String, dynamic> data) {
+  Future<void> _handleNotificationTapFromData(Map<String, dynamic> data) async {
     if (kDebugMode) {
       debugPrint('Navigating for notification data: $data');
     }
+
+    // A push can outlive the session it was sent to (signed out with no
+    // signal, so the phone's token never came off the account). Opening the
+    // home screen for it would show a signed-out person an app with no data
+    // behind it; leave them on the landing or login screen they are on.
+    if (await AuthService().getToken() == null) return;
 
     final type = data['type'] as String?;
     final context = navigatorKey.currentContext;
@@ -208,7 +227,9 @@ class NotificationService {
       case 'date_change_request':
       case 'boarding_request':
       case 'date_change_request_update':   // owner gets status update
-        _navigateToHome(initialRoute: 'requests');
+        // The request id lets Home open the right dog for an owner with
+        // several; staff ignore it and get the Requests screen.
+        _navigateToHome(initialRoute: 'requests', routePayload: data['id']?.toString());
         break;
 
       // Boarding request status (for owners) — open their boarding list

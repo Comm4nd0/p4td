@@ -1,4 +1,5 @@
 import '../utils/date_formats.dart';
+import 'api_datetime.dart';
 
 /// One field that changed, as the API renders it: display strings on both
 /// sides, so the app never has to know what a field's raw value looks like.
@@ -135,7 +136,7 @@ class DogChangeLog {
         changes: ((json['changes'] as List<dynamic>?) ?? const [])
             .map((c) => DogFieldChange.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),
-        createdAt: DateTime.parse(json['created_at']),
+        createdAt: requireApiDateTime(json['created_at']),
       );
 }
 

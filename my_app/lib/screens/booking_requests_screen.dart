@@ -34,6 +34,22 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
   bool _changed = false;
   int? _busyLinkRequestId;
 
+  /// Booking forms with an approve/deny/withdraw on its way to the server.
+  /// Approval creates the dogs and is slow; its buttons stay dead until the
+  /// list has reloaded.
+  final Set<int> _busyIntakeIds = {};
+
+  Future<void> _withIntakeBusy(int id, Future<void> Function() action) async {
+    if (!_busyIntakeIds.add(id)) return;
+    if (mounted) setState(() {});
+    try {
+      await action();
+    } finally {
+      _busyIntakeIds.remove(id);
+      if (mounted) setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -80,27 +96,29 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
-    try {
-      await _dataService.approveIntakeRequest(request.id);
-      _changed = true;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${request.dogNames} added to daycare'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+    await _withIntakeBusy(request.id, () async {
+      try {
+        await _dataService.approveIntakeRequest(request.id);
+        _changed = true;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${request.dogNames} added to daycare'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+        await _loadRequests();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to approve: $e'), backgroundColor: AppColors.error),
+          );
+        }
       }
-      _loadRequests();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to approve: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
+    });
   }
 
   Future<void> _deny(IntakeRequest request) async {
@@ -138,20 +156,28 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
       ),
     );
     final reason = reasonController.text.trim();
-    reasonController.dispose();
-    if (confirmed != true) return;
+    _disposeLater(reasonController);
+    if (confirmed != true || !mounted) return;
 
-    try {
-      await _dataService.denyIntakeRequest(request.id, reason: reason);
-      _changed = true;
-      _loadRequests();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to deny: $e'), backgroundColor: AppColors.error),
-        );
+    await _withIntakeBusy(request.id, () async {
+      try {
+        await _dataService.denyIntakeRequest(request.id, reason: reason);
+        _changed = true;
+        await _loadRequests();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to deny: $e'), backgroundColor: AppColors.error),
+          );
+        }
       }
-    }
+    });
+  }
+
+  /// A dialog's controller, disposed once the dialog's exit animation (which
+  /// still paints the field) is over.
+  void _disposeLater(TextEditingController controller) {
+    Future.delayed(const Duration(milliseconds: 400), controller.dispose);
   }
 
   Future<void> _withdraw(IntakeRequest request) async {
@@ -173,19 +199,21 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
-    try {
-      await _dataService.deleteIntakeRequest(request.id);
-      _changed = true;
-      _loadRequests();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to withdraw: $e'), backgroundColor: AppColors.error),
-        );
+    await _withIntakeBusy(request.id, () async {
+      try {
+        await _dataService.deleteIntakeRequest(request.id);
+        _changed = true;
+        await _loadRequests();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to withdraw: $e'), backgroundColor: AppColors.error),
+          );
+        }
       }
-    }
+    });
   }
 
   Future<void> _linkTo(DogLinkRequest request, {required int dogId, required String dogName, String? ownerName}) async {
@@ -297,8 +325,8 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
       ),
     );
     final reason = reasonController.text.trim();
-    reasonController.dispose();
-    if (confirmed != true) return;
+    _disposeLater(reasonController);
+    if (confirmed != true || !mounted) return;
 
     try {
       await _dataService.denyDogLinkRequest(request.id, reason: reason);
@@ -536,12 +564,17 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
           for (final dog in request.dogs) _buildDogSummary(dog),
           if (request.status == IntakeRequestStatus.pending) ...[
             const SizedBox(height: 8),
+            if (_busyIntakeIds.contains(request.id))
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
             if (widget.isStaff)
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _deny(request),
+                      onPressed: _busyIntakeIds.contains(request.id) ? null : () => _deny(request),
                       icon: const Picon(PiconsDuotone.x, size: 18),
                       label: const Text('Deny'),
                       style: OutlinedButton.styleFrom(foregroundColor: AppColors.error),
@@ -550,7 +583,7 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () => _approve(request),
+                      onPressed: _busyIntakeIds.contains(request.id) ? null : () => _approve(request),
                       icon: const Picon(PiconsDuotone.check, size: 18),
                       label: const Text('Approve'),
                     ),
@@ -559,7 +592,7 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
               )
             else
               OutlinedButton.icon(
-                onPressed: () => _withdraw(request),
+                onPressed: _busyIntakeIds.contains(request.id) ? null : () => _withdraw(request),
                 icon: const Picon(PiconsDuotone.trash, size: 18),
                 label: const Text('Withdraw'),
                 style: OutlinedButton.styleFrom(foregroundColor: AppColors.error),

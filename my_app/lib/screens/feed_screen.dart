@@ -256,7 +256,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
       lastDate: now,
       initialDateRange: _dateRange,
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _dateRange = picked;
         _recomputeFilteredFeed();
@@ -280,6 +280,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                       prefixIcon: Picon(PiconsDuotone.magnifyingGlass, size: 20),
                       suffixIcon: _searchController.text.isNotEmpty
                           ? IconButton(
+                              tooltip: 'Clear search',
                               icon: Picon(PiconsDuotone.x, size: 20),
                               onPressed: () {
                                 _searchDebounce?.cancel();
@@ -308,6 +309,7 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
                       if (_dateRange != null) ...[
                         const SizedBox(width: 4),
                         IconButton(
+                          tooltip: 'Clear',
                           icon: Picon(PiconsDuotone.x, size: 18),
                           onPressed: () => setState(() {
                             _dateRange = null;

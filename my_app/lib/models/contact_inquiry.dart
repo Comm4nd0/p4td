@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 class ContactInquiry {
   final int id;
   final String name;
@@ -31,7 +33,7 @@ class ContactInquiry {
       message: json['message'] ?? '',
       isRead: json['is_read'] ?? false,
       isReplied: json['is_replied'] ?? false,
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

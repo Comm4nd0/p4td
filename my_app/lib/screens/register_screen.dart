@@ -231,6 +231,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       labelText: 'Password',
                       prefixIcon: Picon(PiconsDuotone.lock),
                       suffixIcon: IconButton(
+                        tooltip: _obscurePassword ? 'Show password' : 'Hide password',
                         icon: Picon(
                           _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                         ),
@@ -247,6 +248,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       labelText: 'Confirm Password',
                       prefixIcon: Picon(PiconsDuotone.lock),
                       suffixIcon: IconButton(
+                        tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
                         icon: Picon(
                           _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                         ),

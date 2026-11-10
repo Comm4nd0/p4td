@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 enum DayOffStatus {
   pending,
   approved,
@@ -60,12 +62,8 @@ class DayOffRequest {
       reason: json['reason'] ?? '',
       status: DayOffStatus.fromString(json['status'] ?? 'pending'),
       reviewedBy: json['reviewed_by_name'],
-      reviewedAt: json['reviewed_at'] != null
-          ? DateTime.parse(json['reviewed_at'])
-          : null,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'])
-          : DateTime.now(),
+      reviewedAt: parseApiDateTime(json['reviewed_at']),
+      createdAt: parseApiDateTime(json['created_at']) ?? DateTime.now(),
     );
   }
 }

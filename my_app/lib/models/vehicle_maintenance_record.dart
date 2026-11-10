@@ -1,3 +1,5 @@
+import 'api_datetime.dart';
+
 class VehicleMaintenanceRecord {
   final int id;
 
@@ -38,7 +40,7 @@ class VehicleMaintenanceRecord {
           : null,
       notes: json['notes'],
       createdByName: json['created_by_name'],
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

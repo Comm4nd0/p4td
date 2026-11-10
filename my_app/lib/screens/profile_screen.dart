@@ -134,6 +134,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       final accounts = await _authService.getAccounts();
       final activeId = await _authService.getActiveAccountId();
+      if (!mounted) return;
       setState(() {
         _profile = profile;
         _firstNameController.text = profile.firstName ?? '';
@@ -349,6 +350,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final updatedProfile = await _dataService.uploadProfilePhoto(imageBytes, imageName);
+      if (!mounted) return;
       setState(() {
         _profile = updatedProfile;
       });
@@ -379,6 +381,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final updatedProfile = await _dataService.deleteProfilePhoto();
+      if (!mounted) return;
       setState(() {
         _profile = updatedProfile;
       });
@@ -551,6 +554,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   labelText: 'Password',
                   prefixIcon: Picon(PiconsDuotone.lock),
                   suffixIcon: IconButton(
+                    tooltip: obscurePassword ? 'Show password' : 'Hide password',
                     icon: Picon(
                       obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                     ),

@@ -57,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   static final _emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   Future<void> _login() async {
+    if (_isLoading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
@@ -85,11 +86,11 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     try {
       // Email is the username
       final error = await _authService.login(email, password);
+      if (!mounted) return;
 
-      setState(() {
-        _isLoading = false;
-      });
-
+      // On success the spinner stays until Home replaces this screen: the
+      // profile and push-token calls below can take seconds, and a button
+      // that had come back to life invited a second sign-in.
       if (error == null) {
         if (mounted) {
           // Fetch the profile so we can record the account in the switcher.
@@ -132,13 +133,22 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         }
       } else {
         setState(() {
+          _isLoading = false;
           _errorMessage = error;
         });
       }
     } on NoConnectionException {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _isOffline = true;
+      });
+    } catch (e) {
+      // Anything else must not leave the button spinning for good.
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Something went wrong signing in. Please try again.';
       });
     }
   }
@@ -159,12 +169,14 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       appBar: widget.addingAccount
           ? AppBar(title: const Text('Add another account'))
           : null,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
+      // Scrollable: with the keyboard up on a small phone (or large text)
+      // the Log In button was clipped below the fold.
+      body: SafeArea(child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: AutofillGroup(child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -194,11 +206,17 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                     prefixIcon: Picon(PiconsDuotone.envelope),
                   ),
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autocorrect: false,
+                  autofillHints: const [AutofillHints.username, AutofillHints.email],
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.password],
+                  onSubmitted: (_) => _login(),
                   decoration: InputDecoration(
                     labelText: 'Password',
                     prefixIcon: Picon(PiconsDuotone.lock),
@@ -206,6 +224,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                       icon: Picon(
                         _obscurePassword ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                       ),
+                      tooltip: _obscurePassword ? 'Show password' : 'Hide password',
                       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
@@ -247,10 +266,10 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                   child: const Text('Don\'t have an account? Create one'),
                 ),
               ],
-            ),
+            )),
           ),
         ),
-      ),
+      )),
     );
   }
 }

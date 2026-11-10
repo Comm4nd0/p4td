@@ -9,6 +9,7 @@ import '../../models/invoice.dart';
 import '../../models/owner_calendar.dart';
 import '../../models/support_query.dart';
 import '../../widgets/dashboard_widgets.dart';
+import '../../widgets/day_span.dart';
 
 /// Everything on the owner's plate, distilled from the data the dashboard
 /// already fetched. Pure, so the arithmetic is testable without widgets.
@@ -81,7 +82,7 @@ class ClientAttention {
       final last = dog.lastVaccinationDate;
       if (last == null) continue;
       final due = DateTime(last.year + 1, last.month, last.day);
-      final daysLeft = due.difference(DateTime(today.year, today.month, today.day)).inDays;
+      final daysLeft = calendarDaysBetween(today, due);
       if (daysLeft <= vaccinationWarningDays) vaccSoon.add(dog);
     }
 

@@ -10,6 +10,8 @@ import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/dog_typeahead.dart';
 import '../widgets/page_body.dart';
+import '../widgets/form_scroll_body.dart';
+import '../services/media_limits.dart';
 
 /// Write-up form for a new incident.
 ///
@@ -134,7 +136,10 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
   Future<void> _addFromCamera({bool video = false}) async {
     try {
       final XFile? file = video
-          ? await _picker.pickVideo(source: ImageSource.camera)
+          ? await _picker.pickVideo(
+              source: ImageSource.camera,
+              maxDuration: MediaLimits.maxVideoDuration,
+            )
           : await _picker.pickImage(
               source: ImageSource.camera,
               maxWidth: 1600,
@@ -209,7 +214,7 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
     if (_selectedDogs.isEmpty) {
       final proceed = await showDialog<bool>(
         context: context,
@@ -267,8 +272,7 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
       appBar: AppBar(title: const Text('Log Incident')),
       body: PageBody(child: Form(
         key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+        child: FormScrollBody(
           children: [
             Container(
               padding: const EdgeInsets.all(12),

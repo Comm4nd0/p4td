@@ -13,6 +13,7 @@ import 'defect_detail_screen.dart';
 import 'fleet_screen.dart';
 import 'report_defect_screen.dart';
 import '../widgets/page_body.dart';
+import '../widgets/dispose_later.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
   final int vehicleId;
@@ -155,6 +156,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ],
       ),
     );
+    disposeControllersLater([notesController]);
     if (confirmed != true) return;
 
     try {
@@ -260,7 +262,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       ),
     );
     final notes = notesController.text.trim();
-    notesController.dispose();
+    disposeControllersLater([notesController]);
     if (confirmed != true) return;
 
     try {

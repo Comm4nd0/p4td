@@ -22,6 +22,7 @@ class AssignmentCard extends StatelessWidget {
     required this.canAssignDogs,
     required this.onTap,
     required this.onUpdateStatus,
+    this.statusUpdating = false,
     required this.onTransport,
     this.onChangeAddress,
     required this.onReassign,
@@ -56,6 +57,11 @@ class AssignmentCard extends StatelessWidget {
 
   /// Advance/revert the assignment status to [newStatus].
   final void Function(AssignmentStatus newStatus) onUpdateStatus;
+
+  /// A status change for this dog is on its way to the server: the chip
+  /// shows a spinner and its menu is closed until it lands, so a driver on
+  /// slow signal can see the tap registered and can't send it twice.
+  final bool statusUpdating;
   final VoidCallback onTransport;
   /// Pick-up / drop-off address for the day; the menu item is hidden when null.
   final VoidCallback? onChangeAddress;
@@ -262,6 +268,10 @@ class AssignmentCard extends StatelessWidget {
                   ),
                   // Status chip with full action menu
                   PopupMenuButton<String>(
+                    enabled: !statusUpdating,
+                    tooltip: statusUpdating
+                        ? 'Updating ${assignment.dogName}…'
+                        : '${assignment.dogName}: ${assignment.status.displayName}. Change status or transport',
                     onSelected: (value) {
                       switch (value) {
                         case 'next':
@@ -348,9 +358,20 @@ class AssignmentCard extends StatelessWidget {
                         ),
                       ],
                     ],
-                    child: Chip(
-                      avatar: Picon(_statusIcon(assignment.status),
-                          size: statusIconSize, color: statusColor),
+                    // At least 48dp to hit: drivers change status one-handed.
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Center(
+                        widthFactor: 1,
+                        child: Chip(
+                      avatar: statusUpdating
+                          ? SizedBox(
+                              width: statusIconSize,
+                              height: statusIconSize,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: statusColor),
+                            )
+                          : Picon(_statusIcon(assignment.status),
+                              size: statusIconSize, color: statusColor),
                       label: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -366,6 +387,8 @@ class AssignmentCard extends StatelessWidget {
                       side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
                       visualDensity:
                           statusChipCompact ? VisualDensity.compact : null,
+                    ),
+                      ),
                     ),
                   ),
                 ],
@@ -464,64 +487,30 @@ class AssignmentCard extends StatelessWidget {
               // Address
               if (assignment.ownerAddress != null &&
                   assignment.ownerAddress!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: InkWell(
-                    onTap: () => onOpenMaps(assignment.ownerAddress!),
-                    child: Row(children: [
-                      Picon(PiconsDuotone.mapPin,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(assignment.ownerAddress!,
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context).colorScheme.primary,
-                                decoration: TextDecoration.underline)),
-                      ),
-                    ]),
-                  ),
+                _ActionRow(
+                  icon: PiconsDuotone.mapPin,
+                  label: assignment.ownerAddress!,
+                  semanticsLabel: 'Open ${assignment.ownerAddress} in maps',
+                  wraps: true,
+                  onTap: () => onOpenMaps(assignment.ownerAddress!),
                 ),
               // Phone
               if (assignment.ownerPhone != null &&
                   assignment.ownerPhone!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: InkWell(
-                    onTap: () => onCallPhone(assignment.ownerPhone!),
-                    child: Row(children: [
-                      Picon(PiconsDuotone.phone,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 4),
-                      Text(assignment.ownerPhone!,
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: Theme.of(context).colorScheme.primary,
-                              decoration: TextDecoration.underline)),
-                    ]),
-                  ),
+                _ActionRow(
+                  icon: PiconsDuotone.phone,
+                  label: assignment.ownerPhone!,
+                  semanticsLabel: 'Call ${assignment.ownerPhone}',
+                  onTap: () => onCallPhone(assignment.ownerPhone!),
                 ),
               // Pickup instructions
               if (assignment.pickupInstructions != null &&
                   assignment.pickupInstructions!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: InkWell(
-                    onTap: onShowPickupInstructions,
-                    child: Row(children: [
-                      Picon(PiconsDuotone.info,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 4),
-                      Text('Pickup Instructions',
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: Theme.of(context).colorScheme.primary,
-                              decoration: TextDecoration.underline)),
-                    ]),
-                  ),
+                _ActionRow(
+                  icon: PiconsDuotone.info,
+                  label: 'Pickup Instructions',
+                  semanticsLabel: 'Pickup instructions for ${assignment.dogName}',
+                  onTap: onShowPickupInstructions,
                 ),
             ],
           ),
@@ -613,6 +602,55 @@ class RoutineChangeChip extends StatelessWidget {
           ),
         ),
       ]),
+    );
+  }
+}
+
+
+/// A tappable line on the card — the address, the phone number, the pickup
+/// instructions. A full 48dp high with the whole row as the target: these
+/// are the three things a driver reaches for with one thumb, and as bare
+/// 13px text links 4dp apart they were easy to miss or mis-hit.
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    required this.icon,
+    required this.label,
+    required this.semanticsLabel,
+    required this.onTap,
+    this.wraps = false,
+  });
+
+  final Object icon; // a Picons glyph
+  final String label;
+  final String semanticsLabel;
+  final VoidCallback onTap;
+
+  /// Long text (an address) takes the row's width and wraps; short text
+  /// keeps its own width.
+  final bool wraps;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    final text = Text(label,
+        style: TextStyle(
+            fontSize: 13, color: color, decoration: TextDecoration.underline));
+    return Semantics(
+      button: true,
+      label: semanticsLabel,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(children: [
+            Picon(icon, size: 16, color: color),
+            const SizedBox(width: 4),
+            if (wraps) Expanded(child: text) else Flexible(child: text),
+          ]),
+        ),
+      ),
     );
   }
 }

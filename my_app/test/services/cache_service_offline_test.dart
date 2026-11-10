@@ -116,4 +116,56 @@ void main() {
       expect(DateTime.now().difference(at!).inSeconds, lessThan(5));
     });
   });
+
+  group('sessions', () {
+    const dog = {'id': 7, 'name': 'Buddy'};
+
+    test('clearing the cache starts a new session', () async {
+      final cache = CacheService();
+      final before = cache.session;
+
+      await cache.clearAll();
+
+      expect(cache.session, isNot(before));
+    });
+
+    test('a write stamped with the current session is stored', () async {
+      final cache = CacheService();
+
+      await cache.cacheDogs([dog], session: cache.session);
+      await cache.cacheProfile({'user_id': 1}, session: cache.session);
+      await cache.cacheFeed([{'id': 1}], session: cache.session);
+      await cache.cacheAssignments(DateTime.now(), [{'id': 1}], session: cache.session);
+
+      expect(cache.getCachedDogs(), hasLength(1));
+      expect(cache.getCachedProfile(), isNotNull);
+      expect(cache.getCachedFeed(), hasLength(1));
+      expect(cache.getCachedAssignments(DateTime.now()), isNotNull);
+    });
+
+    test('a write from before an account switch is dropped, whatever it holds', () async {
+      final cache = CacheService();
+      final previous = cache.session;
+
+      await cache.clearAll(); // sign-out, sign-in or switch
+
+      await cache.cacheDogs([dog], session: previous);
+      await cache.cacheProfile({'user_id': 1}, session: previous);
+      await cache.cacheFeed([{'id': 1}], session: previous);
+      await cache.cacheAssignments(DateTime.now(), [{'id': 1}], session: previous);
+
+      expect(cache.getCachedDogs(), isNull);
+      expect(cache.getCachedProfile(), isNull);
+      expect(cache.getCachedFeed(), isNull);
+      expect(cache.getCachedAssignments(DateTime.now()), isNull);
+    });
+
+    test('an unstamped write still works, for callers that have no session', () async {
+      final cache = CacheService();
+
+      await cache.cacheDogs([dog]);
+
+      expect(cache.getCachedDogs(), hasLength(1));
+    });
+  });
 }

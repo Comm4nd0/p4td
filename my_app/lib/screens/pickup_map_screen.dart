@@ -20,6 +20,7 @@ import '../utils/date_formats.dart';
 import '../utils/dog_initial.dart';
 import '../widgets/assignment_action_dialogs.dart';
 import 'staff_dog_detail_screen.dart';
+import 'dashboard/reassign_dogs_dialog.dart' show staffDisplayName;
 
 /// A staff member's route geometry: base → their dogs (in list order) → base.
 class _Route {
@@ -337,8 +338,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
     final names = <int, String>{};
     for (final s in widget.staffMembers) {
       final id = s['id'] as int;
-      final fn = (s['first_name'] ?? '').toString();
-      names[id] = fn.isNotEmpty ? fn : (s['username'] ?? 'Staff').toString();
+      names[id] = staffDisplayName(s);
     }
     // Fall back to names carried on the assignments.
     for (final a in _assignments) {
@@ -592,6 +592,7 @@ class _PickupMapScreenState extends State<PickupMapScreen> with SingleTickerProv
             }),
           ),
           IconButton(
+            tooltip: 'Refresh',
             icon: _refreshing
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.refresh),

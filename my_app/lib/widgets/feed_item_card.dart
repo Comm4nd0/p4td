@@ -511,6 +511,10 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
   }
 
   Future<void> _showReactionDetails() async {
+    // Asked for once, here: the sheet's builder runs again on every frame of
+    // a drag, and a future made inside it refetched (and flashed the
+    // spinner) each time.
+    final reactionsFuture = _dataService.getReactionDetails(widget.media.id);
     showModalBottomSheet(
       context: context,
       builder: (context) => DraggableScrollableSheet(
@@ -519,13 +523,13 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
         maxChildSize: 0.9,
         expand: false,
         builder: (_, controller) => FutureBuilder<List<Map<String, dynamic>>>(
-          future: _dataService.getReactionDetails(widget.media.id),
+          future: reactionsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
+              return const Center(child: Text("Couldn't load reactions. Please try again."));
             }
             if (!snapshot.hasData || snapshot.data!.isEmpty) {
               return const Center(child: Text('No reactions yet'));
@@ -538,8 +542,8 @@ class _FeedItemCardState extends State<FeedItemCard> with TickerProviderStateMix
               itemBuilder: (context, index) {
                 final reaction = reactions[index];
                 return ListTile(
-                  leading: Text(reaction['emoji'], style: const TextStyle(fontSize: 24)),
-                  title: Text(reaction['user_name']),
+                  leading: Text((reaction['emoji'] ?? '').toString(), style: const TextStyle(fontSize: 24)),
+                  title: Text((reaction['user_name'] ?? '').toString()),
                 );
               },
             );

@@ -29,9 +29,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-// Guards against handling many concurrent 401s at once (F3).
-bool _handlingUnauthorized = false;
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -42,32 +39,31 @@ void main() async {
   // to the login screen so an invalidated/rotated token can't leave the app
   // permanently stuck (F3). 403 ("authenticated but not permitted") is handled
   // by http_client as a normal response, not an auth failure.
-  http.onUnauthorized = () async {
-    if (_handlingUnauthorized) return;
-    _handlingUnauthorized = true;
-    try {
-      // A 401 with no stored token isn't an invalidated session — it's an
-      // anonymous call (e.g. while browsing the logged-out landing page).
-      // Don't hijack navigation to the login screen for those.
-      if (await AuthService().getToken() == null) return;
-      // Only the *active* token was rejected. logoutAll() signed the user out
-      // of every saved account on the device, so one expired session on a
-      // shared phone knocked out the others too. logout() drops the active
-      // account and promotes the next saved one, if there is one.
-      final next = await AuthService().logout();
-      // Fully signed out: drop the lock so the login screen isn't sitting
-      // behind an unlock prompt for a session that no longer exists.
-      if (next == null) getIt<BiometricService>().resetForSignOut();
-      navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => next == null ? const LoginScreen() : const HomeScreen(),
-        ),
-        (route) => false,
-      );
-    } finally {
-      _handlingUnauthorized = false;
-    }
+  http.onUnauthorized = (rejectedToken) async {
+    // AuthService decides whether this 401 means anything: an anonymous
+    // request (browsing the logged-out landing page) does not, and neither
+    // does a late answer for an account that has already been signed out —
+    // several requests are in flight at once, and on a shared phone the
+    // second 401 used to sign out the account promoted by the first.
+    // Only the rejected account goes; logoutAll() would knock out every
+    // saved account for one expired session.
+    final result = await AuthService().handleRejectedToken(rejectedToken);
+    if (!result.handled) return;
+    final next = result.next;
+    // Fully signed out: drop the lock so the login screen isn't sitting
+    // behind an unlock prompt for a session that no longer exists.
+    if (next == null) getIt<BiometricService>().resetForSignOut();
+    navigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => next == null ? const LoginScreen() : const HomeScreen(),
+      ),
+      (route) => false,
+    );
   };
+
+  // Every way out of an account takes this phone's push token off it first,
+  // so a signed-out phone stops receiving that person's notifications.
+  AuthService.onBeforeSignOut = () => NotificationService().deregisterToken();
 
   // While offline, periodically probe the server so the app flips back online
   // (and refreshes stale cached screens) as soon as signal returns, rather
@@ -78,15 +74,33 @@ void main() async {
         timeout: const Duration(seconds: 5));
   };
 
+  // Nothing below may stop the app from starting. Each of these reads the
+  // device's secure store or disk, and each has left a phone on the splash
+  // screen before now when that read threw (a restored backup whose keystore
+  // key did not come with it). The services pick their own safe fallback —
+  // no cache, default theme, lock *on* — and these catches are the backstop.
+
   // Initialize local cache
-  await getIt<CacheService>().init();
+  try {
+    await getIt<CacheService>().init();
+  } catch (e) {
+    debugPrint('Cache initialization failed: $e. Running without a cache.');
+  }
 
   // Load persisted theme preference
-  await getIt<ThemeService>().init();
+  try {
+    await getIt<ThemeService>().init();
+  } catch (e) {
+    debugPrint('Theme initialization failed: $e. Using the default theme.');
+  }
 
   // Load the app-lock preference before the first frame — if the lock is on,
   // the app must come up already locked rather than flashing the dashboard.
-  await getIt<BiometricService>().init();
+  try {
+    await getIt<BiometricService>().init();
+  } catch (e) {
+    debugPrint('App lock initialization failed: $e.');
+  }
 
   // Try initializing Firebase, but catch errors if config files are missing
   try {

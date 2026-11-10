@@ -1,4 +1,5 @@
 import 'dog.dart' show parseApiDate;
+import 'api_datetime.dart';
 
 /// The vet's certificate behind a dog's vaccination date — a PDF or a photo.
 ///
@@ -78,7 +79,7 @@ class VaccinationCertificate {
       uploadedById: (json['uploaded_by'] as num?)?.toInt(),
       uploadedByName: json['uploaded_by_name'] as String?,
       downloadUrl: json['download_url']?.toString() ?? '',
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 }

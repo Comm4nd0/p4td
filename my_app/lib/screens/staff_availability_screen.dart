@@ -7,6 +7,7 @@ import '../models/day_off_request.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/page_body.dart';
+import '../widgets/day_span.dart';
 
 class StaffAvailabilityScreen extends StatefulWidget {
   final bool canAssignDogs;
@@ -588,7 +589,7 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
       }
 
       if (mounted) {
-        final total = end.difference(start).inDays + 1;
+        final total = calendarDaysBetween(start, end) + 1;
         final String message;
         Color? background;
         if (failedDates.isEmpty) {

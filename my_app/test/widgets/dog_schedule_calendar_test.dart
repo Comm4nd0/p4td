@@ -99,6 +99,28 @@ void main() {
     });
   });
 
+  testWidgets('an extra day is marked by more than its colour', (tester) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      buildCalendar(onBookedDayTap: (_) {}, onFreeDayTap: (_) {}),
+    );
+
+    // The 17th is an extra day, the 10th a regular one: teal against green
+    // alone is no cue for someone who can't tell them apart.
+    expect(find.byKey(const ValueKey('extra-2030-6-17')), findsOneWidget);
+    expect(find.byKey(const ValueKey('extra-2030-6-10')), findsNothing);
+    // ...and the month is spelled out for a screen reader, which gets only
+    // the date from each cell.
+    final summary = tester
+        .getSemantics(find.byKey(const ValueKey('schedule-month-summary')))
+        .label;
+    expect(summary, contains('June 2030'));
+    expect(summary, contains('Regular days: 10'));
+    expect(summary, contains('Extra days: 17'));
+    expect(summary, contains('Boarding: 13'));
+    handle.dispose();
+  });
+
   testWidgets('renders legend and month grid', (tester) async {
     await tester.pumpWidget(
       buildCalendar(onBookedDayTap: (_) {}, onFreeDayTap: (_) {}),

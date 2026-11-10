@@ -6,6 +6,7 @@ import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../utils/date_formats.dart';
 import '../widgets/page_body.dart';
+import '../widgets/form_scroll_body.dart';
 
 /// Create a new boarding request, or — when [existing] is passed — edit the
 /// dates and instructions of an existing booking. In edit mode the dogs are
@@ -93,7 +94,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
       initialDateRange: _selectedDateRange,
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _selectedDateRange = picked;
       });
@@ -101,7 +102,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
   }
 
   Future<void> _submitRequest() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
     if (!_isEditing && _selectedDogIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select at least one dog')),
@@ -191,8 +192,7 @@ class _RequestBoardingScreenState extends State<RequestBoardingScreen> {
                 )
               : Form(
               key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+              child: FormScrollBody(
                 children: [
                   if (_isEditing) ...[
                     const Text(

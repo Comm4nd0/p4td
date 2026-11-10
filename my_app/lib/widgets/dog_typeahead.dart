@@ -195,6 +195,7 @@ class _DogTypeaheadState extends State<DogTypeahead> with WidgetsBindingObserver
           prefixIcon: Picon(PiconsDuotone.dog, size: 20),
           suffixIcon: widget.selectedDogId != null
               ? IconButton(
+                  tooltip: 'Clear search',
                   icon: Picon(PiconsDuotone.x, size: 18),
                   onPressed: () {
                     widget.onSelected(null);

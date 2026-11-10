@@ -6,6 +6,7 @@ import '../models/customer_rate.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
 import '../widgets/page_body.dart';
+import '../widgets/dispose_later.dart';
 
 /// Pricing management for payment managers: the standard day-care and
 /// boarding prices, plus per-customer rates (discounts). Blank customer
@@ -158,6 +159,7 @@ class _PricingScreenState extends State<PricingScreen> {
         ],
       ),
     );
+    disposeControllersLater([oneDayController, midController, fiveDayController, boardingController, transportController]);
     if (confirmed != true) return;
 
     final oneDay = double.tryParse(oneDayController.text.trim());
@@ -266,6 +268,7 @@ class _PricingScreenState extends State<PricingScreen> {
         ),
       ),
     );
+    disposeControllersLater([dayController, boardingController]);
     if (confirmed != true) return;
 
     double? parseOrNull(String text) =>

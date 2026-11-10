@@ -61,6 +61,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
     final error = await _authService.changePassword(oldPassword, newPassword);
 
+    if (!mounted) return;
     setState(() => _isLoading = false);
 
     if (error == null && mounted) {
@@ -106,6 +107,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 labelText: 'Current Password',
                 prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
+                  tooltip: _obscureOld ? 'Show password' : 'Hide password',
                   icon: Picon(
                     _obscureOld ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                   ),
@@ -120,6 +122,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: InputDecoration(
                 labelText: 'New Password',                prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
+                  tooltip: _obscureNew ? 'Show password' : 'Hide password',
                   icon: Picon(
                     _obscureNew ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                   ),
@@ -136,6 +139,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: InputDecoration(
                 labelText: 'Confirm New Password',                prefixIcon: Picon(PiconsDuotone.lock),
                 suffixIcon: IconButton(
+                  tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
                   icon: Picon(
                     _obscureConfirm ? PiconsDuotone.eye : PiconsDuotone.eyeSlash,
                   ),

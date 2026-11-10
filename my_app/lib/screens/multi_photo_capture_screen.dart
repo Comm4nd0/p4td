@@ -56,12 +56,14 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
   }
 
   Future<void> _bootstrap() async {
+    if (!mounted) return;
     setState(() {
       _initializing = true;
       _initError = null;
     });
     try {
       _cameras = await availableCameras();
+      if (!mounted) return;
       if (_cameras.isEmpty) {
         setState(() {
           _initializing = false;
@@ -72,11 +74,13 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
       if (_cameraIndex >= _cameras.length) _cameraIndex = 0;
       await _attachController(_cameras[_cameraIndex]);
     } on CameraException catch (e) {
+      if (!mounted) return;
       setState(() {
         _initializing = false;
         _initError = _friendlyCameraError(e);
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _initializing = false;
         _initError = 'Failed to start camera: $e';
@@ -417,6 +421,7 @@ class _MultiPhotoCaptureScreenState extends State<MultiPhotoCaptureScreen>
       child: Row(
         children: [
           IconButton(
+            tooltip: 'Close',
             icon: const Icon(Icons.close, color: Colors.white),
             onPressed: () async {
               if (await _confirmDiscard() && mounted) {

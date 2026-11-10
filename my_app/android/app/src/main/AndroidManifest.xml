@@ -19,11 +19,21 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <!-- Backup: the secure store (auth token, saved accounts, the offline
+         cache's encryption key, the app-lock switch) is kept out of Google
+         backup and device-to-device transfer. Its values are encrypted with a
+         key that never leaves this phone's keystore, so a restored copy can't
+         be read: the plugin throws on every read, which left a restored phone
+         stuck on the splash screen. A restored install simply signs in again.
+         fullBackupContent covers Android 11 and below, dataExtractionRules
+         Android 12+. -->
     <application
         android:label="Paws 4 Thought Dogs"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:requestLegacyExternalStorage="true"
         android:networkSecurityConfig="@xml/network_security_config">
         <activity

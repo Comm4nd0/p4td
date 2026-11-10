@@ -7,6 +7,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../constants/app_colors.dart';
 import '../models/closure_day.dart';
 import '../models/invoice.dart';
+import 'day_span.dart';
 
 /// Month calendar showing a dog's daycare schedule on their profile.
 ///
@@ -226,7 +227,7 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     while (widget.boardingNights.contains(end)) {
       end = shift(end, 1);
     }
-    final nights = end.difference(start).inDays;
+    final nights = nightsBetween(start, end);
     if (nights < 1) return null;
     final from = start.month == end.month ? _stayDay.format(start) : _stayDayMonth.format(start);
     return '${nights == 1 ? '1 night' : '$nights nights'}, $from – ${_stayDayMonth.format(end)}';
@@ -282,6 +283,8 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
         !widget.pendingRemoveDates.contains(d) &&
         !widget.pendingAddDates.contains(d);
 
+    var isExtra = false;
+
     if (widget.boardingDates.contains(d)) {
       fill = _boarding;
       textColor = Colors.white;
@@ -299,6 +302,7 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     } else if (widget.extraDates.contains(d)) {
       fill = _extra;
       textColor = Colors.white;
+      isExtra = true;
     } else if (widget.bookedDates.contains(d)) {
       fill = _booked;
       textColor = Colors.white;
@@ -345,7 +349,7 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
         ),
       ),
     );
-    if (coverage == null && !isCancelled) {
+    if (coverage == null && !isCancelled && !isExtra) {
       return _withNightArcs(d, Center(child: circle), nightIn: nightIn, nightOut: nightOut);
     }
     return _withNightArcs(d, Center(
@@ -354,6 +358,14 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
         clipBehavior: Clip.none,
         children: [
           circle,
+          // An extra day keeps its teal and also carries a plus, so it is
+          // told from a regular (green) day by shape as well as colour.
+          if (isExtra)
+            Positioned(
+              top: -3,
+              right: -3,
+              child: ExcludeSemantics(child: _extraBadge(d)),
+            ),
           if (isCancelled)
             Positioned(
               top: -2,
@@ -444,6 +456,59 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
     });
   }
 
+  /// What is on in [month], for screen readers: "June 2030. Regular days:
+  /// 10. Extra days: 17. Boarding: 13." Days are listed once, under the
+  /// same state the cell is drawn in.
+  String _monthSummary(DateTime month) {
+    final groups = <String, List<int>>{};
+    final last = DateTime(month.year, month.month + 1, 0).day;
+    for (var day = 1; day <= last; day++) {
+      final d = DateTime(month.year, month.month, day);
+      final String? state;
+      if (widget.boardingDates.contains(d)) {
+        state = 'Boarding';
+      } else if (widget.pendingBoardingDates.contains(d)) {
+        state = 'Boarding awaiting approval';
+      } else if (widget.pendingRemoveDates.contains(d)) {
+        state = 'Changes awaiting approval';
+      } else if (widget.pendingAddDates.contains(d)) {
+        state = 'Extra days awaiting approval';
+      } else if (widget.extraDates.contains(d)) {
+        state = 'Extra days';
+      } else if (widget.bookedDates.contains(d)) {
+        state = 'Regular days';
+      } else if (widget.cancelledDates.contains(d)) {
+        state = 'Cancelled';
+      } else if (_isClosed(d)) {
+        state = 'Daycare closed';
+      } else {
+        state = null;
+      }
+      if (state != null) groups.putIfAbsent(state, () => []).add(day);
+    }
+    final title = DateFormat('MMMM yyyy').format(month);
+    if (groups.isEmpty) return '$title. Nothing booked.';
+    return [
+      title,
+      for (final entry in groups.entries) '${entry.key}: ${entry.value.join(', ')}',
+    ].join('. ');
+  }
+
+  /// The plus that marks an extra day (also shown beside its legend entry).
+  Widget _extraBadge([DateTime? d]) {
+    return Container(
+      key: d == null ? null : ValueKey('extra-${d.year}-${d.month}-${d.day}'),
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: _extra, width: 1.5),
+      ),
+      child: const Icon(Icons.add, size: 10, color: _extra),
+    );
+  }
+
   Widget _legendDot(Color color, String label, {bool outlined = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -484,7 +549,8 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
             _onDayTapped(selectedDay);
           },
           onDayLongPressed: _showsInvoices ? (day, _) => _showInvoiceSheet(day) : null,
-          onPageChanged: (focusedDay) => _focusedDay = focusedDay,
+          // setState: the spoken month summary below follows the page.
+          onPageChanged: (focusedDay) => setState(() => _focusedDay = focusedDay),
           calendarBuilders: CalendarBuilders(
             defaultBuilder: (context, day, _) =>
                 _buildDay(context, day, isToday: false),
@@ -499,13 +565,48 @@ class _DogScheduleCalendarState extends State<DogScheduleCalendar> {
           calendarStyle: const CalendarStyle(outsideDaysVisible: false),
         ),
         const SizedBox(height: 8),
+        // The month in words. TableCalendar gives each cell its date as the
+        // only label and hides whatever is drawn inside, so a screen reader
+        // could not tell a booked day from a free one at all.
+        Semantics(
+          key: const ValueKey('schedule-month-summary'),
+          container: true,
+          label: _monthSummary(_focusedDay),
+          child: const SizedBox(width: double.infinity, height: 4),
+        ),
         Wrap(
           spacing: 12,
           runSpacing: 4,
           alignment: WrapAlignment.center,
           children: [
             _legendDot(_booked, 'Regular day'),
-            _legendDot(_extra, 'Extra day'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 14,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: 0,
+                        top: 1,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration:
+                              const BoxDecoration(color: _extra, shape: BoxShape.circle),
+                        ),
+                      ),
+                      Positioned(right: -2, top: -4, child: _extraBadge()),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text('Extra day', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+              ],
+            ),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [

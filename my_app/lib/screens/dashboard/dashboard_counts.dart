@@ -13,31 +13,57 @@ import '../../services/data_service.dart';
 /// individual `reloadX` methods back the per-screen refreshes the screen runs
 /// after returning from a detail screen.
 ///
-/// Endpoints and semantics are unchanged: each loader hits the same
-/// [DataService] method and swallows errors silently (leaving the previous
-/// value in place) exactly as before.
+/// One instance is owned by `HomeScreen` and shared with the dashboard, so
+/// the badges beside the bell, the drawer and the dashboard's Action Items
+/// read the same numbers: acting on something from any of them updates all
+/// three. (They used to be two stores, each reloaded only by its own entry
+/// point, and disagreed until the next resume.) The dashboard builds its own
+/// only when it isn't handed one.
+///
+/// Each loader swallows errors silently, leaving the previous value in
+/// place. A count clears on action, never on viewing — nothing here marks
+/// anything read.
 class DashboardCounts extends ChangeNotifier {
   DashboardCounts({
     required DataService dataService,
-    required this.canViewInquiries,
-    required this.canManageRequests,
+    this.isStaff = true,
+    this.canViewInquiries = false,
+    this.canManageRequests = false,
     this.canManageBoarding = false,
   }) : _dataService = dataService;
 
   final DataService _dataService;
 
+  /// Owners have a Contact Staff count and nothing else; every other count
+  /// is a staff queue the API refuses them.
+  bool isStaff;
+
   /// Whether this user can see the website inquiry queue. Gates
-  /// [reloadUnreadInquiryCount] in [refresh] exactly as the screen did.
-  final bool canViewInquiries;
+  /// [reloadUnreadInquiryCount].
+  bool canViewInquiries;
 
   /// Whether this user can manage requests (and therefore see the dog
   /// profile-change queue). Gates [reloadPendingProfileChangeCount] in
   /// [refresh].
-  final bool canManageRequests;
+  bool canManageRequests;
 
   /// Whether this user can manage boarding requests. Gates the pending
   /// boarding count — staff who can't act on requests aren't alerted.
-  final bool canManageBoarding;
+  bool canManageBoarding;
+
+  /// The profile's flags, which arrive after this is built and can change
+  /// while the app is open (re-read on resume).
+  void updatePermissions({
+    required bool isStaff,
+    required bool canViewInquiries,
+    required bool canManageRequests,
+    required bool canManageBoarding,
+  }) {
+    this.isStaff = isStaff;
+    this.canViewInquiries = canViewInquiries;
+    this.canManageRequests = canManageRequests;
+    this.canManageBoarding = canManageBoarding;
+  }
 
   bool _disposed = false;
 
@@ -82,10 +108,33 @@ class DashboardCounts extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  /// Loads every count in parallel, mirroring the screen's old
-  /// `_loadDashboardData`: the same calls fired without awaiting each other,
-  /// with the inquiry and profile-change loads gated behind their permissions.
+  /// The boarding list feeds both the pending count and the boarding
+  /// section; one fetch serves whoever asks while it is in flight.
+  Future<List<BoardingRequest>>? _boardingFetch;
+
+  Future<List<BoardingRequest>> _boardingRequests() {
+    return _boardingFetch ??= _dataService.getBoardingRequests().whenComplete(() {
+      _boardingFetch = null;
+    });
+  }
+
+  /// The counts shown beside the bell (and in the drawer): called on resume
+  /// and whenever a push lands in the foreground, so a badge is never older
+  /// than the last time the phone was looked at.
+  Future<void> refreshInbox() async {
+    await Future.wait([
+      reloadUnresolvedQueryCount(),
+      if (isStaff) reloadPendingRequestCount(),
+      if (isStaff) reloadPendingBookingFormCount(),
+      if (isStaff && canViewInquiries) reloadUnreadInquiryCount(),
+    ]);
+  }
+
+  /// Loads every count in parallel: the inbox counts plus the dashboard's
+  /// own rows, with the inquiry and profile-change loads gated behind their
+  /// permissions. Staff only — owners get [refreshInbox].
   Future<void> refresh() async {
+    if (!isStaff) return refreshInbox();
     await Future.wait([
       reloadPendingRequestCount(),
       reloadUnresolvedQueryCount(),
@@ -116,6 +165,7 @@ class DashboardCounts extends ChangeNotifier {
   }
 
   Future<void> reloadPendingRequestCount() async {
+    if (!isStaff) return;
     try {
       final dateRequests = await _dataService.getDateChangeRequests();
       final pendingDateCount =
@@ -123,7 +173,7 @@ class DashboardCounts extends ChangeNotifier {
       // Pending boardings only alert staff who can act on them.
       var pendingBoarding = 0;
       if (canManageBoarding) {
-        final boardingRequests = await _dataService.getBoardingRequests();
+        final boardingRequests = await _boardingRequests();
         // A date change the owner asked for on an approved stay waits on
         // a manager just like a new request.
         pendingBoarding = boardingRequests
@@ -169,6 +219,7 @@ class DashboardCounts extends ChangeNotifier {
   }
 
   Future<void> reloadUnreadInquiryCount() async {
+    if (!isStaff || !canViewInquiries) return;
     try {
       final count = await _dataService.getUnreadInquiryCount();
       unreadInquiryCount = count;
@@ -177,6 +228,7 @@ class DashboardCounts extends ChangeNotifier {
   }
 
   Future<void> reloadPendingBookingFormCount() async {
+    if (!isStaff) return;
     try {
       final count = await _dataService.getPendingIntakeRequestCount();
       pendingBookingFormCount = count;
@@ -186,7 +238,7 @@ class DashboardCounts extends ChangeNotifier {
 
   Future<void> reloadBoarding() async {
     try {
-      final requests = await _dataService.getBoardingRequests();
+      final requests = await _boardingRequests();
       _approvedBoardings = requests
           .where((r) => r.status == BoardingRequestStatus.approved)
           .toList();

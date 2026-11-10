@@ -37,6 +37,7 @@ import 'my_payments_screen.dart';
 import 'query_list_screen.dart';
 import 'request_boarding_screen.dart';
 import 'vaccinations_screen.dart';
+import '../widgets/day_span.dart';
 
 /// The owner's Dashboard tab — the client counterpart of the staff
 /// `UnifiedDashboardScreen`. Top to bottom: where each dog is today and when
@@ -63,10 +64,18 @@ class ClientDashboardScreen extends StatefulWidget {
   /// date without pinning this would pass on every day but that one.
   final DateTime? now;
 
+  /// Asked to reload [dogs] whenever something done from here may have
+  /// changed them (a certificate attached, details edited) and on pull to
+  /// refresh. The attention tiles are computed from that list, which this
+  /// screen doesn't own: without this the "certificate needed" tile stayed
+  /// up after the owner had attached one.
+  final Future<void> Function()? onDogsChanged;
+
   const ClientDashboardScreen({
     super.key,
     this.dogs = const [],
     this.onSwitchToFeed,
+    this.onDogsChanged,
     this.now,
   });
 
@@ -118,6 +127,14 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     _load();
   }
 
+  /// Everything on the page, the parent's dogs included.
+  Future<void> _reload() async {
+    await Future.wait([
+      _load(),
+      if (widget.onDogsChanged != null) widget.onDogsChanged!().catchError((_) {}),
+    ]);
+  }
+
   Future<void> _load() async {
     final today = _today;
     _calendarDays.clear();
@@ -134,7 +151,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
         'closures',
         () async => _closures = await _dataService.getClosureDays(
           fromDate: today,
-          toDate: today.add(const Duration(days: _closureHorizonDays)),
+          toDate: addCalendarDays(today, _closureHorizonDays),
         ),
       ),
     ]);
@@ -206,7 +223,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     try {
       final calendar = await _dataService.getOwnerCalendar(
         start: today,
-        end: today.add(const Duration(days: _horizonDays)),
+        end: addCalendarDays(today, _horizonDays),
       );
       if (!mounted) return;
       setState(() {
@@ -239,7 +256,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
     // Whatever was done there (a request, a waitlist join, an edit) belongs
     // on the dashboard the moment they come back.
-    _load();
+    if (mounted) _reload();
   }
 
   /// One dog opens directly; several ask which. Null when there are none
@@ -306,7 +323,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
   }
 
   Future<void> _contactStaff() async {
-    if (await showNewQueryDialog(context)) _load();
+    if (await showNewQueryDialog(context) && mounted) _load();
   }
 
   // ── Build ──────────────────────────────────────────────────────────
@@ -373,7 +390,7 @@ class _ClientDashboardScreenState extends State<ClientDashboardScreen> {
       ]),
       body: PageBody(
         child: RefreshIndicator.adaptive(
-          onRefresh: _load,
+          onRefresh: _reload,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             // Room at the bottom so the FAB never covers the last row.

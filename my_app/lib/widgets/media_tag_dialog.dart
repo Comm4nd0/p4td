@@ -37,7 +37,14 @@ class MediaTagDialog extends StatefulWidget {
   /// List of (bytes, filename, isVideo) for each media item.
   final List<(Uint8List, String, bool)> files;
 
-  const MediaTagDialog({super.key, required this.files});
+  /// Where each item lives on disk, in the same order as [files], or null
+  /// for an item that only exists in memory. A video with a path is
+  /// previewed straight from it, so its bytes in [files] may be empty and
+  /// the clip never has to be read into memory just to be tagged.
+  final List<String?>? filePaths;
+
+  const MediaTagDialog({super.key, required this.files, this.filePaths})
+      : assert(filePaths == null || filePaths.length == files.length);
 
   @override
   State<MediaTagDialog> createState() => _MediaTagDialogState();
@@ -290,7 +297,11 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: isVideo
-                ? _LocalVideoPlayer(bytes: bytes, fileName: fileName)
+                ? _LocalVideoPlayer(
+                    bytes: bytes,
+                    fileName: fileName,
+                    filePath: widget.filePaths?[fileIndex],
+                  )
                 : GestureDetector(
                     onTap: () => _openEnlargedImage(bytes),
                     child: Container(
@@ -411,12 +422,14 @@ class _MediaTagDialogState extends State<MediaTagDialog> {
   }
 }
 
-/// Video player that plays a video from in-memory bytes by writing to a temp file.
+/// Plays a video that is still on the device: straight from [filePath] when
+/// there is one, otherwise from in-memory [bytes] written to a temp file.
 class _LocalVideoPlayer extends StatefulWidget {
   final Uint8List bytes;
   final String fileName;
+  final String? filePath;
 
-  const _LocalVideoPlayer({required this.bytes, required this.fileName});
+  const _LocalVideoPlayer({required this.bytes, required this.fileName, this.filePath});
 
   @override
   State<_LocalVideoPlayer> createState() => _LocalVideoPlayerState();
@@ -447,12 +460,18 @@ class _LocalVideoPlayerState extends State<_LocalVideoPlayer> {
 
   Future<void> _initializeVideo() async {
     try {
-      final dir = Directory.systemTemp;
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      _tempFile = File('${dir.path}/p4td_preview_$timestamp\_${widget.fileName}');
-      await _tempFile!.writeAsBytes(widget.bytes);
-
-      _controller = VideoPlayerController.file(_tempFile!);
+      final path = widget.filePath;
+      if (path != null) {
+        // The picker's own file: nothing to copy, and nothing of ours to
+        // delete afterwards (_tempFile stays null).
+        _controller = VideoPlayerController.file(File(path));
+      } else {
+        final dir = Directory.systemTemp;
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        _tempFile = File('${dir.path}/p4td_preview_$timestamp\_${widget.fileName}');
+        await _tempFile!.writeAsBytes(widget.bytes);
+        _controller = VideoPlayerController.file(_tempFile!);
+      }
       await _controller!.initialize();
       _controller!.addListener(() {
         if (mounted) setState(() {});

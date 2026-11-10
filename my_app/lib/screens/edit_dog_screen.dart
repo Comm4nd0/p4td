@@ -199,6 +199,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
       );
       if (image != null) {
         final bytes = await image.readAsBytes();
+        if (!mounted) return;
         setState(() {
           _newImageBytes = bytes;
           _newImageName = image.name;
@@ -643,6 +644,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
         title: Text('Edit ${widget.dog.name}'),
         actions: [
           IconButton(
+            tooltip: 'Save',
             icon: Picon(PiconsDuotone.floppyDisk),
             onPressed: _isSaving ? null : _saveDog,
           ),
@@ -799,7 +801,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 firstDate: DateTime(now.year - 30),
                 lastDate: now,
               );
-              if (picked != null) {
+              if (picked != null && mounted) {
                 setState(() => _selectedDateOfBirth = picked);
               }
             },
@@ -809,6 +811,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 suffixIcon: _selectedDateOfBirth == null
                     ? null
                     : IconButton(
+                        tooltip: 'Clear',
                         icon: const Picon(PiconsDuotone.x),
                         onPressed: () => setState(() => _selectedDateOfBirth = null),
                       ),
@@ -830,7 +833,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 firstDate: DateTime(now.year - 20),
                 lastDate: now,
               );
-              if (picked != null) {
+              if (picked != null && mounted) {
                 setState(() => _selectedLastVaccination = picked);
               }
             },
@@ -841,6 +844,7 @@ class _EditDogScreenState extends State<EditDogScreen> {
                 suffixIcon: _selectedLastVaccination == null
                     ? null
                     : IconButton(
+                        tooltip: 'Clear',
                         icon: const Picon(PiconsDuotone.x),
                         onPressed: () => setState(() => _selectedLastVaccination = null),
                       ),

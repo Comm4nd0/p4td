@@ -9,6 +9,7 @@ import '../widgets/postcode_lookup_dialog.dart';
 import '../widgets/page_body.dart';
 import '../widgets/vaccination_certificate_picker.dart';
 import 'link_dog_screen.dart';
+import '../widgets/form_scroll_body.dart';
 
 /// Per-dog form state on the booking form. Controllers live for the lifetime
 /// of the screen and are disposed with it.
@@ -171,7 +172,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateFormAndReveal(_formKey)) return;
 
     setState(() => _isSubmitting = true);
     _DogEntry? uploading;
@@ -299,6 +300,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                   suffixIcon: date == null
                       ? null
                       : IconButton(
+                          tooltip: 'Clear',
                           icon: const Picon(PiconsDuotone.x),
                           onPressed: () => setState(() => dog.lastVaccinationDate = null),
                         ),
@@ -322,8 +324,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       appBar: AppBar(title: const Text('New Dog Booking Form')),
       body: PageBody(child: Form(
         key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+        child: FormScrollBody(
           children: [
             Container(
               padding: const EdgeInsets.all(12),
@@ -552,7 +553,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                   firstDate: DateTime(now.year - 30),
                   lastDate: now,
                 );
-                if (picked != null) {
+                if (picked != null && mounted) {
                   setState(() => dog.dateOfBirth = picked);
                 }
               },
@@ -563,6 +564,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                   suffixIcon: dog.dateOfBirth == null
                       ? null
                       : IconButton(
+                          tooltip: 'Clear',
                           icon: const Picon(PiconsDuotone.x),
                           onPressed: () => setState(() => dog.dateOfBirth = null),
                         ),

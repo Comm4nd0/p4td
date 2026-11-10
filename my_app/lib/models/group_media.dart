@@ -1,4 +1,5 @@
 import 'comment.dart';
+import 'api_datetime.dart';
 
 enum MediaType { photo, video }
 
@@ -51,9 +52,10 @@ class GroupMedia {
 
   factory GroupMedia.fromJson(Map<String, dynamic> json) {
     Map<String, int> reactionsMap = {};
-    if (json['reactions'] != null) {
-      (json['reactions'] as Map<String, dynamic>).forEach((key, value) {
-        reactionsMap[key] = value as int;
+    final reactions = json['reactions'];
+    if (reactions is Map) {
+      reactions.forEach((key, value) {
+        if (value is num) reactionsMap[key.toString()] = value.toInt();
       });
     }
 
@@ -63,7 +65,7 @@ class GroupMedia {
       uploadedByName: json['uploaded_by_name'] ?? '',
       uploadedByProfilePhoto: json['uploaded_by_profile_photo'],
       mediaType: json['media_type'] == 'VIDEO' ? MediaType.video : MediaType.photo,
-      fileUrl: json['file'],
+      fileUrl: json['file'] ?? '',
       thumbnailUrl: json['thumbnail'],
       caption: json['caption'],
       taggedDogs: (json['tagged_dogs'] as List? ?? [])
@@ -74,7 +76,7 @@ class GroupMedia {
       comments: (json['comments'] as List? ?? [])
           .map((c) => Comment.fromJson(c))
           .toList(),
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: requireApiDateTime(json['created_at']),
     );
   }
 

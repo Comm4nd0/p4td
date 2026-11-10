@@ -11,7 +11,13 @@ import 'package:paws4thoughtdogs/services/biometric_service.dart';
 /// records the reasons it was shown, so tests can assert the user was actually
 /// challenged rather than silently let through.
 class _FakeLocalAuth extends LocalAuthentication {
-  _FakeLocalAuth({this.result = true, this.throwOnAuth = false});
+  _FakeLocalAuth({this.result = true, this.throwOnAuth = false, this.deviceSupported = true});
+
+  /// Whether the phone has any screen lock to authenticate against.
+  bool deviceSupported;
+
+  @override
+  Future<bool> isDeviceSupported() async => deviceSupported;
 
   bool result;
   bool throwOnAuth;
@@ -279,6 +285,55 @@ void main() {
           reason: 'the login screen must not sit behind a lock screen');
       expect(service.isEnabled, isTrue,
           reason: 'the device preference should survive for the next sign-in');
+    });
+  });
+
+  group('an unreadable preference', () {
+    /// The secure store fails every read, as it does on a phone restored
+    /// from a backup without its keystore key.
+    void breakStorage() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+        (call) async => throw PlatformException(code: 'BadPaddingException'),
+      );
+    }
+
+    test('starts locked — a storage fault is not a way past the lock', () async {
+      breakStorage();
+
+      final service = await freshService(_FakeLocalAuth());
+
+      expect(service.isLocked, isTrue);
+      expect(service.isEnabled, isTrue);
+    });
+
+    test('can still be unlocked with a successful prompt', () async {
+      breakStorage();
+      final fake = _FakeLocalAuth();
+      final service = await freshService(fake);
+
+      expect(await service.authenticate(), isTrue);
+      service.unlock();
+
+      expect(service.isLocked, isFalse);
+    });
+
+    test('a phone with no screen lock is not locked out of an app lock it never had',
+        () async {
+      breakStorage();
+
+      final service = await freshService(_FakeLocalAuth(deviceSupported: false));
+
+      expect(service.isLocked, isFalse);
+      expect(service.isEnabled, isFalse);
+    });
+
+    test('init does not throw, so the app still starts', () async {
+      breakStorage();
+      final service = BiometricService()..auth = _FakeLocalAuth();
+
+      await expectLater(service.init(), completes);
     });
   });
 }

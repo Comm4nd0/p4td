@@ -188,7 +188,7 @@ class MockDataService implements DataService {
   }
 
   @override
-  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt) async {
+  Future<Photo> uploadPhoto(String dogId, Uint8List imageBytes, String imageName, DateTime takenAt, {String? filePath}) async {
     await Future.delayed(const Duration(milliseconds: 300));
     return Photo(
       id: 'p_new',
@@ -269,6 +269,7 @@ class MockDataService implements DataService {
     Uint8List? thumbnailBytes,
     List<String>? taggedDogIds,
     void Function(int sentBytes, int totalBytes)? onSendProgress,
+    String? filePath,
   }) async {}
 
   @override
@@ -279,6 +280,7 @@ class MockDataService implements DataService {
     List<List<String>>? taggedDogIdsByFile,
     void Function(int completed, int total)? onProgress,
     void Function(int index, int sentBytes, int totalBytes)? onFileProgress,
+    List<String?>? filePathsByFile,
   }) async => [];
 
   @override

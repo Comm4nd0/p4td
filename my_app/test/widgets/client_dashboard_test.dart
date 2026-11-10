@@ -290,7 +290,7 @@ void main() {
         home: Scaffold(
           body: ClientTodaySection(
             today: saturday,
-            calendar: _calendar(saturday, saturday.add(const Duration(days: 60))),
+            calendar: _calendar(saturday, DateTime(saturday.year, saturday.month, saturday.day + 60)),
           ),
         ),
       ));
@@ -350,7 +350,7 @@ void main() {
           ),
         ],
         queries: [_query(id: 1, unread: true), _query(id: 2)],
-        calendar: _calendar(_today, _today.add(const Duration(days: 60)), waitlist: {
+        calendar: _calendar(_today, DateTime(_today.year, _today.month, _today.day + 60), waitlist: {
           _today.add(const Duration(days: 3)): [
             CalendarWaitlistEntry(id: 9, dogId: '7', status: 'NOTIFIED'),
           ],

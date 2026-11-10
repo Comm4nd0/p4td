@@ -1,4 +1,5 @@
 import 'support_message.dart';
+import 'api_datetime.dart';
 
 enum QueryStatus {
   open,
@@ -62,7 +63,7 @@ class SupportQuery {
   factory SupportQuery.fromJson(Map<String, dynamic> json) {
     return SupportQuery(
       id: json['id'],
-      ownerId: json['owner'],
+      ownerId: (json['owner'] as num?)?.toInt() ?? 0,
       ownerName: json['owner_name'] ?? '',
       ownerDogs: json['owner_dogs'] is List
           ? (json['owner_dogs'] as List)
@@ -74,9 +75,7 @@ class SupportQuery {
           ? QueryStatus.resolved
           : QueryStatus.open,
       resolvedByName: json['resolved_by_name'],
-      resolvedAt: json['resolved_at'] != null
-          ? DateTime.parse(json['resolved_at'])
-          : null,
+      resolvedAt: parseApiDateTime(json['resolved_at']),
       messages: json['messages'] != null
           ? (json['messages'] as List)
               .map((m) => SupportMessage.fromJson(m))
@@ -85,11 +84,9 @@ class SupportQuery {
       messageCount: json['message_count'] ?? 0,
       hasUnreadReply: json['has_unread_reply'] ?? false,
       staffHasUnread: json['staff_has_unread'] ?? false,
-      lastMessageAt: json['last_message_at'] != null
-          ? DateTime.parse(json['last_message_at'])
-          : null,
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      lastMessageAt: parseApiDateTime(json['last_message_at']),
+      createdAt: requireApiDateTime(json['created_at']),
+      updatedAt: requireApiDateTime(json['updated_at']),
     );
   }
 }

@@ -12,6 +12,7 @@ import '../widgets/skeleton_loaders.dart';
 import 'request_boarding_change_screen.dart';
 import 'request_boarding_screen.dart';
 import '../widgets/page_body.dart';
+import '../widgets/day_span.dart';
 
 /// Boarding requests screen with List and Calendar tabs.
 ///
@@ -546,7 +547,7 @@ class _BoardingRequestListScreenState extends State<BoardingRequestListScreen> {
 
   Widget _buildDayEventTile(BoardingRequest request) {
     final color = BoardingStatusBadge.colorFor(request.status);
-    final nights = request.endDate.difference(request.startDate).inDays;
+    final nights = nightsBetween(request.startDate, request.endDate);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
