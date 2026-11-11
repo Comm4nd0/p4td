@@ -118,6 +118,7 @@ class ScheduleIndex:
                 self.active_assignments_by_date[day].add(dog_id)
 
         self.boarding_by_date = defaultdict(set)
+        self.overnight_by_date = defaultdict(set)
         boarding_rows = BoardingRequest.objects.filter(
             status='APPROVED', start_date__lte=end, end_date__gte=start,
         ).values_list('dogs__id', 'start_date', 'end_date')
@@ -126,6 +127,10 @@ class ScheduleIndex:
                 continue
             for day in daterange(max(b_start, start), min(b_end, end)):
                 self.boarding_by_date[day].add(dog_id)
+            # Nights, not days: the dog sleeps over on every date of the
+            # stay except the one it goes home on.
+            for day in daterange(max(b_start, start), min(b_end - timedelta(days=1), end)):
+                self.overnight_by_date[day].add(dog_id)
 
         self.default_capacity = DaycareSettings.load().default_daily_capacity or None
 
@@ -134,6 +139,10 @@ class ScheduleIndex:
 
     def boarding_dog_ids(self, day):
         return self.boarding_by_date.get(day, set())
+
+    def overnight_dog_ids(self, day):
+        """Dogs sleeping at the carer's on the night of ``day``."""
+        return self.overnight_by_date.get(day, set())
 
     def attending_dog_ids(self, day):
         closure = self.closure(day)
@@ -348,6 +357,30 @@ def day_booking_summary(day):
     }
 
 
+def overnight_boarding_dog_ids(night, dog_ids=None):
+    """The dogs sleeping at the boarding carer's on the night of ``night``.
+
+    A stay runs from the morning the dog arrives to the day it goes home, so
+    it covers the nights ``start_date`` … ``end_date - 1``: the dog is in
+    daycare on its last day and at home that evening. This — not "is some
+    stay booked on the next day" — is what decides whether a dog travels.
+    A stay that ends on Thursday and another that begins on Friday are two
+    stays with a night at home between them: Thursday needs a drop-off and
+    Friday a pickup. Only bookings that share a day (one ends the day the
+    next begins) run on as one, and those have a stay over every night
+    anyway.
+    """
+    from .models import BoardingRequest
+
+    stays = BoardingRequest.objects.filter(
+        status='APPROVED', start_date__lte=night, end_date__gt=night)
+    if dog_ids is not None:
+        stays = stays.filter(dogs__id__in=dog_ids)
+    found = set(stays.values_list('dogs__id', flat=True))
+    found.discard(None)
+    return found if dog_ids is None else found & set(dog_ids)
+
+
 def boarding_arrival_dog_ids(dog_ids, arrival_date):
     """Of ``dog_ids``, the ones whose stay genuinely begins on ``arrival_date``.
 
@@ -356,24 +389,16 @@ def boarding_arrival_dog_ids(dog_ids, arrival_date):
 
       * it isn't a weekday — daycare doesn't run, and by the stay's first
         weekday the dog is already with the boarding carer;
-      * another approved stay already covered the day before. Back-to-back
-        bookings are one stay (the same rule ``needs_staff_pickup`` uses); the
-        dog isn't arriving, it is simply carrying on.
+      * the dog slept at the carer's the night before, under another
+        approved stay (the same rule ``needs_staff_pickup`` uses, see
+        :func:`overnight_boarding_dog_ids`); it isn't arriving, it is simply
+        carrying on. A stay that merely *ended* the day before doesn't
+        count — the dog went home that evening.
     """
-    from .models import BoardingRequest
-
     dog_ids = set(dog_ids)
     if not dog_ids or arrival_date.isoweekday() not in DAYCARE_WEEKDAYS:
         return set()
-    yesterday = arrival_date - timedelta(days=1)
-    already_here = set(
-        BoardingRequest.objects
-        .filter(
-            status='APPROVED', dogs__id__in=dog_ids,
-            start_date__lte=yesterday, end_date__gte=yesterday,
-        )
-        .values_list('dogs__id', flat=True)
-    )
+    already_here = overnight_boarding_dog_ids(arrival_date - timedelta(days=1), dog_ids)
     return dog_ids - already_here
 
 
@@ -861,8 +886,10 @@ def day_changes(day):
     removed = index.removed_assignments_by_date.get(day, set())
     active = index.active_assignments_by_date.get(day, set())
     boarding = index.boarding_dog_ids(day)
-    boarding_before = index.boarding_dog_ids(day - timedelta(days=1))
-    boarding_after = index.boarding_dog_ids(day + timedelta(days=1))
+    # Whether the dog slept here last night / sleeps here tonight — a stay
+    # that ended yesterday or starts tomorrow is a different stay.
+    boarding_before = index.overnight_dog_ids(day - timedelta(days=1))
+    boarding_after = index.overnight_dog_ids(day)
 
     rows = {
         row.dog_id: row
