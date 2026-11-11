@@ -16,6 +16,7 @@ from .models import Dog, Photo, UserProfile, DateChangeRequest, DateChangeReques
 from .serializers import DogSerializer, PhotoSerializer, UserProfileSerializer, DateChangeRequestSerializer, GroupMediaSerializer, OwnerDetailSerializer, CommentSerializer, BoardingRequestSerializer, DeviceTokenSerializer, DailyDogAssignmentSerializer, DogWeekdayPickupSerializer, RequestPasswordResetSerializer, VerifyOTPSerializer, ResetPasswordSerializer, ChangePasswordSerializer, ChangeEmailSerializer, ContactInquirySerializer, PublicContactInquirySerializer, DogProfileChangeRequestSerializer, IntakeRequestSerializer, DogLinkRequestSerializer
 from website.models import ContactInquiry
 
+import calendar
 import logging
 
 logger = logging.getLogger(__name__)
@@ -2980,6 +2981,21 @@ class BoardingRequestViewSet(viewsets.ModelViewSet):
             print(f"Failed to send push notification: {e}")
         return Response(self.get_serializer(instance).data)
 
+def _is_birthday(born, day):
+    """Whether ``day`` is the birthday of a dog born on ``born``. A dog is
+    not having a birthday on the day it is born, and 29 February is kept on
+    the 28th in a year that has no 29th."""
+    if born is None or day.year <= born.year:
+        return False
+    if (born.month, born.day) == (day.month, day.day):
+        return True
+    return (
+        (born.month, born.day) == (2, 29)
+        and (day.month, day.day) == (2, 28)
+        and not calendar.isleap(day.year)
+    )
+
+
 class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = DailyDogAssignmentSerializer
     permission_classes = [IsAdminUser]
@@ -3632,6 +3648,71 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
             'tagged': len(by_dog) - len(untagged),
             'untagged': untagged,
         })
+
+    @action(detail=False, methods=['get'])
+    def birthdays(self, request):
+        """The dogs in on a day whose birthday it is, so the team remembers
+        the photo. Accepts optional ?date=YYYY-MM-DD (defaults to today).
+
+        "In" means on the board that day (any assignment that isn't REMOVED)
+        or boarding (an approved stay covering the date — weekends have no
+        board rows). A dog born on 29 February has its birthday on the 28th in
+        a year without one. ``photographed`` is the same test as
+        ``photo_tagging/``: tagged in feed media posted that day.
+        """
+        from .models import BoardingRequest
+        from .scheduling import house_staff_account
+
+        target_date, error = self._parse_date(request)
+        if error:
+            return error
+        self._materialize_roster_for_date(target_date)
+
+        staff_by_dog = {}
+        rows = (
+            DailyDogAssignment.objects
+            .filter(date=target_date, dog__date_of_birth__isnull=False)
+            .exclude(status='REMOVED')
+            .select_related('staff_member')
+        )
+        for row in rows:
+            staff_by_dog[row.dog_id] = row.staff_member
+        boarding_ids = set(
+            BoardingRequest.objects.filter(
+                status='APPROVED', start_date__lte=target_date, end_date__gte=target_date,
+            ).values_list('dogs__id', flat=True)
+        ) - {None}
+
+        dogs = [
+            dog for dog in Dog.objects.filter(
+                pk__in=set(staff_by_dog) | boarding_ids, date_of_birth__isnull=False)
+            if _is_birthday(dog.date_of_birth, target_date)
+        ]
+        photographed = set(
+            GroupMedia.objects.filter(
+                created_at__date=target_date, tagged_dogs__in=[d.pk for d in dogs],
+            ).values_list('tagged_dogs', flat=True)
+        ) if dogs else set()
+
+        house_account = house_staff_account() if dogs else None
+        birthdays = []
+        for dog in sorted(dogs, key=lambda d: d.name.lower()):
+            staff = staff_by_dog.get(dog.pk)
+            house = staff is not None and house_account is not None and staff.pk == house_account.pk
+            birthdays.append({
+                'dog_id': dog.pk,
+                'dog_name': dog.name,
+                'dog_profile_image': (
+                    request.build_absolute_uri(dog.profile_image.url)
+                    if dog.profile_image else None),
+                'age': target_date.year - dog.date_of_birth.year,
+                'boarding': dog.pk in boarding_ids,
+                'staff_member_name': (
+                    '' if staff is None or house
+                    else (staff.first_name or staff.username)),
+                'photographed': dog.pk in photographed,
+            })
+        return Response({'date': target_date.isoformat(), 'birthdays': birthdays})
 
     # ---- Owner handovers ----------------------------------------------
     # Dogs the owner brings in the morning or collects in the evening are on

@@ -209,6 +209,10 @@ abstract class DataService {
   /// tagged in feed media posted that day, and which still need tagging.
   Future<PhotoTaggingStatus> getPhotoTagging({DateTime? date});
 
+  /// Dogs in on a day whose birthday it is, each flagged once it has been
+  /// tagged in a feed post that day.
+  Future<List<DogBirthday>> getBirthdays({DateTime? date});
+
   /// The day's owner drop-offs and owner collections — which dogs, and who on
   /// the team is meeting the owners on each leg.
   Future<OwnerHandoverStatus> getOwnerHandovers({DateTime? date});
