@@ -6,7 +6,8 @@ import '../models/daily_dog_assignment.dart';
 import '../models/dog.dart' show DropoffTimeExtension;
 
 /// Shared card rendering a single [DailyDogAssignment]: avatar, name/owner/
-/// staff/boarding rows, a status [PopupMenuButton], owner transport chips, and
+/// staff/boarding rows, an **Actions** [PopupMenuButton], the status pill and
+/// owner transport chips, and
 /// tappable address/phone/instruction rows.
 ///
 /// This widget is used by both `AllDogsTodayScreen` and `StaffDogDetailScreen`.
@@ -194,6 +195,7 @@ class AssignmentCard extends StatelessWidget {
     final previous = _previousStatus(assignment.status);
     final statusColor = _statusColor(assignment.status);
     final double avatarDiameter = avatarRadius * 2;
+    final actionColor = Theme.of(context).colorScheme.primary;
 
     final staffLine = showStaffLine
         ? Text('Staff: ${assignment.staffMemberName}',
@@ -206,14 +208,23 @@ class AssignmentCard extends StatelessWidget {
     final boardingRow = assignment.isBoarding
         ? Padding(
             padding: const EdgeInsets.only(top: 2),
-            child: Row(children: [
-              Picon(PiconsDuotone.house, size: 14, color: Colors.deepPurple),
+            // The note is a sentence ("Boarding – going home today, no
+            // pickup"): it wraps inside the column rather than running on
+            // under the Actions button.
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Picon(PiconsDuotone.house,
+                    size: 14, color: Colors.deepPurple),
+              ),
               const SizedBox(width: 4),
-              Text(boardingLabel,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.deepPurple,
-                        fontWeight: FontWeight.w600,
-                      )),
+              Expanded(
+                child: Text(boardingLabel,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.deepPurple,
+                          fontWeight: FontWeight.w600,
+                        )),
+              ),
             ]),
           )
         : null;
@@ -266,12 +277,14 @@ class AssignmentCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  // Status chip with full action menu
+                  const SizedBox(width: 8),
+                  // The action menu. It is labelled for what it does — the
+                  // dog's status is shown on the card below, not here.
                   PopupMenuButton<String>(
                     enabled: !statusUpdating,
                     tooltip: statusUpdating
                         ? 'Updating ${assignment.dogName}…'
-                        : '${assignment.dogName}: ${assignment.status.displayName}. Change status or transport',
+                        : 'Actions for ${assignment.dogName}: change status or transport',
                     onSelected: (value) {
                       switch (value) {
                         case 'next':
@@ -368,23 +381,24 @@ class AssignmentCard extends StatelessWidget {
                           ? SizedBox(
                               width: statusIconSize,
                               height: statusIconSize,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: statusColor),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: actionColor),
                             )
-                          : Picon(_statusIcon(assignment.status),
-                              size: statusIconSize, color: statusColor),
+                          : null,
                       label: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(assignment.status.displayName,
+                          Text('Actions',
                               style: TextStyle(
-                                  color: statusColor,
+                                  color: actionColor,
+                                  fontWeight: FontWeight.w600,
                                   fontSize: statusFontSize)),
                           Picon(PiconsDuotone.caretDown,
-                              size: statusCaretSize, color: statusColor),
+                              size: statusCaretSize, color: actionColor),
                         ],
                       ),
-                      backgroundColor: statusColor.withValues(alpha: 0.1),
-                      side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
+                      backgroundColor: actionColor.withValues(alpha: 0.08),
+                      side: BorderSide(color: actionColor.withValues(alpha: 0.35)),
                       visualDensity:
                           statusChipCompact ? VisualDensity.compact : null,
                     ),
@@ -396,18 +410,38 @@ class AssignmentCard extends StatelessWidget {
               SizedBox(height: rowSpacing),
               // Changes to the routine first (extra day, one-off transport),
               // then the transport indicators (owner brings / collects).
-              if (assignment.isExtraDay ||
-                  assignment.dropoffTimeForDriver != null ||
-                  assignment.hasTransportChange ||
-                  assignment.usesAlternativeAddress ||
-                  assignment.effectiveOwnerBrings ||
-                  assignment.effectiveOwnerCollects)
-                Padding(
+              Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
+                      // Where the dog is right now — always first.
+                      Semantics(
+                        label: 'Status: ${assignment.status.displayName}',
+                        excludeSemantics: true,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color: statusColor.withValues(alpha: 0.4)),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Picon(_statusIcon(assignment.status),
+                                size: 14, color: statusColor),
+                            const SizedBox(width: 4),
+                            Text(assignment.status.displayName,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: statusColor)),
+                          ]),
+                        ),
+                      ),
                       if (assignment.isExtraDay)
                         const RoutineChangeChip(
                           label: 'Extra day',
