@@ -100,6 +100,10 @@ jobs:
           USER_NAME: ${{ secrets.HETZNER_USER }}
           APP_DIR: ${{ vars.HETZNER_APP_DIR || '/root/p4td' }}
         run: |
+          # The deploy key is restricted on the server to a gate script that
+          # matches this command, and the tail in the failure step below,
+          # character for character (DEPLOYMENT.md > Server hardening in
+          # place). Change either and the gate must change with it.
           ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
             "$USER_NAME@$HOST" \
             "cd '$APP_DIR' && ./deploy.sh"

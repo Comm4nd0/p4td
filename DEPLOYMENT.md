@@ -34,8 +34,8 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 - **Compose file:** `docker-compose.prod.yml` → services `db` (Postgres 15,
   named volume `postgres_data`) and `web` (gunicorn).
 - **App port:** published as `172.17.0.1:8000:8000` — reachable by Caddy via the
-  docker0 gateway, NOT on the public interface. (There is currently **no `ufw`
-  firewall**, so do not bind this to `0.0.0.0`.)
+  docker0 gateway, NOT on the public interface. (Docker publishes ports
+  around `ufw`, so the firewall would not cover a `0.0.0.0` binding.)
 - **Media:** bind-mounted `./media` (= `/root/p4td/media`) → `/app/media`.
   Caddy serves `/media/*` from `/srv/p4td-media`, which is that **same host
   directory** (`/root/p4td/media`) mounted into the Caddy container.
@@ -60,6 +60,7 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 - The p4td block (mirror of the committed `Caddyfile`):
   ```
   paws4thoughtdogs.com, www.paws4thoughtdogs.com {
+      request_body { max_size 250MB }
       handle_path /media/* { root * /srv/p4td-media; file_server }
       reverse_proxy 172.17.0.1:8000
       encode gzip
@@ -68,13 +69,16 @@ port** (`172.17.0.1:8000`, the docker0 bridge gateway).
 - TLS certs are auto-provisioned by Caddy. To change routing, edit
   `/root/caddy/Caddyfile` and reload Caddy (`docker exec caddy-caddy-1 caddy
   reload --config /etc/caddy/Caddyfile`), **not** the committed `Caddyfile`.
-- **Request size cap — not yet in the live config.** The committed `Caddyfile`
-  now carries `request_body { max_size 250MB }` in the p4td block; the live
-  one has no cap until someone adds the same three lines to
-  `/root/caddy/Caddyfile` and reloads (see [Owner's to-do](#owners-to-do)).
-  Without it Caddy passes a body of any size through and Django spools it to
-  disk before checking anything, on the disk Postgres shares. 250 MB is the
-  app's largest upload (a 200 MB video) plus headroom.
+- **Edit the live file in place.** It is bind-mounted as a single file, so the
+  container holds its inode: an editor or `sed -i` that writes a new file and
+  renames it leaves Caddy reading the old one. Overwrite the contents
+  (`cat new > Caddyfile`), run `caddy validate` in the container, then reload.
+- **Request size cap** (live since 2026-11-11): `request_body { max_size 250MB }`
+  in the p4td block, in both the committed and the live file. Without it Caddy
+  passes a body of any size through and Django spools it to disk before
+  checking anything, on the disk Postgres shares. 250 MB is the app's largest
+  upload (a 200 MB video) plus headroom. The loaded value can be read back
+  with `docker exec caddy-caddy-1 wget -qO- http://127.0.0.1:2019/config/`.
 
 ## Deploying
 
@@ -315,38 +319,71 @@ Things the repository cannot do for itself. None of these has been done.
    `docker compose -f docker-compose.prod.yml exec -T -e DEMO_PASSWORD='<new>' web python manage.py seed_demo_data --no-media`
    then update the `DEMO_PASSWORD` repository secret, and delete old **Store
    Screenshots** runs (their logs and `ios-drive-log` artifacts).
-2. **Cap request size in the live Caddy.** Add to the p4td block of
-   `/root/caddy/Caddyfile`: `request_body { max_size 250MB }`, then
-   `docker exec caddy-caddy-1 caddy reload --config /etc/caddy/Caddyfile`.
-3. **Send backups off the server.** Configure a remote (e.g. `rclone config`)
+2. **Send backups off the server.** Configure a remote (e.g. `rclone config`)
    and set `BACKUP_OFFBOX_CMD` in `/root/p4td/.env`. Then rehearse a restore.
-4. **Point the heartbeat somewhere.** Set `P4TD_CRON_HEARTBEAT_URL` to a
+3. **Point the heartbeat somewhere.** Set `P4TD_CRON_HEARTBEAT_URL` to a
    healthchecks.io-style base URL, with a check per suffix the commands ping
    (`vaccination-reminders`, `fleet-reminders`, `send_compliance_reminders`,
    `end-of-day-alerts`, `tomorrow-changes`, `monthly-invoices`,
    `invoice-reminders`, `xero-sync`, `prune-feed-media`, `backup`). Without it
    a failing job is only a line in `/var/log`.
-5. **Turn on a firewall** (recommended; there is none, and the address of this
-   server has been public in this repository's history):
-   `ufw default deny incoming && ufw default allow outgoing && ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp && ufw enable`.
-   Docker publishes ports around ufw, so keep binding the app to `172.17.0.1`
-   as now; check the other apps on the box before enabling.
-6. **Deploy as something less than root** (recommended). The GitHub deploy key
-   is currently a root login. Restrict it to the one command it needs, in
-   `/root/.ssh/authorized_keys`:
-   `command="cd /root/p4td && ./deploy.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA... github-actions-deploy`
-   (the workflow's failure step also runs `tail .deploy-history`, which this
-   would turn into a second deploy — drop that step or allow it through a
-   wrapper that switches on `$SSH_ORIGINAL_COMMAND`). A dedicated non-root
-   user in the `docker` group is the further step.
-7. **Require approval for the `production` environment** (GitHub > Settings >
+4. **Require approval for the `production` environment** (GitHub > Settings >
    Environments) if a human should confirm each deploy, and keep "Require
    approval for all outside collaborators" on for workflow runs from forks.
-8. **Move the Firebase key out of the image** — see [Firebase key](#firebase-key).
-9. Old images built before `private-media/` was added to `.dockerignore`
-   contain copies of every vaccination certificate. The deploy now prunes this
-   project's untagged images after a week; to clear them at once:
-   `docker image prune -f --filter label=com.docker.compose.project=p4td`.
+5. **Move the Firebase key out of the image** — see [Firebase key](#firebase-key).
+6. **Deploy as a non-root user** (optional further step). The deploy key can
+   now only run the deploy (below), but it still runs it as root.
+
+## Server hardening in place
+
+Done on the server on 2026-11-11. None of it lives in this repository, so a
+rebuilt server needs each step again.
+
+- **Firewall (`ufw`)**: deny incoming, allow outgoing, allow `22/tcp`,
+  `80/tcp`, `443/tcp`, `443/udp`, and
+  `ufw allow from 172.16.0.0/12` — the Docker bridges. Keep that last rule: it
+  is what lets a container reach a port another project publishes on
+  `172.17.0.1` should that traffic ever arrive on the host's INPUT chain
+  (today Docker forwards it, so ufw never sees it). Docker publishes ports
+  around ufw, so ufw does **not** protect a container port bound to `0.0.0.0`;
+  keep binding the app to `172.17.0.1`. When changing rules remotely, arm a
+  way back first: `systemd-run --on-active=5min --unit=ufw-autorevert
+  /usr/sbin/ufw --force disable`, then `systemctl stop ufw-autorevert.timer`
+  once a **new** SSH session and the sites have been checked.
+- **Deploy key restricted**: the GitHub Actions key (comment
+  `github-actions-deploy`, fingerprint `SHA256:RUgzZIvz…`) carries
+  `command="/usr/local/sbin/p4td-deploy-gate",restrict` in
+  `/root/.ssh/authorized_keys`. The gate runs exactly two requests — the
+  deploy and the rollback-history read — matched as the literal strings
+  `.github/workflows/deploy-backend.yml` sends, and refuses everything else
+  (exit 126, logged under the `p4td-deploy-gate` syslog tag). **Change either
+  SSH command in that workflow, or `HETZNER_APP_DIR`, and the gate must change
+  with it**, or the next deploy is refused (harmlessly: nothing runs). The
+  second `github-actions-deploy` key in that file belongs to another app.
+  The gate:
+  ```sh
+  #!/bin/sh
+  set -eu
+  APP_DIR=/root/p4td
+  cmd="${SSH_ORIGINAL_COMMAND:-}"
+  logger -t p4td-deploy-gate -- "request: ${cmd:-<interactive>}"
+  case "$cmd" in
+    "cd '$APP_DIR' && ./deploy.sh")
+      [ -n "${P4TD_GATE_DRY_RUN:-}" ] && { echo "would deploy"; exit 0; }
+      cd "$APP_DIR" && exec ./deploy.sh ;;
+    "tail -n 3 '$APP_DIR/.deploy-history' 2>/dev/null || echo 'no deploy history'")
+      tail -n 3 "$APP_DIR/.deploy-history" 2>/dev/null || echo "no deploy history" ;;
+    *)
+      echo "p4td-deploy-gate: this key can only run the p4td deploy" >&2
+      exit 126 ;;
+  esac
+  ```
+- **Request size cap in Caddy** — see [Caddy](#caddy-the-live-config).
+- **Old certificate copies cleared**: images built before `private-media/`
+  joined `.dockerignore` held every vaccination certificate. None remain, and
+  the build cache from before that deploy was pruned
+  (`docker builder prune -af --filter until=<hours>`; the cache is shared by
+  every project on the box, so their next build is a cold one).
 
 ## One-time / periodic ops
 
