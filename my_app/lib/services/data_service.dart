@@ -41,6 +41,7 @@ import '../models/invoice.dart';
 import '../models/customer_rate.dart';
 import '../models/xero_contact.dart';
 import '../models/roadwork_issue.dart';
+import '../models/dog_birthday.dart';
 import '../models/photo_tagging_status.dart';
 import '../models/day_changes.dart';
 import '../models/owner_handover_status.dart';
@@ -1735,6 +1736,18 @@ class ApiDataService implements DataService {
       return PhotoTaggingStatus.fromJson(json.decode(response.body) as Map<String, dynamic>);
     }
     throw Exception('Failed to load photo tagging status: ${response.statusCode}');
+  }
+
+  @override
+  Future<List<DogBirthday>> getBirthdays({DateTime? date}) async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/daily-assignments/birthdays/${_dateParam(date)}'));
+    if (response.statusCode == 200) {
+      final body = json.decode(response.body) as Map<String, dynamic>;
+      return (body['birthdays'] as List<dynamic>? ?? [])
+          .map((b) => DogBirthday.fromJson(b as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load birthdays: ${response.statusCode}');
   }
 
   @override

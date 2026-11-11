@@ -10,6 +10,7 @@ import '../models/closure_day.dart';
 import '../models/daily_dog_assignment.dart';
 import '../models/dashboard_layout.dart';
 import '../models/owner_handover_status.dart';
+import '../models/dog_birthday.dart';
 import '../models/photo_tagging_status.dart';
 import '../models/roadwork_issue.dart';
 import '../widgets/roadwork_banner.dart';
@@ -28,6 +29,7 @@ import '../widgets/skeleton_loaders.dart';
 import '../widgets/quick_actions_fab.dart';
 import 'dashboard/action_items_section.dart';
 import 'dashboard/add_dog_to_day_dialog.dart';
+import 'dashboard/birthday_section.dart';
 import 'dashboard/boarding_section.dart';
 import 'dashboard/dashboard_layout_dialog.dart';
 import 'dashboard/route_plan_screen.dart';
@@ -571,6 +573,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
     _loadConflicts(date);
     _loadRoadworks(date);
     _loadPhotoTagging(date);
+    _loadBirthdays(date);
     _loadOwnerHandovers(date);
     _loadDayChanges(date);
 
@@ -645,6 +648,33 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       setState(() => _dayCache[_dayKey(date)] =
           _dayData(date).copyWith(dayChanges: changes));
     }
+  }
+
+  /// Dogs in on the day whose birthday it is. Silent on failure like photo
+  /// tagging (an older server has no such route): the card doesn't render.
+  Future<void> _loadBirthdays(DateTime date) async {
+    try {
+      final birthdays = await _dataService.getBirthdays(date: date);
+      if (mounted) {
+        setState(() => _dayCache[_dayKey(date)] =
+            _dayData(date).copyWith(birthdays: birthdays));
+      }
+    } catch (e) {
+      debugPrint('Failed to load birthdays: $e');
+    }
+  }
+
+  Future<void> _openBirthdayDog(DogBirthday birthday) async {
+    final dog = await DogQuickInfoSheet.show(
+      context,
+      dogId: birthday.dogId.toString(),
+      dogName: birthday.dogName,
+    );
+    if (dog == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DogHomeScreen(dog: dog, isStaff: true)),
+    );
   }
 
   /// Owner drop-offs/collections for the day and who is meeting the owners.
@@ -1646,6 +1676,14 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           onAssign: _assignOwnerHandover,
           dropOffKey: _isToday(_selectedDate) ? _dropOffSpotKey : null,
           collectionKey: _isToday(_selectedDate) ? _collectionSpotKey : null,
+        );
+      case DashboardSection.birthdays:
+        return BirthdaySection(
+          birthdays: day.birthdays,
+          isToday: _isToday(_selectedDate),
+          isPast: _dayKey(_selectedDate).isBefore(_dayKey(DateTime.now())),
+          onDogTap: _openBirthdayDog,
+          onOpenFeed: widget.onSwitchToFeed,
         );
       case DashboardSection.photoTagging:
         return _buildPhotoTaggingCard(day);
@@ -2813,6 +2851,10 @@ class DayData {
   /// fetch failed — the progress card hides itself either way).
   final PhotoTaggingStatus? tagging;
 
+  /// Dogs in on the day whose birthday it is, or null until it loads (or
+  /// when the fetch failed — the card hides either way).
+  final List<DogBirthday>? birthdays;
+
   /// The day's owner drop-offs and collections and who is meeting the owners,
   /// or null until it loads (or when the fetch failed — the cards hide).
   final OwnerHandoverStatus? handovers;
@@ -2847,6 +2889,7 @@ class DayData {
     this.conflicts = const [],
     this.roadworks = const [],
     this.tagging,
+    this.birthdays,
     this.handovers,
     this.dayChanges,
     this.closure,
@@ -2864,6 +2907,7 @@ class DayData {
     List<CompatibilityConflict>? conflicts,
     List<RoadworkIssue>? roadworks,
     PhotoTaggingStatus? tagging,
+    List<DogBirthday>? birthdays,
     OwnerHandoverStatus? handovers,
     DayChanges? dayChanges,
     ClosureDay? closure,
@@ -2883,6 +2927,7 @@ class DayData {
       conflicts: conflicts ?? this.conflicts,
       roadworks: roadworks ?? this.roadworks,
       tagging: tagging ?? this.tagging,
+      birthdays: birthdays ?? this.birthdays,
       handovers: handovers ?? this.handovers,
       dayChanges: dayChanges ?? this.dayChanges,
       closure: clearClosure ? null : (closure ?? this.closure),

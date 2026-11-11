@@ -11,6 +11,7 @@ enum DashboardSection {
   dayChanges('day_changes', 'Changes to the routine', followsDate: true),
   overview('overview', 'Dog counts', followsDate: true),
   handovers('handovers', 'Dropped off / collected by owner', followsDate: true),
+  birthdays('birthdays', 'Birthdays', followsDate: true),
   photoTagging('photo_tagging', 'Photo tagging', followsDate: true),
   staff('staff', 'Staff and their dogs', followsDate: true),
   actionItems('action_items', 'Action Items'),
