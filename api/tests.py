@@ -1460,21 +1460,49 @@ class BoardingTransportLegTests(TestCase):
         self.assertTrue(row['needs_pickup'])
         self.assertTrue(row['needs_dropoff'])
 
-    def test_back_to_back_requests_count_as_one_stay(self):
-        # One request ends day2, the next starts day3 — the dog never goes
-        # home in between, so day2 is not a "last day" and day3 not a "first".
+    def test_stays_sharing_a_day_count_as_one_stay(self):
+        # One request ends day2 and the next starts the same day — the dog
+        # sleeps over that night too, so day2 is neither a last nor a first.
+        self._board(self.day1, self.day2)
+        self._board(self.day2, self.day3)
+        self._assign(self.day2)
+
+        row = self._fetch(self.day2)
+        self.assertFalse(row['boarding_first_day'])
+        self.assertFalse(row['boarding_last_day'])
+        self.assertFalse(row['needs_pickup'])
+        self.assertFalse(row['needs_dropoff'])
+
+    def test_a_night_at_home_between_two_stays_needs_both_legs(self):
+        # Boards the night of day1, goes home on day2, comes back on day3:
+        # nothing covers the night of day2, so day2 ends a stay and day3
+        # starts one — even though every one of the three days is a
+        # boarding day.
         self._board(self.day1, self.day2)
         self._board(self.day3, self.day3 + timedelta(days=2))
         for d in (self.day2, self.day3):
             self._assign(d)
 
         end_of_first = self._fetch(self.day2)
-        self.assertFalse(end_of_first['boarding_last_day'])
-        self.assertFalse(end_of_first['needs_dropoff'])
+        self.assertTrue(end_of_first['is_boarding'])
+        self.assertFalse(end_of_first['boarding_first_day'])
+        self.assertTrue(end_of_first['boarding_last_day'])
+        self.assertFalse(end_of_first['needs_pickup'])
+        self.assertTrue(end_of_first['needs_dropoff'])
 
         start_of_second = self._fetch(self.day3)
-        self.assertFalse(start_of_second['boarding_first_day'])
-        self.assertFalse(start_of_second['needs_pickup'])
+        self.assertTrue(start_of_second['boarding_first_day'])
+        self.assertFalse(start_of_second['boarding_last_day'])
+        self.assertTrue(start_of_second['needs_pickup'])
+        self.assertFalse(start_of_second['needs_dropoff'])
+
+        # One row on its own (no roster context) answers the same.
+        row = DailyDogAssignment.objects.get(dog=self.dog, date=self.day2)
+        resp = self.client.get(f'/api/daily-assignments/{row.id}/')
+        self.assertTrue(resp.data['boarding_last_day'])
+        self.assertTrue(resp.data['needs_dropoff'])
+        self.assertTrue(row.needs_staff_dropoff)
+        self.assertFalse(row.needs_staff_pickup)
 
     def test_non_boarding_dog_unaffected(self):
         self._assign(self.day1)
@@ -12721,8 +12749,9 @@ class BoardingDaycareAttendanceTests(TestCase):
         with patch('api.notifications.send_push_notification'):
             self.client.post(f'/api/boarding-requests/{first.id}/change_status/',
                              {'status': 'CANCELLED'}, format='json')
-        # Only the cancelled stay's days go; the next booking keeps its own.
-        self.assertEqual(self._dates(), [date(2026, 4, 8), date(2026, 4, 9)])
+        # Only the cancelled stay's days go; the next booking keeps its own
+        # (its arrival day waiting for a driver, the rest with the house).
+        self.assertEqual(self._all_dates(), [date(2026, 4, 8), date(2026, 4, 9)])
 
     def test_moving_the_dates_moves_the_attendance(self):
         stay = self._stay(start=self.monday, end=date(2026, 4, 8))
@@ -12858,14 +12887,26 @@ class BoardingDaycareAttendanceTests(TestCase):
         self.assertEqual(existing.status, 'ASSIGNED')
         self.assertFalse(existing.from_boarding)
 
-    def test_a_back_to_back_stay_does_not_ask_for_a_second_pickup(self):
+    def test_a_stay_running_on_from_another_does_not_ask_for_a_second_pickup(self):
         """The dog never went home, so nobody has to fetch it again."""
+        first = self._stay(start=self.monday, end=date(2026, 4, 8))
+        self._approve(first)
+        # The API refuses two stays that share a day, so this only exists
+        # in data written another way; the rule still has to hold for it.
+        from .scheduling import sync_boarding_daycare_assignments
+        second = self._stay(start=date(2026, 4, 8), end=date(2026, 4, 10), status='APPROVED')
+        sync_boarding_daycare_assignments(second)
+        self.assertEqual(self._unassigned_dates(), [self.monday])
+        self.assertEqual(self._dates(), [date(2026, 4, d) for d in range(7, 11)])
+
+    def test_a_stay_after_a_night_at_home_asks_for_a_pickup_again(self):
+        """Home on Tuesday evening, back on Wednesday: Wednesday is an arrival."""
         first = self._stay(start=self.monday, end=date(2026, 4, 7))
         self._approve(first)
         second = self._stay(start=date(2026, 4, 8), end=date(2026, 4, 10))
         self.assertEqual(self._approve(second).status_code, 200)
-        self.assertEqual(self._unassigned_dates(), [self.monday])
-        self.assertEqual(self._dates(), [date(2026, 4, d) for d in range(7, 11)])
+        self.assertEqual(self._unassigned_dates(), [self.monday, date(2026, 4, 8)])
+        self.assertEqual(self._dates(), [date(2026, 4, 7), date(2026, 4, 9), date(2026, 4, 10)])
 
     def test_loading_a_day_leaves_the_arrival_unassigned(self):
         """The lazy day-load path applies the same rule as approval."""
@@ -15380,6 +15421,17 @@ class DayChangesTests(TestCase):
         self.assertEqual(self._kinds(self.wed - timedelta(days=1)), {('Bella', 'BOARDING_START')})
         self.assertEqual(self._kinds(self.wed), {('Bella', 'BOARDING')})
         self.assertEqual(self._kinds(self.wed + timedelta(days=1)), {('Bella', 'BOARDING_END')})
+
+    def test_a_night_at_home_between_stays_ends_one_and_starts_the_next(self):
+        # Tuesday night boarding, home Wednesday evening, back Thursday.
+        bella = self._dog('Bella', days=(1, 2, 3, 4, 5))
+        for start, end in ((self.wed - timedelta(days=1), self.wed),
+                           (self.wed + timedelta(days=1), self.wed + timedelta(days=2))):
+            br = BoardingRequest.objects.create(
+                owner=self.owner, start_date=start, end_date=end, status='APPROVED')
+            br.dogs.add(bella)
+        self.assertEqual(self._kinds(self.wed), {('Bella', 'BOARDING_END')})
+        self.assertEqual(self._kinds(self.wed + timedelta(days=1)), {('Bella', 'BOARDING_START')})
 
     def test_fortnightly_and_ad_hoc_never_flag_a_cancel(self):
         fort = self._dog('Fort', schedule_type='fortnightly')

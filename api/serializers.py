@@ -832,15 +832,22 @@ class DailyDogAssignmentSerializer(serializers.ModelSerializer):
     def get_is_boarding(self, obj):
         return self._boarding_on(obj, 'boarding_dog_ids', obj.date)
 
+    def _overnight(self, obj, context_key, night):
+        # Whether the dog sleeps at the carer's on ``night`` — the roster
+        # views precompute it (see _boarding_context), one object asks.
+        overnight = self.context.get(context_key)
+        if overnight is not None:
+            return obj.dog_id in overnight
+        return obj._boards_overnight(night)
+
     def get_boarding_first_day(self, obj):
         from datetime import timedelta
-        return self.get_is_boarding(obj) and not self._boarding_on(
+        return self.get_is_boarding(obj) and not self._overnight(
             obj, 'boarding_prev_dog_ids', obj.date - timedelta(days=1))
 
     def get_boarding_last_day(self, obj):
-        from datetime import timedelta
-        return self.get_is_boarding(obj) and not self._boarding_on(
-            obj, 'boarding_next_dog_ids', obj.date + timedelta(days=1))
+        return self.get_is_boarding(obj) and not self._overnight(
+            obj, 'boarding_next_dog_ids', obj.date)
 
     def get_needs_pickup(self, obj):
         # Staff collect the dog this morning: never when the owner brings it,

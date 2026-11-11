@@ -584,8 +584,11 @@ class DailyDogAssignment(models.Model):
     # ---- Boarding-aware transport legs ----
     # A boarding dog only travels on the edges of its stay: home → staff on the
     # first day, staff → home on the last day. In between it is already with
-    # the boarding staff member, so neither leg exists. Consecutive approved
-    # requests (one ends the day before the next starts) count as one stay.
+    # the boarding staff member, so neither leg exists. What decides it is the
+    # night, not the day: a stay covers the nights start_date … end_date - 1,
+    # so one that ends Thursday and another that starts Friday have a night
+    # at home between them (drop-off Thursday, pickup Friday). Only bookings
+    # that share a day run on as one stay.
     # These per-row properties each query BoardingRequest; bulk callers
     # (the roster serializer) pass precomputed per-date sets via context
     # instead — see DailyDogAssignmentSerializer / _boarding_context.
@@ -598,6 +601,15 @@ class DailyDogAssignment(models.Model):
             end_date__gte=target_date,
         ).exists()
 
+    def _boards_overnight(self, night):
+        """The dog sleeps at the carer's on the night of ``night``."""
+        return BoardingRequest.objects.filter(
+            dogs=self.dog_id,
+            status='APPROVED',
+            start_date__lte=night,
+            end_date__gt=night,
+        ).exists()
+
     @property
     def is_boarding_day(self) -> bool:
         return self._boarding_covers(self.date)
@@ -605,12 +617,11 @@ class DailyDogAssignment(models.Model):
     @property
     def boarding_first_day(self) -> bool:
         from datetime import timedelta
-        return self.is_boarding_day and not self._boarding_covers(self.date - timedelta(days=1))
+        return self.is_boarding_day and not self._boards_overnight(self.date - timedelta(days=1))
 
     @property
     def boarding_last_day(self) -> bool:
-        from datetime import timedelta
-        return self.is_boarding_day and not self._boarding_covers(self.date + timedelta(days=1))
+        return self.is_boarding_day and not self._boards_overnight(self.date)
 
     @property
     def needs_staff_pickup(self) -> bool:

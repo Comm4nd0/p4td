@@ -3111,8 +3111,13 @@ class DailyDogAssignmentViewSet(viewsets.ModelViewSet):
 
         ctx = self.get_serializer_context()
         ctx['boarding_dog_ids'] = boarding_ids(target_date)
-        ctx['boarding_prev_dog_ids'] = boarding_ids(target_date - timedelta(days=1))
-        ctx['boarding_next_dog_ids'] = boarding_ids(target_date + timedelta(days=1))
+        # Nights, not neighbouring days: "prev" is the dogs that slept at the
+        # carer's last night, "next" the ones sleeping there tonight. A stay
+        # that ended yesterday, or one starting tomorrow, is a different stay
+        # with a night at home in between.
+        from .scheduling import overnight_boarding_dog_ids
+        ctx['boarding_prev_dog_ids'] = overnight_boarding_dog_ids(target_date - timedelta(days=1))
+        ctx['boarding_next_dog_ids'] = overnight_boarding_dog_ids(target_date)
         return ctx
 
     def _roster_context(self, target_date):

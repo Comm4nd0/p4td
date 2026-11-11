@@ -247,7 +247,16 @@ Additional non-router endpoints:
   usual when the owner normally brings the dog in themselves
   (`Dog.owner_brings_default`, or the per-date `owner_brings` override), when
   the stay starts at a weekend (by its first weekday the dog is already with the
-  carer), or when it runs straight on from another approved stay.
+  carer), or when the dog slept at the carer's the night before under another
+  approved stay.
+  **A stay is its nights** (`start_date` … `end_date - 1`): the dog goes home
+  on `end_date`. So a stay ending Thursday and another starting Friday have a
+  night at home between them — Thursday is a last day (drop-off, "Boarding
+  ends") and Friday a first day (pickup). Every stay-edge question
+  (`needs_staff_pickup`/`_dropoff`, `boarding_first_day`/`_last_day`, owner
+  handovers, `day_changes`, arrival days) asks
+  `scheduling.overnight_boarding_dog_ids`, never "is a stay booked on the
+  neighbouring day".
 - **A dog's regular days own its future board rows.** The dashboard books a
   dog in the first time anyone looks at a date (`_materialize_roster_for_date`
   writes a `DailyDogAssignment` from `DogWeekdayPickup`), so a change to
