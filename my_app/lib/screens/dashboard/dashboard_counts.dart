@@ -30,6 +30,7 @@ class DashboardCounts extends ChangeNotifier {
     this.canViewInquiries = false,
     this.canManageRequests = false,
     this.canManageBoarding = false,
+    this.canManageStaff = false,
   }) : _dataService = dataService;
 
   final DataService _dataService;
@@ -51,6 +52,10 @@ class DashboardCounts extends ChangeNotifier {
   /// boarding count — staff who can't act on requests aren't alerted.
   bool canManageBoarding;
 
+  /// Whether this user decides day-off requests (`can_manage_staff`, or a
+  /// superuser). Gates [reloadPendingDayOffCount].
+  bool canManageStaff;
+
   /// The profile's flags, which arrive after this is built and can change
   /// while the app is open (re-read on resume).
   void updatePermissions({
@@ -58,7 +63,9 @@ class DashboardCounts extends ChangeNotifier {
     required bool canViewInquiries,
     required bool canManageRequests,
     required bool canManageBoarding,
+    bool canManageStaff = false,
   }) {
+    this.canManageStaff = canManageStaff;
     this.isStaff = isStaff;
     this.canViewInquiries = canViewInquiries;
     this.canManageRequests = canManageRequests;
@@ -76,6 +83,8 @@ class DashboardCounts extends ChangeNotifier {
   int unresolvedDefectCount = 0;
   int unresolvedVehicleDefectCount = 0;
   int openIncidentCount = 0;
+  /// Day-off requests waiting on a manager.
+  int pendingDayOffCount = 0;
   /// Neutered status to confirm + vaccinations over a year old: one row on
   /// the dashboard, one call to the server.
   DogHealthFlags dogHealthFlags = const DogHealthFlags.empty();
@@ -127,6 +136,7 @@ class DashboardCounts extends ChangeNotifier {
       if (isStaff) reloadPendingRequestCount(),
       if (isStaff) reloadPendingBookingFormCount(),
       if (isStaff && canViewInquiries) reloadUnreadInquiryCount(),
+      if (isStaff && canManageStaff) reloadPendingDayOffCount(),
     ]);
   }
 
@@ -146,7 +156,16 @@ class DashboardCounts extends ChangeNotifier {
       reloadUnresolvedVehicleDefectCount(),
       reloadOpenIncidentCount(),
       reloadDogHealthFlags(),
+      if (canManageStaff) reloadPendingDayOffCount(),
     ]);
+  }
+
+  Future<void> reloadPendingDayOffCount() async {
+    if (!isStaff || !canManageStaff) return;
+    try {
+      pendingDayOffCount = await _dataService.getPendingDayOffRequestCount();
+      _safeNotify();
+    } catch (_) {}
   }
 
   Future<void> reloadDogHealthFlags() async {

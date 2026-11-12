@@ -11,8 +11,21 @@ import '../widgets/day_span.dart';
 
 class StaffAvailabilityScreen extends StatefulWidget {
   final bool canAssignDogs;
+  /// Decides the team's day-off requests: `can_manage_staff`, or a superuser.
   final bool canManageStaff;
-  const StaffAvailabilityScreen({super.key, required this.canAssignDogs, this.canManageStaff = false});
+
+  /// The tab to open on — [timeOffTab] from anything that is about a
+  /// day-off request (the dashboard row, Staff Management, a push).
+  final int initialTab;
+
+  static const int timeOffTab = 1;
+
+  const StaffAvailabilityScreen({
+    super.key,
+    required this.canAssignDogs,
+    this.canManageStaff = false,
+    this.initialTab = 0,
+  });
 
   @override
   State<StaffAvailabilityScreen> createState() => _StaffAvailabilityScreenState();
@@ -59,7 +72,11 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _tabCount, vsync: this);
+    _tabController = TabController(
+      length: _tabCount,
+      vsync: this,
+      initialIndex: widget.initialTab.clamp(0, _tabCount - 1),
+    );
     _selectedDay = _focusedDay;
     _loadMyAvailability();
     _loadDayOffRequests();
@@ -321,6 +338,14 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // A manager's queue comes first: it used to sit under their own
+          // requests at the bottom of the tab, where nobody found it.
+          if (widget.canManageStaff) ...[
+            _buildPendingApprovals(),
+            const SizedBox(height: 8),
+            const Divider(),
+            const SizedBox(height: 8),
+          ],
           // Request a day off button
           FilledButton.icon(
             onPressed: _showRequestDayOffDialog,
@@ -355,10 +380,6 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
               ),
             ),
 
-          // Pending approvals (staff with approve permission)
-          if (widget.canManageStaff) ...[
-            _buildPendingApprovals(),
-          ],
         ],
       ),
     );
@@ -423,12 +444,10 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Divider(),
-        const SizedBox(height: 8),
         Row(
           children: [
             const Text(
-              'Pending Approvals',
+              'Team Requests to Approve',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             if (pendingRequests.isNotEmpty) ...[
@@ -574,7 +593,11 @@ class _StaffAvailabilityScreenState extends State<StaffAvailabilityScreen> with 
         var current = start;
         while (!current.isAfter(end)) {
           try {
-            await _dataService.requestDayOff(date: current, reason: reason);
+            await _dataService.requestDayOff(
+              date: current,
+              reason: reason,
+              rangeEnd: isSingle ? null : end,
+            );
             succeeded++;
           } catch (_) {
             failedDates.add(current);

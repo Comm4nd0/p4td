@@ -198,7 +198,7 @@ class _StaffMemberDetailScreenState extends State<StaffMemberDetailScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    'Counted from approved day-off requests. Approvals live in My Availability.',
+                    'Counted from approved day-off requests. Approve them under My Availability, Time Off.',
                     style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,

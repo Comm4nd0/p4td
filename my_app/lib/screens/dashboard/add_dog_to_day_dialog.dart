@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'reassign_dogs_dialog.dart' show staffDisplayName;
+import '../../widgets/assignment_action_dialogs.dart' show confirmAssignToOffStaff;
 import 'package:picons/picons.dart';
 
 import '../../constants/app_colors.dart';
@@ -174,7 +176,18 @@ Future<AddDogSelection?> showAddDogToDayDialog({
               onPressed: selectedDogId == null ||
                       (canAssignDogs && selectedStaffId == null)
                   ? null
-                  : () => Navigator.pop(context, true),
+                  : () async {
+                      final id = selectedStaffId;
+                      if (id != null &&
+                          availableStaffIds.isNotEmpty &&
+                          !availableStaffIds.contains(id)) {
+                        final staff = sortedStaff.firstWhere((s) => s['id'] == id);
+                        final go = await confirmAssignToOffStaff(context,
+                            staffName: staffDisplayName(staff));
+                        if (!go || !context.mounted) return;
+                      }
+                      Navigator.pop(context, true);
+                    },
               child: const Text('Add to Day'),
             ),
           ],

@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../models/staff_hr.dart';
 import '../services/data_service.dart';
 import '../services/service_locator.dart';
+import 'staff_availability_screen.dart';
 import 'staff_member_detail_screen.dart';
 import '../widgets/page_body.dart';
 
@@ -66,11 +67,50 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   child: ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(12),
-                    itemCount: _team.length,
-                    itemBuilder: (context, index) =>
-                        _buildMemberCard(_team[index]),
+                    itemCount: _team.length + 1,
+                    itemBuilder: (context, index) => index == 0
+                        ? _buildDayOffBanner()
+                        : _buildMemberCard(_team[index - 1]),
                   ),
                 )),
+    );
+  }
+
+  int get _pendingDayOff =>
+      _team.fold(0, (sum, m) => sum + m.pendingDayOffRequests);
+
+  /// The way from "3 day-off requests" to the buttons that decide them. The
+  /// chips on the cards only ever said a request existed.
+  Widget _buildDayOffBanner() {
+    final count = _pendingDayOff;
+    if (count == 0) return const SizedBox.shrink();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: AppColors.warning.withAlpha(30),
+      child: ListTile(
+        leading: Picon(PiconsDuotone.calendarX, color: AppColors.warning),
+        title: Text(
+          count == 1
+              ? '1 day off request to approve'
+              : '$count day off requests to approve',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: const Text('Tap to approve or deny'),
+        trailing: Picon(PiconsDuotone.caretRight, size: 16),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StaffAvailabilityScreen(
+                canAssignDogs: false,
+                canManageStaff: true,
+                initialTab: StaffAvailabilityScreen.timeOffTab,
+              ),
+            ),
+          );
+          _load();
+        },
+      ),
     );
   }
 

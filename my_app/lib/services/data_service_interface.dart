@@ -312,7 +312,8 @@ abstract class DataService {
 
   // Day Off Requests
   Future<List<DayOffRequest>> getMyDayOffRequests();
-  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason});
+  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason, DateTime? rangeEnd});
+  Future<int> getPendingDayOffRequestCount();
   Future<void> cancelDayOffRequest(int requestId);
   Future<List<DayOffRequest>> getAllDayOffRequests();
   Future<DayOffRequest> approveDayOffRequest(int requestId);

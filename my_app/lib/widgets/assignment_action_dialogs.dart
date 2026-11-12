@@ -409,6 +409,49 @@ class _AddressPicker extends StatelessWidget {
   }
 }
 
+/// The warning every assignment surface shows before giving dogs to someone
+/// who is off that day (approved time off, or not due in): it names them and
+/// can be pushed through with **Assign anyway**. Off staff were only ever
+/// greyed out with "(off)", which is easy to tap past without noticing.
+///
+/// Returns true to go ahead. Call it from the confirm button of a picker, or
+/// before the write of a drag-and-drop, whenever the target isn't in that
+/// day's available set.
+Future<bool> confirmAssignToOffStaff(
+  BuildContext context, {
+  required String staffName,
+  String confirmLabel = 'Assign anyway',
+}) async {
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: const Picon(PiconsDuotone.warning, color: AppColors.warning, size: 32),
+      title: Text('$staffName is off'),
+      content: Text(
+        '$staffName has time off or is not due in on this day. '
+        'You can still assign to them if you need to.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
+  return go == true;
+}
+
+String _staffMapName(Map<String, dynamic> s) =>
+    (s['first_name'] != null && s['first_name'].toString().isNotEmpty)
+        ? s['first_name'].toString()
+        : s['username'].toString();
+
 /// Staff-picker dialog backed by an already-resolved [staffMembers] list.
 ///
 /// Returns the chosen staff id, or null on cancel / empty list. This is the
@@ -478,7 +521,21 @@ Future<int?> pickStaffMemberFromList(
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: picked == null ? null : () => Navigator.pop(context, true), child: Text(confirmLabel)),
+          FilledButton(
+            onPressed: picked == null
+                ? null
+                : () async {
+                    final id = picked!;
+                    final off = availableStaffIds.isNotEmpty && !availableStaffIds.contains(id);
+                    if (off) {
+                      final staff = staffMembers.firstWhere((s) => s['id'] == id);
+                      final go = await confirmAssignToOffStaff(context, staffName: _staffMapName(staff));
+                      if (!go || !context.mounted) return;
+                    }
+                    Navigator.pop(context, true);
+                  },
+            child: Text(confirmLabel),
+          ),
         ],
       ),
     ),

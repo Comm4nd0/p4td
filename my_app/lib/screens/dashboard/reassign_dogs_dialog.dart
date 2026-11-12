@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../widgets/assignment_action_dialogs.dart' show confirmAssignToOffStaff;
 import 'package:picons/picons.dart';
 
 import '../../constants/app_colors.dart';
@@ -247,7 +248,17 @@ Future<ReassignDogsSelection?> showReassignDogsDialog({
             FilledButton(
               onPressed: selectedStaffId == null || selectedIds.isEmpty
                   ? null
-                  : () => Navigator.pop(context, true),
+                  : () async {
+                      final id = selectedStaffId!;
+                      if (!isAvailable(id)) {
+                        final staff = sortedStaff.firstWhere((s) => s['id'] == id);
+                        final go = await confirmAssignToOffStaff(context,
+                            staffName: staffDisplayName(staff),
+                            confirmLabel: 'Reassign anyway');
+                        if (!go || !context.mounted) return;
+                      }
+                      Navigator.pop(context, true);
+                    },
               child: Text(selectedIds.isEmpty
                   ? 'Reassign'
                   : 'Reassign ${selectedIds.length} dog${selectedIds.length == 1 ? '' : 's'}'),

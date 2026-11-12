@@ -302,6 +302,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       canViewInquiries: profile.canViewInquiries,
       canManageRequests: profile.canManageRequests,
       canManageBoarding: profile.canManageBoarding,
+      canManageStaff: profile.canManageStaff || profile.isSuperuser,
     );
   }
 
@@ -431,6 +432,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           break;
         case 'booking_forms':
           _openBookingForms();
+          break;
+        case 'day_off':
+          // A manager's "day off requested" and a staff member's decision
+          // both live on the Time Off tab.
+          if (_isStaff) _openAvailability(timeOff: true);
           break;
         case 'incident':
           // Staff-only: an owner tapping through (they never get the push, but
@@ -580,6 +586,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       MaterialPageRoute(builder: (_) => const LinkDogScreen()),
     );
     if (submitted == true) _refresh();
+  }
+
+  Future<void> _openAvailability({bool timeOff = false}) async {
+    await _push(
+      MaterialPageRoute(
+        builder: (_) => StaffAvailabilityScreen(
+          canAssignDogs: _canAssignDogs,
+          canManageStaff: _canManageStaff || _isSuperuser,
+          initialTab: timeOff ? StaffAvailabilityScreen.timeOffTab : 0,
+        ),
+      ),
+    );
+    _counts.reloadPendingDayOffCount();
   }
 
   Future<void> _openBookingForms() async {
@@ -1048,16 +1067,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               if (_isStaff)
                 ListTile(
-                  leading: Picon(PiconsDuotone.clock),
+                  // Badged for managers while a day-off request waits on
+                  // them; the tap then opens straight on Time Off.
+                  leading: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Picon(PiconsDuotone.clock),
+                      if (_counts.pendingDayOffCount > 0)
+                        Positioned(
+                          right: -6,
+                          top: -6,
+                          child: _drawerBadge(_counts.pendingDayOffCount),
+                        ),
+                    ],
+                  ),
                   title: const Text('My Availability'),
+                  subtitle: _counts.pendingDayOffCount > 0
+                      ? Text(_counts.pendingDayOffCount == 1
+                          ? '1 day off request to approve'
+                          : '${_counts.pendingDayOffCount} day off requests to approve')
+                      : null,
                   trailing: _drawerChevron(),
                   onTap: () {
                     _closeDrawer();
-                    _push(
-                      MaterialPageRoute(
-                        builder: (_) => StaffAvailabilityScreen(canAssignDogs: _canAssignDogs, canManageStaff: _canManageStaff),
-                      ),
-                    );
+                    _openAvailability(timeOff: _counts.pendingDayOffCount > 0);
                   },
                 ),
               ListTile(

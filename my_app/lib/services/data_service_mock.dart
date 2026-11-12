@@ -624,7 +624,9 @@ class MockDataService implements DataService {
   @override
   Future<List<DayOffRequest>> getMyDayOffRequests() async => [];
   @override
-  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason}) async =>
+  Future<int> getPendingDayOffRequestCount() async => 0;
+  @override
+  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason, DateTime? rangeEnd}) async =>
       DayOffRequest(id: 1, staffMemberId: 1, staffMemberName: 'Test', date: date, createdAt: DateTime.now());
   @override
   Future<void> cancelDayOffRequest(int requestId) async {}
