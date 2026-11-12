@@ -377,6 +377,14 @@ class _DayBoardScreenState extends State<DayBoardScreen> {
   /// is given (from the expanded placement view) — slot in at that position.
   Future<void> _dropOnStaff(_DragItem item, int staffId, {int? insertIndex}) async {
     final assignment = item.assignment;
+    // Dragging a dog onto someone who is off asks first; reordering their
+    // own run doesn't.
+    if (assignment?.staffMemberId != staffId && !_isWorking(staffId)) {
+      final staff = widget.staffMembers.where((s) => s['id'] == staffId).firstOrNull;
+      final go = await confirmAssignToOffStaff(context,
+          staffName: staff == null ? 'This staff member' : staffDisplayName(staff));
+      if (!go || !mounted) return;
+    }
     if (assignment == null) {
       // Unassigned dog → assign to this staff member (positioned if asked).
       await _guarded(() async {

@@ -243,6 +243,13 @@ class NotificationService {
         _navigateToHome(initialRoute: 'booking_forms');
         break;
 
+      // Day off — a manager: someone has asked; staff: their answer. Both
+      // open My Availability on Time Off.
+      case 'day_off_request':
+      case 'day_off_decision':
+        _navigateToHome(initialRoute: 'day_off');
+        break;
+
       // Link my dog — staff: new request to match; owner: the dog is now on
       // their account (open it) or the request was denied (show why).
       case 'dog_link_request':

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../widgets/assignment_action_dialogs.dart' show confirmAssignToOffStaff;
 import 'package:picons/picons.dart';
 
 import '../../constants/app_colors.dart';
@@ -285,7 +286,18 @@ Future<int?> showOwnerHandoverSheet(
                   child: FilledButton.icon(
                     onPressed: selected == null
                         ? null
-                        : () => Navigator.of(ctx).pop(selected),
+                        : () async {
+                            final id = selected!;
+                            // Re-choosing the person already named isn't a
+                            // new decision, so it isn't asked again.
+                            if (!isAvailable(id) && id != leg.staffMemberId) {
+                              final staff = sorted.firstWhere((s) => s['id'] == id);
+                              final go = await confirmAssignToOffStaff(ctx,
+                                  staffName: staffDisplayName(staff));
+                              if (!go || !ctx.mounted) return;
+                            }
+                            Navigator.of(ctx).pop(id);
+                          },
                     icon: const Picon(PiconsDuotone.userCheck, size: 18),
                     label: Text(leg.hasStaff ? 'Change staff member' : 'Assign'),
                   ),

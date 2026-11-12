@@ -46,6 +46,7 @@ import 'all_dogs_today_screen.dart';
 import 'day_board_screen.dart';
 import 'dog_home_screen.dart';
 import 'pickup_map_screen.dart';
+import 'staff_availability_screen.dart';
 import 'staff_dog_detail_screen.dart';
 import 'staff_notifications_screen.dart';
 import 'boarding_request_list_screen.dart';
@@ -263,6 +264,7 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
           canViewInquiries: widget.canViewInquiries,
           canManageRequests: widget.canManageRequests,
           canManageBoarding: widget.canManageBoarding,
+          canManageStaff: widget.canManageStaff || widget.isSuperuser,
         ))
       ..addListener(_onCountsChanged);
     final anchor = widget.initialDate ?? DateTime.now();
@@ -2385,6 +2387,18 @@ class UnifiedDashboardScreenState extends State<UnifiedDashboardScreen> {
       canViewInquiries: widget.canViewInquiries,
       canManageRequests: widget.canManageRequests,
       canManageBoarding: widget.canManageBoarding,
+      canManageStaff: widget.canManageStaff || widget.isSuperuser,
+      pendingDayOffCount: _counts.pendingDayOffCount,
+      onOpenDayOffRequests: () async {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => StaffAvailabilityScreen(
+            canAssignDogs: widget.canAssignDogs,
+            canManageStaff: true,
+            initialTab: StaffAvailabilityScreen.timeOffTab,
+          ),
+        ));
+        _counts.reloadPendingDayOffCount();
+      },
       onOpenPendingRequests: () async {
         await Navigator.push(context, MaterialPageRoute(
           builder: (_) => StaffNotificationsScreen(

@@ -6240,7 +6240,10 @@ class StaffAvailabilityViewSet(ActivityLogMixin, viewsets.ModelViewSet):
 class DayOffRequestViewSet(viewsets.ModelViewSet):
     """ViewSet for day-off requests.
     Staff can create/view their own requests.
-    Managers (is_staff + has canAssignDogs equivalent) can view all and approve/deny."""
+    Staff managers (``can_manage_staff``, or a superuser — the same rule as the
+    rest of Staff Management, ``_is_staff_manager``) view all and approve/deny.
+    A superuser without the flag used to see the pending count in Staff
+    Management and get a 403 on everything that could act on it."""
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
@@ -6249,8 +6252,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_staff:
             return qs.none()
-        profile = getattr(user, 'profile', None)
-        if profile and profile.can_manage_staff:
+        if _is_staff_manager(user):
             return qs.all()
         # Ordinary staff only see (and can touch) their own requests; this scopes
         # retrieve/update/destroy so private day-off reasons can't be read or
@@ -6264,11 +6266,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
     def list(self, request):
         """List all day-off requests (staff with can_manage_staff permission)."""
         from .models import DayOffRequest
-        if not request.user.is_staff:
-            return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
-
-        profile = getattr(request.user, 'profile', None)
-        if not profile or not profile.can_manage_staff:
+        if not _is_staff_manager(request.user):
             return Response({'detail': 'Not authorized'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         queryset = DayOffRequest.objects.select_related('staff_member', 'reviewed_by').all()
@@ -6278,7 +6276,9 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
     def create(self, request):
         """Create a day-off request for the current user.
         Accepts: {"date": "2024-03-15", "reason": "optional"}
-        For date ranges, the Flutter app creates one request per date."""
+        For date ranges, the Flutter app creates one request per date, and
+        sends the last one as ``range_end`` so the managers' push can name the
+        whole span (``notify_new_day_off_request`` sends one push per burst)."""
         from .models import DayOffRequest
         from .serializers import DayOffRequestSerializer
 
@@ -6321,6 +6321,15 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         log_activity('STAFF', person(request.user), action='CREATED', actor=request.user,
                      summary=f'Requested a day off on {_uk(target_date)}'
                              + (f': {obj.reason}' if obj.reason else ''))
+        try:
+            range_end = datetime.strptime(str(request.data.get('range_end') or ''), '%Y-%m-%d').date()
+        except ValueError:
+            range_end = None
+        try:
+            from .notifications import notify_new_day_off_request
+            notify_new_day_off_request(obj, range_end=range_end)
+        except Exception:
+            logger.exception('Day-off request push failed')
         serializer = DayOffRequestSerializer(obj)
         return Response(serializer.data, status=drf_status.HTTP_201_CREATED)
 
@@ -6393,6 +6402,15 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def pending_count(self, request):
+        """``{count}`` of requests waiting on a manager — the dashboard's
+        Action Items row. Staff who can't decide them get 0."""
+        from .models import DayOffRequest
+        if not _is_staff_manager(request.user):
+            return Response({'count': 0})
+        return Response({'count': DayOffRequest.objects.filter(status='PENDING').count()})
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Approve a day-off request (managers only)."""
@@ -6407,8 +6425,7 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         from .models import DayOffRequest
         from django.utils import timezone
 
-        profile = getattr(request.user, 'profile', None)
-        if not (request.user.is_staff and profile and profile.can_manage_staff):
+        if not _is_staff_manager(request.user):
             return Response({'detail': 'Not authorized to review requests.'}, status=drf_status.HTTP_403_FORBIDDEN)
 
         try:
@@ -6425,6 +6442,11 @@ class DayOffRequestViewSet(viewsets.ModelViewSet):
         obj.save()
         log_activity('STAFF', person(obj.staff_member), action=new_status, actor=request.user,
                      summary=f"{new_status.title()} {person(obj.staff_member)}'s day off on {_uk(obj.date)}")
+        try:
+            from .notifications import notify_day_off_decision
+            notify_day_off_decision(obj)
+        except Exception:
+            logger.exception('Day-off decision push failed')
 
         serializer = self.get_serializer(obj)
         return Response(serializer.data)

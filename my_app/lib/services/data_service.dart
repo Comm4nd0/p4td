@@ -3034,15 +3034,27 @@ class ApiDataService implements DataService {
   }
 
   @override
-  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason}) async {
+  Future<int> getPendingDayOffRequestCount() async {
+    final response = await _get(Uri.parse('${AuthService.baseUrl}/api/day-off-requests/pending_count/'));
+    return _countFrom(response, 'the day-off request count');
+  }
+
+  /// [rangeEnd] is the last day of the holiday this request is part of (one
+  /// request is filed per day): the server uses it only to word the single
+  /// push the managers get for the whole span.
+  @override
+  Future<DayOffRequest> requestDayOff({required DateTime date, String? reason, DateTime? rangeEnd}) async {
     final headers = await _getHeaders();
-    final dateParam = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    String ymd(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final dateParam = ymd(date);
     final response = await http.post(
       Uri.parse('${AuthService.baseUrl}/api/day-off-requests/'),
       headers: headers,
       body: json.encode({
         'date': dateParam,
         if (reason != null && reason.isNotEmpty) 'reason': reason,
+        if (rangeEnd != null) 'range_end': ymd(rangeEnd),
       }),
     );
     if (response.statusCode == 201 || response.statusCode == 200) {

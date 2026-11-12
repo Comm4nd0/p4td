@@ -563,6 +563,80 @@ def notify_staff_inbox(permission, title, body, data, category=None, exclude_use
         )
 
 
+def _day_label(day):
+    """'Mon 3 Mar' — short enough for a push body."""
+    return f"{day.strftime('%a')} {day.day} {day.strftime('%b')}"
+
+
+def notify_new_day_off_request(day_off, range_end=None):
+    """Tell the staff managers someone has asked for time off.
+
+    Goes to everyone who can decide it — ``can_manage_staff`` or a superuser,
+    the rule the review endpoints use — and, like the inbox pushes, reaches
+    anyone with ``receives_business_alerts`` on their own day off. Nothing
+    used to be sent at all: a request sat unseen until a manager happened to
+    open My Availability.
+
+    The app files a holiday as one request per day, so only the first of a
+    burst pushes (nothing else from this person in the last two minutes);
+    *range_end*, when the app sends it, lets that one push name the span.
+    """
+    from datetime import timedelta
+    from django.contrib.auth.models import User
+    from django.db.models import Q
+    from django.utils import timezone
+    from .models import DayOffRequest
+
+    requester = day_off.staff_member
+    in_burst = DayOffRequest.objects.filter(
+        staff_member=requester,
+        created_at__gte=timezone.now() - timedelta(minutes=2),
+    ).exclude(pk=day_off.pk).exists()
+    if in_burst:
+        return
+
+    name = requester.first_name or requester.username
+    if range_end and range_end > day_off.date:
+        when = f"{_day_label(day_off.date)} – {_day_label(range_end)}"
+    else:
+        when = _day_label(day_off.date)
+    body = f"{name} has asked for {when} off."
+    if day_off.reason:
+        body += f" {day_off.reason[:80]}"
+
+    managers = User.objects.filter(is_staff=True).filter(
+        Q(is_superuser=True) | Q(profile__can_manage_staff=True)
+    ).exclude(pk=requester.pk).select_related('profile').distinct()
+    for manager in managers:
+        profile = getattr(manager, 'profile', None)
+        send_push_notification(
+            manager, 'Day off requested', body,
+            {'type': 'day_off_request', 'id': str(day_off.id),
+             'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+            category='schedule',
+            ignore_working_hours=bool(profile and profile.receives_business_alerts),
+        )
+
+
+def notify_day_off_decision(day_off):
+    """Tell a staff member their day off was approved or denied.
+
+    Sent whether or not they are working today — the answer is what they are
+    waiting on to make plans.
+    """
+    approved = day_off.status == 'APPROVED'
+    send_push_notification(
+        day_off.staff_member,
+        'Day off approved' if approved else 'Day off not approved',
+        f"Your day off on {_day_label(day_off.date)} was "
+        f"{'approved' if approved else 'not approved'}.",
+        {'type': 'day_off_decision', 'id': str(day_off.id),
+         'click_action': 'FLUTTER_NOTIFICATION_CLICK'},
+        category='schedule',
+        ignore_working_hours=True,
+    )
+
+
 def notify_support_message(query, sender):
     """Push the other side of a support thread when a message lands.
 

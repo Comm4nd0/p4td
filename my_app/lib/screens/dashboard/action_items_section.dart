@@ -31,10 +31,12 @@ class ActionItemsSection extends StatelessWidget {
   final int unresolvedVehicleDefectCount;
   final int openIncidentCount;
   final int dogHealthCount;
+  final int pendingDayOffCount;
 
   final bool canViewInquiries;
   final bool canManageRequests;
   final bool canManageBoarding;
+  final bool canManageStaff;
 
   final VoidCallback onOpenPendingRequests;
   final VoidCallback onOpenQueries;
@@ -45,6 +47,7 @@ class ActionItemsSection extends StatelessWidget {
   final VoidCallback onOpenDefects;
   final VoidCallback onOpenIncidents;
   final VoidCallback onOpenDogHealth;
+  final VoidCallback? onOpenDayOffRequests;
 
   const ActionItemsSection({
     super.key,
@@ -58,9 +61,11 @@ class ActionItemsSection extends StatelessWidget {
     required this.unresolvedVehicleDefectCount,
     required this.openIncidentCount,
     required this.dogHealthCount,
+    this.pendingDayOffCount = 0,
     required this.canViewInquiries,
     required this.canManageRequests,
     this.canManageBoarding = false,
+    this.canManageStaff = false,
     required this.onOpenPendingRequests,
     required this.onOpenQueries,
     required this.onOpenInquiries,
@@ -70,6 +75,7 @@ class ActionItemsSection extends StatelessWidget {
     required this.onOpenDefects,
     required this.onOpenIncidents,
     required this.onOpenDogHealth,
+    this.onOpenDayOffRequests,
   });
 
   int get defectCount => unresolvedDefectCount + unresolvedVehicleDefectCount;
@@ -142,6 +148,18 @@ class ActionItemsSection extends StatelessWidget {
             count: pendingBoardingCount,
             countColor: pendingBoardingCount > 0 ? Colors.red : null,
             onTap: onOpenBoardingRequests,
+          ),
+        ],
+        // Staff managers: time off someone on the team is waiting to hear
+        // about. Always shown to them, like the other request queues.
+        if (canManageStaff && onOpenDayOffRequests != null) ...[
+          const SizedBox(height: 4),
+          ActionItemTile(
+            icon: PiconsDuotone.calendarX,
+            label: 'Day Off Requests',
+            count: pendingDayOffCount,
+            countColor: pendingDayOffCount > 0 ? Colors.red : null,
+            onTap: onOpenDayOffRequests!,
           ),
         ],
         const SizedBox(height: 4),
