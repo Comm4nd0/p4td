@@ -1,13 +1,14 @@
-See your bookings in your own calendar
+Smoother and more reliable
 
-• New: add your dogs' daycare and boarding days to Google, Apple or Outlook Calendar. Tap Add to my calendar under the Calendar on your dashboard, and it keeps itself up to date.
-
-Clearer calendars on your dog's profile
-
-• Changes now show on your dog's calendar straight away, with no need to close and reopen the app.
-• Cancelled days are marked with a cross, and Cancelled has been added to the calendar key.
-• When a day is moved, the old date shows as cancelled and the new date as an extra day.
+• Forms now check every required field and take you straight to anything that still needs filling in.
+• Photo and video uploads are more dependable on a weak signal, and tell you clearly if one could not be sent.
+• Times follow UK summer time correctly, and boarding nights are counted correctly across the clock change.
+• Extra days on your dog's calendar now carry a + as well as their colour, and the calendar offers a retry if it could not load.
+• Tapping a notification about a date change takes you to your dog.
 
 For staff:
-• Pins on the pick-up map now show the dog's initial instead of a paw, so you can see at a glance which dog it is.
-• Put your dashboard in the order that suits you: choose Layout in Quick Actions and drag the sections around. Your layout stays with your account.
+• Birthdays: the dashboard shows which dogs in that day have a birthday, asks for a birthday photo, and ticks each dog off once it is in the feed.
+• Each dog's card on the day list now shows where the dog is (Assigned, With Team or Returned) on the card itself, with an Actions button for changing it. Boarding notes no longer run underneath the button.
+• Set van sizes in Plan Routes with plus and minus buttons.
+• Days off now show on the right day of the dashboard, and the badges in the bar, menu and Action Items always agree.
+• Editing a dog saves only what you changed, so it cannot undo a colleague's change.
