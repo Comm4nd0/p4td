@@ -494,9 +494,9 @@ longer than Play allows, so it cannot simply be copied.
 >
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
-> | Live on the App Store | **1.12.63** | `4bf40bf` | Released 2026-11-05; verified against Apple's UK lookup API on 2026-11-06. Owner boarding date-change requests and manager boarding edits, Plan Routes / Optimise route, up to five alternative pick-up/drop-off addresses per dog, "home after 16:00" on the pick-up list. |
-> | Live on Google Play | **1.12.43** | `4803cad` | Build 487, full production rollout; verified in Play Console on 2026-10-14. Promotions of 1.12.50 (build 494) and 1.12.55 not yet verified in Play Console. |
-> | Release in progress | 1.12.67 | see tag `v1.12.67` | Tag pushed 2026-11-06. Dog profile calendar updates straight away with cancelled days marked, moved days shown as cancelled + extra, dog's initial on map pins. Notes diffed from `4bf40bf`. iOS: build 644 submitted for review 2026-11-06, still needs a press of Release once approved. Android: build 511 promoted to production 2026-11-06, Google's review and availability not yet verified. |
+> | Live on the App Store | **1.12.71** | `fda589f` | Released 2026-11-06; verified against Apple's UK lookup API on 2026-11-12. Add to my calendar (iCal feed), dog profile calendar updating straight away with cancelled and moved days marked, dog's initial on map pins, staff dashboard Layout. |
+> | Live on Google Play | **1.12.43** | `4803cad` | Build 487, full production rollout; verified in Play Console on 2026-10-14. Promotions of 1.12.50, 1.12.55, 1.12.63, 1.12.67, 1.12.69 and 1.12.71 (the release workflow succeeded for each) not yet verified in Play Console. |
+> | Release in progress | 1.12.76 | see tag `v1.12.76` | Tagged 2026-11-12. Staff dashboard Birthdays, status pill and Actions button on the dog card, plus/minus van sizes in Plan Routes, and the app-wide reliability fixes (forms, uploads, summer time, days off on the right day). Notes diffed from `fda589f`. |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
