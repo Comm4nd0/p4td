@@ -502,9 +502,9 @@ longer than Play allows, so it cannot simply be copied.
 >
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
-> | Live on the App Store | **1.12.71** | `fda589f` | Released 2026-11-06; verified against Apple's UK lookup API on 2026-11-12. Add to my calendar (iCal feed), dog profile calendar updating straight away with cancelled and moved days marked, dog's initial on map pins, staff dashboard Layout. |
-> | Live on Google Play | **1.12.43** | `4803cad` | Build 487, full production rollout; verified in Play Console on 2026-10-14. Promotions of 1.12.50, 1.12.55, 1.12.63, 1.12.67, 1.12.69 and 1.12.71 (the release workflow succeeded for each) not yet verified in Play Console. |
-> | Release in progress | 1.12.76 | see tag `v1.12.76` | Tagged 2026-11-12. Staff dashboard Birthdays, status pill and Actions button on the dog card, plus/minus van sizes in Plan Routes, and the app-wide reliability fixes (forms, uploads, summer time, days off on the right day). Notes diffed from `fda589f`. |
+> | Live on the App Store | **1.12.76** | `aaa6e17` | Released 2026-11-13; verified against Apple's UK lookup API on 2026-11-18. Staff dashboard Birthdays, status pill and Actions button on the dog card, plus/minus van sizes in Plan Routes, and the app-wide reliability fixes (forms, uploads, summer time, days off on the right day). |
+> | Live on Google Play | **1.12.76** | `aaa6e17` | Build 520; the public Play listing showed 1.12.76 on 2026-11-18 (the `v1.12.76` promotion succeeded on 2026-11-12). Rollout percentage not checked in Play Console. |
+> | Release in progress | 1.12.78 | see tag `v1.12.78` | Tagged 2026-11-20. Staff only: day off requests reach managers (push, Action Items, drawer badge, top of Time Off), the decision pushes the requester, and a warning before assigning dogs to someone who is off. 1.12.77 carried the code and was never tagged; 1.12.78 adds only the notes. Notes diffed from `aaa6e17`. |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against

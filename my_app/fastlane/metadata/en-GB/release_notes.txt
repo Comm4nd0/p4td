@@ -1,14 +1,6 @@
-Smoother and more reliable
-
-• Forms now check every required field and take you straight to anything that still needs filling in.
-• Photo and video uploads are more dependable on a weak signal, and tell you clearly if one could not be sent.
-• Times follow UK summer time correctly, and boarding nights are counted correctly across the clock change.
-• Extra days on your dog's calendar now carry a + as well as their colour, and the calendar offers a retry if it could not load.
-• Tapping a notification about a date change takes you to your dog.
+This update is for the Paws 4 Thought team. Nothing changes for clients.
 
 For staff:
-• Birthdays: the dashboard shows which dogs in that day have a birthday, asks for a birthday photo, and ticks each dog off once it is in the feed.
-• Each dog's card on the day list now shows where the dog is (Assigned, With Team or Returned) on the card itself, with an Actions button for changing it. Boarding notes no longer run underneath the button.
-• Set van sizes in Plan Routes with plus and minus buttons.
-• Days off now show on the right day of the dashboard, and the badges in the bar, menu and Action Items always agree.
-• Editing a dog saves only what you changed, so it cannot undo a colleague's change.
+• Day off requests are easier to deal with. Managers get a notification when someone asks for time off, and the request shows in Action Items on the dashboard, on My Availability in the menu and at the top of the Time Off tab.
+• You get a notification when your day off request is approved or declined. Tapping it opens Time Off.
+• Assigning dogs to someone who is off that day now asks first. You can cancel, or choose Assign anyway.
