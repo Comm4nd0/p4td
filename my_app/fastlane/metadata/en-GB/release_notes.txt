@@ -1,6 +1,6 @@
-This update is for the Paws 4 Thought team. Nothing changes for clients.
+Notifications now take you to the right place.
 
-For staff:
-• Day off requests are easier to deal with. Managers get a notification when someone asks for time off, and the request shows in Action Items on the dashboard, on My Availability in the menu and at the top of the Time Off tab.
-• You get a notification when your day off request is approved or declined. Tapping it opens Time Off.
-• Assigning dogs to someone who is off that day now asks first. You can cancel, or choose Assign anyway.
+• Tapping a notification opens what it is about, including when the app was closed. Before, the app could open on your Dashboard with nothing about the notification on it.
+• A new photo or comment notification opens the feed with that post at the top.
+• An extra day or day off reminder opens your calendar on that day. So does a waitlist space opening up.
+• A notification about a profile change or a new photo in your dog's gallery opens your dog's profile.
