@@ -58,6 +58,17 @@ class HomeScreen extends StatefulWidget {
 
   const HomeScreen({super.key, this.scrollToPostId, this.initialRoute, this.routePayload});
 
+  /// Whether the app opens on the Dashboard tab. Everyone lands there — the
+  /// roster for staff, today-and-next-visit for owners — unless a push opened
+  /// the app for something else. A feed push carries no route, only the post
+  /// to show, and used to be sent to the Dashboard with everything else: the
+  /// "New photo of Bella" notification opened a calendar.
+  bool get opensOnDashboard =>
+      scrollToPostId == null &&
+      (initialRoute == null ||
+          initialRoute == 'schedule_change' ||
+          initialRoute == 'schedule_reminder');
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -117,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
   final GlobalKey<NavigatorState> _paneNavKey = GlobalKey<NavigatorState>();
   bool _initialRouteHandled = false;
+  bool _feedLinkShown = false;
 
   /// Push [route] on the pane navigator when the sidebar layout is active, so
   /// the menu stays visible beside the opened page; on phones this is the
@@ -326,11 +338,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final profile = await _dataService.getProfile();
       if (mounted) {
         _applyPermissions(profile);
-        // Everyone lands on their Dashboard (unless a deep link overrides):
-        // the roster for staff, today-and-next-visit for owners. Done here
-        // rather than as the index default so the tab's body is built for
-        // the right role from the start.
-        if ((widget.initialRoute == null || _opensDashboard) && _currentIndex == 1) {
+        // Everyone lands on their Dashboard (unless a deep link overrides).
+        // Done here rather than as the index default so the tab's body is
+        // built for the right role from the start.
+        if (widget.opensOnDashboard && _currentIndex == 1) {
           setState(() => _currentIndex = 2);
         }
         // Load pending requests count and subscribe to notifications
@@ -664,6 +675,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     setState(() {
+      // The post a notification opened the feed on is shown once: leaving
+      // the feed and coming back gives the ordinary newest-first list.
+      if (_currentIndex == 1 && index != 1) _feedLinkShown = true;
       _currentIndex = index;
       if (index != 2) _dogGroupsStaffFilter = null;
     });
@@ -680,7 +694,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         : _currentIndex == 0
             ? _buildDogsView()
             : _currentIndex == 1
-                ? FeedScreen(isStaff: _isStaff, canAddFeedMedia: _canAddFeedMedia, scrollToPostId: widget.scrollToPostId)
+                ? FeedScreen(
+                    isStaff: _isStaff,
+                    canAddFeedMedia: _canAddFeedMedia,
+                    scrollToPostId: _feedLinkShown ? null : widget.scrollToPostId,
+                  )
                 // Both roles have a Dashboard tab; only staff get the roster.
                 : !_isStaff
                     ? ClientDashboardScreen(

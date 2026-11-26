@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'auth_service.dart';
 import 'data_service.dart';
+import 'notification_routes.dart';
 import '../screens/home_screen.dart';
 import '../main.dart';
 
@@ -21,6 +22,10 @@ class NotificationService {
 
   bool _isInitialized = false;
 
+  /// Every tap goes through here. A tap that launched the app is known
+  /// before there is a Navigator; it waits until the first frame is up.
+  late final NotificationTapInbox _taps = NotificationTapInbox(_openTappedNotification);
+
   final StreamController<Map<String, dynamic>> _foregroundMessages =
       StreamController<Map<String, dynamic>>.broadcast();
 
@@ -31,6 +36,10 @@ class NotificationService {
 
   Future<void> initialize() async {
     if (_isInitialized) return;
+
+    // Taps are held until the app is on screen (see step 5). Arranged first
+    // so nothing that fails below can leave one held for good.
+    _releaseTapsWhenAppIsUp();
 
     // 1. Request permissions (especially for iOS)
     NotificationSettings settings = await _fcm.requestPermission(
@@ -89,19 +98,22 @@ class NotificationService {
       if (kDebugMode) {
         debugPrint('Notification opened app from background: ${message.data}');
       }
-      _handleNotificationTapFromData(message.data);
+      _taps.add(message.data);
     });
 
-    // 5. Handle notification tap that launched the app from terminated state
+    // 5. Handle notification tap that launched the app from terminated state.
+    // This runs before runApp, and the token registration below is a network
+    // call that runApp waits behind, so there is no telling how long it is
+    // until a Navigator exists. A fixed delay used to stand in for that and
+    // lost the tap whenever the call took longer: the app opened on the
+    // Dashboard with nothing about the notification. The tap is held and
+    // opened once the first frame is up (_releaseTapsWhenAppIsUp).
     RemoteMessage? initialMessage = await _fcm.getInitialMessage();
     if (initialMessage != null) {
       if (kDebugMode) {
         debugPrint('App launched from notification: ${initialMessage.data}');
       }
-      // Delay slightly to let the widget tree build
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _handleNotificationTapFromData(initialMessage.data);
-      });
+      _taps.add(initialMessage.data);
     }
 
     // 6. Listen for token refresh and re-register with backend
@@ -182,6 +194,17 @@ class NotificationService {
     }
   }
 
+  /// Let held taps through once the app has a Navigator to open them on.
+  void _releaseTapsWhenAppIsUp() {
+    if (navigatorKey.currentState != null) {
+      _taps.markReady();
+      return;
+    }
+    // Not built yet: look again after the next frame. runApp draws one, so
+    // this always comes round.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _releaseTapsWhenAppIsUp());
+  }
+
   /// Handle tap from local notification payload (stringified map)
   void _handleNotificationTap(String? payload) {
     if (payload == null || payload.isEmpty) return;
@@ -192,12 +215,12 @@ class NotificationService {
     // Parse the stringified map payload: {type: post_comment, post_id: 123}
     final data = _parsePayload(payload);
     if (data != null) {
-      _handleNotificationTapFromData(data);
+      _taps.add(data);
     }
   }
 
-  /// Handle tap from FCM message data (already a Map)
-  Future<void> _handleNotificationTapFromData(Map<String, dynamic> data) async {
+  /// Open the screen a tapped push is about (see [notificationDestination]).
+  Future<void> _openTappedNotification(Map<String, dynamic> data) async {
     if (kDebugMode) {
       debugPrint('Navigating for notification data: $data');
     }
@@ -208,136 +231,15 @@ class NotificationService {
     // behind it; leave them on the landing or login screen they are on.
     if (await AuthService().getToken() == null) return;
 
-    final type = data['type'] as String?;
-    final context = navigatorKey.currentContext;
-    if (context == null) return;
+    final destination = notificationDestination(data);
+    if (destination == null) return;
 
-    switch (type) {
-      // Feed comments, and new posts tagged with one of your dogs — scroll
-      // to the specific post
-      case 'post_comment':
-      case 'feed_post':
-        final postId = data['post_id'] as String?;
-        if (postId != null) {
-          _navigateToHome(scrollToPostId: postId);
-        }
-        break;
-
-      // Date change & boarding requests — open the requests screen (staff)
-      case 'date_change_request':
-      case 'boarding_request':
-      case 'date_change_request_update':   // owner gets status update
-        // The request id lets Home open the right dog for an owner with
-        // several; staff ignore it and get the Requests screen.
-        _navigateToHome(initialRoute: 'requests', routePayload: data['id']?.toString());
-        break;
-
-      // Boarding request status (for owners) — open their boarding list
-      case 'boarding_request_update':
-        _navigateToHome(initialRoute: 'boarding_requests');
-        break;
-
-      // Booking forms — staff: new submission to review; owner: status update
-      case 'intake_request':
-      case 'intake_request_update':
-        _navigateToHome(initialRoute: 'booking_forms');
-        break;
-
-      // Day off — a manager: someone has asked; staff: their answer. Both
-      // open My Availability on Time Off.
-      case 'day_off_request':
-      case 'day_off_decision':
-        _navigateToHome(initialRoute: 'day_off');
-        break;
-
-      // Link my dog — staff: new request to match; owner: the dog is now on
-      // their account (open it) or the request was denied (show why).
-      case 'dog_link_request':
-        _navigateToHome(initialRoute: 'booking_forms');
-        break;
-      case 'dog_link_request_update':
-        if (data['approved'] == 'true') {
-          _navigateToHome(initialRoute: 'dogs', routePayload: data['dog_id'] as String?);
-        } else {
-          _navigateToHome(initialRoute: 'booking_forms');
-        }
-        break;
-
-      // Support queries — open the queries screen
-      case 'support_query':            // staff: new query from owner
-      case 'support_query_update':     // staff: owner replied
-      case 'support_query_reply':      // owner: staff replied
-        _navigateToHome(initialRoute: 'queries');
-        break;
-
-      // Dog status changes — navigate to the specific dog or dogs tab
-      case 'dog_status_update':
-      case 'care_instructions_update':
-        _navigateToHome(initialRoute: 'dogs', routePayload: data['dog_id'] as String?);
-        break;
-
-      // Vaccination reminders — owner: the dog's vaccinations screen, and
-      // straight into the attach sheet when it is the certificate being
-      // chased (the daily cadence and a staff member's Send reminder).
-      case 'vaccination':
-        _navigateToHome(initialRoute: 'vaccinations', routePayload: data['dog_id'] as String?);
-        break;
-      case 'vaccination_certificate':
-        _navigateToHome(
-            initialRoute: 'vaccination_certificate', routePayload: data['dog_id'] as String?);
-        break;
-
-      // Traffic alerts — open dogs tab
-      case 'traffic_alert':
-        _navigateToHome(initialRoute: 'dogs');
-        break;
-
-      // Changes to the routine, opened on the day they are about. Staff (the
-      // 18:00 summary and late changes) get the dashboard on that date, with
-      // its Changes section; owners (an extra-day / day-off reminder) get My
-      // Calendar on that day.
-      case 'schedule_change':
-      case 'schedule_reminder':
-        _navigateToHome(initialRoute: type, routePayload: data['date'] as String?);
-        break;
-
-      // Incidents — staff only (the incident log is never shown to owners);
-      // HomeScreen drops the route for anyone who isn't staff.
-      case 'incident':
-        _navigateToHome(initialRoute: 'incident', routePayload: data['id'] as String?);
-        break;
-
-      // Contact form inquiries — open inquiries screen
-      case 'contact_inquiry':
-        _navigateToHome(initialRoute: 'inquiries');
-        break;
-
-      // Invoices — owner: invoice sent/receipt/reminder; staff payment
-      // managers land on the customer payments screen instead (HomeScreen
-      // decides based on permissions).
-      case 'invoice':
-      case 'invoice_payment':
-        _navigateToHome(initialRoute: 'payments', routePayload: data['id'] as String?);
-        break;
-
-      // Monthly drafts ready — staff review prompt
-      case 'invoices_generated':
-        _navigateToHome(initialRoute: 'customer_payments');
-        break;
-
-      default:
-        // For unknown types, just open the app (already done by tapping)
-        break;
-    }
-  }
-
-  void _navigateToHome({String? scrollToPostId, String? initialRoute, String? routePayload}) {
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => HomeScreen(
-          scrollToPostId: scrollToPostId,
-          initialRoute: initialRoute,
-          routePayload: routePayload,
+          scrollToPostId: destination.scrollToPostId,
+          initialRoute: destination.initialRoute,
+          routePayload: destination.routePayload,
         ),
       ),
       (route) => false,
