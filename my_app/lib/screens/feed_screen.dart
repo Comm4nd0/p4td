@@ -13,6 +13,14 @@ import '../widgets/dog_typeahead.dart';
 import '../widgets/skeleton_loaders.dart';
 import '../main.dart';
 
+/// The first page of the feed with the post a notification pointed at put
+/// first, when the page doesn't already hold it. Paging skips it when it
+/// comes round again ([_FeedScreenState._loadMore] drops ids it has).
+List<GroupMedia> withLinkedPost(List<GroupMedia> page, GroupMedia? linked) {
+  if (linked == null || page.any((post) => post.id == linked.id)) return page;
+  return [linked, ...page];
+}
+
 class FeedScreen extends StatefulWidget {
   final bool isStaff;
   final bool canAddFeedMedia;
@@ -142,10 +150,14 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
     }
 
     try {
+      // Asked for alongside the page, so a notification's post costs no
+      // extra wait.
+      final linkedPost = _fetchLinkedPost();
       final result = await _dataService.getFeedPage(dogId: _selectedDogId, page: 1);
+      final linked = await linkedPost;
       if (mounted) {
         setState(() {
-          _feed = result.items;
+          _feed = withLinkedPost(result.items, linked);
           _page = 1;
           _hasMore = result.hasMore;
           _loading = false;
@@ -168,6 +180,22 @@ class _FeedScreenState extends State<FeedScreen> with RouteAware, WidgetsBinding
           );
         }
       }
+    }
+  }
+
+  /// The post a notification opened the feed for, or null when there is none
+  /// (or it has since been deleted, or the feed is filtered to one dog).
+  ///
+  /// The first page is the five newest posts and a morning's photos go up
+  /// twenty at a time, so the post a "New photo of Bella" push is about is
+  /// almost never on it. Fetched by id so it can be shown regardless.
+  Future<GroupMedia?> _fetchLinkedPost() async {
+    final postId = widget.scrollToPostId;
+    if (postId == null || _selectedDogId != null) return null;
+    try {
+      return await _dataService.getFeedItem(postId);
+    } catch (_) {
+      return null;
     }
   }
 
