@@ -502,9 +502,9 @@ longer than Play allows, so it cannot simply be copied.
 >
 > | | Version | pubspec commit | Note |
 > |---|---|---|---|
-> | Live on the App Store | **1.12.76** | `aaa6e17` | Released 2026-11-13; verified against Apple's UK lookup API on 2026-11-18. Staff dashboard Birthdays, status pill and Actions button on the dog card, plus/minus van sizes in Plan Routes, and the app-wide reliability fixes (forms, uploads, summer time, days off on the right day). |
-> | Live on Google Play | **1.12.76** | `aaa6e17` | Build 520; the public Play listing showed 1.12.76 on 2026-11-18 (the `v1.12.76` promotion succeeded on 2026-11-12). Rollout percentage not checked in Play Console. |
-> | Release in progress | 1.12.78 | see tag `v1.12.78` | Tagged 2026-11-20. Staff only: day off requests reach managers (push, Action Items, drawer badge, top of Time Off), the decision pushes the requester, and a warning before assigning dogs to someone who is off. 1.12.77 carried the code and was never tagged; 1.12.78 adds only the notes. Notes diffed from `aaa6e17`. |
+> | Live on the App Store | **1.12.78** | `5fe527e` | Released 2026-11-20; verified against Apple's UK lookup API on 2026-11-26. Staff only: day off requests reach managers (push, Action Items, drawer badge, top of Time Off), the decision pushes the requester, and a warning before assigning dogs to someone who is off. |
+> | Live on Google Play | **1.12.78** | `5fe527e` | Build 522; the public Play listing showed 1.12.78 on 2026-11-26 (the `v1.12.78` promotion succeeded on 2026-11-20). Rollout percentage not checked in Play Console. |
+> | Release in progress | 1.12.80 | see tag `v1.12.80` | Tagged 2026-11-26. Clients and staff: tapping a notification opens what it is about, including from a closed app; feed pushes open the feed on their post; profile-change, gallery-photo and waitlist pushes have a destination. 1.12.79 carried the code and was never tagged; 1.12.80 adds only the notes. Notes diffed from `5fe527e`. |
 >
 > **Release notes must be diffed from the live row, never from memory or from
 > the last notes file.** Two releases in a row had What's New written against
